@@ -8,12 +8,15 @@
 
     <ItemGroup>
       <PackageReference Include="Google.Protobuf" Version="3.33.0" />
-      <PackageReference Include="Google.Protobuf.Tools" Version="3.33.0" />
+      <PackageReference Include="Grpc.Tools" Version="2.71.0">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
       <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0-rc.2.25502.107" />
     </ItemGroup>
     
     <ItemGroup>
-        <Protobuf Include="messages.proto" GrpcServices="None" ProtoRoot="." />
+        <Protobuf Include="messages.proto" GrpcServices="None" />
     </ItemGroup>
 
 </Project>

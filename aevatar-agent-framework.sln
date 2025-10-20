@@ -19,6 +19,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{86468CF8-C8F9-419A-A04D-B8DBE9614061}"
 	ProjectSection(SolutionItems) = preProject
 		docs\AgentSystem_Architecture.md = docs\AgentSystem_Architecture.md
+		docs\Protobuf_Configuration_Guide.md = docs\Protobuf_Configuration_Guide.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.ProtoActor", "src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj", "{4CE0810C-625E-4FC5-A078-6DA5C5941C0B}"
