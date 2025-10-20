@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core;
 
-public abstract class AgentBase<TState> : IGAgent<TState> where TState : class, new()
+public abstract class GAgentBase<TState> : IGAgent<TState> where TState : class, new()
 {
     protected readonly TState _state = new();
     protected readonly List<IGAgent> _subAgents = new();
@@ -14,7 +14,7 @@ public abstract class AgentBase<TState> : IGAgent<TState> where TState : class, 
     protected readonly IMessageSerializer _serializer;
     protected readonly List<EventEnvelope> _pendingEvents = new();
 
-      protected AgentBase(IServiceProvider serviceProvider, IGAgentFactory factory, IMessageSerializer serializer)
+      protected GAgentBase(IServiceProvider serviceProvider, IGAgentFactory factory, IMessageSerializer serializer)
       {
           _serviceProvider = serviceProvider;
           _factory = factory;

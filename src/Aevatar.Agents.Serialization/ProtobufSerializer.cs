@@ -26,10 +26,10 @@ public class ProtobufSerializer : IMessageSerializer
             if (parser != null)
             {
                 // 使用反射调用ParseFrom方法，避免类型转换问题
-                var parseFromMethod = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+                var parseFromMethod = parser.GetType().GetMethod("ParseFrom", [typeof(byte[])]);
+                var result = parseFromMethod.Invoke(parser, [data]);
                 if (parseFromMethod != null)
                 {
-                    object? result = parseFromMethod.Invoke(parser, new object[] { data });
                     if (result != null)
                     {
                         return (T)result;

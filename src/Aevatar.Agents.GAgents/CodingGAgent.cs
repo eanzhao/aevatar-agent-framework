@@ -12,7 +12,7 @@ namespace Aevatar.Agents.GAgents;
 /// <summary>
 /// 代码验证代理实现类
 /// </summary>
-public class CodingGAgent : AgentBase<CodingAgentState>
+public class CodingGAgent : GAgentBase<CodingAgentState>
 {
     public CodingGAgent(IServiceProvider serviceProvider, IGAgentFactory factory, IMessageSerializer serializer)
         : base(serviceProvider, factory, serializer)

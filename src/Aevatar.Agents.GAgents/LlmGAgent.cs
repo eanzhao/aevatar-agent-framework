@@ -12,7 +12,7 @@ namespace Aevatar.Agents.GAgents;
 /// <summary>
 /// LLM代理实现类
 /// </summary>
-public class LlmGAgent : AgentBase<LLMAgentState>
+public class LlmGAgent : GAgentBase<LLMAgentState>
 {
     public LlmGAgent(IServiceProvider serviceProvider, IGAgentFactory factory, IMessageSerializer serializer)
         : base(serviceProvider, factory, serializer)
