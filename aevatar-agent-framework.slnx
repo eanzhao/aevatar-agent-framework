@@ -1,0 +1,29 @@
+<Solution>
+    <Folder Name="/apps/" />
+    <Folder Name="/docs/">
+        <File Path="README.md" />
+        <File Path="docs\AgentSystem_Architecture.md" />
+        <File Path="docs\Protobuf_Configuration_Guide.md" />
+    </Folder>
+    <Folder Name="/examples/">
+        <Project Path="examples\Demo.Agents\Demo.Agents.csproj" Type="Classic C#" />
+        <Project Path="examples\Demo.Api\Demo.Api.csproj" Type="Classic C#" />
+        <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" Type="Classic C#" />
+    </Folder>
+    <Folder Name="/src/">
+        <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+        <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+        <Project Path="src\Aevatar.Agents.GAgents\Aevatar.Agents.GAgents.csproj" />
+        <Project Path="src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
+        <Project Path="src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
+        <Project Path="src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
+        <Project Path="src\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
+    </Folder>
+    <Folder Name="/test/">
+        <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
+        <Project Path="test\Aevatar.Agents.GAgents.Tests\Aevatar.Agents.GAgents.Tests.csproj" />
+        <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
+        <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
+        <File Path="test/README.md" />
+    </Folder>
+</Solution>
