@@ -43,7 +43,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         _currentVersion++;
         
         using var stream = new MemoryStream();
-        using var output = new Google.Protobuf.CodedOutputStream(stream);
+        using var output = new CodedOutputStream(stream);
         evt.WriteTo(output);
         output.Flush();
         
