@@ -144,11 +144,42 @@ public class StatefulAgent : GAgentBase<MyState>
 }
 ```
 
-## ⏳ 进行中（Phase 4.3-4.6）
+### 4.3 资源管理 ✅
 
-### 4.3 资源管理
-- [ ] ResourceContext 接口
-- [ ] PrepareResourceContextAsync 实现
+**ResourceContext 类** (62 行)
+- ✅ AvailableResources - 资源字典
+- ✅ Metadata - 资源元数据
+- ✅ AddResource / GetResource / RemoveResource
+- ✅ ResourceMetadata 类
+
+**GAgentBase 集成**：
+- ✅ PrepareResourceContextAsync - 公共方法
+- ✅ OnPrepareResourceContextAsync - 子类回调
+
+**使用示例**：
+```csharp
+public class ResourceAwareAgent : GAgentBase<MyState>
+{
+    private HttpClient? _httpClient;
+    private IDatabase? _database;
+    
+    protected override Task OnPrepareResourceContextAsync(
+        ResourceContext context, 
+        CancellationToken ct = default)
+    {
+        // 获取资源
+        _httpClient = context.GetResource<HttpClient>("HttpClient");
+        _database = context.GetResource<IDatabase>("Database");
+        
+        _logger.LogInformation("Agent {Id} prepared with {Count} resources",
+            Id, context.AvailableResources.Count);
+        
+        return Task.CompletedTask;
+    }
+}
+```
+
+## ⏳ 待实现（Phase 4.4-4.6）
 
 ### 4.4 事件处理增强
 - [ ] Response Handler
@@ -171,12 +202,12 @@ public class StatefulAgent : GAgentBase<MyState>
 ```
 ✅ 4.1 状态管理增强: 100% (StateDispatcher)
 ✅ 4.2 Agent 管理: 100% (ActorManager × 3)
-⏳ 4.3 资源管理: 0%
+✅ 4.3 资源管理: 100% (ResourceContext)
 ⏳ 4.4 事件处理增强: 0%
 ⏳ 4.5 异常处理: 0%
 ⏳ 4.6 可观测性: 0%
 
-总体进度: 33% (2/6)
+总体进度: 50% (3/6)
 ```
 
 ## 🎯 下一步计划

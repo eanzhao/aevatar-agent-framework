@@ -233,6 +233,29 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
         }
     }
     
+    // ============ 资源管理 ============
+    
+    /// <summary>
+    /// 准备资源上下文
+    /// </summary>
+    public virtual Task PrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Preparing resource context for Agent {Id} with {ResourceCount} resources",
+            Id, context.AvailableResources.Count);
+        
+        return OnPrepareResourceContextAsync(context, ct);
+    }
+    
+    /// <summary>
+    /// 资源上下文准备回调（由子类重写）
+    /// </summary>
+    protected virtual Task OnPrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
+    {
+        // 默认实现：什么都不做
+        // 子类可以重写此方法来处理资源
+        return Task.CompletedTask;
+    }
+    
     // ============ 生命周期回调（可选重写） ============
     
     /// <summary>

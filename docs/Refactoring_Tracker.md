@@ -178,44 +178,47 @@ Orleans 运行时实现
   - [x] OrleansMessageStreamProvider - Stream Provider
   - [x] byte[] 序列化方案
 
-### Phase 4: 高级特性实现 (优先级：中) 📝 **规划中**
+### Phase 4: 高级特性实现 (优先级：中) 🚧 **进行中 - 50%**
 
-#### 4.1 状态管理增强
-- [ ] `StateDispatcher` - 状态投影和发布
-  - 状态变更时自动发布到订阅者
-  - 支持多个订阅者
-  - 状态快照支持
-- [ ] `OnStateChanged` 回调机制
-- [ ] 状态变更事件
+#### 4.1 状态管理增强 ✅ **完成**
+- [x] `IStateDispatcher` 接口（20 行）
+- [x] `StateDispatcher` 实现（120 行）
+  - 单个/批量状态发布
+  - Channel-based 异步分发
+  - 多订阅者支持
+  - 错误隔离
+- [x] `StateSnapshot<TState>` 类
+- [ ] `OnStateChanged` 回调机制（TODO: Phase 5 EventSourcing）
 
-#### 4.2 Agent 管理
-- [ ] `IGAgentActorManager` 接口
+#### 4.2 Agent 管理 ✅ **完成**
+- [x] `IGAgentActorManager` 接口（46 行）
   - 全局 Actor 注册和查找
   - Actor 生命周期管理
   - 批量操作支持
-- [ ] `LocalGAgentActorManager` 实现
-- [ ] `ProtoActorGAgentActorManager` 实现
-- [ ] `OrleansGAgentActorManager` 实现
+- [x] `LocalGAgentActorManager` 实现（114 行）
+- [x] `ProtoActorGAgentActorManager` 实现（114 行）
+- [x] `OrleansGAgentActorManager` 实现（114 行）
 
-#### 4.3 资源管理
-- [ ] `ResourceContext` - 资源上下文
-  - PrepareResourceContextAsync
-  - 资源分配和回收
-- [ ] 资源依赖注入机制
+#### 4.3 资源管理 ✅ **完成**
+- [x] `ResourceContext` - 资源上下文类
+  - AddResource / GetResource / RemoveResource
+  - ResourceMetadata
+- [x] `PrepareResourceContextAsync` - 在 GAgentBase 中
+- [x] `OnPrepareResourceContextAsync` - 子类重写回调
 
-#### 4.4 事件处理增强
+#### 4.4 事件处理增强 ⏳ **待实现**
 - [ ] Response Handler - 返回响应的事件处理器
   - [EventHandler(ReturnsResponse = true)]
   - 自动发布响应事件
 - [ ] `GetAllSubscribedEventsAsync` - 获取订阅事件类型
 
-#### 4.5 异常处理
+#### 4.5 异常处理 ⏳ **待实现**
 - [ ] `EventHandlerExceptionEvent` - 事件处理异常
 - [ ] `GAgentBaseExceptionEvent` - 框架异常
 - [ ] 异常自动发布机制
 - [ ] 异常传播策略
 
-#### 4.6 可观测性增强
+#### 4.6 可观测性增强 ⏳ **待实现**
 - [ ] Logging with scope - 结构化日志
 - [ ] ActivitySource - 分布式追踪
 - [ ] Metrics - 性能指标
@@ -223,8 +226,10 @@ Orleans 运行时实现
   - 队列长度
   - Actor 数量
 
-**已移除**：
+**已确认移除**：
 - ~~GAgentFactory~~ - 已有 IGAgentActorFactory，不需要
+
+**当前进度：50% (3/6)**
 
 ### Phase 5: EventSourcing 支持 (优先级：低，TODO)
 - [ ] 设计 StateLogEvent 抽象
@@ -277,11 +282,13 @@ Orleans 运行时实现
 - [x] `GetChildrenAsync` / `GetParentAsync` - 获取关系（已完成）
 - [x] 层级关系存储在 Actor 层（已完成）
 
-### 配置和资源 🚧 **部分完成**
+### 配置和资源 ✅ **已完成**
 - [x] `ConfigureAsync` / `OnConfigureAsync` - 动态配置（已完成）
 - [x] `GetConfigurationType` - 获取配置类型（已完成）
-- [ ] `PrepareResourceContextAsync` - 资源上下文准备（TODO: Phase 4）
-- [ ] `GetAllSubscribedEventsAsync` - 获取订阅的事件类型（TODO: Phase 4）
+- [x] `ResourceContext` - 资源上下文类（已完成）
+- [x] `PrepareResourceContextAsync` - 资源准备（已完成）
+- [x] `OnPrepareResourceContextAsync` - 回调（已完成）
+- [ ] `GetAllSubscribedEventsAsync` - 获取订阅的事件类型（TODO: Phase 4.4）
 
 ### 异常处理 🚧 **部分完成**
 - [x] 事件处理器异常自动捕获和记录（已完成）
