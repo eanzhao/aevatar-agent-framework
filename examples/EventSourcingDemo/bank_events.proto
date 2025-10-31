@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package EventSourcingDemo;
+
+option csharp_namespace = "EventSourcingDemo.Events";
+
+// 存款事件
+message MoneyDeposited {
+    double amount = 1;
+    string description = 2;
+}
+
+// 取款事件  
+message MoneyWithdrawn {
+    double amount = 1;
+    string description = 2;
+}
+
+// 账户创建事件
+message AccountCreated {
+    string account_holder = 1;
+    double initial_balance = 2;
+}

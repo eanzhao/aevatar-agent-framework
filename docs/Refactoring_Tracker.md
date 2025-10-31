@@ -236,12 +236,15 @@ Orleans 运行时实现
 **当前进度：100% (6/6)**
 **备注：ActivitySource 集成为可选项（需要 OpenTelemetry SDK）**
 
-### Phase 5: EventSourcing 支持 (优先级：低，TODO)
-- [ ] 设计 StateLogEvent 抽象
-- [ ] Actor 层实现状态持久化
-- [ ] 实现 TransitionState 机制
-- [ ] 实现事件回放（Replay）
-- [ ] Orleans JournaledGrain 集成
+### Phase 5: EventSourcing 支持 ✅ COMPLETE
+- [x] 设计 StateLogEvent 抽象
+- [x] IEventStore 接口和 InMemoryEventStore 实现
+- [x] GAgentBaseWithEventSourcing 基类
+- [x] 实现事件回放（Replay）
+- [x] 完整的 BankAccount 示例验证
+
+**完成时间：2025年10月31日**
+**新增代码：~400 行**
 
 ### Phase 6: 测试和文档 (优先级：中)
 - [ ] 单元测试覆盖

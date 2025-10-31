@@ -9,6 +9,7 @@
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" Type="Classic C#" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" Type="Classic C#" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" Type="Classic C#" />
+    <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" Type="Classic C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" Type="Classic C#" />
   </Folder>
   <Folder Name="/src/">
