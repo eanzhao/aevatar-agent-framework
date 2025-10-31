@@ -10,7 +10,7 @@ Orleans是微软开源的分布式虚拟Actor模型框架，这个库将Aevatar 
 
 - **OrleansGAgentActor**: 实现IGAgentActor接口，作为Grain的包装器
 - **OrleansGAgentGrain**: Orleans Grain实现，继承自Grain基类
-- **OrleansGAgentFactory**: 实现IGAgentFactory接口，使用IGrainFactory创建Grain实例
+- **OrleansGAgentFactory**: 实现IGAgentActorFactory接口，使用IGrainFactory创建Grain实例
 - **OrleansMessageStream**: 实现IMessageStream接口，支持本地Channel和Orleans Streams两种模式
 - **IGAgentGrain**: Orleans Grain接口，继承自IGrainWithGuidKey
 
@@ -33,7 +33,7 @@ var builder = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices(services =>
     {
-        services.AddSingleton<IGAgentFactory, OrleansGAgentFactory>();
+        services.AddSingleton<IGAgentActorFactory, OrleansGAgentFactory>();
         services.AddSingleton<IMessageSerializer, ProtobufSerializer>();
         // 注册你的业务Agent
         services.AddTransient<YourBusinessAgent>();
@@ -48,7 +48,7 @@ await host.RunAsync();
 如果需要使用Orleans内置的Stream功能：
 
 ```csharp
-services.AddSingleton<IGAgentFactory>(sp =>
+services.AddSingleton<IGAgentActorFactory>(sp =>
 {
     var grainFactory = sp.GetRequiredService<IGrainFactory>();
     var streamProvider = sp.GetRequiredService<IStreamProvider>();
@@ -63,7 +63,7 @@ var client = new ClientBuilder()
     .UseLocalhostClustering()
     .ConfigureServices(services =>
     {
-        services.AddSingleton<IGAgentFactory, OrleansGAgentFactory>();
+        services.AddSingleton<IGAgentActorFactory, OrleansGAgentFactory>();
     })
     .Build();
 

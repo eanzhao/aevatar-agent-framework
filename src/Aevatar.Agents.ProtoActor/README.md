@@ -9,7 +9,7 @@ Proto.Actor是一个轻量级的跨平台Actor模型实现，这个库将Aevatar
 ## 主要组件
 
 - **ProtoActorGAgentActor**: 实现IGAgentActor接口，使用Proto.Actor的Actor模型
-- **ProtoActorGAgentFactory**: 实现IGAgentFactory接口，创建Proto.Actor实例
+- **ProtoActorGAgentFactory**: 实现IGAgentActorFactory接口，创建Proto.Actor实例
 - **ProtoActorMessageStream**: 实现IMessageStream接口，使用Proto.Actor的消息传递机制
 - **StreamActor**: 处理消息流分发的专用Actor
 - **AgentActor**: 处理代理业务逻辑的Actor实现

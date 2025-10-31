@@ -1,34 +1,36 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.Tests;
 
 public class TestState
 {
-    public int Version { get; set; }
-    public string Value { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int Counter { get; set; }
 }
 
 public class TestAgent : GAgentBase<TestState>
 {
-    public int ApplyEventCallCount { get; private set; }
-
-    public TestAgent(
-        IServiceProvider serviceProvider,
-        IGAgentFactory factory,
-        IMessageSerializer serializer)
-        : base(serviceProvider, factory, serializer)
+    public int EventHandledCount { get; private set; }
+    
+    public TestAgent(Guid id, ILogger<TestAgent>? logger = null) 
+        : base(id, logger)
     {
     }
-
-    public override Task RegisterEventHandlersAsync(IMessageStream stream, CancellationToken ct = default)
+    
+    public override Task<string> GetDescriptionAsync()
     {
-        return Task.CompletedTask;
+        return Task.FromResult("Test Agent for unit testing");
     }
-
-    public override Task ApplyEventAsync(EventEnvelope evt, CancellationToken ct = default)
+    
+    // 测试事件处理器（使用 Protobuf 生成的类型）
+    [EventHandler]
+    public Task HandleConfigEventAsync(GeneralConfigEvent evt)
     {
-        ApplyEventCallCount++;
-        _state.Version = (int)evt.Version;
+        EventHandledCount++;
+        _state.Counter++;
+        _state.Name = evt.ConfigKey;
         return Task.CompletedTask;
     }
 }

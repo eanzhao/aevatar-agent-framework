@@ -1,6 +1,6 @@
-using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
@@ -18,12 +18,14 @@ public class WeatherAgentState
 /// </summary>
 public class WeatherAgent : GAgentBase<WeatherAgentState>
 {
-    public WeatherAgent(
-        IServiceProvider serviceProvider,
-        IGAgentFactory factory,
-        IMessageSerializer serializer)
-        : base(serviceProvider, factory, serializer)
+    public WeatherAgent(Guid id, ILogger<WeatherAgent>? logger = null)
+        : base(id, logger)
     {
+    }
+    
+    public override Task<string> GetDescriptionAsync()
+    {
+        return Task.FromResult("Weather Agent - Provides weather information for cities");
     }
 
     /// <summary>
@@ -51,24 +53,6 @@ public class WeatherAgent : GAgentBase<WeatherAgentState>
     /// 获取查询统计
     /// </summary>
     public int GetQueryCount() => _state.QueryCount;
-
-    /// <summary>
-    /// 注册事件处理器
-    /// </summary>
-    public override Task RegisterEventHandlersAsync(IMessageStream stream, CancellationToken ct = default)
-    {
-        // 简化示例：不需要事件处理
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 应用事件（用于事件溯源）
-    /// </summary>
-    public override Task ApplyEventAsync(EventEnvelope evt, CancellationToken ct = default)
-    {
-        // 简化示例：不需要事件重放逻辑
-        return Task.CompletedTask;
-    }
 
     private string GenerateWeather(string city)
     {

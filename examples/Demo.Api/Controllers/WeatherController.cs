@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Demo.Agents;
 using Microsoft.AspNetCore.Mvc;
 
@@ -22,16 +23,28 @@ public class WeatherController : ControllerBase
     {
         try
         {
-            // 通过DI获取Agent实例
-            var agent = _serviceProvider.GetRequiredService<WeatherAgent>();
-            var weather = await agent.GetWeatherAsync(city);
+            // 通过 ActorFactory 创建 Actor
+            var factory = _serviceProvider.GetRequiredService<IGAgentActorFactory>();
+            var agentActor = await factory.CreateAgentAsync<WeatherAgent, WeatherAgentState>(Guid.NewGuid());
+            
+            // 获取 Agent 并执行业务逻辑
+            var weatherAgent = (WeatherAgent)agentActor.GetAgent();
+            
+            // 查询天气
+            var weather = await weatherAgent.GetWeatherAsync(city);
+            
+            // 获取查询统计
+            var queryCount = weatherAgent.GetQueryCount();
+
+            // 清理
+            await agentActor.DeactivateAsync();
 
             return Ok(new
             {
                 City = city,
                 Weather = weather,
-                AgentId = agent.Id,
-                QueryCount = agent.GetQueryCount()
+                AgentId = agentActor.Id,
+                QueryCount = queryCount
             });
         }
         catch (Exception ex)

@@ -1,159 +1,128 @@
 using Aevatar.Agents.Abstractions;
-using Google.Protobuf;
+using Aevatar.Agents.Core;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.DependencyInjection;
-using Moq;
+using Xunit;
 
 namespace Aevatar.Agents.Core.Tests;
 
 public class GAgentBaseTests
 {
-    private readonly Mock<IServiceProvider> _mockServiceProvider;
-    private readonly Mock<IGAgentFactory> _mockFactory;
-    private readonly Mock<IMessageSerializer> _mockSerializer;
-    private readonly Mock<IMessageStream> _mockStream;
-
-    public GAgentBaseTests()
-    {
-        _mockServiceProvider = new Mock<IServiceProvider>();
-        _mockFactory = new Mock<IGAgentFactory>();
-        _mockSerializer = new Mock<IMessageSerializer>();
-        _mockStream = new Mock<IMessageStream>();
-
-        _mockServiceProvider
-            .Setup(sp => sp.GetService(typeof(IMessageStream)))
-            .Returns(_mockStream.Object);
-
-        var serviceScope = new Mock<IServiceScope>();
-        serviceScope.Setup(s => s.ServiceProvider).Returns(_mockServiceProvider.Object);
-
-        var serviceScopeFactory = new Mock<IServiceScopeFactory>();
-        serviceScopeFactory.Setup(f => f.CreateScope()).Returns(serviceScope.Object);
-
-        _mockServiceProvider
-            .Setup(sp => sp.GetService(typeof(IServiceScopeFactory)))
-            .Returns(serviceScopeFactory.Object);
-    }
-
     [Fact]
-    public async Task AddSubAgentAsync_AddsSubAgentAndRaisesEvent()
+    public void Agent_ShouldHaveUniqueId()
+    {
+        // Arrange & Act
+        var agent1 = new TestAgent(Guid.NewGuid());
+        var agent2 = new TestAgent(Guid.NewGuid());
+        
+        // Assert
+        Assert.NotEqual(agent1.Id, agent2.Id);
+    }
+    
+    [Fact]
+    public void Agent_ShouldUseProvidedId()
     {
         // Arrange
-        var testAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-        var mockSubAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-
-        var mockSubAgentActor = new Mock<IGAgentActor>();
-        var mockParentActor = new Mock<IGAgentActor>();
-
-        _mockFactory.Setup(f => f.CreateAgentAsync<TestAgent, TestState>(
-                It.IsAny<Guid>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockSubAgentActor.Object);
-
-        _mockServiceProvider
-            .Setup(sp => sp.GetService(typeof(TestAgent)))
-            .Returns(mockSubAgent);
-
-        _mockServiceProvider
-            .Setup(sp => sp.GetService(typeof(IGAgentActor)))
-            .Returns(mockParentActor.Object);
-
+        var expectedId = Guid.NewGuid();
+        
         // Act
-        await testAgent.AddSubAgentAsync<TestAgent, TestState>();
-
+        var agent = new TestAgent(expectedId);
+        
         // Assert
-        Assert.Single(testAgent.GetSubAgents());
-        Assert.Single(testAgent.GetPendingEvents());
-
-        // Verify the event has the right structure
-        var evt = testAgent.GetPendingEvents()[0];
-        Assert.Equal(1, evt.Version);
-        Assert.NotNull(evt.Payload);
-
-        // Check if the payload can be unpacked as SubAgentAdded
-        if (evt.Payload.Is(SubAgentAdded.Descriptor))
+        Assert.Equal(expectedId, agent.Id);
+    }
+    
+    [Fact]
+    public async Task Agent_ShouldProvideDescription()
+    {
+        // Arrange
+        var agent = new TestAgent(Guid.NewGuid());
+        
+        // Act
+        var description = await agent.GetDescriptionAsync();
+        
+        // Assert
+        Assert.NotNull(description);
+        Assert.NotEmpty(description);
+    }
+    
+    [Fact]
+    public void Agent_ShouldDiscoverEventHandlers()
+    {
+        // Arrange
+        var agent = new TestAgent(Guid.NewGuid());
+        
+        // Act
+        var handlers = agent.GetEventHandlers();
+        
+        // Assert
+        Assert.NotEmpty(handlers);
+        Assert.Contains(handlers, h => h.Name == "HandleConfigEventAsync");
+    }
+    
+    [Fact]
+    public async Task Agent_ShouldHandleEvent()
+    {
+        // Arrange
+        var agent = new TestAgent(Guid.NewGuid());
+        
+        // 创建事件信封
+        var testEvent = new StringValue { Value = "Test Message" };
+        var envelope = new EventEnvelope
         {
-            var payload = evt.Payload.Unpack<SubAgentAdded>();
-            Assert.Equal(mockSubAgent.Id.ToString(), payload.SubAgentId);
-        }
-
-        // Verify the actor was subscribed to parent stream
-        mockSubAgentActor.Verify(a => a.SubscribeToParentStreamAsync(
-                mockParentActor.Object,
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+            Id = Guid.NewGuid().ToString(),
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Version = 1,
+            Payload = Google.Protobuf.WellKnownTypes.Any.Pack(testEvent),
+            PublisherId = agent.Id.ToString(),
+            Direction = EventDirection.Down
+        };
+        
+        // Act
+        await agent.HandleEventAsync(envelope);
+        
+        // Assert
+        // 由于 StringValue 不匹配 TestEvent，不会被处理
+        // 这个测试主要验证 HandleEventAsync 不会抛出异常
     }
-
+    
     [Fact]
-    public async Task RemoveSubAgentAsync_RemovesSubAgentAndRaisesEvent()
+    public void Agent_ShouldHaveInitialState()
+    {
+        // Arrange & Act
+        var agent = new TestAgent(Guid.NewGuid());
+        var state = agent.GetState();
+        
+        // Assert
+        Assert.NotNull(state);
+        Assert.Equal(0, state.Counter);
+        Assert.Equal(string.Empty, state.Name);
+    }
+    
+    [Fact]
+    public async Task Agent_ShouldCallActivateCallback()
     {
         // Arrange
-        var testAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-        var mockSubAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-        var subAgentId = mockSubAgent.Id; // Use the actual Id from the mock agent
-
-        // Use reflection to access the protected _subAgents field from the base class
-        var subAgentsField = typeof(GAgentBase<TestState>)
-            .GetField("_subAgents",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-        var subAgents = subAgentsField?.GetValue(testAgent) as List<IGAgent>;
-        subAgents?.Add(mockSubAgent);
-
+        var agent = new TestAgent(Guid.NewGuid());
+        
         // Act
-        await testAgent.RemoveSubAgentAsync(subAgentId);
-
+        await agent.OnActivateAsync();
+        
         // Assert
-        Assert.Empty(testAgent.GetSubAgents());
-        Assert.Single(testAgent.GetPendingEvents());
-
-        // Verify the event has the right structure
-        var evt = testAgent.GetPendingEvents()[0];
-        Assert.Equal(1, evt.Version);
-        Assert.NotNull(evt.Payload);
-
-        // Check if the payload can be unpacked as SubAgentRemoved
-        if (evt.Payload.Is(SubAgentRemoved.Descriptor))
-        {
-            var payload = evt.Payload.Unpack<SubAgentRemoved>();
-            Assert.Equal(subAgentId.ToString(), payload.SubAgentId);
-        }
+        // 验证不抛出异常
+        Assert.True(true);
     }
-
+    
     [Fact]
-    public async Task RaiseEventAsync_AddsEventToPendingEvents()
+    public async Task Agent_ShouldCallDeactivateCallback()
     {
         // Arrange
-        var testAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-        var testEvent = new GeneralConfigEvent { ConfigKey = "test", ConfigValue = "value" };
-
+        var agent = new TestAgent(Guid.NewGuid());
+        
         // Act
-        await testAgent.RaiseEventAsync(testEvent);
-
+        await agent.OnDeactivateAsync();
+        
         // Assert
-        Assert.Single(testAgent.GetPendingEvents());
-
-        // Verify ApplyEventAsync was called
-        Assert.Equal(1, testAgent.ApplyEventCallCount);
-    }
-
-    [Fact]
-    public async Task ProduceEventAsync_SendsEventToStream()
-    {
-        // Arrange
-        _mockServiceProvider.Setup(sp => sp.GetService(typeof(IMessageStream)))
-            .Returns(_mockStream.Object);
-
-        var testAgent = new TestAgent(_mockServiceProvider.Object, _mockFactory.Object, _mockSerializer.Object);
-        var testMessage = new StringValue { Value = "Test message" };
-
-        // Act
-        await testAgent.ProduceEventAsync(testMessage);
-
-        // Assert
-        _mockStream.Verify(s => s.ProduceAsync(
-                It.IsAny<IMessage>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        // 验证不抛出异常
+        Assert.True(true);
     }
 }

@@ -31,7 +31,7 @@ public class AgentRuntimeOptions
     /// <summary>
     /// 运行时类型
     /// </summary>
-    public AgentRuntimeType RuntimeType { get; set; } = AgentRuntimeType.Local;
+    public AgentRuntimeType RuntimeType { get; set; } = AgentRuntimeType.ProtoActor;
 
     /// <summary>
     /// Orleans配置（仅当RuntimeType为Orleans时使用）

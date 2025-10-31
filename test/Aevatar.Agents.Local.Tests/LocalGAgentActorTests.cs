@@ -1,273 +1,182 @@
 using Aevatar.Agents.Abstractions;
-using Google.Protobuf;
+using Aevatar.Agents.Core;
 using Google.Protobuf.WellKnownTypes;
-using Moq;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Xunit;
 
 namespace Aevatar.Agents.Local.Tests;
 
 public class LocalGAgentActorTests
 {
-    private readonly Mock<IMessageStream> _mockStream;
-    private readonly Mock<IGAgent<TestState>> _mockBusinessAgent;
-    private readonly Mock<IGAgentFactory> _mockFactory;
-    private readonly Dictionary<Guid, List<EventEnvelope>> _eventStore;
-    private readonly Guid _agentId = Guid.NewGuid();
+    private readonly IServiceProvider _serviceProvider;
+    private readonly LocalGAgentActorFactory _factory;
 
     public LocalGAgentActorTests()
     {
-        _mockStream = new Mock<IMessageStream>();
-        _mockBusinessAgent = new Mock<IGAgent<TestState>>();
-        _mockFactory = new Mock<IGAgentFactory>();
-        _eventStore = new Dictionary<Guid, List<EventEnvelope>>();
-            
-        _mockBusinessAgent.Setup(a => a.Id).Returns(_agentId);
+        var services = new ServiceCollection();
+        services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+        _serviceProvider = services.BuildServiceProvider();
+        _factory = new LocalGAgentActorFactory(
+            _serviceProvider, 
+            _serviceProvider.GetRequiredService<ILogger<LocalGAgentActorFactory>>());
     }
 
     [Fact]
-    public void Constructor_InitializesEventStoreEntry()
+    public async Task CreateAgent_ShouldSucceed()
     {
-        // Arrange & Act
-        var actor = new LocalGAgentActor<TestState>(
-            _mockStream.Object,
-            _mockBusinessAgent.Object,
-            _mockFactory.Object,
-            _eventStore);
-
-        // Assert
-        Assert.Contains(_agentId, _eventStore.Keys);
-        Assert.Empty(_eventStore[_agentId]);
-        Assert.Equal(_agentId, actor.Id);
-    }
-
-    [Fact]
-    public async Task AddSubAgentAsync_CreatesAndSubscribesSubAgent()
-    {
-        // Arrange
-        var subAgentId = Guid.NewGuid();
-        var mockSubAgentActor = new Mock<IGAgentActor>();
-        mockSubAgentActor.Setup(a => a.Id).Returns(subAgentId);
-            
-        _mockFactory
-            .Setup(f => f.CreateAgentAsync<TestSubAgent, TestSubState>(
-                It.IsAny<Guid>(), 
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockSubAgentActor.Object);
-            
-        var pendingEvents = new List<EventEnvelope>
-        {
-            new EventEnvelope
-            {
-                Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Version = 1,
-                Payload = Any.Pack(new SubAgentAdded { SubAgentId = subAgentId.ToString() })
-            }
-        };
-            
-        _mockBusinessAgent
-            .Setup(a => a.AddSubAgentAsync<TestSubAgent, TestSubState>(
-                It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-                
-        _mockBusinessAgent
-            .Setup(a => a.GetPendingEvents())
-            .Returns(pendingEvents);
-            
-        var actor = new LocalGAgentActor<TestState>(
-            _mockStream.Object,
-            _mockBusinessAgent.Object,
-            _mockFactory.Object,
-            _eventStore);
-
         // Act
-        await actor.AddSubAgentAsync<TestSubAgent, TestSubState>();
-
-        // Assert
-        _mockFactory.Verify(f => f.CreateAgentAsync<TestSubAgent, TestSubState>(
-                It.IsAny<Guid>(), 
-                It.IsAny<CancellationToken>()), 
-            Times.Once);
-                
-        _mockBusinessAgent.Verify(a => a.AddSubAgentAsync<TestSubAgent, TestSubState>(
-                It.IsAny<CancellationToken>()), 
-            Times.Once);
-                
-        mockSubAgentActor.Verify(a => a.SubscribeToParentStreamAsync(
-                actor, 
-                It.IsAny<CancellationToken>()), 
-            Times.Once);
-                
-        Assert.Single(_eventStore[_agentId]);
-        Assert.Equal(pendingEvents[0], _eventStore[_agentId][0]);
-    }
-
-    [Fact]
-    public async Task RemoveSubAgentAsync_RemovesSubAgent()
-    {
-        // Arrange
-        var subAgentId = Guid.NewGuid();
-        var mockSubAgentActor = new Mock<IGAgentActor>();
-        mockSubAgentActor.Setup(a => a.Id).Returns(subAgentId);
-            
-        // Set up a private dictionary field in the actor using reflection
-        var actor = new LocalGAgentActor<TestState>(
-            _mockStream.Object,
-            _mockBusinessAgent.Object,
-            _mockFactory.Object,
-            _eventStore);
-                
-        var subAgentDict = new Dictionary<Guid, IGAgentActor>
-        {
-            { subAgentId, mockSubAgentActor.Object }
-        };
-            
-        typeof(LocalGAgentActor<TestState>)
-            .GetField("_subAgents", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.SetValue(actor, subAgentDict);
-                
-        var pendingEvents = new List<EventEnvelope>
-        {
-            new EventEnvelope
-            {
-                Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Version = 1,
-                Payload = Any.Pack(new SubAgentRemoved { SubAgentId = subAgentId.ToString() })
-            }
-        };
-            
-        _mockBusinessAgent
-            .Setup(a => a.RemoveSubAgentAsync(
-                subAgentId, 
-                It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-                
-        _mockBusinessAgent
-            .Setup(a => a.GetPendingEvents())
-            .Returns(pendingEvents);
-
-        // Act
-        await actor.RemoveSubAgentAsync(subAgentId);
-
-        // Assert
-        _mockBusinessAgent.Verify(a => a.RemoveSubAgentAsync(
-                subAgentId, 
-                It.IsAny<CancellationToken>()), 
-            Times.Once);
-                
-        Assert.Single(_eventStore[_agentId]);
-        Assert.Equal(pendingEvents[0], _eventStore[_agentId][0]);
-            
-        // Verify the sub agent was removed from the dictionary
-        var subAgents = typeof(LocalGAgentActor<TestState>)
-            .GetField("_subAgents", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.GetValue(actor) as Dictionary<Guid, IGAgentActor>;
-                
-        Assert.Empty(subAgents);
-    }
-
-    [Fact]
-    public async Task ProduceEventAsync_ForwardsToStream()
-    {
-        // Arrange
-        var message = new StringValue { Value = "Test message" };
-        var actor = new LocalGAgentActor<TestState>(
-            _mockStream.Object,
-            _mockBusinessAgent.Object,
-            _mockFactory.Object,
-            _eventStore);
-                
-        // Act
-        await actor.ProduceEventAsync(message);
-            
-        // Assert
-        // The actual call uses IMessage not StringValue
-        _mockStream.Verify(s => s.ProduceAsync<IMessage>(
-                It.IsAny<IMessage>(), 
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task SubscribeToParentStreamAsync_RegistersHandlers()
-    {
-        // Arrange
-        var mockParent = new Mock<IGAgentActor>();
-        var actor = new LocalGAgentActor<TestState>(
-            _mockStream.Object,
-            _mockBusinessAgent.Object,
-            _mockFactory.Object,
-            _eventStore);
-                
-        // Act
-        await actor.SubscribeToParentStreamAsync(mockParent.Object);
-            
-        // Assert
-        _mockBusinessAgent.Verify(a => a.RegisterEventHandlersAsync(
-                _mockStream.Object, 
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
+        var actor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
         
-    public class TestState
-    {
-        public int Version { get; set; }
-    }
+        // Assert
+        Assert.NotNull(actor);
+        Assert.NotEqual(Guid.Empty, actor.Id);
         
-    public class TestSubAgent : IGAgent<TestSubState>
-    {
-        public Guid Id => Guid.NewGuid();
-            
-        public Task RegisterEventHandlersAsync(IMessageStream stream, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
-            
-        public Task AddSubAgentAsync<TSubAgent, TSubState>(CancellationToken ct = default) 
-            where TSubAgent : IGAgent<TSubState> 
-            where TSubState : class, new()
-        {
-            return Task.CompletedTask;
-        }
-            
-        public Task RemoveSubAgentAsync(Guid subAgentId, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
-            
-        public IReadOnlyList<IGAgent> GetSubAgents()
-        {
-            return new List<IGAgent>();
-        }
-            
-        public TestSubState GetState()
-        {
-            return new TestSubState();
-        }
-            
-        public IReadOnlyList<EventEnvelope> GetPendingEvents()
-        {
-            return new List<EventEnvelope>();
-        }
-            
-        public Task RaiseEventAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : class
-        {
-            return Task.CompletedTask;
-        }
-            
-        public Task ApplyEventAsync(EventEnvelope evt, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
-            
-        public Task ProduceEventAsync(IMessage message, CancellationToken ct = default)
-        {
-            return Task.CompletedTask;
-        }
+        // Cleanup
+        await actor.DeactivateAsync();
     }
-        
-    public class TestSubState
+
+    [Fact]
+    public async Task AddChild_ShouldEstablishHierarchy()
     {
-        public int Version { get; set; }
+        // Arrange
+        var parentActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var childActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        
+        // Act
+        await parentActor.AddChildAsync(childActor.Id);
+        await childActor.SetParentAsync(parentActor.Id);
+        
+        // Assert
+        var children = await parentActor.GetChildrenAsync();
+        Assert.Contains(childActor.Id, children);
+        
+        var parent = await childActor.GetParentAsync();
+        Assert.Equal(parentActor.Id, parent);
+        
+        // Cleanup
+        await parentActor.DeactivateAsync();
+        await childActor.DeactivateAsync();
+    }
+
+    [Fact]
+    public async Task PublishEvent_WithDirectionDown_ShouldRouteToChildren()
+    {
+        // Arrange
+        var parentActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var childActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        
+        await parentActor.AddChildAsync(childActor.Id);
+        await childActor.SetParentAsync(parentActor.Id);
+        
+        // Act
+        var testEvent = new GeneralConfigEvent { ConfigKey = "test", ConfigValue = "value" };
+        await parentActor.PublishEventAsync(testEvent, EventDirection.Down);
+        
+        // 等待事件处理
+        await Task.Delay(100);
+        
+        // Assert
+        var childAgent = (TestAgent)childActor.GetAgent();
+        var childState = childAgent.GetState();
+        Assert.Equal("test", childState.Name);
+        
+        // Cleanup
+        await parentActor.DeactivateAsync();
+        await childActor.DeactivateAsync();
+    }
+
+    [Fact]
+    public async Task PublishEvent_WithDirectionUp_ShouldRouteToParent()
+    {
+        // Arrange
+        var parentActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var childActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        
+        await parentActor.AddChildAsync(childActor.Id);
+        await childActor.SetParentAsync(parentActor.Id);
+        
+        // Act
+        var testEvent = new GeneralConfigEvent { ConfigKey = "from-child", ConfigValue = "value" };
+        await childActor.PublishEventAsync(testEvent, EventDirection.Up);
+        
+        // 等待事件处理
+        await Task.Delay(100);
+        
+        // Assert
+        var parentAgent = (TestAgent)parentActor.GetAgent();
+        var parentState = parentAgent.GetState();
+        Assert.Equal("from-child", parentState.Name);
+        
+        // Cleanup
+        await parentActor.DeactivateAsync();
+        await childActor.DeactivateAsync();
+    }
+
+    [Fact]
+    public async Task PublishEvent_WithHopCountLimit_ShouldStopPropagation()
+    {
+        // Arrange
+        var agent1 = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var agent2 = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var agent3 = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        
+        // 建立链: agent1 -> agent2 -> agent3
+        await agent1.AddChildAsync(agent2.Id);
+        await agent2.SetParentAsync(agent1.Id);
+        await agent2.AddChildAsync(agent3.Id);
+        await agent3.SetParentAsync(agent2.Id);
+        
+        // Act - 发布事件，最大跳数为 1
+        var envelope = new EventEnvelope
+        {
+            Id = Guid.NewGuid().ToString(),
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Version = 1,
+            Payload = Any.Pack(new GeneralConfigEvent { ConfigKey = "hop-test", ConfigValue = "value" }),
+            PublisherId = agent1.Id.ToString(),
+            Direction = EventDirection.Down,
+            MaxHopCount = 1,
+            CurrentHopCount = 0
+        };
+        
+        await agent1.HandleEventAsync(envelope);
+        await Task.Delay(100);
+        
+        // Assert
+        var agent2State = ((TestAgent)agent2.GetAgent()).GetState();
+        var agent3State = ((TestAgent)agent3.GetAgent()).GetState();
+        
+        // agent2 应该收到事件（CurrentHop=0->1）
+        Assert.Equal("hop-test", agent2State.Name);
+        
+        // agent3 不应该收到事件（CurrentHop=1 已达到 MaxHop=1）
+        Assert.NotEqual("hop-test", agent3State.Name);
+        
+        // Cleanup
+        await agent1.DeactivateAsync();
+        await agent2.DeactivateAsync();
+        await agent3.DeactivateAsync();
+    }
+
+    [Fact]
+    public async Task RemoveChild_ShouldUpdateHierarchy()
+    {
+        // Arrange
+        var parentActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        var childActor = await _factory.CreateAgentAsync<TestAgent, TestState>(Guid.NewGuid());
+        
+        await parentActor.AddChildAsync(childActor.Id);
+        
+        // Act
+        await parentActor.RemoveChildAsync(childActor.Id);
+        
+        // Assert
+        var children = await parentActor.GetChildrenAsync();
+        Assert.DoesNotContain(childActor.Id, children);
+        
+        // Cleanup
+        await parentActor.DeactivateAsync();
+        await childActor.DeactivateAsync();
     }
 }

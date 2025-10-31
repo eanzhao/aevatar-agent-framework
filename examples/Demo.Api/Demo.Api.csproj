@@ -13,11 +13,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Demo.Agents\Demo.Agents.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
-        <ProjectReference Include="..\..\src\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
+        <ProjectReference Include="..\Demo.Agents\Demo.Agents.csproj" />
     </ItemGroup>
 
 </Project>

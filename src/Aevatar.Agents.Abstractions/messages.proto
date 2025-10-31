@@ -3,6 +3,15 @@ package Aevatar.Agents;
 
 import "google/protobuf/any.proto";
 
+// 事件传播方向
+enum EventDirection {
+  EVENT_DIRECTION_UNSPECIFIED = 0;
+  EVENT_DIRECTION_UP = 1;           // 向父级传播
+  EVENT_DIRECTION_DOWN = 2;         // 向子级传播
+  EVENT_DIRECTION_UP_THEN_DOWN = 3; // 先向上再向下（广播到兄弟节点）
+  EVENT_DIRECTION_BIDIRECTIONAL = 4; // 双向传播
+}
+
 message MessageEnvelope {
   string id = 1;
   int64 timestamp = 2;
@@ -10,10 +19,22 @@ message MessageEnvelope {
 }
 
 message EventEnvelope {
+  // 基础字段
   string id = 1;
   int64 timestamp = 2;
   int64 version = 3;  // 事件版本号
   google.protobuf.Any payload = 4;  // 事件Payload
+  
+  // 传播控制字段
+  string correlation_id = 5;        // 关联ID，用于追踪事件链
+  string publisher_id = 6;          // 发布者ID（Agent ID）
+  EventDirection direction = 7;     // 传播方向
+  bool should_stop_propagation = 8; // 停止传播标志
+  int32 max_hop_count = 9;          // 最大跳数（-1 表示无限制）
+  int32 current_hop_count = 10;     // 当前跳数
+  int32 min_hop_count = 11;         // 最小跳数（-1 表示无限制）
+  string message = 12;              // 附加消息（调试或日志）
+  repeated string publishers = 13;  // 发布者链（按传播顺序）
 }
 
 message SubAgentAdded {

@@ -1,66 +1,102 @@
 using Aevatar.Agents.Abstractions;
-using Google.Protobuf;
+using Orleans;
 
 namespace Aevatar.Agents.Orleans;
 
 /// <summary>
-/// Orleans实现的代理Actor包装器
+/// Orleans Agent Actor 包装器
+/// 包装 IGAgentGrain 以实现 IGAgentActor 接口
+/// 同时持有本地 Agent 实例以支持 GetAgent()
 /// </summary>
-public class OrleansGAgentActor<TState> : IGAgentActor where TState : class, new()
+public class OrleansGAgentActor : IGAgentActor
 {
-    private readonly IGAgent<TState> _businessAgent;
     private readonly IGAgentGrain _grain;
-    private readonly IGAgentFactory _factory;
-    private readonly IMessageStream _stream;
-    private readonly IMessageSerializer _serializer;
+    private readonly IGAgent _agent;
 
-    public OrleansGAgentActor(
-        IGAgent<TState> businessAgent,
-        IGAgentGrain grain,
-        IGAgentFactory factory,
-        IMessageStream stream,
-        IMessageSerializer serializer)
+    public OrleansGAgentActor(IGAgentGrain grain, IGAgent agent)
     {
-        _businessAgent = businessAgent;
         _grain = grain;
-        _factory = factory;
-        _stream = stream;
-        _serializer = serializer;
+        _agent = agent;
     }
 
-    public Guid Id => _businessAgent.Id;
+    public Guid Id => _agent.Id;
 
-    public async Task AddSubAgentAsync<TSubAgent, TSubState>(CancellationToken ct = default)
-        where TSubAgent : IGAgent<TSubState>
-        where TSubState : class, new()
+    public IGAgent GetAgent()
     {
-        var subAgentId = Guid.NewGuid();
-        await _grain.AddSubAgentAsync(typeof(TSubAgent), typeof(TSubState), subAgentId);
+        // 返回本地 Agent 实例
+        return _agent;
     }
 
-    public async Task RemoveSubAgentAsync(Guid subAgentId, CancellationToken ct = default)
+    // ============ 层级关系管理 ============
+
+    public Task AddChildAsync(Guid childId, CancellationToken ct = default)
     {
-        await _grain.RemoveSubAgentAsync(subAgentId);
+        return _grain.AddChildAsync(childId);
     }
 
-    public async Task ProduceEventAsync(IMessage message, CancellationToken ct = default)
+    public Task RemoveChildAsync(Guid childId, CancellationToken ct = default)
     {
-        // 序列化消息
-        var serialized = _serializer.Serialize(message);
-        var messageTypeName = message.GetType().AssemblyQualifiedName 
-            ?? throw new InvalidOperationException("Failed to get message type name");
-
-        await _grain.ProduceEventAsync(serialized, messageTypeName);
+        return _grain.RemoveChildAsync(childId);
     }
 
-    public async Task SubscribeToParentStreamAsync(IGAgentActor parent, CancellationToken ct = default)
+    public Task SetParentAsync(Guid parentId, CancellationToken ct = default)
     {
-        await _grain.SubscribeToParentStreamAsync(parent.Id);
+        return _grain.SetParentAsync(parentId);
+    }
+
+    public Task ClearParentAsync(CancellationToken ct = default)
+    {
+        return _grain.ClearParentAsync();
+    }
+
+    public Task<IReadOnlyList<Guid>> GetChildrenAsync()
+    {
+        return _grain.GetChildrenAsync();
+    }
+
+    public Task<Guid?> GetParentAsync()
+    {
+        return _grain.GetParentAsync();
+    }
+
+    // ============ 事件发布和路由 ============
+
+    public Task<string> PublishEventAsync<TEvent>(
+        TEvent evt,
+        EventDirection direction = EventDirection.Down,
+        CancellationToken ct = default)
+        where TEvent : Google.Protobuf.IMessage
+    {
+        // Orleans Grain 内部处理事件发布
+        // 这里需要通过 IEventPublisher 来实现
+        // 由于 Grain 已经实现了 IEventPublisher，可以直接调用
+        throw new NotSupportedException("Use the Grain's internal event publishing mechanism");
+    }
+
+    public Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        // 使用 Protobuf 的序列化方法
+        using var stream = new System.IO.MemoryStream();
+        using var output = new Google.Protobuf.CodedOutputStream(stream);
+        envelope.WriteTo(output);
+        output.Flush();
+        return _grain.HandleEventAsync(stream.ToArray());
+    }
+
+    // ============ 生命周期 ============
+
+    public Task ActivateAsync(CancellationToken ct = default)
+    {
+        return _grain.ActivateAsync();
+    }
+
+    public Task DeactivateAsync(CancellationToken ct = default)
+    {
+        return _grain.DeactivateAsync();
     }
 
     /// <summary>
-    /// 获取内部Grain引用
+    /// 获取内部 Grain 引用
     /// </summary>
     public IGAgentGrain GetGrain() => _grain;
 }
-

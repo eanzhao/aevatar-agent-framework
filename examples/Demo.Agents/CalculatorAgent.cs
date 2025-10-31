@@ -1,6 +1,6 @@
-using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
@@ -19,12 +19,14 @@ public class CalculatorAgentState
 /// </summary>
 public class CalculatorAgent : GAgentBase<CalculatorAgentState>
 {
-    public CalculatorAgent(
-        IServiceProvider serviceProvider,
-        IGAgentFactory factory,
-        IMessageSerializer serializer)
-        : base(serviceProvider, factory, serializer)
+    public CalculatorAgent(Guid id, ILogger<CalculatorAgent>? logger = null)
+        : base(id, logger)
     {
+    }
+    
+    public override Task<string> GetDescriptionAsync()
+    {
+        return Task.FromResult("Calculator Agent - Performs basic arithmetic operations");
     }
 
     /// <summary>
@@ -79,24 +81,6 @@ public class CalculatorAgent : GAgentBase<CalculatorAgentState>
     /// 获取上次结果
     /// </summary>
     public double GetLastResult() => _state.LastResult;
-
-    /// <summary>
-    /// 注册事件处理器
-    /// </summary>
-    public override Task RegisterEventHandlersAsync(IMessageStream stream, CancellationToken ct = default)
-    {
-        // 简化示例：不需要事件处理
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 应用事件（用于事件溯源）
-    /// </summary>
-    public override Task ApplyEventAsync(EventEnvelope evt, CancellationToken ct = default)
-    {
-        // 简化示例：不需要事件重放逻辑
-        return Task.CompletedTask;
-    }
 
     private async Task RecordOperation(string operation, double result, CancellationToken ct)
     {

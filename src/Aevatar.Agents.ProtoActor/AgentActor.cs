@@ -1,82 +1,62 @@
-using Aevatar.Agents.Abstractions;
-using Google.Protobuf;
 using Proto;
 
 namespace Aevatar.Agents.ProtoActor;
 
 /// <summary>
-/// Proto.Actor actor实现，用于处理代理消息
+/// Proto.Actor IActor 实现
+/// 接收消息并委托给 ProtoActorGAgentActor 处理
 /// </summary>
-public class AgentActor<TState> : IActor where TState : class, new()
+public class AgentActor : IActor
 {
-    private readonly IGAgent<TState> _agent;
-    private readonly IMessageSerializer _serializer;
-    private readonly IMessageStream _stream;
-    private readonly Dictionary<Guid, List<EventEnvelope>> _eventStore;
-
-    public AgentActor(
-        IGAgent<TState> agent, 
-        IMessageSerializer serializer, 
-        IMessageStream stream,
-        Dictionary<Guid, List<EventEnvelope>> eventStore)
-    {
-        _agent = agent;
-        _serializer = serializer;
-        _stream = stream;
-        _eventStore = eventStore;
-        
-        // 确保事件存储中有当前代理的条目
-        if (!_eventStore.ContainsKey(_agent.Id))
-        {
-            _eventStore[_agent.Id] = new List<EventEnvelope>();
-        }
-    }
-
+    private ProtoActorGAgentActor? _gagentActor;
+    
     public Task ReceiveAsync(IContext context)
     {
         return context.Message switch
         {
             Started => HandleStarted(context),
-            ProtoActorMessage protoMessage => HandleProtoActorMessage(context, protoMessage),
+            SetGAgentActor msg => HandleSetGAgentActor(msg),
+            HandleEventMessage msg => HandleEventMessage(msg),
             Stopping => HandleStopping(context),
             _ => Task.CompletedTask
         };
     }
-
+    
     private Task HandleStarted(IContext context)
     {
-        // Actor启动时的初始化逻辑
+        // Actor 启动
         return Task.CompletedTask;
     }
     
-    private async Task HandleProtoActorMessage(IContext context, ProtoActorMessage message)
+    private Task HandleSetGAgentActor(SetGAgentActor msg)
     {
-        try
+        // 设置关联的 GAgentActor
+        _gagentActor = msg.GAgentActor;
+        return Task.CompletedTask;
+    }
+    
+    private async Task HandleEventMessage(HandleEventMessage msg)
+    {
+        if (_gagentActor == null)
         {
-            // 获取消息内容
-            var msgContent = message.GetMessage(_serializer);
-            
-            // 处理事件信封
-            if (msgContent is EventEnvelope envelope)
-            {
-                await _agent.ApplyEventAsync(envelope);
-                
-                // 存储事件到事件存储
-                _eventStore[_agent.Id].Add(envelope);
-            }
-            
-            // 处理其他消息类型可以在这里添加
+            throw new InvalidOperationException("GAgentActor not set");
         }
-        catch (Exception ex)
-        {
-            // 处理异常，可以通过Actor消息机制报告错误
-            context.Respond(new ProtoActorError { ErrorMessage = ex.Message });
-        }
+        
+        // 委托给 GAgentActor 处理
+        await _gagentActor.HandleEventAsync(msg.Envelope);
     }
     
     private Task HandleStopping(IContext context)
     {
-        // Actor停止时的清理逻辑
+        // Actor 停止
         return Task.CompletedTask;
     }
+}
+
+/// <summary>
+/// Proto.Actor 消息：设置 GAgentActor
+/// </summary>
+public class SetGAgentActor
+{
+    public required ProtoActorGAgentActor GAgentActor { get; init; }
 }

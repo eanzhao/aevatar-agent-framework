@@ -1,144 +1,246 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
+using Orleans;
+using Orleans.Runtime;
 
 namespace Aevatar.Agents.Orleans;
 
 /// <summary>
-/// Orleans Grain实现的代理Actor
+/// Orleans Grain 实现
+/// 包装 GAgentBase 并提供事件路由
 /// </summary>
-public class OrleansGAgentGrain<TState> : Grain, IGAgentGrain where TState : class, new()
+public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
 {
-    private IGAgent<TState>? _businessAgent;
-    private IMessageStream? _stream;
-    private readonly Dictionary<Guid, IGAgentGrain> _subAgentGrains = new();
-    private readonly Dictionary<Guid, List<EventEnvelope>> _eventStore = new();
-    private IMessageSerializer? _serializer;
-    private IGAgentFactory? _factory;
-
-    public async Task InitializeAsync(
-        IGAgent<TState> businessAgent,
-        IMessageStream stream,
-        IMessageSerializer serializer,
-        IGAgentFactory factory,
-        Dictionary<Guid, List<EventEnvelope>> eventStore)
-    {
-        _businessAgent = businessAgent;
-        _stream = stream;
-        _serializer = serializer;
-        _factory = factory;
-        
-        // 从共享事件存储中恢复状态
-        if (eventStore.TryGetValue(businessAgent.Id, out var events))
-        {
-            foreach (var evt in events)
-            {
-                await _businessAgent.ApplyEventAsync(evt);
-            }
-        }
-        else
-        {
-            eventStore[businessAgent.Id] = new List<EventEnvelope>();
-        }
-    }
-
+    private GAgentBase<object>? _agent;
+    private IGrainFactory? _grainFactory;
+    
+    // 层级关系
+    private Guid? _parentId;
+    private readonly HashSet<Guid> _childrenIds = new();
+    
     public Task<Guid> GetIdAsync()
     {
-        if (_businessAgent == null)
-            throw new InvalidOperationException("Grain not initialized");
-            
-        return Task.FromResult(_businessAgent.Id);
+        return Task.FromResult(this.GetGrainId().GetGuidKey());
     }
-
-    public async Task AddSubAgentAsync(Type businessAgentType, Type stateType, Guid subAgentId)
+    
+    public override Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        if (_businessAgent == null || _factory == null)
-            throw new InvalidOperationException("Grain not initialized");
-
-        // 通过反射调用泛型方法
-        var method = _factory.GetType()
-            .GetMethod(nameof(IGAgentFactory.CreateAgentAsync))
-            ?.MakeGenericMethod(businessAgentType, stateType);
-
-        if (method == null)
-            throw new InvalidOperationException("CreateAgentAsync method not found");
-
-        var subAgentActorTask = method.Invoke(_factory, new object[] { subAgentId, CancellationToken.None }) as Task<IGAgentActor>;
-        if (subAgentActorTask == null)
-            throw new InvalidOperationException("Failed to create sub agent");
-
-        var subAgentActor = await subAgentActorTask;
-
-        // 通过反射调用业务代理的泛型方法
-        var businessMethod = _businessAgent.GetType()
-            .GetMethod(nameof(IGAgent<TState>.AddSubAgentAsync))
-            ?.MakeGenericMethod(businessAgentType, stateType);
-
-        if (businessMethod == null)
-            throw new InvalidOperationException("AddSubAgentAsync method not found");
-
-        await (Task)(businessMethod.Invoke(_businessAgent, new object[] { CancellationToken.None }) 
-            ?? Task.CompletedTask);
-
-        // 保存事件
-        _eventStore[_businessAgent.Id].AddRange(_businessAgent.GetPendingEvents());
-
-        // 订阅父流
-        await subAgentActor.SubscribeToParentStreamAsync(
-            new OrleansGAgentActor<TState>(_businessAgent, this, _factory!, _stream!, _serializer!));
+        _grainFactory = GrainFactory;
+        return base.OnActivateAsync(cancellationToken);
     }
-
-    public async Task RemoveSubAgentAsync(Guid subAgentId)
+    
+    /// <summary>
+    /// 设置关联的 Agent（由 Factory 调用）
+    /// </summary>
+    public void SetAgent(GAgentBase<object> agent)
     {
-        if (_businessAgent == null)
-            throw new InvalidOperationException("Grain not initialized");
-
-        if (_subAgentGrains.Remove(subAgentId))
+        _agent = agent;
+        _agent.SetEventPublisher(this);
+    }
+    
+    // ============ 层级关系管理 ============
+    
+    public Task AddChildAsync(Guid childId)
+    {
+        _childrenIds.Add(childId);
+        return Task.CompletedTask;
+    }
+    
+    public Task RemoveChildAsync(Guid childId)
+    {
+        _childrenIds.Remove(childId);
+        return Task.CompletedTask;
+    }
+    
+    public Task SetParentAsync(Guid parentId)
+    {
+        _parentId = parentId;
+        return Task.CompletedTask;
+    }
+    
+    public Task ClearParentAsync()
+    {
+        _parentId = null;
+        return Task.CompletedTask;
+    }
+    
+    public Task<IReadOnlyList<Guid>> GetChildrenAsync()
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>(_childrenIds.ToList());
+    }
+    
+    public Task<Guid?> GetParentAsync()
+    {
+        return Task.FromResult(_parentId);
+    }
+    
+    // ============ 事件发布（IEventPublisher 实现） ============
+    
+    async Task<string> IEventPublisher.PublishAsync<TEvent>(
+        TEvent evt,
+        EventDirection direction,
+        CancellationToken ct)
+    {
+        var eventId = Guid.NewGuid().ToString();
+        
+        var envelope = new EventEnvelope
         {
-            await _businessAgent.RemoveSubAgentAsync(subAgentId);
-            _eventStore[_businessAgent.Id].AddRange(_businessAgent.GetPendingEvents());
+            Id = eventId,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Version = 1,
+            Payload = Any.Pack(evt),
+            CorrelationId = Guid.NewGuid().ToString(),
+            PublisherId = this.GetGrainId().GetGuidKey().ToString(),
+            Direction = direction,
+            ShouldStopPropagation = false,
+            MaxHopCount = -1,
+            CurrentHopCount = 0,
+            MinHopCount = -1,
+            Message = $"Published by {this.GetGrainId()}"
+        };
+        
+        envelope.Publishers.Add(this.GetGrainId().GetGuidKey().ToString());
+        
+        await RouteEventAsync(envelope, ct);
+        
+        return eventId;
+    }
+    
+    // ============ 事件路由 ============
+    
+    private async Task RouteEventAsync(EventEnvelope envelope, CancellationToken ct)
+    {
+        if (envelope.ShouldStopPropagation)
+            return;
+        
+        if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
+            return;
+        
+        switch (envelope.Direction)
+        {
+            case EventDirection.Up:
+                await SendToParentAsync(envelope);
+                break;
+            
+            case EventDirection.Down:
+                await SendToChildrenAsync(envelope);
+                break;
+            
+            case EventDirection.UpThenDown:
+                await SendToParentAsync(envelope);
+                break;
+            
+            case EventDirection.Bidirectional:
+                await SendToParentAsync(envelope);
+                await SendToChildrenAsync(envelope);
+                break;
         }
     }
-
-    public async Task ProduceEventAsync(byte[] serializedMessage, string messageTypeName)
+    
+    private async Task SendToParentAsync(EventEnvelope envelope)
     {
-        if (_stream == null || _serializer == null)
-            throw new InvalidOperationException("Grain not initialized");
-
-        // 反序列化消息
-        var messageType = Type.GetType(messageTypeName);
-        if (messageType == null)
-            throw new InvalidOperationException($"Message type not found: {messageTypeName}");
-
-        var deserializeMethod = _serializer.GetType()
-            .GetMethod(nameof(IMessageSerializer.Deserialize))
-            ?.MakeGenericMethod(messageType);
-
-        if (deserializeMethod == null)
-            throw new InvalidOperationException("Deserialize method not found");
-
-        var message = deserializeMethod.Invoke(_serializer, new object[] { serializedMessage }) as IMessage;
-        if (message == null)
-            throw new InvalidOperationException("Failed to deserialize message");
-
-        // 产生事件
-        var produceMethod = _stream.GetType()
-            .GetMethod(nameof(IMessageStream.ProduceAsync))
-            ?.MakeGenericMethod(messageType);
-
-        if (produceMethod == null)
-            throw new InvalidOperationException("ProduceAsync method not found");
-
-        await (Task)(produceMethod.Invoke(_stream, new object[] { message, CancellationToken.None }) 
-            ?? Task.CompletedTask);
+        if (_parentId == null)
+        {
+            // 没有父节点，停止向上传播
+            return;
+        }
+        
+        var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value);
+        await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
-
-    public async Task SubscribeToParentStreamAsync(Guid parentId)
+    
+    private async Task SendToChildrenAsync(EventEnvelope envelope)
     {
-        if (_businessAgent == null || _stream == null)
-            throw new InvalidOperationException("Grain not initialized");
-
-        // 注册事件处理器到流
-        await _businessAgent.RegisterEventHandlersAsync(_stream);
+        foreach (var childId in _childrenIds)
+        {
+            var childEnvelope = envelope.Clone();
+            childEnvelope.CurrentHopCount++;
+            childEnvelope.Publishers.Add(this.GetGrainId().GetGuidKey().ToString());
+            
+            var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId);
+            await childGrain.HandleEventAsync(childEnvelope.ToByteArray());
+        }
+    }
+    
+    // ============ 事件处理 ============
+    
+    public async Task HandleEventAsync(byte[] envelopeBytes)
+    {
+        if (_agent == null)
+        {
+            throw new InvalidOperationException("Agent not set");
+        }
+        
+        // 反序列化 EventEnvelope
+        var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+        
+        // 检查 MinHopCount
+        bool shouldProcess = envelope.MinHopCount <= 0 || envelope.CurrentHopCount >= envelope.MinHopCount;
+        
+        if (shouldProcess)
+        {
+            try
+            {
+                // 让 Agent 处理事件（使用反射调用）
+                var handleMethod = _agent.GetType().GetMethod("HandleEventAsync");
+                if (handleMethod != null)
+                {
+                    var task = handleMethod.Invoke(_agent, new object[] { envelope, CancellationToken.None }) as Task;
+                    if (task != null)
+                    {
+                        await task;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                var logger = ServiceProvider?.GetService(typeof(ILogger<OrleansGAgentGrain>)) as ILogger<OrleansGAgentGrain>;
+                logger?.LogError(ex, "Error handling event {EventId} in agent {AgentId}", 
+                    envelope.Id, this.GetGrainId().GetGuidKey());
+            }
+        }
+        
+        // 继续路由事件
+        await ContinuePropagationAsync(envelope);
+    }
+    
+    /// <summary>
+    /// 继续传播事件
+    /// </summary>
+    private async Task ContinuePropagationAsync(EventEnvelope envelope)
+    {
+        if (envelope.ShouldStopPropagation)
+            return;
+        
+        if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
+            return;
+        
+        // 根据方向继续传播（只向下传播）
+        if (envelope.Direction == EventDirection.Down || 
+            envelope.Direction == EventDirection.Bidirectional)
+        {
+            await SendToChildrenAsync(envelope);
+        }
+    }
+    
+    // ============ 生命周期 ============
+    
+    public async Task ActivateAsync()
+    {
+        if (_agent != null)
+        {
+            await _agent.OnActivateAsync();
+        }
+    }
+    
+    public async Task DeactivateAsync()
+    {
+        if (_agent != null)
+        {
+            await _agent.OnDeactivateAsync();
+        }
     }
 }
-

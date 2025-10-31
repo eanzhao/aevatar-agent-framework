@@ -16,7 +16,7 @@ public static class DependencyInjectionExtensions
     public static IServiceCollection AddProtoActorAgents(this IServiceCollection services)
     {
         // 注册工厂
-        services.AddSingleton<IGAgentFactory, ProtoActorGAgentFactory>();
+        services.AddSingleton<IGAgentActorFactory, ProtoActorGAgentActorFactory>();
         
         return services;
     }

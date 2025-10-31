@@ -2,6 +2,7 @@ using Demo.Api;
 using Orleans;
 using Orleans.Configuration;
 using Orleans.Hosting;
+using Orleans.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 

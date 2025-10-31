@@ -1,26 +1,31 @@
-using Google.Protobuf;
-
 namespace Aevatar.Agents.Abstractions;
 
+/// <summary>
+/// Agent 基础接口
+/// 所有 Agent 的最小抽象，只包含标识
+/// </summary>
 public interface IGAgent
 {
+    /// <summary>
+    /// Agent 唯一标识符（Guid 类型，通用标识）
+    /// </summary>
     Guid Id { get; }
 }
 
-public interface IGAgent<TState> : IGAgent where TState : class, new()
+/// <summary>
+/// 有状态的 Agent 接口
+/// </summary>
+/// <typeparam name="TState">Agent 状态类型</typeparam>
+public interface IGAgent<TState> : IGAgent 
+    where TState : class, new()
 {
-    // Id属性继承自IGAgent接口
-    Task RegisterEventHandlersAsync(IMessageStream stream, CancellationToken ct = default);
-
-    Task AddSubAgentAsync<TSubAgent, TSubState>(CancellationToken ct = default)
-        where TSubAgent : IGAgent<TSubState>
-        where TSubState : class, new();
-
-    Task RemoveSubAgentAsync(Guid subAgentId, CancellationToken ct = default);
-    IReadOnlyList<IGAgent> GetSubAgents();
+    /// <summary>
+    /// 获取当前状态（只读）
+    /// </summary>
     TState GetState();
-    IReadOnlyList<EventEnvelope> GetPendingEvents();
-    Task RaiseEventAsync<TEvent>(TEvent evt, CancellationToken ct = default) where TEvent : class;
-    Task ApplyEventAsync(EventEnvelope evt, CancellationToken ct = default);
-    Task ProduceEventAsync(IMessage message, CancellationToken ct = default);
+    
+    /// <summary>
+    /// 获取描述信息
+    /// </summary>
+    Task<string> GetDescriptionAsync();
 }

@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Demo.Agents;
 using Microsoft.AspNetCore.Mvc;
 
@@ -78,16 +79,28 @@ public class CalculatorController : ControllerBase
     {
         try
         {
-            // 通过DI获取Agent实例
-            var agent = _serviceProvider.GetRequiredService<CalculatorAgent>();
-            var result = await operation(agent);
+            // 通过 ActorFactory 创建 Actor
+            var factory = _serviceProvider.GetRequiredService<IGAgentActorFactory>();
+            var agentActor = await factory.CreateAgentAsync<CalculatorAgent, CalculatorAgentState>(Guid.NewGuid());
+            
+            // 获取 Agent 并执行业务逻辑
+            var calculatorAgent = (CalculatorAgent)agentActor.GetAgent();
+            
+            // 执行操作
+            var result = await operation(calculatorAgent);
+            
+            // 获取历史记录
+            var history = calculatorAgent.GetHistory();
+
+            // 清理
+            await agentActor.DeactivateAsync();
 
             return Ok(new
             {
                 Operation = operationDescription,
                 Result = result,
-                AgentId = agent.Id,
-                History = agent.GetHistory()
+                AgentId = agentActor.Id,
+                History = history
             });
         }
         catch (Exception ex)
