@@ -76,7 +76,7 @@ public class OrleansGAgentActor : IGAgentActor
     public Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
         // 使用 Protobuf 的序列化方法
-        using var stream = new System.IO.MemoryStream();
+        using var stream = new MemoryStream();
         using var output = new Google.Protobuf.CodedOutputStream(stream);
         envelope.WriteTo(output);
         output.Flush();

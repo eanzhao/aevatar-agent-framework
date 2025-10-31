@@ -130,7 +130,8 @@ public class ProtoActorGAgentActor : IGAgentActor, IEventPublisher
             MaxHopCount = -1,
             CurrentHopCount = 0,
             MinHopCount = -1,
-            Message = $"Published by {Id}"
+            Message = $"Published by {Id}",
+            PublishedTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
         
         envelope.Publishers.Add(Id.ToString());

@@ -105,9 +105,9 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     }
     
     /// <summary>
-    /// 判断是否是事件处理器方法
+    /// 判断是否是事件处理器方法（可被子类重写）
     /// </summary>
-    private bool IsEventHandlerMethod(MethodInfo method)
+    protected virtual bool IsEventHandlerMethod(MethodInfo method)
     {
         var parameters = method.GetParameters();
         if (parameters.Length != 1) return false;
@@ -138,9 +138,9 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     // ============ 事件处理器调用 ============
     
     /// <summary>
-    /// 处理事件（由 Actor 层调用）
+    /// 处理事件（由 Actor 层调用，可被子类重写）
     /// </summary>
-    public async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
+    public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
         var handlers = GetEventHandlers();
         
@@ -200,9 +200,9 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     }
     
     /// <summary>
-    /// 判断是否应该处理事件
+    /// 判断是否应该处理事件（可被子类使用）
     /// </summary>
-    private bool ShouldHandleEvent(MethodInfo handler, EventEnvelope envelope)
+    protected bool ShouldHandleEvent(MethodInfo handler, EventEnvelope envelope)
     {
         var eventHandlerAttr = handler.GetCustomAttribute<EventHandlerAttribute>();
         var allEventHandlerAttr = handler.GetCustomAttribute<AllEventHandlerAttribute>();
@@ -221,9 +221,9 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     }
     
     /// <summary>
-    /// 调用处理器方法
+    /// 调用处理器方法（可被子类使用）
     /// </summary>
-    private async Task InvokeHandler(MethodInfo handler, object parameter, CancellationToken ct)
+    protected async Task InvokeHandler(MethodInfo handler, object parameter, CancellationToken ct)
     {
         var result = handler.Invoke(this, new[] { parameter });
         

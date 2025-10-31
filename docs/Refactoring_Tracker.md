@@ -147,10 +147,10 @@ Orleans 运行时实现
 - [x] 实现优先级支持
 - [x] 移除运行时依赖（Factory、Serializer 等）
 - [x] 实现 `GAgentBase<TState>`
-- [ ] 实现 `GAgentBase<TState, TEvent>` (TODO: 后续扩展)
-- [ ] 实现 `GAgentBase<TState, TEvent, TConfiguration>` (TODO: 后续扩展)
+- [x] 实现 `GAgentBase<TState, TEvent>` - 带事件类型约束
+- [x] 实现 `GAgentBase<TState, TEvent, TConfiguration>` - 带配置支持
 
-### Phase 3: Actor 层实现 (优先级：高) 🚧 **进行中**
+### Phase 3: Actor 层实现 (优先级：高) ✅ **完成**
 - [x] 实现层级关系管理（Parent/Children）
 - [x] 实现事件路由逻辑（Up/Down/UpThenDown/Bidirectional）
 - [x] 实现 HopCount 控制
@@ -185,54 +185,60 @@ Orleans 运行时实现
 
 需要迁移的特性（来自代码分析）：
 
-### 核心机制
+### 核心机制 ✅ **已完成**
 - [x] **序列化**：Protobuf（已完成）
-- [ ] **事件传播**：Up/Down/UpThenDown/Bidirectional
-- [ ] **层级关系**：Parent/Children 管理
-- [ ] **Stream 机制**：每个 Agent 独立 Stream
-- [ ] **Observer 模式**：GAgentAsyncObserver
-- [ ] **事件处理器**：反射自动发现和注册
+- [x] **事件传播**：Up/Down/UpThenDown/Bidirectional（已完成）
+- [x] **层级关系**：Parent/Children 管理（已完成）
+- [x] **Stream 机制**：每个 Agent 独立 Stream（通过 Actor 实现）
+- [x] **Observer 模式**：通过 EventHandler Attribute 实现
+- [x] **事件处理器**：反射自动发现和注册（已完成）
 
-### 事件处理
-- [ ] `[EventHandler]` - 标记事件处理方法
-- [ ] `[AllEventHandler]` - 处理所有事件（转发）
-- [ ] `Priority` - 处理器优先级
-- [ ] `allowSelfHandling` - 是否允许处理自己发出的事件
-- [ ] Response Handler - 返回响应事件
+### 事件处理 ✅ **已完成**
+- [x] `[EventHandler]` - 标记事件处理方法（已完成）
+- [x] `[AllEventHandler]` - 处理所有事件/转发（已完成）
+- [x] `Priority` - 处理器优先级（已完成）
+- [x] `AllowSelfHandling` - 是否允许处理自己发出的事件（已完成）
+- [ ] Response Handler - 返回响应事件（TODO: Phase 4）
 
-### 状态管理
-- [ ] `StateBase` - 包含 Parent/Children
-- [ ] `OnStateChanged` - 状态变更回调
-- [ ] `StateDispatcher` - 状态投影和发布
-- [ ] `GetStateSnapshot` - 状态快照
+### 状态管理 🚧 **部分完成**
+- [x] `StateBase` - Parent/Children 在 Actor 层管理（已完成）
+- [x] `OnActivateAsync` / `OnDeactivateAsync` - 生命周期回调（已完成）
+- [ ] `OnStateChanged` - 状态变更回调（TODO: Phase 5 EventSourcing）
+- [ ] `StateDispatcher` - 状态投影和发布（TODO: Phase 4）
+- [ ] `GetStateSnapshot` - 状态快照（TODO: Phase 4）
 
-### 生命周期
-- [ ] `OnActivateAsync` - 激活回调
-- [ ] `OnDeactivateAsync` - 停用回调
-- [ ] `OnGAgentActivateAsync` - 自定义激活逻辑
+### 生命周期 ✅ **已完成**
+- [x] `OnActivateAsync` - 激活回调（已完成）
+- [x] `OnDeactivateAsync` - 停用回调（已完成）
+- [x] Actor 层的 ActivateAsync/DeactivateAsync（已完成）
 
-### 层级关系
-- [ ] `RegisterAsync` / `RegisterManyAsync` - 注册子 Agent
-- [ ] `UnregisterAsync` - 注销子 Agent
-- [ ] `SubscribeToAsync` - 订阅父 Agent
-- [ ] `UnsubscribeFromAsync` - 取消订阅
-- [ ] `GetChildrenAsync` / `GetParentAsync` - 获取关系
+### 层级关系 ✅ **已完成**
+- [x] `AddChildAsync` / `RemoveChildAsync` - 添加/移除子 Agent（已完成）
+- [x] `SetParentAsync` / `ClearParentAsync` - 设置/清除父 Agent（已完成）
+- [x] `GetChildrenAsync` / `GetParentAsync` - 获取关系（已完成）
+- [x] 层级关系存储在 Actor 层（已完成）
 
-### 配置和资源
-- [ ] `ConfigAsync` / `PerformConfigAsync` - 动态配置
-- [ ] `PrepareResourceContextAsync` - 资源上下文准备
-- [ ] `GetAllSubscribedEventsAsync` - 获取订阅的事件类型
+### 配置和资源 🚧 **部分完成**
+- [x] `ConfigureAsync` / `OnConfigureAsync` - 动态配置（已完成）
+- [x] `GetConfigurationType` - 获取配置类型（已完成）
+- [ ] `PrepareResourceContextAsync` - 资源上下文准备（TODO: Phase 4）
+- [ ] `GetAllSubscribedEventsAsync` - 获取订阅的事件类型（TODO: Phase 4）
 
-### 异常处理
-- [ ] `EventHandlerExceptionEvent` - 事件处理异常
-- [ ] `GAgentBaseExceptionEvent` - 框架异常
-- [ ] 异常自动发布机制
+### 异常处理 🚧 **部分完成**
+- [x] 事件处理器异常自动捕获和记录（已完成）
+- [ ] `EventHandlerExceptionEvent` - 事件处理异常事件（TODO: Phase 4）
+- [ ] `GAgentBaseExceptionEvent` - 框架异常事件（TODO: Phase 4）
+- [ ] 异常自动发布机制（TODO: Phase 4）
 
-### Observability
-- [ ] Logging with scope
-- [ ] CorrelationId 传播
-- [ ] ActivitySource（分布式追踪）
-- [ ] 发布时间戳（PublishedTimestampUtc）
+### Observability ✅ **已完成**
+- [x] Logging - 完整的日志支持（已完成）
+- [x] CorrelationId - 在 EventEnvelope 中（已完成）
+- [x] Publishers 链追踪（已完成）
+- [x] PublishedTimestampUtc - 发布时间戳（已完成）
+- [x] EventEnvelopeExtensions - 时间戳辅助方法（已完成）
+- [x] GAgentExtensions - Agent 辅助方法（GetStateSnapshot 等，已完成）
+- [ ] Logging with scope（TODO: Phase 4 可优化）
+- [ ] ActivitySource - 分布式追踪（TODO: Phase 4）
 
 ## 📝 实现注意事项
 
@@ -321,46 +327,81 @@ protected virtual async Task ForwardEventAsync(EventWrapperBase eventWrapper)
 - **2025-10-31**：
   - ✅ 创建重构追踪文档，明确设计决策
   - ✅ Phase 1 完成 - 核心抽象重构
-  - ✅ Phase 2 完成 - GAgentBase 重构
-  - ✅ Phase 3 部分完成 - Local 运行时实现
+  - ✅ Phase 2 完成 - GAgentBase 重构（包括 TEvent 和 TConfiguration 扩展）
+  - ✅ Phase 3 完成 - 三种运行时全部实现
   - ✅ 更新示例代码（CalculatorAgent、WeatherAgent）
-- **Phase 3 剩余**：ProtoActor 和 Orleans 运行时实现
-- **Phase 4 目标**：1 周完成特性迁移
-- **Phase 5 目标**：待定（TODO - EventSourcing）
+  - ✅ 单元测试编写（20个测试全部通过）
+  - ✅ 示例代码修复（SimpleDemo、Demo.Api）
+  - ✅ 所有编译错误和运行时错误修复
+  - ✅ 文档完善（6篇指南文档）
+- **Phase 4 目标**：特性迁移（StateDispatcher、ResourceContext 等）
+- **Phase 5 目标**：EventSourcing 完整实现
 
 ## ✨ 当前成果
 
 ### 已实现功能
 1. **核心抽象层**：
-   - `IGAgent<TState>` - 纯业务逻辑接口
+   - `IGAgent` / `IGAgent<TState>` - 纯业务逻辑接口
    - `IGAgentActor` - 运行时抽象接口
    - `IEventPublisher` - 事件发布接口
-   - `EventEnvelope` - 完整的事件传播控制
+   - `EventEnvelope` - 完整的事件传播控制（Direction、HopCount、Publishers 链）
+   - Attributes - EventHandler、AllEventHandler、Configuration
 
 2. **业务逻辑层**：
-   - `GAgentBase<TState>` - 事件处理器自动发现和调用
-   - 支持 `[EventHandler]`、`[AllEventHandler]` 特性
+   - `GAgentBase<TState>` - 基础 Agent 类
+   - `GAgentBase<TState, TEvent>` - 带事件类型约束
+   - `GAgentBase<TState, TEvent, TConfiguration>` - 带配置支持
+   - 事件处理器自动发现（反射 + 缓存）
    - 优先级支持
    - 自动 Protobuf Unpack
+   - AllowSelfHandling 控制
 
-3. **Local 运行时**：
-   - `LocalGAgentActor` - 完整事件路由（Up/Down/UpThenDown/Bidirectional）
-   - `LocalGAgentFactory` - Actor 工厂
+3. **三种运行时实现**：
+   - **Local**: LocalGAgentActor + Factory（完整事件路由）
+   - **ProtoActor**: ProtoActorGAgentActor + AgentActor + Factory
+   - **Orleans**: OrleansGAgentGrain + Actor + Factory（byte[] 序列化）
+   - 全部支持 Up/Down/UpThenDown/Bidirectional
    - HopCount 控制（MaxHop/MinHop/CurrentHop）
    - 层级关系管理（Parent/Children）
+
+4. **测试和示例**：
+   - 20 个单元测试（100% 通过）
+   - SimpleDemo 控制台示例
+   - Demo.Api WebAPI 示例
+   - 完整的使用文档
 
 ### 编译状态
 - ✅ Aevatar.Agents.Abstractions
 - ✅ Aevatar.Agents.Core
 - ✅ Aevatar.Agents.Local
+- ✅ Aevatar.Agents.ProtoActor
+- ✅ Aevatar.Agents.Orleans
 - ✅ Demo.Agents
+- ✅ SimpleDemo
+- ✅ Demo.Api
 
-### 待实现
-- [ ] ProtoActor 运行时
-- [ ] Orleans 运行时
-- [ ] 集成测试
-- [ ] 性能测试
-- [ ] EventSourcing 支持（Phase 5）
+### 测试状态
+- ✅ Aevatar.Agents.Core.Tests (12/12)
+- ✅ Aevatar.Agents.Local.Tests (8/8)
+- ✅ 总计: 20/20 通过 (100%)
+
+### Phase 3 新增扩展功能 ✅
+- [x] PublishedTimestampUtc - 发布时间戳字段（已完成）
+- [x] EventEnvelopeExtensions - 时间戳辅助方法（已完成）
+- [x] GAgentExtensions - Agent 辅助方法（已完成）
+  - GetStateSnapshot() - 状态快照
+  - GetEventHandlerNames() - 获取处理器名称
+  - GetSubscribedEventTypes() - 获取订阅的事件类型
+
+### 待实现（Phase 4及后续）
+- [ ] StateDispatcher - 状态投影和发布
+- [ ] ResourceContext - 资源管理  
+- [ ] Response Handler - 返回响应事件
+- [ ] ActivitySource - 分布式追踪
+- [ ] EventHandlerExceptionEvent - 异常事件自动发布
+- [ ] 集成测试（跨运行时）
+- [ ] 性能测试和基准测试
+- [ ] EventSourcing 完整支持（Phase 5）
 
 ---
 

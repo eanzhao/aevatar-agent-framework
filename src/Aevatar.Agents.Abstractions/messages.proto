@@ -35,6 +35,7 @@ message EventEnvelope {
   int32 min_hop_count = 11;         // 最小跳数（-1 表示无限制）
   string message = 12;              // 附加消息（调试或日志）
   repeated string publishers = 13;  // 发布者链（按传播顺序）
+  int64 published_timestamp_utc = 14; // 发布时间戳（UTC，毫秒）
 }
 
 message SubAgentAdded {
