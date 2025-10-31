@@ -154,18 +154,77 @@ Orleans 运行时实现
 - [x] 实现层级关系管理（Parent/Children）
 - [x] 实现事件路由逻辑（Up/Down/UpThenDown/Bidirectional）
 - [x] 实现 HopCount 控制
-- [x] Local 运行时实现
+- [x] **Streaming 机制实现**（参考 old/framework）
+  - [x] 每个 Agent 一个独立 Stream
+  - [x] 事件通过 Stream 传播（而非直接调用）
+  - [x] 异步队列支持
+  - [x] 背压控制
+- [x] **Local 运行时实现**
   - [x] LocalGAgentActor - 完整事件路由
-  - [x] LocalGAgentFactory - Actor 工厂
-- [ ] ProtoActor 运行时实现
-- [ ] Orleans 运行时实现
+  - [x] LocalGAgentActorFactory - Actor 工厂
+  - [x] LocalMessageStream - 基于 Channel 的 Stream
+  - [x] LocalMessageStreamRegistry - Stream 注册表
+- [x] **ProtoActor 运行时实现**
+  - [x] ProtoActorGAgentActor - 完整事件路由
+  - [x] ProtoActorGAgentActorFactory - Actor 工厂
+  - [x] AgentActor - IActor 实现
+  - [x] ProtoActorMessageStream - 基于 PID 的 Stream
+  - [x] ProtoActorMessageStreamRegistry - PID 注册表
+- [x] **Orleans 运行时实现**
+  - [x] OrleansGAgentGrain - Grain 实现
+  - [x] OrleansGAgentActor - Actor 包装器
+  - [x] OrleansGAgentActorFactory - Actor 工厂
+  - [x] OrleansMessageStream - 基于 Orleans Stream
+  - [x] OrleansMessageStreamProvider - Stream Provider
+  - [x] byte[] 序列化方案
 
-### Phase 4: 高级特性迁移 (优先级：中)
-- [ ] 迁移 Observer 机制
-- [ ] 迁移 StateDispatcher（状态投影）
-- [ ] 迁移 ResourceContext（资源管理）
-- [ ] 迁移 GAgentManager
-- [ ] 迁移 GAgentFactory
+### Phase 4: 高级特性实现 (优先级：中) 📝 **规划中**
+
+#### 4.1 状态管理增强
+- [ ] `StateDispatcher` - 状态投影和发布
+  - 状态变更时自动发布到订阅者
+  - 支持多个订阅者
+  - 状态快照支持
+- [ ] `OnStateChanged` 回调机制
+- [ ] 状态变更事件
+
+#### 4.2 Agent 管理
+- [ ] `IGAgentActorManager` 接口
+  - 全局 Actor 注册和查找
+  - Actor 生命周期管理
+  - 批量操作支持
+- [ ] `LocalGAgentActorManager` 实现
+- [ ] `ProtoActorGAgentActorManager` 实现
+- [ ] `OrleansGAgentActorManager` 实现
+
+#### 4.3 资源管理
+- [ ] `ResourceContext` - 资源上下文
+  - PrepareResourceContextAsync
+  - 资源分配和回收
+- [ ] 资源依赖注入机制
+
+#### 4.4 事件处理增强
+- [ ] Response Handler - 返回响应的事件处理器
+  - [EventHandler(ReturnsResponse = true)]
+  - 自动发布响应事件
+- [ ] `GetAllSubscribedEventsAsync` - 获取订阅事件类型
+
+#### 4.5 异常处理
+- [ ] `EventHandlerExceptionEvent` - 事件处理异常
+- [ ] `GAgentBaseExceptionEvent` - 框架异常
+- [ ] 异常自动发布机制
+- [ ] 异常传播策略
+
+#### 4.6 可观测性增强
+- [ ] Logging with scope - 结构化日志
+- [ ] ActivitySource - 分布式追踪
+- [ ] Metrics - 性能指标
+  - 事件处理延迟
+  - 队列长度
+  - Actor 数量
+
+**已移除**：
+- ~~GAgentFactory~~ - 已有 IGAgentActorFactory，不需要
 
 ### Phase 5: EventSourcing 支持 (优先级：低，TODO)
 - [ ] 设计 StateLogEvent 抽象
