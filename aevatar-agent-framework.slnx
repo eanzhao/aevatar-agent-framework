@@ -23,6 +23,7 @@
   <Folder Name="/test/">
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <File Path="test/README.md" />
   </Folder>

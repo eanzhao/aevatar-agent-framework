@@ -23,7 +23,13 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
 
     public Task<Guid> GetIdAsync()
     {
-        return Task.FromResult(this.GetGrainId().GetGuidKey());
+        // 从字符串键解析Guid
+        var keyString = this.GetPrimaryKeyString();
+        if (Guid.TryParse(keyString, out var guid))
+        {
+            return Task.FromResult(guid);
+        }
+        return Task.FromResult(Guid.Empty);
     }
 
     public override Task OnActivateAsync(CancellationToken cancellationToken)
@@ -93,7 +99,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             Version = 1,
             Payload = Any.Pack(evt),
             CorrelationId = Guid.NewGuid().ToString(),
-            PublisherId = this.GetGrainId().GetGuidKey().ToString(),
+            PublisherId = this.GetPrimaryKeyString(),
             Direction = direction,
             ShouldStopPropagation = false,
             MaxHopCount = -1,
@@ -102,7 +108,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             Message = $"Published by {this.GetGrainId()}"
         };
 
-        envelope.Publishers.Add(this.GetGrainId().GetGuidKey().ToString());
+        envelope.Publishers.Add(this.GetPrimaryKeyString());
 
         await RouteEventAsync(envelope, ct);
 
@@ -148,7 +154,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             return;
         }
 
-        var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value);
+        var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value.ToString());
         await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
 
@@ -158,9 +164,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
         {
             var childEnvelope = envelope.Clone();
             childEnvelope.CurrentHopCount++;
-            childEnvelope.Publishers.Add(this.GetGrainId().GetGuidKey().ToString());
+            childEnvelope.Publishers.Add(this.GetGrainId().ToString());
 
-            var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId);
+            var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId.ToString());
             await childGrain.HandleEventAsync(childEnvelope.ToByteArray());
         }
     }
@@ -199,7 +205,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
                 var logger =
                     ServiceProvider?.GetService(typeof(ILogger<OrleansGAgentGrain>)) as ILogger<OrleansGAgentGrain>;
                 logger?.LogError(ex, "Error handling event {EventId} in agent {AgentId}",
-                    envelope.Id, this.GetGrainId().GetGuidKey());
+                    envelope.Id, this.GetPrimaryKeyString());
             }
         }
 

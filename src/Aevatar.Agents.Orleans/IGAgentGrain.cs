@@ -6,7 +6,7 @@ namespace Aevatar.Agents.Orleans;
 /// <summary>
 /// Orleans Grain 接口
 /// </summary>
-public interface IGAgentGrain : IGrainWithGuidKey
+public interface IGAgentGrain : IGrainWithStringKey
 {
     /// <summary>
     /// 获取关联的 Agent ID
