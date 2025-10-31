@@ -11,14 +11,15 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<LocalGAgentActorFactory> _logger;
+    private readonly LocalMessageStreamRegistry _streamRegistry;
 
-    // 全局 Actor 注册表（所有 LocalGAgentActor 共享）
-    private readonly Dictionary<Guid, LocalGAgentActor> _actorRegistry = new();
-
-    public LocalGAgentActorFactory(IServiceProvider serviceProvider, ILogger<LocalGAgentActorFactory> logger)
+    public LocalGAgentActorFactory(
+        IServiceProvider serviceProvider,
+        ILogger<LocalGAgentActorFactory> logger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _streamRegistry = new LocalMessageStreamRegistry();
     }
 
     public async Task<IGAgentActor> CreateAgentAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
@@ -29,7 +30,7 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
             typeof(TAgent).Name, id);
 
         // 检查是否已存在
-        if (_actorRegistry.ContainsKey(id))
+        if (_streamRegistry.StreamExists(id))
         {
             throw new InvalidOperationException($"Agent with id {id} already exists");
         }
@@ -37,15 +38,14 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
         // 创建 Agent 实例
         var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
 
-        // 创建 Actor
+        // 创建 Actor（使用 Stream）
         var actor = new LocalGAgentActor(
             agent,
-            this,
-            _actorRegistry,
+            _streamRegistry,
             _serviceProvider.GetService<ILogger<LocalGAgentActor>>()
         );
 
-        // 激活
+        // 激活（会订阅 Stream）
         await actor.ActivateAsync(ct);
 
         _logger.LogInformation("Created and activated agent actor {Id}", id);

@@ -15,42 +15,28 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
 {
     private readonly IGAgent _agent;
     private readonly ILogger _logger;
-    private readonly IGAgentActorFactory _factory;
-    private readonly Dictionary<Guid, LocalGAgentActor> _actorRegistry; // 全局 Actor 注册表（共享）
+    private readonly LocalMessageStreamRegistry _streamRegistry;
+    private readonly LocalMessageStream _myStream;  // 这个 Actor 的 Stream
 
     // 层级关系
     private Guid? _parentId;
     private readonly HashSet<Guid> _childrenIds = new();
 
-    // Stream（每个 Actor 一个独立的事件队列）
-    private readonly Queue<EventEnvelope> _eventQueue = new();
-    private readonly SemaphoreSlim _queueLock = new(1, 1);
-
     public LocalGAgentActor(
         IGAgent agent,
-        IGAgentActorFactory factory,
-        Dictionary<Guid, LocalGAgentActor> actorRegistry,
+        LocalMessageStreamRegistry streamRegistry,
         ILogger? logger = null)
     {
         _agent = agent;
-        _factory = factory;
-        _actorRegistry = actorRegistry;
+        _streamRegistry = streamRegistry;
         _logger = logger ?? NullLogger.Instance;
 
-        // 设置 Agent 的 EventPublisher（如果是 GAgentBase）
-        if (agent is GAgentBase<object> baseAgent)
-        {
-            baseAgent.SetEventPublisher(this);
-        }
-        else
-        {
-            // 使用反射设置 EventPublisher
-            var setPublisherMethod = agent.GetType().GetMethod("SetEventPublisher");
-            setPublisherMethod?.Invoke(agent, [this]);
-        }
+        // 获取这个 Actor 的 Stream
+        _myStream = streamRegistry.GetOrCreateStream(agent.Id);
 
-        // 注册到全局 Actor 表
-        _actorRegistry[agent.Id] = this;
+        // 设置 Agent 的 EventPublisher
+        var setPublisherMethod = agent.GetType().GetMethod("SetEventPublisher");
+        setPublisherMethod?.Invoke(agent, new object[] { this });
     }
 
     public Guid Id => _agent.Id;
@@ -140,17 +126,104 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
         _logger.LogDebug("Agent {AgentId} publishing event {EventId} with direction {Direction}",
             Id, eventId, direction);
 
-        // 路由事件
-        await RouteEventAsync(envelope, ct);
+        // 通过 Stream 路由事件
+        await RouteEventViaStreamAsync(envelope, ct);
 
         return eventId;
     }
 
     /// <summary>
-    /// 路由事件到合适的目标
+    /// 通过 Stream 路由事件
     /// </summary>
-    private async Task RouteEventAsync(EventEnvelope envelope, CancellationToken ct)
+    private async Task RouteEventViaStreamAsync(EventEnvelope envelope, CancellationToken ct)
     {
+        switch (envelope.Direction)
+        {
+            case EventDirection.Up:
+                await SendToParentStreamAsync(envelope, ct);
+                break;
+
+            case EventDirection.Down:
+                await SendToChildrenStreamsAsync(envelope, ct);
+                break;
+
+            case EventDirection.UpThenDown:
+                await SendToParentStreamAsync(envelope, ct);
+                break;
+
+            case EventDirection.Bidirectional:
+                await SendToParentStreamAsync(envelope, ct);
+                await SendToChildrenStreamsAsync(envelope, ct);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 发送事件到父 Agent 的 Stream
+    /// </summary>
+    private async Task SendToParentStreamAsync(EventEnvelope envelope, CancellationToken ct)
+    {
+        if (_parentId == null)
+        {
+            // 没有父节点，发送到自己的 Stream 处理
+            _logger.LogDebug("Event {EventId} has no parent, handling locally", envelope.Id);
+            await _myStream.ProduceAsync(envelope, ct);
+            return;
+        }
+
+        var parentStream = _streamRegistry.GetStream(_parentId.Value);
+        if (parentStream != null)
+        {
+            _logger.LogDebug("Sending event {EventId} to parent {ParentId} stream",
+                envelope.Id, _parentId);
+            await parentStream.ProduceAsync(envelope, ct);
+        }
+        else
+        {
+            _logger.LogWarning("Parent stream {ParentId} not found", _parentId);
+        }
+    }
+
+    /// <summary>
+    /// 发送事件到所有子 Agent 的 Stream
+    /// </summary>
+    private async Task SendToChildrenStreamsAsync(EventEnvelope envelope, CancellationToken ct)
+    {
+        if (_childrenIds.Count == 0)
+        {
+            _logger.LogDebug("Event {EventId} has no children", envelope.Id);
+            return;
+        }
+
+        foreach (var childId in _childrenIds)
+        {
+            var childStream = _streamRegistry.GetStream(childId);
+            if (childStream != null)
+            {
+                _logger.LogDebug("Sending event {EventId} to child {ChildId} stream",
+                    envelope.Id, childId);
+
+                // 创建副本并增加 HopCount
+                var childEnvelope = envelope.Clone();
+                childEnvelope.CurrentHopCount++;
+                childEnvelope.Publishers.Add(Id.ToString());
+
+                await childStream.ProduceAsync(childEnvelope, ct);
+            }
+            else
+            {
+                _logger.LogWarning("Child stream {ChildId} not found", childId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 处理接收到的事件（由 Stream 回调）
+    /// </summary>
+    private async Task HandleEventFromStreamAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        _logger.LogDebug("Agent {AgentId} handling event {EventId} from stream", Id, envelope.Id);
+
         // 检查是否应该停止传播
         if (envelope.ShouldStopPropagation)
             return;
@@ -163,91 +236,6 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
             return;
         }
 
-        switch (envelope.Direction)
-        {
-            case EventDirection.Up:
-                await SendToParentAsync(envelope, ct);
-                break;
-
-            case EventDirection.Down:
-                await SendToChildrenAsync(envelope, ct);
-                break;
-
-            case EventDirection.UpThenDown:
-                await SendToParentAsync(envelope, ct);
-                // Parent 会再发送给它的 Children（形成兄弟节点广播）
-                break;
-
-            case EventDirection.Bidirectional:
-                await SendToParentAsync(envelope, ct);
-                await SendToChildrenAsync(envelope, ct);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// 发送事件到父 Actor
-    /// </summary>
-    private async Task SendToParentAsync(EventEnvelope envelope, CancellationToken ct)
-    {
-        if (_parentId == null)
-        {
-            // 没有父节点，停止向上传播
-            _logger.LogDebug("Event {EventId} has no parent, stopping upward propagation", envelope.Id);
-            return;
-        }
-
-        if (_actorRegistry.TryGetValue(_parentId.Value, out var parentActor))
-        {
-            _logger.LogDebug("Sending event {EventId} to parent {ParentId}",
-                envelope.Id, _parentId);
-            await parentActor.HandleEventAsync(envelope, ct);
-        }
-        else
-        {
-            _logger.LogWarning("Parent actor {ParentId} not found", _parentId);
-        }
-    }
-
-    /// <summary>
-    /// 发送事件到所有子 Actor
-    /// </summary>
-    private async Task SendToChildrenAsync(EventEnvelope envelope, CancellationToken ct)
-    {
-        if (_childrenIds.Count == 0)
-        {
-            _logger.LogDebug("Event {EventId} has no children", envelope.Id);
-            return;
-        }
-
-        foreach (var childId in _childrenIds)
-        {
-            if (_actorRegistry.TryGetValue(childId, out var childActor))
-            {
-                _logger.LogDebug("Sending event {EventId} to child {ChildId}",
-                    envelope.Id, childId);
-
-                // 创建副本并增加 HopCount
-                var childEnvelope = envelope.Clone();
-                childEnvelope.CurrentHopCount++;
-                childEnvelope.Publishers.Add(Id.ToString());
-
-                await childActor.HandleEventAsync(childEnvelope, ct);
-            }
-            else
-            {
-                _logger.LogWarning("Child actor {ChildId} not found", childId);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 处理接收到的事件
-    /// </summary>
-    public async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
-    {
-        _logger.LogDebug("Agent {AgentId} handling event {EventId}", Id, envelope.Id);
-
         // 检查 MinHopCount
         bool shouldProcess = envelope.MinHopCount <= 0 || envelope.CurrentHopCount >= envelope.MinHopCount;
 
@@ -255,7 +243,7 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
         {
             try
             {
-                // 让 Agent 处理事件（使用反射调用）
+                // 让 Agent 处理事件
                 var handleMethod = _agent.GetType().GetMethod("HandleEventAsync");
                 if (handleMethod != null)
                 {
@@ -272,40 +260,22 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
                     envelope.Id, Id);
             }
         }
-        else
-        {
-            _logger.LogDebug("Event {EventId} not yet reached min hop count {MinHop}, skipping processing",
-                envelope.Id, envelope.MinHopCount);
-        }
 
-        // 继续路由事件（传播给 Children/Parent，取决于 Direction）
-        // 注意：这里不再调用 RouteEventAsync，而是直接根据 Direction 继续传播
-        await ContinuePropagationAsync(envelope, ct);
-    }
-
-    /// <summary>
-    /// 继续传播事件（不重复处理）
-    /// </summary>
-    private async Task ContinuePropagationAsync(EventEnvelope envelope, CancellationToken ct)
-    {
-        // 检查是否应该停止传播
-        if (envelope.ShouldStopPropagation)
-            return;
-
-        // 检查 MaxHopCount
-        if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
-        {
-            _logger.LogDebug("Event {EventId} reached max hop count {MaxHop}",
-                envelope.Id, envelope.MaxHopCount);
-            return;
-        }
-
-        // 根据方向继续传播（只向下传播）
+        // 继续传播（向下）
         if (envelope.Direction == EventDirection.Down ||
             envelope.Direction == EventDirection.Bidirectional)
         {
-            await SendToChildrenAsync(envelope, ct);
+            await SendToChildrenStreamsAsync(envelope, ct);
         }
+    }
+
+    /// <summary>
+    /// 处理接收到的事件（IGAgentActor 接口方法，兼容性）
+    /// </summary>
+    public async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        // 直接发送到自己的 Stream，由 Stream 处理
+        await _myStream.ProduceAsync(envelope, ct);
     }
 
     // ============ 生命周期 ============
@@ -314,7 +284,10 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
     {
         _logger.LogInformation("Activating agent {AgentId}", Id);
 
-        // 调用 OnActivateAsync（如果存在）
+        // 订阅自己的 Stream
+        await _myStream.SubscribeAsync<EventEnvelope>(async env => await HandleEventFromStreamAsync(env, ct), ct);
+
+        // 调用 Agent 的激活回调
         var activateMethod = _agent.GetType().GetMethod("OnActivateAsync");
         if (activateMethod != null)
         {
@@ -330,7 +303,7 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
     {
         _logger.LogInformation("Deactivating agent {AgentId}", Id);
 
-        // 调用 OnDeactivateAsync（如果存在）
+        // 调用 Agent 的停用回调
         var deactivateMethod = _agent.GetType().GetMethod("OnDeactivateAsync");
         if (deactivateMethod != null)
         {
@@ -341,7 +314,7 @@ public class LocalGAgentActor : IGAgentActor, IEventPublisher
             }
         }
 
-        // 从注册表移除
-        _actorRegistry.Remove(Id);
+        // 停止并移除 Stream
+        _streamRegistry.RemoveStream(Id);
     }
 }

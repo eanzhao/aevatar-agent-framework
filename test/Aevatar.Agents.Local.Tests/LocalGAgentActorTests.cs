@@ -141,8 +141,8 @@ public class LocalGAgentActorTests
         };
         
         await agent1.HandleEventAsync(envelope);
-        await Task.Delay(100);
-        
+        await Task.Delay(500);  // 增加等待时间，让 Stream 有时间处理
+
         // Assert
         var agent2State = ((TestAgent)agent2.GetAgent()).GetState();
         var agent3State = ((TestAgent)agent3.GetAgent()).GetState();
