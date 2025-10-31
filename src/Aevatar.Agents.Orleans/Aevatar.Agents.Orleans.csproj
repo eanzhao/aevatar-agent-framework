@@ -11,6 +11,7 @@
         <PackageReference Include="Microsoft.Orleans.Runtime" Version="8.2.0" />
         <PackageReference Include="Microsoft.Orleans.Sdk" Version="8.2.0" />
         <PackageReference Include="Microsoft.Orleans.Streaming" Version="8.2.0" />
+        <PackageReference Include="Microsoft.Orleans.EventSourcing" Version="8.2.0" />
     </ItemGroup>
 
     <ItemGroup>

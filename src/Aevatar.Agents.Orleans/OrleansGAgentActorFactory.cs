@@ -36,7 +36,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
 
         // 获取 Orleans Grain
-        var grain = _grainFactory.GetGrain<IGAgentGrain>(id);
+        var grain = _grainFactory.GetGrain<IGAgentGrain>(id.ToString());
         
         // 创建 Actor 包装器（持有本地 Agent 和远程 Grain）
         var actor = new OrleansGAgentActor(grain, agent);

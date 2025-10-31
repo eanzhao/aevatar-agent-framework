@@ -21,6 +21,12 @@ public class BankAccountState
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
+    // 无参数构造函数（用于工厂创建）
+    public BankAccountAgent() : base(Guid.NewGuid(), null, null)
+    {
+    }
+    
+    // 完整构造函数
     public BankAccountAgent(
         Guid id,
         IEventStore? eventStore = null,

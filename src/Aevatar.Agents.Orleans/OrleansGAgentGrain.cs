@@ -148,7 +148,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             return;
         }
 
-        var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value);
+        var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value.ToString());
         await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
 
@@ -160,7 +160,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             childEnvelope.CurrentHopCount++;
             childEnvelope.Publishers.Add(this.GetGrainId().GetGuidKey().ToString());
 
-            var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId);
+            var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId.ToString());
             await childGrain.HandleEventAsync(childEnvelope.ToByteArray());
         }
     }
