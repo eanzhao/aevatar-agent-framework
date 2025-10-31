@@ -46,7 +46,9 @@ public class InMemoryEventStore : IEventStore
         {
             if (_events.TryGetValue(agentId, out var events))
             {
-                return Task.FromResult<IReadOnlyList<StateLogEvent>>(events.ToList());
+                // Return events sorted by version
+                var sortedEvents = events.OrderBy(e => e.Version).ToList();
+                return Task.FromResult<IReadOnlyList<StateLogEvent>>(sortedEvents);
             }
             
             return Task.FromResult<IReadOnlyList<StateLogEvent>>(Array.Empty<StateLogEvent>());
@@ -65,6 +67,7 @@ public class InMemoryEventStore : IEventStore
             {
                 var filtered = events
                     .Where(e => e.Version >= fromVersion && e.Version <= toVersion)
+                    .OrderBy(e => e.Version)
                     .ToList();
                 
                 return Task.FromResult<IReadOnlyList<StateLogEvent>>(filtered);

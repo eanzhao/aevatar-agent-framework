@@ -94,6 +94,12 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         
         var events = await _eventStore.GetEventsAsync(Id, ct);
         
+        if (events == null || !events.Any())
+        {
+            _logger.LogInformation("No events to replay for Agent {AgentId}", Id);
+            return;
+        }
+        
         foreach (var logEvent in events.OrderBy(e => e.Version))
         {
             try
