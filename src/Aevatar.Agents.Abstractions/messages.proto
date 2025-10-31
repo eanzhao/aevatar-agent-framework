@@ -72,3 +72,22 @@ message CodingAgentState {
   int64 current_version = 2;
   string validation_history = 3;
 }
+
+// 异常事件
+message EventHandlerExceptionEvent {
+  string agent_id = 1;
+  string event_id = 2;
+  string handler_name = 3;
+  string event_type = 4;
+  string exception_message = 5;
+  string stack_trace = 6;
+  int64 timestamp = 7;
+}
+
+message GAgentBaseExceptionEvent {
+  string agent_id = 1;
+  string operation = 2;
+  string exception_message = 3;
+  string stack_trace = 4;
+  int64 timestamp = 5;
+}

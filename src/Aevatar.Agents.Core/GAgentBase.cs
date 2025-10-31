@@ -193,8 +193,10 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
             {
                 _logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
                 
-                // 可以选择抛出异常或继续处理其他 handler
-                // 这里选择继续处理
+                // 发布异常事件
+                await PublishExceptionEventAsync(envelope, handler.Name, ex);
+                
+                // 继续处理其他 handler
             }
         }
     }
@@ -233,6 +235,37 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
         }
     }
     
+    // ============ 事件订阅信息 ============
+    
+    /// <summary>
+    /// 获取所有订阅的事件类型
+    /// </summary>
+    public virtual Task<List<Type>> GetAllSubscribedEventsAsync(bool includeAllEventHandler = false)
+    {
+        var handlers = GetEventHandlers();
+        var eventTypes = new HashSet<Type>();
+        
+        foreach (var handler in handlers)
+        {
+            var paramType = handler.GetParameters().FirstOrDefault()?.ParameterType;
+            
+            if (paramType == null)
+                continue;
+            
+            // 跳过 EventEnvelope（AllEventHandler）
+            if (!includeAllEventHandler && paramType == typeof(EventEnvelope))
+                continue;
+            
+            // 只包含 IMessage 类型
+            if (typeof(Google.Protobuf.IMessage).IsAssignableFrom(paramType))
+            {
+                eventTypes.Add(paramType);
+            }
+        }
+        
+        return Task.FromResult(eventTypes.ToList());
+    }
+    
     // ============ 资源管理 ============
     
     /// <summary>
@@ -254,6 +287,73 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
         // 默认实现：什么都不做
         // 子类可以重写此方法来处理资源
         return Task.CompletedTask;
+    }
+    
+    // ============ 异常处理 ============
+    
+    /// <summary>
+    /// 发布异常事件
+    /// </summary>
+    protected virtual async Task PublishExceptionEventAsync(
+        EventEnvelope originalEnvelope,
+        string handlerName,
+        Exception exception)
+    {
+        try
+        {
+            if (_eventPublisher == null)
+                return;
+            
+            var exceptionEvent = new EventHandlerExceptionEvent
+            {
+                AgentId = Id.ToString(),
+                EventId = originalEnvelope.Id,
+                HandlerName = handlerName,
+                EventType = originalEnvelope.Payload?.TypeUrl ?? "Unknown",
+                ExceptionMessage = exception.Message,
+                StackTrace = exception.StackTrace ?? string.Empty,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            
+            _logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
+            
+            await _eventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error publishing exception event");
+        }
+    }
+    
+    /// <summary>
+    /// 发布框架异常事件
+    /// </summary>
+    protected virtual async Task PublishFrameworkExceptionAsync(
+        string operation,
+        Exception exception)
+    {
+        try
+        {
+            if (_eventPublisher == null)
+                return;
+            
+            var exceptionEvent = new GAgentBaseExceptionEvent
+            {
+                AgentId = Id.ToString(),
+                Operation = operation,
+                ExceptionMessage = exception.Message,
+                StackTrace = exception.StackTrace ?? string.Empty,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            
+            _logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
+            
+            await _eventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error publishing framework exception event");
+        }
     }
     
     // ============ 生命周期回调（可选重写） ============

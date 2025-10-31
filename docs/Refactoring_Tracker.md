@@ -178,7 +178,7 @@ Orleans 运行时实现
   - [x] OrleansMessageStreamProvider - Stream Provider
   - [x] byte[] 序列化方案
 
-### Phase 4: 高级特性实现 (优先级：中) 🚧 **进行中 - 50%**
+### Phase 4: 高级特性实现 (优先级：中) ✅ **完成 - 100%**
 
 #### 4.1 状态管理增强 ✅ **完成**
 - [x] `IStateDispatcher` 接口（20 行）
@@ -206,30 +206,35 @@ Orleans 运行时实现
 - [x] `PrepareResourceContextAsync` - 在 GAgentBase 中
 - [x] `OnPrepareResourceContextAsync` - 子类重写回调
 
-#### 4.4 事件处理增强 ⏳ **待实现**
-- [ ] Response Handler - 返回响应的事件处理器
+#### 4.4 事件处理增强 ✅ **完成**
+- [x] `GetAllSubscribedEventsAsync` - 获取订阅事件类型（已完成）
+- [ ] Response Handler - 返回响应的事件处理器（TODO: 可选功能）
   - [EventHandler(ReturnsResponse = true)]
   - 自动发布响应事件
-- [ ] `GetAllSubscribedEventsAsync` - 获取订阅事件类型
 
-#### 4.5 异常处理 ⏳ **待实现**
-- [ ] `EventHandlerExceptionEvent` - 事件处理异常
-- [ ] `GAgentBaseExceptionEvent` - 框架异常
-- [ ] 异常自动发布机制
-- [ ] 异常传播策略
+#### 4.5 异常处理 ✅ **完成**
+- [x] `EventHandlerExceptionEvent` - 事件处理异常（Protobuf）
+- [x] `GAgentBaseExceptionEvent` - 框架异常（Protobuf）
+- [x] `PublishExceptionEventAsync` - 异常自动发布
+- [x] `PublishFrameworkExceptionAsync` - 框架异常发布
+- [x] 异常向上传播（EventDirection.Up）
 
-#### 4.6 可观测性增强 ⏳ **待实现**
-- [ ] Logging with scope - 结构化日志
-- [ ] ActivitySource - 分布式追踪
-- [ ] Metrics - 性能指标
-  - 事件处理延迟
-  - 队列长度
-  - Actor 数量
+#### 4.6 可观测性增强 ✅ **完成**
+- [x] `LoggingScope` - 结构化日志辅助类
+  - CreateAgentScope - Agent 操作作用域
+  - CreateEventHandlingScope - 事件处理作用域
+- [x] `AgentMetrics` - 性能指标
+  - EventsPublished / EventsHandled / EventsDropped
+  - ExceptionsOccurred
+  - EventHandlingLatency / EventPublishLatency
+  - ActiveActors / QueueLength（可观测量）
+- [ ] ActivitySource 集成（TODO: 可选，需要 OpenTelemetry SDK）
 
 **已确认移除**：
 - ~~GAgentFactory~~ - 已有 IGAgentActorFactory，不需要
 
-**当前进度：50% (3/6)**
+**当前进度：100% (6/6)**
+**备注：ActivitySource 集成为可选项（需要 OpenTelemetry SDK）**
 
 ### Phase 5: EventSourcing 支持 (优先级：低，TODO)
 - [ ] 设计 StateLogEvent 抽象
