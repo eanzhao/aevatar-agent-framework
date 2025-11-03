@@ -2,8 +2,9 @@
   <Folder Name="/apps/" />
   <Folder Name="/docs/">
     <File Path="README.md" />
-    <File Path="docs\AgentSystem_Architecture.md" />
+    <File Path="ARCHITECTURE.md" />
     <File Path="docs\Protobuf_Configuration_Guide.md" />
+    <File Path="docs\Serialization_Rules.md" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" Type="Classic C#" />

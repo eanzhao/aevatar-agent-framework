@@ -127,7 +127,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
         }
 
         // 默认处理器：方法名为 HandleAsync 或 Handle，参数是 IMessage
-        if (method.Name is "HandleAsync" or "Handle")
+        if (method.Name is "HandleAsync" or "HandleEventAsync")
         {
             return typeof(IMessage).IsAssignableFrom(paramType) && !paramType.IsAbstract;
         }
