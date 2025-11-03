@@ -4,12 +4,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.Tests;
 
-public class TestState
-{
-    public string Name { get; set; } = string.Empty;
-    public int Counter { get; set; }
-}
-
 public class TestAgent : GAgentBase<TestState>
 {
     public int EventHandledCount { get; private set; }
@@ -31,6 +25,30 @@ public class TestAgent : GAgentBase<TestState>
         EventHandledCount++;
         State.Counter++;
         State.Name = evt.ConfigKey;
+        return Task.CompletedTask;
+    }
+    
+    [EventHandler(Priority = 1)]
+    public Task HandleTestEventAsync(TestEvent evt)
+    {
+        EventHandledCount++;
+        State.Name = evt.EventData;
+        return Task.CompletedTask;
+    }
+    
+    [EventHandler(AllowSelfHandling = true)]
+    public Task HandleTestAddItemEventAsync(TestAddItemEvent evt)
+    {
+        EventHandledCount++;
+        State.Items.Add(evt.ItemName);
+        return Task.CompletedTask;
+    }
+    
+    [AllEventHandler]
+    public Task HandleAllEventsAsync(EventEnvelope envelope)
+    {
+        EventHandledCount++;
+        State.Counter++;
         return Task.CompletedTask;
     }
 }

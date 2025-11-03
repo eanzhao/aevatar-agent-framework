@@ -1,0 +1,69 @@
+syntax = "proto3";
+package Aevatar.Agents.Core.Tests;
+
+// Test state for unit testing
+message TestState {
+  string name = 1;
+  int32 counter = 2;
+  repeated string items = 3;
+  map<string, string> attributes = 4;
+  bool is_active = 5;
+}
+
+// Test configuration state  
+message TestConfigState {
+  string config_key = 1;
+  string config_value = 2;
+  int32 version = 3;
+}
+
+// Test event sourcing state
+message TestEventSourcingState {
+  string id = 1;
+  int64 current_version = 2;
+  string aggregate_state = 3;
+  repeated string processed_events = 4;
+}
+
+// Test events
+message TestEvent {
+  string event_id = 1;
+  string event_data = 2;
+  int64 timestamp = 3;
+}
+
+message TestAddItemEvent {
+  string item_name = 1;
+}
+
+message TestRemoveItemEvent {
+  string item_name = 1;
+}
+
+message TestUpdateCounterEvent {
+  int32 increment = 1;
+}
+
+message TestStateChangeEvent {
+  string old_state = 1;
+  string new_state = 2;
+}
+
+// Test command
+message TestCommand {
+  string command_id = 1;
+  string command_type = 2;
+  string command_data = 3;
+}
+
+// Test aggregate events for event sourcing
+message TestAggregateCreatedEvent {
+  string aggregate_id = 1;
+  string initial_state = 2;
+}
+
+message TestAggregateUpdatedEvent {
+  string aggregate_id = 1;
+  string updated_field = 2;
+  string new_value = 3;
+}
