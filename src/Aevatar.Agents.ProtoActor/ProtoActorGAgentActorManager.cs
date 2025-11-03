@@ -14,7 +14,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     private readonly ILogger<ProtoActorGAgentActorManager> _logger;
     private readonly Dictionary<Guid, IGAgentActor> _actors = new();
     private readonly object _lock = new();
-    
+
     public ProtoActorGAgentActorManager(
         IGAgentActorFactory factory,
         IRootContext rootContext,
@@ -24,7 +24,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
         _rootContext = rootContext;
         _logger = logger;
     }
-    
+
     public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
         Guid id,
         CancellationToken ct = default)
@@ -33,19 +33,19 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
-        
+
         var actor = await _factory.CreateAgentAsync<TAgent, TState>(id, ct);
-        
+
         lock (_lock)
         {
             _actors[id] = actor;
         }
-        
+
         _logger.LogInformation("Agent actor {Id} created and registered", id);
-        
+
         return actor;
     }
-    
+
     public Task<IGAgentActor?> GetActorAsync(Guid id)
     {
         lock (_lock)
@@ -54,7 +54,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
             return Task.FromResult(actor);
         }
     }
-    
+
     public Task<IReadOnlyList<IGAgentActor>> GetAllActorsAsync()
     {
         lock (_lock)
@@ -62,11 +62,11 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
             return Task.FromResult<IReadOnlyList<IGAgentActor>>(_actors.Values.ToList());
         }
     }
-    
+
     public async Task DeactivateAndUnregisterAsync(Guid id, CancellationToken ct = default)
     {
         IGAgentActor? actor;
-        
+
         lock (_lock)
         {
             if (!_actors.TryGetValue(id, out actor))
@@ -74,29 +74,29 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
                 _logger.LogWarning("Actor {Id} not found for deactivation", id);
                 return;
             }
-            
+
             _actors.Remove(id);
         }
-        
+
         _logger.LogInformation("Deactivating and unregistering actor {Id}", id);
         await actor.DeactivateAsync(ct);
     }
-    
+
     public async Task DeactivateAllAsync(CancellationToken ct = default)
     {
         List<IGAgentActor> actorsToDeactivate;
-        
+
         lock (_lock)
         {
             actorsToDeactivate = _actors.Values.ToList();
             _actors.Clear();
         }
-        
+
         _logger.LogInformation("Deactivating all {Count} actors", actorsToDeactivate.Count);
-        
+
         await Task.WhenAll(actorsToDeactivate.Select(a => a.DeactivateAsync(ct)));
     }
-    
+
     public Task<bool> ExistsAsync(Guid id)
     {
         lock (_lock)
@@ -104,7 +104,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
             return Task.FromResult(_actors.ContainsKey(id));
         }
     }
-    
+
     public Task<int> GetCountAsync()
     {
         lock (_lock)
@@ -113,4 +113,3 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
         }
     }
 }
-

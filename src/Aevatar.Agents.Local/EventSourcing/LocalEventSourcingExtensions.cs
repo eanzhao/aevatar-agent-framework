@@ -76,16 +76,17 @@ public static class LocalEventSourcingExtensions
 /// </summary>
 internal static class EventSourcingInternals
 {
-    private static readonly System.Reflection.FieldInfo? EventStoreField = 
+    private static readonly System.Reflection.FieldInfo? EventStoreField =
         typeof(GAgentBaseWithEventSourcing<>)
-            .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-    
+            .GetField("_eventStore",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
     public static IEventStore? GetEventStore<TState>(this GAgentBaseWithEventSourcing<TState> agent)
         where TState : class, new()
     {
         return EventStoreField?.GetValue(agent) as IEventStore;
     }
-    
+
     public static void SetEventStore<TState>(this GAgentBaseWithEventSourcing<TState> agent, IEventStore eventStore)
         where TState : class, new()
     {

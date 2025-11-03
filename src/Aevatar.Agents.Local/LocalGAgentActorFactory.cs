@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,20 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
         _serviceProvider = serviceProvider;
         _logger = logger;
         _streamRegistry = new LocalMessageStreamRegistry();
+    }
+
+    public async Task<IGAgentActor> CreateAgentAsync<TAgent>(Guid id, CancellationToken ct = default)
+        where TAgent : IGAgent
+    {
+        // 提取状态类型
+        var agentType = typeof(TAgent);
+        var stateType = AgentTypeHelper.ExtractStateType(agentType);
+
+        _logger.LogDebug("Creating agent actor for type {AgentType} with state {StateType} and id {Id}",
+            agentType.Name, stateType.Name, id);
+
+        // 调用双参数版本
+        return await AgentTypeHelper.InvokeCreateAgentAsync(this, agentType, stateType, id, ct);
     }
 
     public async Task<IGAgentActor> CreateAgentAsync<TAgent, TState>(Guid id, CancellationToken ct = default)

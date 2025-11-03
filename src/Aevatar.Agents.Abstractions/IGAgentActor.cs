@@ -12,46 +12,46 @@ public interface IGAgentActor
     /// Actor 标识符（与关联的 Agent Id 相同）
     /// </summary>
     Guid Id { get; }
-    
+
     /// <summary>
     /// 获取关联的 Agent 实例
     /// </summary>
     IGAgent GetAgent();
-    
+
     // ============ 层级关系管理 ============
-    
+
     /// <summary>
     /// 添加子 Agent
     /// </summary>
     Task AddChildAsync(Guid childId, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 移除子 Agent
     /// </summary>
     Task RemoveChildAsync(Guid childId, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 设置父 Agent
     /// </summary>
     Task SetParentAsync(Guid parentId, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 清除父 Agent
     /// </summary>
     Task ClearParentAsync(CancellationToken ct = default);
-    
+
     /// <summary>
     /// 获取所有子 Agent ID
     /// </summary>
     Task<IReadOnlyList<Guid>> GetChildrenAsync();
-    
+
     /// <summary>
     /// 获取父 Agent ID
     /// </summary>
     Task<Guid?> GetParentAsync();
-    
+
     // ============ 事件发布和路由 ============
-    
+
     /// <summary>
     /// 发布事件（带路由逻辑）
     /// </summary>
@@ -61,25 +61,25 @@ public interface IGAgentActor
     /// <typeparam name="TEvent">事件类型</typeparam>
     /// <returns>事件ID</returns>
     Task<string> PublishEventAsync<TEvent>(
-        TEvent evt, 
+        TEvent evt,
         EventDirection direction = EventDirection.Down,
-        CancellationToken ct = default) 
+        CancellationToken ct = default)
         where TEvent : IMessage;
-    
+
     /// <summary>
     /// 处理接收到的事件
     /// </summary>
     /// <param name="envelope">事件信封</param>
     /// <param name="ct">取消令牌</param>
     Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default);
-    
+
     // ============ 生命周期 ============
-    
+
     /// <summary>
     /// 激活 Actor
     /// </summary>
     Task ActivateAsync(CancellationToken ct = default);
-    
+
     /// <summary>
     /// 停用 Actor
     /// </summary>

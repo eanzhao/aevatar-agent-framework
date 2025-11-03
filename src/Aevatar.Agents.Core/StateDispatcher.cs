@@ -12,20 +12,20 @@ namespace Aevatar.Agents.Core;
 public class StateDispatcher : IStateDispatcher
 {
     private readonly ILogger<StateDispatcher> _logger;
-    
+
     // 单个状态变更的 Channel（实时发布）
     private readonly Dictionary<Guid, Channel<object>> _singleChannels = new();
-    
+
     // 批量状态变更的 Channel（批处理）
     private readonly Dictionary<Guid, Channel<object>> _batchChannels = new();
-    
+
     private readonly object _lock = new();
-    
+
     public StateDispatcher(ILogger<StateDispatcher>? logger = null)
     {
         _logger = logger ?? NullLogger<StateDispatcher>.Instance;
     }
-    
+
     public async Task PublishSingleAsync<TState>(
         Guid agentId,
         StateSnapshot<TState> snapshot,
@@ -33,13 +33,13 @@ public class StateDispatcher : IStateDispatcher
         where TState : class, new()
     {
         var channel = GetOrCreateSingleChannel(agentId);
-        
+
         _logger.LogDebug("Publishing single state change for agent {AgentId}, version {Version}",
             agentId, snapshot.Version);
-        
+
         await channel.Writer.WriteAsync(snapshot, ct);
     }
-    
+
     public async Task PublishBatchAsync<TState>(
         Guid agentId,
         StateSnapshot<TState> snapshot,
@@ -47,13 +47,13 @@ public class StateDispatcher : IStateDispatcher
         where TState : class, new()
     {
         var channel = GetOrCreateBatchChannel(agentId);
-        
+
         _logger.LogDebug("Publishing batch state change for agent {AgentId}, version {Version}",
             agentId, snapshot.Version);
-        
+
         await channel.Writer.WriteAsync(snapshot, ct);
     }
-    
+
     public Task SubscribeAsync<TState>(
         Guid agentId,
         Func<StateSnapshot<TState>, Task> handler,
@@ -61,9 +61,9 @@ public class StateDispatcher : IStateDispatcher
         where TState : class, new()
     {
         var channel = GetOrCreateSingleChannel(agentId);
-        
+
         _logger.LogInformation("Subscribing to state changes for agent {AgentId}", agentId);
-        
+
         // 启动订阅处理循环
         _ = Task.Run(async () =>
         {
@@ -83,10 +83,10 @@ public class StateDispatcher : IStateDispatcher
                 }
             }
         }, ct);
-        
+
         return Task.CompletedTask;
     }
-    
+
     private Channel<object> GetOrCreateSingleChannel(Guid agentId)
     {
         lock (_lock)
@@ -99,11 +99,11 @@ public class StateDispatcher : IStateDispatcher
                 });
                 _singleChannels[agentId] = channel;
             }
-            
+
             return channel;
         }
     }
-    
+
     private Channel<object> GetOrCreateBatchChannel(Guid agentId)
     {
         lock (_lock)
@@ -116,9 +116,8 @@ public class StateDispatcher : IStateDispatcher
                 });
                 _batchChannels[agentId] = channel;
             }
-            
+
             return channel;
         }
     }
 }
-

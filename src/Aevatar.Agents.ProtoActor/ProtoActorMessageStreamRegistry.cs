@@ -11,13 +11,13 @@ public class ProtoActorMessageStreamRegistry
     private readonly Dictionary<Guid, PID> _pidRegistry = new();
     private readonly Dictionary<Guid, ProtoActorMessageStream> _streamRegistry = new();
     private readonly IRootContext _rootContext;
-    private readonly object _lock = new();
-    
+    private readonly Lock _lock = new();
+
     public ProtoActorMessageStreamRegistry(IRootContext rootContext)
     {
         _rootContext = rootContext;
     }
-    
+
     /// <summary>
     /// 注册 Agent 的 PID
     /// </summary>
@@ -29,7 +29,7 @@ public class ProtoActorMessageStreamRegistry
             _streamRegistry[agentId] = new ProtoActorMessageStream(agentId, pid, _rootContext);
         }
     }
-    
+
     /// <summary>
     /// 获取 Agent 的 Stream
     /// </summary>
@@ -41,7 +41,7 @@ public class ProtoActorMessageStreamRegistry
             return stream;
         }
     }
-    
+
     /// <summary>
     /// 获取 Agent 的 PID
     /// </summary>
@@ -53,7 +53,7 @@ public class ProtoActorMessageStreamRegistry
             return pid;
         }
     }
-    
+
     /// <summary>
     /// 移除 Agent
     /// </summary>
@@ -65,7 +65,7 @@ public class ProtoActorMessageStreamRegistry
             _streamRegistry.Remove(agentId);
         }
     }
-    
+
     /// <summary>
     /// 检查是否存在
     /// </summary>
@@ -77,4 +77,3 @@ public class ProtoActorMessageStreamRegistry
         }
     }
 }
-

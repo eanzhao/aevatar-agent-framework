@@ -12,16 +12,16 @@ public class ProtoActorMessageStream : IMessageStream
 {
     private readonly PID _targetPid;
     private readonly IRootContext _rootContext;
-    
+
     public Guid StreamId { get; }
-    
+
     public ProtoActorMessageStream(Guid streamId, PID targetPid, IRootContext rootContext)
     {
         StreamId = streamId;
         _targetPid = targetPid;
         _rootContext = rootContext;
     }
-    
+
     /// <summary>
     /// 发布消息到 Stream（通过 Actor 消息传递）
     /// </summary>
@@ -34,12 +34,13 @@ public class ProtoActorMessageStream : IMessageStream
         }
         else
         {
-            throw new InvalidOperationException($"ProtoActorMessageStream only supports EventEnvelope, got {typeof(T).Name}");
+            throw new InvalidOperationException(
+                $"ProtoActorMessageStream only supports EventEnvelope, got {typeof(T).Name}");
         }
-        
+
         await Task.CompletedTask;
     }
-    
+
     /// <summary>
     /// 订阅 Stream 消息（Proto.Actor 中由 AgentActor 处理）
     /// </summary>
@@ -50,4 +51,3 @@ public class ProtoActorMessageStream : IMessageStream
         return Task.CompletedTask;
     }
 }
-

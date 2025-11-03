@@ -1,5 +1,3 @@
-using Aevatar.Agents.Abstractions;
-
 namespace Aevatar.Agents.Local;
 
 /// <summary>
@@ -9,8 +7,8 @@ namespace Aevatar.Agents.Local;
 public class LocalMessageStreamRegistry
 {
     private readonly Dictionary<Guid, LocalMessageStream> _streams = new();
-    private readonly object _lock = new();
-    
+    private readonly Lock _lock = new();
+
     /// <summary>
     /// 获取或创建 Agent 的 Stream
     /// </summary>
@@ -38,7 +36,7 @@ public class LocalMessageStreamRegistry
             return _streams.ContainsKey(agentId);
         }
     }
-    
+
     /// <summary>
     /// 移除 Agent 的 Stream
     /// </summary>
@@ -53,7 +51,7 @@ public class LocalMessageStreamRegistry
             }
         }
     }
-    
+
     /// <summary>
     /// 获取 Stream（如果存在）
     /// </summary>
@@ -66,4 +64,3 @@ public class LocalMessageStreamRegistry
         }
     }
 }
-

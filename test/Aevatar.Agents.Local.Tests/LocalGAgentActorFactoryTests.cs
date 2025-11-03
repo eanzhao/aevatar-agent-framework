@@ -1,8 +1,5 @@
-using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Xunit;
 
 namespace Aevatar.Agents.Local.Tests;
 
@@ -16,7 +13,7 @@ public class LocalGAgentActorFactoryTests
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.AddConsole());
         _serviceProvider = services.BuildServiceProvider();
-        
+
         _factory = new LocalGAgentActorFactory(
             _serviceProvider,
             _serviceProvider.GetRequiredService<ILogger<LocalGAgentActorFactory>>());
@@ -34,7 +31,7 @@ public class LocalGAgentActorFactoryTests
         // Assert
         Assert.NotNull(actor);
         Assert.Equal(id, actor.Id);
-        
+
         // Cleanup
         await actor.DeactivateAsync();
     }
@@ -47,7 +44,7 @@ public class LocalGAgentActorFactoryTests
         await _factory.CreateAgentAsync<TestAgent, TestState>(id);
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await _factory.CreateAgentAsync<TestAgent, TestState>(id));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await _factory.CreateAgentAsync<TestAgent, TestState>(id));
     }
 }

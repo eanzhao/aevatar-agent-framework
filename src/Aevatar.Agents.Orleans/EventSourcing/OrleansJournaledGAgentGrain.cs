@@ -53,7 +53,7 @@ public abstract class OrleansAgentJournaledEvent
 public class AgentStateChangedEvent : OrleansAgentJournaledEvent
 {
     [Id(0)]
-    public byte[] EventData { get; set; } = Array.Empty<byte>();
+    public byte[] EventData { get; set; } = [];
     
     [Id(1)]
     public Dictionary<string, string> Metadata { get; set; } = new();

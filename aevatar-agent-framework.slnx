@@ -25,6 +25,7 @@
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" Type="Classic C#" />
     <File Path="test/README.md" />
   </Folder>
 </Solution>
