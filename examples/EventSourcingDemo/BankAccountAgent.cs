@@ -37,7 +37,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"Bank Account Agent for {_state.AccountHolder}");
+        return Task.FromResult($"Bank Account Agent for {State.AccountHolder}");
     }
     
     /// <summary>
@@ -71,9 +71,9 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     /// </summary>
     public async Task WithdrawAsync(decimal amount, string description = "")
     {
-        if (_state.Balance < amount)
+        if (State.Balance < amount)
         {
-            throw new InvalidOperationException($"Insufficient balance. Current: ${_state.Balance}, Requested: ${amount}");
+            throw new InvalidOperationException($"Insufficient balance. Current: ${State.Balance}, Requested: ${amount}");
         }
         
         var evt = new MoneyWithdrawn 
@@ -92,21 +92,21 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         switch (evt)
         {
             case AccountCreated created:
-                _state.AccountHolder = created.AccountHolder;
-                _state.Balance = (decimal)created.InitialBalance;
-                _state.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
+                State.AccountHolder = created.AccountHolder;
+                State.Balance = (decimal)created.InitialBalance;
+                State.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
                 break;
                 
             case MoneyDeposited deposited:
-                _state.Balance += (decimal)deposited.Amount;
-                _state.TransactionCount++;
-                _state.History.Add($"[{_state.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
+                State.Balance += (decimal)deposited.Amount;
+                State.TransactionCount++;
+                State.History.Add($"[{State.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
                 break;
             
             case MoneyWithdrawn withdrawn:
-                _state.Balance -= (decimal)withdrawn.Amount;
-                _state.TransactionCount++;
-                _state.History.Add($"[{_state.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
+                State.Balance -= (decimal)withdrawn.Amount;
+                State.TransactionCount++;
+                State.History.Add($"[{State.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
                 break;
         }
         

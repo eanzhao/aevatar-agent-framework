@@ -12,7 +12,7 @@ namespace Aevatar.Agents.Orleans.EventSourcing;
 /// <summary>
 /// Orleans Grain 基类，支持 EventSourcing（不依赖 JournaledGrain）
 /// </summary>
-public abstract class OrleansEventSourcingGrain : Grain, IGAgentGrain
+public abstract class OrleansEventSourcingGrain : Grain, IEventSourcingGAgentGrain
 {
     private IGAgent? _agent;
     private IEventStore? _eventStore;
@@ -148,9 +148,10 @@ public abstract class OrleansEventSourcingGrain : Grain, IGAgentGrain
         await Task.WhenAll(tasks);
     }
     
-    public Task ActivateAsync()
+    public Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null)
     {
-        // Already activated
+        // EventSourcing Grain 暂不支持动态创建Agent
+        // TODO: 实现动态Agent创建
         return Task.CompletedTask;
     }
     
@@ -159,14 +160,44 @@ public abstract class OrleansEventSourcingGrain : Grain, IGAgentGrain
         DeactivateOnIdle();
         return Task.CompletedTask;
     }
-}
-
-/// <summary>
-/// 具体的 EventSourcing Grain 实现
-/// </summary>
-public class GenericEventSourcingGrain : OrleansEventSourcingGrain
-{
-    public GenericEventSourcingGrain(ILogger<GenericEventSourcingGrain> logger) : base(logger)
+    
+    // IEventSourcingGAgentGrain 实现
+    public async Task ReplayEventsAsync()
     {
+        if (_eventStore == null || _agent == null)
+        {
+            _logger.LogWarning("Cannot replay events: EventStore or Agent is null");
+            return;
+        }
+        
+        var agentId = await GetIdAsync();
+        var events = await _eventStore.GetEventsAsync(agentId);
+        
+        _logger.LogInformation("Replaying {EventCount} events for Agent {AgentId}", events.Count, agentId);
+        
+        // 这里需要具体的重放逻辑，取决于Agent的实现
+        // 通常会调用 Agent 的特定方法来应用事件
+    }
+    
+    public async Task<int> GetEventCountAsync()
+    {
+        if (_eventStore == null)
+        {
+            return 0;
+        }
+        
+        var agentId = await GetIdAsync();
+        var events = await _eventStore.GetEventsAsync(agentId);
+        return events.Count;
+    }
+    
+    public async Task CreateSnapshotAsync()
+    {
+        // 创建状态快照
+        var agentId = await GetIdAsync();
+        _logger.LogInformation("Creating snapshot for Agent {AgentId}", agentId);
+        
+        // 这里需要具体的快照逻辑
+        // 通常会保存当前状态到持久化存储
     }
 }

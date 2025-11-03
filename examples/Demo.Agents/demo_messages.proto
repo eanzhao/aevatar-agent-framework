@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package demo.agents;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+
+// ========== Agent States ==========
+
+// Weather Agent State
+message WeatherAgentState {
+    string agent_id = 1;
+    string location = 2;
+    double temperature = 3;
+    string condition = 4;
+    google.protobuf.Timestamp last_update = 5;
+    int32 update_count = 6;
+}
+
+// Bank Account State
+message BankAccountState {
+    string account_id = 1;
+    double balance = 2;
+    int32 transaction_count = 3;
+    google.protobuf.Timestamp last_transaction = 4;
+}
+
+// Stream Processor State
+message StreamState {
+    string agent_id = 1;
+    int32 messages_processed = 2;
+    google.protobuf.Timestamp last_message_time = 3;
+}
+
+// Publisher State
+message PublisherState {
+    string publisher_id = 1;
+    int32 messages_published = 2;
+    repeated string topics = 3;
+}
+
+// Subscriber State
+message SubscriberState {
+    string subscriber_id = 1;
+    int32 messages_received = 2;
+    repeated string subscribed_topics = 3;
+}
+
+// Manager State
+message ManagerState {
+    string manager_id = 1;
+    string department = 2;
+    int32 team_size = 3;
+}
+
+// Employee State
+message EmployeeState {
+    string employee_id = 1;
+    string name = 2;
+    string role = 3;
+}
+
+// Hierarchy State
+message HierarchyState {
+    string agent_id = 1;
+    int32 level = 2;
+    repeated string children = 3;
+}
+
+// Router State
+message RouterState {
+    string router_id = 1;
+    int32 messages_routed = 2;
+    map<string, int32> route_counts = 3;
+}
+
+// Processor State
+message ProcessorState {
+    string processor_id = 1;
+    int32 messages_processed = 2;
+    google.protobuf.Timestamp last_processed = 3;
+}
+
+// Filter State
+message FilterState {
+    string filter_id = 1;
+    int32 messages_filtered = 2;
+    int32 messages_passed = 3;
+}
+
+// Logger State
+message LoggerState {
+    string logger_id = 1;
+    int32 messages_logged = 2;
+    repeated string recent_logs = 3;
+}
+
+// Broadcast State
+message BroadcastState {
+    string broadcaster_id = 1;
+    int32 messages_broadcast = 2;
+    int32 receiver_count = 3;
+}
+
+// ========== Event Messages ==========
+
+// Stream Message
+message StreamMessage {
+    string id = 1;
+    string content = 2;
+    int64 timestamp = 3;
+}
+
+// Publish Message
+message PublishMessage {
+    string topic = 1;
+    string content = 2;
+    int64 timestamp = 3;
+}
+
+// Hierarchy Message
+message HierarchyMessage {
+    string id = 1;
+    string content = 2;
+    string direction = 3;
+    int64 timestamp = 4;
+}
+
+// Routing Message
+message RoutingMessage {
+    string id = 1;
+    string content = 2;
+    string routing_info = 3;
+    int64 timestamp = 4;
+}
+
+// Broadcast Message
+message BroadcastMessage {
+    string id = 1;
+    string topic = 2;
+    string content = 3;
+    int64 timestamp = 4;
+}
+
+// Bank Account Events
+message DepositEvent {
+    double amount = 1;
+    string description = 2;
+}
+
+message WithdrawEvent {
+    double amount = 1;
+    string description = 2;
+}
+
+message BankAccountStateChange {
+    string event_type = 1;
+    double amount = 2;
+    string description = 3;
+}
+
+// Weather Update Event
+message WeatherUpdateEvent {
+    string location = 1;
+    double temperature = 2;
+    string condition = 3;
+}

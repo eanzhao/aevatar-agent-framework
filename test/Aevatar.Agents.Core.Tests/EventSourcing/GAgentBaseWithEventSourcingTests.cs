@@ -240,7 +240,7 @@ public class TestEventSourcingAgent : GAgentBaseWithEventSourcing<TestState>
     {
         if (evt is TestEvent testEvent)
         {
-            _state.Total += testEvent.Value;
+            State.Total += testEvent.Value;
         }
         return Task.CompletedTask;
     }

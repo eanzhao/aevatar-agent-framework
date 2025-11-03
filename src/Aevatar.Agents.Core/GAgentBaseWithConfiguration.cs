@@ -32,7 +32,7 @@ public abstract class GAgentBase<TState, TEvent, TConfiguration> : GAgentBase<TS
     /// <param name="ct">取消令牌</param>
     public virtual async Task ConfigureAsync(TConfiguration configuration, CancellationToken ct = default)
     {
-        _logger.LogInformation("Configuring agent {Id} with {ConfigType}", Id, typeof(TConfiguration).Name);
+        Logger.LogInformation("Configuring agent {Id} with {ConfigType}", Id, typeof(TConfiguration).Name);
         
         await OnConfigureAsync(configuration, ct);
         

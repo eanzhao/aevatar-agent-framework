@@ -64,7 +64,7 @@ public class AgentStateChangedEvent : OrleansAgentJournaledEvent
 /// </summary>
 [LogConsistencyProvider(ProviderName = "LogStorage")]
 [StorageProvider(ProviderName = "Default")]
-public class OrleansJournaledGAgentGrain : JournaledGrain<OrleansAgentJournaledState, OrleansAgentJournaledEvent>, IGAgentGrain
+public class OrleansJournaledGAgentGrain : JournaledGrain<OrleansAgentJournaledState, OrleansAgentJournaledEvent>, IJournaledGAgentGrain
 {
     private IGAgent? _agent;
     private readonly ILogger<OrleansJournaledGAgentGrain> _logger;
@@ -248,9 +248,10 @@ public class OrleansJournaledGAgentGrain : JournaledGrain<OrleansAgentJournaledS
         await Task.WhenAll(tasks);
     }
     
-    public Task ActivateAsync()
+    public Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null)
     {
-        // Already activated
+        // Journaled Grain 暂不支持动态创建Agent
+        // TODO: 实现动态Agent创建
         return Task.CompletedTask;
     }
     
@@ -258,5 +259,38 @@ public class OrleansJournaledGAgentGrain : JournaledGrain<OrleansAgentJournaledS
     {
         DeactivateOnIdle();
         return Task.CompletedTask;
+    }
+    
+    // IEventSourcingGAgentGrain 实现
+    public Task ReplayEventsAsync()
+    {
+        // JournaledGrain 自动处理事件重放
+        _logger.LogInformation("Grain {GrainId} events are automatically replayed by JournaledGrain", this.GetPrimaryKeyString());
+        return Task.CompletedTask;
+    }
+    
+    public Task<int> GetEventCountAsync()
+    {
+        return Task.FromResult((int)Version);
+    }
+    
+    public async Task CreateSnapshotAsync()
+    {
+        // 触发快照
+        await ConfirmEvents();
+        _logger.LogInformation("Grain {GrainId} snapshot created at version {Version}", 
+            this.GetPrimaryKeyString(), Version);
+    }
+    
+    // IJournaledGAgentGrain 实现
+    public Task<long> GetConfirmedVersionAsync()
+    {
+        // JournaledGrain 使用 Version 属性
+        return Task.FromResult(State.Version);
+    }
+    
+    public Task<long> GetVersionAsync()
+    {
+        return Task.FromResult(State.Version);
     }
 }

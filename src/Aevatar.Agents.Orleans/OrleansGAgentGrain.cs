@@ -1,10 +1,12 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Serialization;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Runtime;
+using Orleans.Streams;
 
 namespace Aevatar.Agents.Orleans;
 
@@ -12,10 +14,17 @@ namespace Aevatar.Agents.Orleans;
 /// Orleans Grain 实现
 /// 包装 GAgentBase 并提供事件路由
 /// </summary>
-public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
+public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
 {
     private GAgentBase<object>? _agent;
     private IGrainFactory? _grainFactory;
+    
+    // Orleans Streaming
+    private IStreamProvider? _streamProvider;
+    private IAsyncStream<byte[]>? _myStream;
+    private StreamSubscriptionHandle<byte[]>? _streamSubscription;
+    private readonly Dictionary<Guid, IAsyncStream<byte[]>> _childStreams = new();
+    private IAsyncStream<byte[]>? _parentStream;
 
     // 层级关系
     private Guid? _parentId;
@@ -32,10 +41,42 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
         return Task.FromResult(Guid.Empty);
     }
 
-    public override Task OnActivateAsync(CancellationToken cancellationToken)
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         _grainFactory = GrainFactory;
-        return base.OnActivateAsync(cancellationToken);
+        
+        // 初始化Orleans Streaming
+        try
+        {
+            _streamProvider = this.GetStreamProvider("StreamProvider");
+            var agentId = await GetIdAsync();
+            
+            // 创建自己的Stream
+            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, agentId.ToString());
+            _myStream = _streamProvider.GetStream<byte[]>(streamId);
+            
+            // 订阅自己的Stream来接收事件
+            _streamSubscription = await _myStream.SubscribeAsync(OnStreamEventReceived);
+        }
+        catch (Exception ex)
+        {
+            // 如果Stream Provider未配置，记录警告但继续工作
+            Console.WriteLine($"Warning: Stream provider not configured, falling back to direct calls: {ex.Message}");
+        }
+        
+        await base.OnActivateAsync(cancellationToken);
+    }
+    
+    private async Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
+    {
+        try
+        {
+            await HandleEventAsync(envelopeBytes);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error handling stream event: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -49,27 +90,46 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
 
     // ============ 层级关系管理 ============
 
-    public Task AddChildAsync(Guid childId)
+    public async Task AddChildAsync(Guid childId)
     {
         _childrenIds.Add(childId);
-        return Task.CompletedTask;
+        
+        // 如果使用Streaming，获取子节点的Stream
+        if (_streamProvider != null)
+        {
+            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, childId.ToString());
+            var childStream = _streamProvider.GetStream<byte[]>(streamId);
+            _childStreams[childId] = childStream;
+        }
+        
+        await Task.CompletedTask;
     }
 
     public Task RemoveChildAsync(Guid childId)
     {
         _childrenIds.Remove(childId);
+        _childStreams.Remove(childId);
         return Task.CompletedTask;
     }
 
-    public Task SetParentAsync(Guid parentId)
+    public async Task SetParentAsync(Guid parentId)
     {
         _parentId = parentId;
-        return Task.CompletedTask;
+        
+        // 如果使用Streaming，获取父节点的Stream
+        if (_streamProvider != null)
+        {
+            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, parentId.ToString());
+            _parentStream = _streamProvider.GetStream<byte[]>(streamId);
+        }
+        
+        await Task.CompletedTask;
     }
 
     public Task ClearParentAsync()
     {
         _parentId = null;
+        _parentStream = null;
         return Task.CompletedTask;
     }
 
@@ -154,6 +214,21 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             return;
         }
 
+        // 优先使用Stream
+        if (_parentStream != null)
+        {
+            try
+            {
+                await _parentStream.OnNextAsync(envelope.ToByteArray());
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to send via stream to parent, falling back to direct call: {ex.Message}");
+            }
+        }
+        
+        // Fallback到直接调用
         var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value.ToString());
         await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
@@ -166,6 +241,21 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
             childEnvelope.CurrentHopCount++;
             childEnvelope.Publishers.Add(this.GetGrainId().ToString());
 
+            // 优先使用Stream
+            if (_childStreams.TryGetValue(childId, out var childStream))
+            {
+                try
+                {
+                    await childStream.OnNextAsync(childEnvelope.ToByteArray());
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to send via stream to child {childId}, falling back to direct call: {ex.Message}");
+                }
+            }
+            
+            // Fallback到直接调用
             var childGrain = _grainFactory!.GetGrain<IGAgentGrain>(childId.ToString());
             await childGrain.HandleEventAsync(childEnvelope.ToByteArray());
         }
@@ -233,8 +323,36 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
 
     // ============ 生命周期 ============
 
-    public async Task ActivateAsync()
+    public async Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null)
     {
+        // 如果提供了类型信息，创建Agent实例
+        if (!string.IsNullOrEmpty(agentTypeName) && !string.IsNullOrEmpty(stateTypeName) && _agent == null)
+        {
+            try
+            {
+                var agentType = System.Type.GetType(agentTypeName);
+                var stateType = System.Type.GetType(stateTypeName);
+                
+                if (agentType != null && stateType != null)
+                {
+                    // 创建Agent实例
+                    var agentId = await GetIdAsync();
+                    var agent = Activator.CreateInstance(agentType, agentId) as GAgentBase<object>;
+                    
+                    if (agent != null)
+                    {
+                        SetAgent(agent);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 记录错误但不抛出，允许Grain继续工作
+                Console.WriteLine($"Failed to create agent: {ex.Message}");
+            }
+        }
+        
+        // 激活Agent
         if (_agent != null)
         {
             await _agent.OnActivateAsync();
@@ -247,5 +365,23 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain, IEventPublisher
         {
             await _agent.OnDeactivateAsync();
         }
+    }
+    
+    public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        // 清理Stream订阅
+        if (_streamSubscription != null)
+        {
+            try
+            {
+                await _streamSubscription.UnsubscribeAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error unsubscribing from stream: {ex.Message}");
+            }
+        }
+        
+        await base.OnDeactivateAsync(reason, cancellationToken);
     }
 }

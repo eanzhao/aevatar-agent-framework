@@ -74,13 +74,8 @@ public class BasicProtoActorTests : IDisposable
         var actor = await _factory.CreateAgentAsync<TestAgent, TestState>(agentId);
         
         // Act
-        // Use EventEnvelope instead of TestMessage for proper Protobuf support
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "Hello ProtoActor" })
-        };
-        var testEvent = Any.Pack(envelope);
+        // Send StringValue directly - it will be wrapped in EventEnvelope by the framework
+        var testEvent = new StringValue { Value = "Hello ProtoActor" };
         var eventId = await actor.PublishEventAsync(testEvent, EventDirection.Down);
         
         // Assert
@@ -137,12 +132,7 @@ public class BasicProtoActorTests : IDisposable
         await parentActor.AddChildAsync(childId);
         
         // Act
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "Propagate Up" })
-        };
-        var testEvent = Any.Pack(envelope);
+        var testEvent = new StringValue { Value = "Propagate Up" };
         await childActor.PublishEventAsync(testEvent, EventDirection.Up);
         
         // Give some time for message propagation
@@ -171,12 +161,7 @@ public class BasicProtoActorTests : IDisposable
         await parentActor.AddChildAsync(childId);
         
         // Act
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "Propagate Down" })
-        };
-        var testEvent = Any.Pack(envelope);
+        var testEvent = new StringValue { Value = "Propagate Down" };
         await parentActor.PublishEventAsync(testEvent, EventDirection.Down);
         
         // Give some time for message propagation
@@ -256,27 +241,25 @@ public class TestAgent : GAgentBase<TestState>
     
     public override Task OnActivateAsync(CancellationToken ct = default)
     {
-        _logger?.LogInformation("TestAgent {Id} activated", Id);
+        Logger?.LogInformation("TestAgent {Id} activated", Id);
         return base.OnActivateAsync(ct);
     }
     
     public override Task OnDeactivateAsync(CancellationToken ct = default)
     {
-        _logger?.LogInformation("TestAgent {Id} deactivated", Id);
+        Logger?.LogInformation("TestAgent {Id} deactivated", Id);
         return base.OnDeactivateAsync(ct);
     }
     
+    // Use StringValue as the test event type
     [EventHandler]
-    public Task HandleEventEnvelope(EventEnvelope envelope)
+    public Task HandleStringValue(StringValue stringValue)
     {
         EventHandled = true;
-        // Try to extract StringValue from payload
-        if (envelope.Payload != null && envelope.Payload.Is(StringValue.Descriptor))
-        {
-            var stringValue = envelope.Payload.Unpack<StringValue>();
-            LastMessage = stringValue.Value;
-            _logger?.LogInformation("TestAgent {Id} handled message: {Content}", Id, stringValue.Value);
-        }
+        LastMessage = stringValue.Value;
+        Logger?.LogInformation("TestAgent {Id} handled message: {Content}", Id, stringValue.Value);
+        GetState().Counter++;
+        GetState().LastMessage = stringValue.Value;
         return Task.CompletedTask;
     }
     

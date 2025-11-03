@@ -35,7 +35,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         if (_eventStore == null)
         {
-            _logger.LogWarning("EventStore not configured, state change event will not be persisted");
+            Logger.LogWarning("EventStore not configured, state change event will not be persisted");
             return;
         }
         
@@ -60,7 +60,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         // 持久化事件
         await _eventStore.SaveEventAsync(Id, logEvent, ct);
         
-        _logger.LogDebug("State change event persisted: Agent {AgentId}, Version {Version}, Type {EventType}",
+        Logger.LogDebug("State change event persisted: Agent {AgentId}, Version {Version}, Type {EventType}",
             Id, _currentVersion, logEvent.EventType);
         
         // 应用事件到状态
@@ -86,17 +86,17 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         if (_eventStore == null)
         {
-            _logger.LogWarning("EventStore not configured, cannot replay events");
+            Logger.LogWarning("EventStore not configured, cannot replay events");
             return;
         }
         
-        _logger.LogInformation("Replaying events for Agent {AgentId}", Id);
+        Logger.LogInformation("Replaying events for Agent {AgentId}", Id);
         
         var events = await _eventStore.GetEventsAsync(Id, ct);
         
         if (events == null || !events.Any())
         {
-            _logger.LogInformation("No events to replay for Agent {AgentId}", Id);
+            Logger.LogInformation("No events to replay for Agent {AgentId}", Id);
             return;
         }
         
@@ -108,7 +108,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
                 var eventType = Type.GetType(logEvent.EventType);
                 if (eventType == null)
                 {
-                    _logger.LogWarning("Unknown event type: {EventType}", logEvent.EventType);
+                    Logger.LogWarning("Unknown event type: {EventType}", logEvent.EventType);
                     continue;
                 }
                 
@@ -138,12 +138,12 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error replaying event {EventId} version {Version}",
+                Logger.LogError(ex, "Error replaying event {EventId} version {Version}",
                     logEvent.EventId, logEvent.Version);
             }
         }
         
-        _logger.LogInformation("Replayed {Count} events, current version: {Version}",
+        Logger.LogInformation("Replayed {Count} events, current version: {Version}",
             events.Count, _currentVersion);
     }
     
@@ -154,7 +154,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         // 默认实现：记录日志
         // 子类可以重写以实现真正的快照存储
-        _logger.LogInformation("Snapshot created for Agent {AgentId} at version {Version}",
+        Logger.LogInformation("Snapshot created for Agent {AgentId} at version {Version}",
             Id, _currentVersion);
         
         return Task.CompletedTask;

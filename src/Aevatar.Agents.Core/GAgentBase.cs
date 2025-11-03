@@ -17,9 +17,9 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
 {
     // ============ 字段 ============
     
-    protected readonly TState _state = new();
-    protected readonly ILogger _logger;
-    protected IEventPublisher? _eventPublisher;
+    protected readonly TState State = new();
+    protected readonly ILogger Logger;
+    protected IEventPublisher? EventPublisher;
     
     // 事件处理器缓存（类型 -> 方法列表）
     private static readonly ConcurrentDictionary<Type, MethodInfo[]> _handlerCache = new();
@@ -28,13 +28,13 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     
     protected GAgentBase(ILogger? logger = null)
     {
-        _logger = logger ?? NullLogger.Instance;
+        Logger = logger ?? NullLogger.Instance;
         Id = Guid.NewGuid();
     }
     
     protected GAgentBase(Guid id, ILogger? logger = null)
     {
-        _logger = logger ?? NullLogger.Instance;
+        Logger = logger ?? NullLogger.Instance;
         Id = id;
     }
     
@@ -42,7 +42,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     
     public Guid Id { get; }
     
-    public virtual TState GetState() => _state;
+    public virtual TState GetState() => State;
     
     public abstract Task<string> GetDescriptionAsync();
     
@@ -57,13 +57,13 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
         CancellationToken ct = default)
         where TEvent : IMessage
     {
-        if (_eventPublisher == null)
+        if (EventPublisher == null)
         {
             throw new InvalidOperationException(
                 "EventPublisher is not set. Make sure the Actor layer has initialized this agent.");
         }
         
-        return await _eventPublisher.PublishAsync(evt, direction, ct);
+        return await EventPublisher.PublishAsync(evt, direction, ct);
     }
     
     /// <summary>
@@ -71,7 +71,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     /// </summary>
     public void SetEventPublisher(IEventPublisher publisher)
     {
-        _eventPublisher = publisher;
+        EventPublisher = publisher;
     }
     
     // ============ 事件处理器发现 ============
@@ -99,7 +99,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
                          int.MaxValue)
             .ToArray();
         
-        _logger.LogDebug("Discovered {Count} event handlers for {Type}", handlers.Length, type.Name);
+        Logger.LogDebug("Discovered {Count} event handlers for {Type}", handlers.Length, type.Name);
         
         return handlers;
     }
@@ -185,13 +185,13 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
                     catch (Exception ex)
                     {
                         // Unpack 失败，可能是类型不匹配，跳过
-                        _logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
+                        Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
+                Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
                 
                 // 发布异常事件
                 await PublishExceptionEventAsync(envelope, handler.Name, ex);
@@ -273,7 +273,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     /// </summary>
     public virtual Task PrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
     {
-        _logger.LogDebug("Preparing resource context for Agent {Id} with {ResourceCount} resources",
+        Logger.LogDebug("Preparing resource context for Agent {Id} with {ResourceCount} resources",
             Id, context.AvailableResources.Count);
         
         return OnPrepareResourceContextAsync(context, ct);
@@ -301,7 +301,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     {
         try
         {
-            if (_eventPublisher == null)
+            if (EventPublisher == null)
                 return;
             
             var exceptionEvent = new EventHandlerExceptionEvent
@@ -315,13 +315,13 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
             
-            _logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
+            Logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
             
-            await _eventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error publishing exception event");
+            Logger.LogError(ex, "Error publishing exception event");
         }
     }
     
@@ -334,7 +334,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     {
         try
         {
-            if (_eventPublisher == null)
+            if (EventPublisher == null)
                 return;
             
             var exceptionEvent = new GAgentBaseExceptionEvent
@@ -346,13 +346,13 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
             
-            _logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
+            Logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
             
-            await _eventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error publishing framework exception event");
+            Logger.LogError(ex, "Error publishing framework exception event");
         }
     }
     
@@ -363,7 +363,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     /// </summary>
     public virtual Task OnActivateAsync(CancellationToken ct = default)
     {
-        _logger.LogDebug("Agent {Id} activated", Id);
+        Logger.LogDebug("Agent {Id} activated", Id);
         return Task.CompletedTask;
     }
     
@@ -372,7 +372,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
     /// </summary>
     public virtual Task OnDeactivateAsync(CancellationToken ct = default)
     {
-        _logger.LogDebug("Agent {Id} deactivated", Id);
+        Logger.LogDebug("Agent {Id} deactivated", Id);
         return Task.CompletedTask;
     }
 }

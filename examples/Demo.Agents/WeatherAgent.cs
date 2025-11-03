@@ -4,14 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-/// <summary>
-/// 天气查询Agent状态
-/// </summary>
-public class WeatherAgentState
-{
-    public Dictionary<string, string> WeatherCache { get; set; } = new();
-    public int QueryCount { get; set; }
-}
+// WeatherAgentState 已在 demo_messages.proto 中定义
 
 /// <summary>
 /// 示例：天气查询Agent
@@ -33,16 +26,24 @@ public class WeatherAgent : GAgentBase<WeatherAgentState>
     /// </summary>
     public async Task<string> GetWeatherAsync(string city, CancellationToken ct = default)
     {
-        // 检查缓存
-        if (_state.WeatherCache.TryGetValue(city, out var cached))
-        {
-            return cached;
-        }
+        // 更新状态
+        State.Location = city;
+        State.UpdateCount++;
+        State.LastUpdate = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
 
         // 模拟天气查询
         var weather = GenerateWeather(city);
-        _state.WeatherCache[city] = weather;
-        _state.QueryCount++;
+        
+        // 更新天气状态
+        var parts = weather.Split(',');
+        if (parts.Length >= 2)
+        {
+            State.Condition = parts[0].Trim();
+            if (double.TryParse(parts[1].Replace("°C", "").Trim(), out var temp))
+            {
+                State.Temperature = temp;
+            }
+        }
 
         Console.WriteLine($"[WeatherAgent] 城市 {city} 天气查询: {weather}");
 
@@ -52,7 +53,7 @@ public class WeatherAgent : GAgentBase<WeatherAgentState>
     /// <summary>
     /// 获取查询统计
     /// </summary>
-    public int GetQueryCount() => _state.QueryCount;
+    public int GetQueryCount() => State.UpdateCount;
 
     private string GenerateWeather(string city)
     {

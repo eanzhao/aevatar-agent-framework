@@ -82,13 +82,13 @@ public abstract class GAgentBase<TState, TEvent> : GAgentBase<TState>
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
+                        Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
+                Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
             }
         }
     }

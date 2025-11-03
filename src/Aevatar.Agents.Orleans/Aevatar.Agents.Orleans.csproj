@@ -14,10 +14,11 @@
         <PackageReference Include="Microsoft.Orleans.EventSourcing" Version="9.2.1" />
     </ItemGroup>
 
-    <ItemGroup>
-        <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
-        <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
-    </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
+  </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />

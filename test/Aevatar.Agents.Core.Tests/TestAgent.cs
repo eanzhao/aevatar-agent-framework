@@ -29,8 +29,8 @@ public class TestAgent : GAgentBase<TestState>
     public Task HandleConfigEventAsync(GeneralConfigEvent evt)
     {
         EventHandledCount++;
-        _state.Counter++;
-        _state.Name = evt.ConfigKey;
+        State.Counter++;
+        State.Name = evt.ConfigKey;
         return Task.CompletedTask;
     }
 }

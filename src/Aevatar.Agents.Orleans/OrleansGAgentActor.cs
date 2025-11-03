@@ -1,3 +1,7 @@
+using System;
+using System.IO;
+using System.Linq;
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Orleans;
 
@@ -61,16 +65,39 @@ public class OrleansGAgentActor : IGAgentActor
 
     // ============ 事件发布和路由 ============
 
-    public Task<string> PublishEventAsync<TEvent>(
+    public async Task<string> PublishEventAsync<TEvent>(
         TEvent evt,
         EventDirection direction = EventDirection.Down,
         CancellationToken ct = default)
         where TEvent : Google.Protobuf.IMessage
     {
-        // Orleans Grain 内部处理事件发布
-        // 这里需要通过 IEventPublisher 来实现
-        // 由于 Grain 已经实现了 IEventPublisher，可以直接调用
-        throw new NotSupportedException("Use the Grain's internal event publishing mechanism");
+        // 如果事件已经是 EventEnvelope，直接使用
+        EventEnvelope envelope;
+        if (evt is EventEnvelope env)
+        {
+            envelope = env;
+        }
+        else
+        {
+            // 否则包装成 EventEnvelope
+            envelope = new EventEnvelope
+            {
+                Id = Guid.NewGuid().ToString(),
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
+                Direction = direction
+            };
+        }
+        
+        // 序列化并发送到 Grain
+        using var stream = new MemoryStream();
+        using var output = new Google.Protobuf.CodedOutputStream(stream);
+        envelope.WriteTo(output);
+        output.Flush();
+        
+        await _grain.HandleEventAsync(stream.ToArray());
+        
+        return envelope.Id;
     }
 
     public Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
@@ -87,7 +114,11 @@ public class OrleansGAgentActor : IGAgentActor
 
     public Task ActivateAsync(CancellationToken ct = default)
     {
-        return _grain.ActivateAsync();
+        // 获取Agent的类型信息
+        var agentType = _agent.GetType();
+        var stateType = _agent.GetType().BaseType?.GetGenericArguments().FirstOrDefault() ?? typeof(object);
+        
+        return _grain.ActivateAsync(agentType.AssemblyQualifiedName, stateType.AssemblyQualifiedName);
     }
 
     public Task DeactivateAsync(CancellationToken ct = default)
