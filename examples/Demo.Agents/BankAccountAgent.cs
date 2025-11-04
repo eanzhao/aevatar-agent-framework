@@ -33,55 +33,49 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     }
     
     [EventHandler]
-    public async Task HandleDeposit(EventEnvelope envelope)
+    public async Task HandleDeposit(DepositEvent deposit)
     {
-        if (envelope.Payload != null && envelope.Payload.TryUnpack<DepositEvent>(out var deposit))
+        Logger?.LogInformation("BankAccount {Id} processing deposit of {Amount}", Id, deposit.Amount);
+        
+        // 创建状态变更事件
+        var stateChange = new BankAccountStateChange
         {
-            Logger?.LogInformation("BankAccount {Id} processing deposit of {Amount}", Id, deposit.Amount);
+            EventType = "Deposit",
+            Amount = deposit.Amount,
+            Description = deposit.Description
+        };
+        
+        // 持久化状态变更
+        await RaiseStateChangeEventAsync(Any.Pack(stateChange));
+        
+        // 应用状态变更
+        await ApplyDepositAsync(deposit.Amount);
+    }
+    
+    [EventHandler]
+    public async Task HandleWithdraw(WithdrawEvent withdraw)
+    {
+        if (State.Balance >= withdraw.Amount)
+        {
+            Logger?.LogInformation("BankAccount {Id} processing withdrawal of {Amount}", Id, withdraw.Amount);
             
             // 创建状态变更事件
             var stateChange = new BankAccountStateChange
             {
-                EventType = "Deposit",
-                Amount = deposit.Amount,
-                Description = deposit.Description
+                EventType = "Withdraw",
+                Amount = withdraw.Amount,
+                Description = withdraw.Description
             };
             
             // 持久化状态变更
             await RaiseStateChangeEventAsync(Any.Pack(stateChange));
             
             // 应用状态变更
-            await ApplyDepositAsync(deposit.Amount);
+            await ApplyWithdrawAsync(withdraw.Amount);
         }
-    }
-    
-    [EventHandler]
-    public async Task HandleWithdraw(EventEnvelope envelope)
-    {
-        if (envelope.Payload != null && envelope.Payload.TryUnpack<WithdrawEvent>(out var withdraw))
+        else
         {
-            if (State.Balance >= withdraw.Amount)
-            {
-                Logger?.LogInformation("BankAccount {Id} processing withdrawal of {Amount}", Id, withdraw.Amount);
-                
-                // 创建状态变更事件
-                var stateChange = new BankAccountStateChange
-                {
-                    EventType = "Withdraw",
-                    Amount = withdraw.Amount,
-                    Description = withdraw.Description
-                };
-                
-                // 持久化状态变更
-                await RaiseStateChangeEventAsync(Any.Pack(stateChange));
-                
-                // 应用状态变更
-                await ApplyWithdrawAsync(withdraw.Amount);
-            }
-            else
-            {
-                Logger?.LogWarning("BankAccount {Id} insufficient balance for withdrawal of {Amount}", Id, withdraw.Amount);
-            }
+            Logger?.LogWarning("BankAccount {Id} insufficient balance for withdrawal of {Amount}", Id, withdraw.Amount);
         }
     }
     

@@ -13,7 +13,7 @@ public class ManagerAgent : GAgentBase<ManagerState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task HandleManagementEvent(EventEnvelope envelope)
     {
         // proto中没有EventsReceived字段，使用TeamSize代替
@@ -38,7 +38,7 @@ public class EmployeeAgent : GAgentBase<EmployeeState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task HandleWorkEvent(EventEnvelope envelope)
     {
         // proto中没有TasksCompleted字段
@@ -64,12 +64,12 @@ public class HierarchyAgent : GAgentBase<HierarchyState>
     }
     
     [EventHandler]
-    public Task HandleHierarchyMessage(EventEnvelope envelope)
+    public Task HandleHierarchyMessage(HierarchyMessage message)
     {
         // proto中没有MessagesReceived和LastMessageDirection字段
         State.Level++;
-        Logger?.LogInformation("HierarchyAgent {Id} received message with direction {Direction}", 
-            Id, envelope.Direction);
+        Logger?.LogInformation("HierarchyAgent {Id} received hierarchy message: {Content}", 
+            Id, message.Content);
         return Task.CompletedTask;
     }
     

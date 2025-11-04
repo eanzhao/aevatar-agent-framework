@@ -15,11 +15,11 @@ public class RouterAgent : GAgentBase<RouterState>
     }
     
     [EventHandler]
-    public Task HandleRoutingMessage(EventEnvelope envelope)
+    public Task HandleRoutingMessage(RoutingMessage message)
     {
         State.MessagesRouted++;
-        Logger?.LogInformation("Router {Id} routing message, hop count: {HopCount}", 
-            Id, envelope.CurrentHopCount);
+        Logger?.LogInformation("Router {Id} routing message {MessageId} with routing info: {RoutingInfo}", 
+            Id, message.Id, message.RoutingInfo);
         return Task.CompletedTask;
     }
     
@@ -39,7 +39,7 @@ public class ProcessorAgent : GAgentBase<ProcessorState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task ProcessEvent(EventEnvelope envelope)
     {
         State.MessagesProcessed++;
@@ -64,7 +64,7 @@ public class FilterAgent : GAgentBase<FilterState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task FilterEvent(EventEnvelope envelope)
     {
         State.MessagesFiltered++;
@@ -103,7 +103,7 @@ public class LoggerAgent : GAgentBase<LoggerState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task LogEvent(EventEnvelope envelope)
     {
         State.MessagesLogged++;
@@ -136,12 +136,12 @@ public class BroadcastAgent : GAgentBase<BroadcastState>
     }
     
     [EventHandler]
-    public Task HandleBroadcast(EventEnvelope envelope)
+    public Task HandleBroadcast(BroadcastMessage broadcast)
     {
         State.MessagesBroadcast++;
         State.ReceiverCount = 1; // 自己是接收者
-        Logger?.LogInformation("BroadcastAgent {Id} received broadcast from {Source}", 
-            Id, envelope.PublisherId);
+        Logger?.LogInformation("BroadcastAgent {Id} received broadcast on topic {Topic}: {Content}", 
+            Id, broadcast.Topic, broadcast.Content);
         return Task.CompletedTask;
     }
     
