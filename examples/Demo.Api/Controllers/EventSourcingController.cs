@@ -40,7 +40,7 @@ public class EventSourcingController : ControllerBase
         {
             // 创建银行账户Agent
             var accountId = Guid.NewGuid();
-            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(accountId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent>(accountId);
             
             _logger.LogInformation("Created BankAccountAgent {AccountId} on {Runtime}", accountId, runtime);
 
