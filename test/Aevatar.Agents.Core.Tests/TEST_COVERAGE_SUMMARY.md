@@ -37,7 +37,6 @@ To reach 90% coverage, we need comprehensive tests for:
 - [ ] IGAgentActorFactory interface tests
 - [ ] IGAgentActorManager interface tests
 - [ ] IEventPublisher interface tests
-- [ ] IEventSourcingAgent interface tests
 - [ ] IMessageStream interface tests
 - [ ] IStateDispatcher interface tests (partially done)
 - [ ] IEventStore interface tests (partially done)
@@ -47,8 +46,30 @@ Based on the cobertura report:
 - Overall line coverage: 32.4% (845/2608 lines)
 - Overall branch coverage: 23.12% (228/986 branches)
 
-## Action Plan
-1. Create comprehensive test suites for all Core components
+## Latest Updates
+
+### Completed (Today):
+- ✅ Created test_messages.proto for proper Protobuf message definitions
+- ✅ Added comprehensive tests for GAgentBase (18 tests)
+- ✅ Added tests for StateDispatcher (7 tests)
+- ✅ Added tests for InMemoryEventStore (8 tests)
+- ✅ Added tests for ResourceContext (6 tests)
+- ✅ Added tests for EventEnvelopeExtensions (4 tests)
+- ✅ Added tests for MessageExtensions (6 tests)
+- ✅ Added tests for Attributes (EventHandlerAttribute, AllEventHandlerAttribute, ConfigurationAttribute)
+- ✅ Added tests for AgentTypeHelper (5 tests)
+- ✅ Fixed failing tests: exception handling and self-handling logic
+- ✅ Removed IEventSourcingAgent (redundant marker interface)
+- ✅ Removed IMessageSerializer and ProtobufSerializer (unused abstractions)
+- ✅ Added automatic Logger injection for GAgentBase and GAgentActorBase
+
+### Architecture Improvements:
+- Simplified interface hierarchy by removing unnecessary abstractions
+- Improved developer experience with automatic Logger injection
+- Enhanced testability with proper Protobuf message definitions
+
+## Action Plan (Remaining)
+1. Create comprehensive test suites for remaining Core components
 2. Add interface mock tests for all Abstractions
 3. Increase branch coverage with edge cases
 4. Add integration tests for complex scenarios

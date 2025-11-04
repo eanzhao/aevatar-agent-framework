@@ -1,8 +1,10 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
+using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
 
 namespace Aevatar.Agents.Core;
 
@@ -15,27 +17,61 @@ public abstract class GAgentActorBase : IGAgentActor
     // ============ 字段 ============
 
     protected readonly IGAgent Agent;
-    protected readonly ILogger Logger;
-    protected readonly EventRouter EventRouter;
+    private ILogger _logger = NullLogger.Instance;
+    protected EventRouter EventRouter;
+
+    /// <summary>
+    /// Logger 属性 - 支持自动注入
+    /// </summary>
+    protected ILogger Logger
+    {
+        get => _logger;
+        set
+        {
+            _logger = value ?? NullLogger.Instance;
+            // 更新 EventRouter 的 Logger
+            if (EventRouter != null)
+            {
+                // EventRouter 是只读的，需要重新创建
+                EventRouter = new EventRouter(
+                    Agent.Id,
+                    SendEventToActorAsync,
+                    SendToSelfAsync,
+                    _logger
+                );
+            }
+        }
+    }
 
     // ============ 构造函数 ============
 
+    /// <summary>
+    /// 完整构造函数 - Agent 和 Logger
+    /// </summary>
     protected GAgentActorBase(IGAgent agent, ILogger? logger = null)
     {
         Agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        Logger = logger ?? NullLogger.Instance;
+        Logger = logger;  // 使用属性 setter，会自动处理 null
 
         // 创建事件路由器
         EventRouter = new EventRouter(
             agent.Id,
             SendEventToActorAsync,
             SendToSelfAsync,
-            logger
+            _logger
         );
 
         // 设置 Agent 的 EventPublisher
         var setPublisherMethod = agent.GetType().GetMethod("SetEventPublisher");
         setPublisherMethod?.Invoke(agent, new object[] { this });
+    }
+
+    /// <summary>
+    /// 只有 Agent 的构造函数 - 支持自动注入
+    /// </summary>
+    protected GAgentActorBase(IGAgent agent)
+        : this(agent, null)
+    {
     }
 
     // ============ IGAgentActor 实现 ============
@@ -98,16 +134,46 @@ public abstract class GAgentActorBase : IGAgentActor
         CancellationToken ct = default)
         where TEvent : IMessage
     {
+        var stopwatch = Stopwatch.StartNew();
+        
         // 使用 EventRouter 创建 EventEnvelope
         var envelope = EventRouter.CreateEventEnvelope(evt, direction);
+
+        using var scope = LoggingScope.CreateAgentScope(
+            Logger, 
+            Id, 
+            "PublishEvent",
+            new Dictionary<string, object>
+            {
+                ["EventId"] = envelope.Id,
+                ["EventType"] = typeof(TEvent).Name,
+                ["Direction"] = direction.ToString()
+            });
 
         Logger.LogDebug("Agent {AgentId} publishing event {EventId} with direction {Direction}",
             Id, envelope.Id, direction);
 
-        // 通过 EventRouter 路由事件
-        await EventRouter.RouteEventAsync(envelope, ct);
+        try
+        {
+            // 通过 EventRouter 路由事件
+            await EventRouter.RouteEventAsync(envelope, ct);
+            
+            // 记录发布指标
+            stopwatch.Stop();
+            AgentMetrics.RecordEventPublished(typeof(TEvent).Name, Id.ToString());
+            AgentMetrics.EventPublishLatency.Record(stopwatch.ElapsedMilliseconds,
+                new KeyValuePair<string, object?>("event.type", typeof(TEvent).Name),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()),
+                new KeyValuePair<string, object?>("direction", direction.ToString()));
 
-        return envelope.Id;
+            return envelope.Id;
+        }
+        catch (Exception ex)
+        {
+            // 记录异常指标
+            AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "ActorPublishEvent");
+            throw;
+        }
     }
 
 
@@ -116,26 +182,57 @@ public abstract class GAgentActorBase : IGAgentActor
     /// </summary>
     public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
+        var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+        
+        using var scope = LoggingScope.CreateEventHandlingScope(
+            Logger,
+            Id,
+            envelope.Id,
+            eventType,
+            envelope.CorrelationId);
+            
         Logger.LogDebug("Agent {AgentId} handling event {EventId}", Id, envelope.Id);
 
         // 使用 EventRouter 检查是否应该处理事件
         if (!EventRouter.ShouldProcessEvent(envelope))
-            return;
-
-        // 处理事件
-        await ProcessEventAsync(envelope, ct);
-
-        // 判断是否需要继续传播
-        // 如果是自己发布的事件（PublisherId == Id），则已经在 RouteEventAsync 中传播过了
-        // 如果是收到的事件（PublisherId != Id），则需要继续传播
-        bool isInitialPublisher = envelope.PublisherId == Id.ToString();
-
-        if (!isInitialPublisher)
         {
-            // 收到的事件，需要继续传播（递归传播）
-            Logger.LogDebug("Agent {AgentId} continuing propagation of event {EventId} from {PublisherId}",
-                Id, envelope.Id, envelope.PublisherId);
-            await EventRouter.ContinuePropagationAsync(envelope, ct);
+            // 记录被跳过的事件
+            AgentMetrics.EventsDropped.Add(1,
+                new KeyValuePair<string, object?>("event.type", eventType),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()),
+                new KeyValuePair<string, object?>("reason", "Duplicate"));
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
+        {
+            // 处理事件
+            await ProcessEventAsync(envelope, ct);
+            
+            // 记录处理指标
+            stopwatch.Stop();
+            AgentMetrics.RecordEventHandled(eventType, Id.ToString(), stopwatch.ElapsedMilliseconds);
+
+            // 判断是否需要继续传播
+            // 如果是自己发布的事件（PublisherId == Id），则已经在 RouteEventAsync 中传播过了
+            // 如果是收到的事件（PublisherId != Id），则需要继续传播
+            bool isInitialPublisher = envelope.PublisherId == Id.ToString();
+
+            if (!isInitialPublisher)
+            {
+                // 收到的事件，需要继续传播（递归传播）
+                Logger.LogDebug("Agent {AgentId} continuing propagation of event {EventId} from {PublisherId}",
+                    Id, envelope.Id, envelope.PublisherId);
+                await EventRouter.ContinuePropagationAsync(envelope, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 记录异常指标
+            AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "ActorHandleEvent");
+            throw;
         }
     }
 

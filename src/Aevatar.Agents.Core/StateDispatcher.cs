@@ -19,7 +19,7 @@ public class StateDispatcher : IStateDispatcher
     // 批量状态变更的 Channel（批处理）
     private readonly Dictionary<Guid, Channel<object>> _batchChannels = new();
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public StateDispatcher(ILogger<StateDispatcher>? logger = null)
     {

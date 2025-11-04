@@ -56,7 +56,7 @@ public static class AgentTypeHelper
     }
     
     /// <summary>
-    /// 通过反射调用双参数版本的 CreateAgentAsync
+    /// 通过反射调用双参数版本的 CreateGAgentActorAsync
     /// </summary>
     public static async Task<IGAgentActor> InvokeCreateAgentAsync(
         IGAgentActorFactory factory,
@@ -65,11 +65,11 @@ public static class AgentTypeHelper
         Guid id,
         CancellationToken ct = default)
     {
-        // 获取 CreateAgentAsync<TAgent, TState> 方法
+        // 获取 CreateGAgentActorAsync<TAgent, TState> 方法
         var method = typeof(IGAgentActorFactory)
             .GetMethods()
             .First(m => 
-                m.Name == "CreateAgentAsync" && 
+                m.Name == "CreateGAgentActorAsync" && 
                 m.GetGenericArguments().Length == 2);
         
         // 构造泛型方法

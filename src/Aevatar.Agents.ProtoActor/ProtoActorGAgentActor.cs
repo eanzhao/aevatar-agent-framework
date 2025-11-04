@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Observability;
 using Microsoft.Extensions.Logging;
 using Proto;
 
@@ -11,6 +12,7 @@ namespace Aevatar.Agents.ProtoActor;
 /// </summary>
 public class ProtoActorGAgentActor : GAgentActorBase
 {
+    private static int _activeActorCount = 0;
     private readonly IRootContext _rootContext;
     private readonly PID _actorPid;
     private readonly ProtoActorMessageStreamRegistry _streamRegistry;
@@ -85,6 +87,11 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 await task;
             }
         }
+        
+        // 更新活跃 Actor 计数
+        var count = Interlocked.Increment(ref _activeActorCount);
+        AgentMetrics.UpdateActiveActorCount(count);
+        Logger.LogDebug("Active actor count: {Count}", count);
     }
 
     public override async Task DeactivateAsync(CancellationToken ct = default)
@@ -107,7 +114,12 @@ public class ProtoActorGAgentActor : GAgentActorBase
         
         // 从 Registry 中移除 Agent，以允许后续重新创建相同 ID 的 Actor
         _streamRegistry.Remove(Id);
-        
+
         Logger.LogDebug("Agent {AgentId} removed from registry", Id);
+        
+        // 更新活跃 Actor 计数
+        var count = Interlocked.Decrement(ref _activeActorCount);
+        AgentMetrics.UpdateActiveActorCount(count);
+        Logger.LogDebug("Active actor count: {Count}", count);
     }
 }

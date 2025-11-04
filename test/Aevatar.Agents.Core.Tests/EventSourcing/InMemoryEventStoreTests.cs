@@ -227,7 +227,7 @@ public class InMemoryEventStoreTests
         for (int i = 1; i <= 100; i++)
         {
             int version = i;
-            tasks.Add(Task.Run(async () => 
+            tasks.Add(Task.Run(async () =>
             {
                 await store.SaveEventAsync(agentId, new StateLogEvent 
                 { 

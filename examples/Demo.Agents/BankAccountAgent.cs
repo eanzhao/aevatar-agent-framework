@@ -124,6 +124,3 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         return Task.FromResult($"BankAccount {Id}: Balance={State.Balance:C}, Transactions={State.TransactionCount}");
     }
 }
-
-// 状态和事件类型已在 demo_messages.proto 中定义
-// 使用 Protobuf 生成的类型

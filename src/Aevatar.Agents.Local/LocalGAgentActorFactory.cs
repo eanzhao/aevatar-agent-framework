@@ -52,6 +52,9 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
 
         // 创建 Agent 实例
         var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        
+        // 自动注入 Logger
+        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
 
         // 创建 Actor（使用 Stream）
         var actor = new LocalGAgentActor(
@@ -59,6 +62,9 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
             _streamRegistry,
             _serviceProvider.GetService<ILogger<LocalGAgentActor>>()
         );
+
+        // 自动注入 Actor 的 Logger（使用更精确的类型）
+        AgentLoggerInjector.InjectLogger(actor, _serviceProvider);
 
         // 激活（会订阅 Stream）
         await actor.ActivateAsync(ct);

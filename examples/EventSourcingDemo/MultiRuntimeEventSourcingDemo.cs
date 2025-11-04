@@ -9,6 +9,7 @@ using EventSourcingDemo;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Proto;
+using Demo.Agents;
 
 namespace EventSourcingDemo;
 
@@ -130,7 +131,7 @@ public static class MultiRuntimeEventSourcingDemo
                 Console.WriteLine($"  账户持有人: {recoveredAgent.GetState().AccountHolder}");
                 
                 // 验证
-                if (recoveredAgent.GetState().Balance == 1300m && 
+                if (recoveredAgent.GetState().Balance == 1300.0 && 
                     recoveredAgent.GetCurrentVersion() == 3)
                 {
                     Console.WriteLine("  ✅ 状态完美恢复！Actor-Agent 模型验证成功！");
@@ -226,7 +227,7 @@ public static class MultiRuntimeEventSourcingDemo
                     Console.WriteLine($"  重建后余额: ${recoveredAgent.GetState().Balance}");
                     Console.WriteLine($"  重建后版本: {recoveredAgent.GetCurrentVersion()}");
                     
-                    if (recoveredAgent.GetState().Balance == 2500m)
+                    if (recoveredAgent.GetState().Balance == 2500.0)
                     {
                         Console.WriteLine("  ✅ ProtoActor EventSourcing 验证成功！Actor-Agent 模型验证成功！");
                     }

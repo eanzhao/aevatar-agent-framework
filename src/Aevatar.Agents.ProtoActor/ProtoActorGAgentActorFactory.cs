@@ -57,6 +57,9 @@ public class ProtoActorGAgentActorFactory : IGAgentActorFactory
 
         // 创建 Agent 实例
         var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        
+        // 自动注入 Logger
+        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
 
         // 创建 Proto.Actor Actor
         var props = Props.FromProducer(() => new AgentActor());
@@ -70,6 +73,9 @@ public class ProtoActorGAgentActorFactory : IGAgentActorFactory
             _streamRegistry,
             _serviceProvider.GetService<ILogger<ProtoActorGAgentActor>>()
         );
+
+        // 自动注入 Actor 的 Logger（使用更精确的类型）
+        AgentLoggerInjector.InjectLogger(gagentActor, _serviceProvider);
 
         // 设置 GAgentActor 到 Proto.Actor Actor
         _actorSystem.Root.Send(pid, new SetGAgentActor { GAgentActor = gagentActor });

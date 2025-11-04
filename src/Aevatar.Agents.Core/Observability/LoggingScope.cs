@@ -22,7 +22,7 @@ public static class LoggingScope
             ["AgentId"] = agentId,
             ["Operation"] = operation
         };
-        
+
         if (additionalData != null)
         {
             foreach (var kvp in additionalData)
@@ -30,10 +30,10 @@ public static class LoggingScope
                 scopeData[kvp.Key] = kvp.Value;
             }
         }
-        
+
         return logger.BeginScope(scopeData) ?? new NoOpDisposable();
     }
-    
+
     /// <summary>
     /// 创建事件处理的日志作用域
     /// </summary>
@@ -50,21 +50,22 @@ public static class LoggingScope
             ["EventId"] = eventId,
             ["EventType"] = eventType
         };
-        
+
         if (correlationId != null)
         {
             scopeData["CorrelationId"] = correlationId;
         }
-        
+
         return logger.BeginScope(scopeData) ?? new NoOpDisposable();
     }
-    
+
     /// <summary>
     /// 空的 Disposable（当 BeginScope 返回 null 时使用）
     /// </summary>
     private class NoOpDisposable : IDisposable
     {
-        public void Dispose() { }
+        public void Dispose()
+        {
+        }
     }
 }
-

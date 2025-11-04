@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 
 namespace Aevatar.Agents.Core;
@@ -16,7 +17,7 @@ public static class GAgentExtensions
         try
         {
             var state = agent.GetState();
-            return System.Text.Json.JsonSerializer.Serialize(state);
+            return JsonSerializer.Serialize(state);
         }
         catch
         {

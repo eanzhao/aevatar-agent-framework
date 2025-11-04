@@ -53,14 +53,15 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
 
         // 创建本地 Agent 实例
         var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        
+        // 自动注入 Logger
+        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
 
         // 根据配置获取适当的 Grain
         IGAgentGrain grain;
         
-        // 检查 Agent 是否支持事件溯源
-        bool isEventSourcingAgent = agent is IEventSourcingAgent;
-        
-        if (isEventSourcingAgent || _options.UseEventSourcing)
+        // 根据配置决定是否使用事件溯源
+        if (_options.UseEventSourcing)
         {
             if (_options.UseJournaledGrain)
             {

@@ -1,9 +1,6 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
-using Google.Protobuf;
+using Aevatar.Agents.Core.Observability;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Local;
@@ -14,9 +11,10 @@ namespace Aevatar.Agents.Local;
 /// </summary>
 public class LocalGAgentActor : GAgentActorBase
 {
+    private static int _activeActorCount = 0;
     private readonly LocalMessageStreamRegistry _streamRegistry;
-    private readonly LocalMessageStream _myStream;  // 这个 Actor 的 Stream
-    
+    private readonly LocalMessageStream _myStream; // 这个 Actor 的 Stream
+
     public LocalGAgentActor(
         IGAgent agent,
         LocalMessageStreamRegistry streamRegistry,
@@ -24,13 +22,13 @@ public class LocalGAgentActor : GAgentActorBase
         : base(agent, logger)
     {
         _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
-        
+
         // 获取这个 Actor 的 Stream
         _myStream = streamRegistry.GetOrCreateStream(agent.Id);
     }
-    
+
     // ============ 抽象方法实现 ============
-    
+
     /// <summary>
     /// 发送事件给自己（通过自己的 Stream）
     /// </summary>
@@ -38,7 +36,7 @@ public class LocalGAgentActor : GAgentActorBase
     {
         await _myStream.ProduceAsync(envelope, ct);
     }
-    
+
     /// <summary>
     /// 发送事件到指定的 Actor（通过目标 Actor 的 Stream）
     /// </summary>
@@ -54,18 +52,18 @@ public class LocalGAgentActor : GAgentActorBase
             Logger.LogWarning("Stream for actor {ActorId} not found", actorId);
         }
     }
-    
+
     // ============ 生命周期 ============
-    
+
     public override async Task ActivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("Activating agent {AgentId}", Id);
-        
+
         // 订阅自己的 Stream
         await _myStream.SubscribeAsync<EventEnvelope>(
-            async envelope => await HandleEventAsync(envelope, ct), 
+            async envelope => await HandleEventAsync(envelope, ct),
             ct);
-        
+
         // 调用 Agent 的激活回调
         var activateMethod = Agent.GetType().GetMethod("OnActivateAsync");
         if (activateMethod != null)
@@ -76,12 +74,17 @@ public class LocalGAgentActor : GAgentActorBase
                 await task;
             }
         }
+        
+        // 更新活跃 Actor 计数
+        var count = Interlocked.Increment(ref _activeActorCount);
+        AgentMetrics.UpdateActiveActorCount(count);
+        Logger.LogDebug("Active actor count: {Count}", count);
     }
-    
+
     public override async Task DeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("Deactivating agent {AgentId}", Id);
-        
+
         // 调用 Agent 的停用回调
         var deactivateMethod = Agent.GetType().GetMethod("OnDeactivateAsync");
         if (deactivateMethod != null)
@@ -92,8 +95,13 @@ public class LocalGAgentActor : GAgentActorBase
                 await task;
             }
         }
-        
+
         // 停止并移除 Stream
         _streamRegistry.RemoveStream(Id);
+        
+        // 更新活跃 Actor 计数
+        var count = Interlocked.Decrement(ref _activeActorCount);
+        AgentMetrics.UpdateActiveActorCount(count);
+        Logger.LogDebug("Active actor count: {Count}", count);
     }
 }

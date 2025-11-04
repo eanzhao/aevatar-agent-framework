@@ -1,9 +1,11 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
 
 namespace Aevatar.Agents.Core;
 
@@ -18,24 +20,44 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     // ============ 字段 ============
 
     protected readonly TState State = new();
-    protected readonly ILogger Logger;
+    private ILogger _logger = NullLogger.Instance;
     protected IEventPublisher? EventPublisher;
+
+    /// <summary>
+    /// Logger 属性 - 支持自动注入
+    /// </summary>
+    protected ILogger Logger 
+    {
+        get => _logger;
+        set => _logger = value ?? NullLogger.Instance;
+    }
 
     // 事件处理器缓存（类型 -> 方法列表）
     private static readonly ConcurrentDictionary<Type, MethodInfo[]> HandlerCache = new();
 
     // ============ 构造函数 ============
 
-    protected GAgentBase(ILogger? logger = null)
+    protected GAgentBase()
     {
-        Logger = logger ?? NullLogger.Instance;
+        Id = Guid.NewGuid();
+        // Logger 已经初始化为 NullLogger.Instance
+    }
+
+    protected GAgentBase(Guid id)
+    {
+        Id = id;
+    }
+    
+    protected GAgentBase(ILogger? logger)
+    {
+        Logger = logger;  // 使用属性 setter，会自动处理 null
         Id = Guid.NewGuid();
     }
 
-    protected GAgentBase(Guid id, ILogger? logger = null)
+    protected GAgentBase(Guid id, ILogger? logger)
     {
-        Logger = logger ?? NullLogger.Instance;
         Id = id;
+        Logger = logger;  // 使用属性 setter，会自动处理 null
     }
 
     // ============ IGAgent 实现 ============
@@ -63,7 +85,26 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                 "EventPublisher is not set. Make sure the Actor layer has initialized this agent.");
         }
 
-        return await EventPublisher.PublishEventAsync(evt, direction, ct);
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var eventId = await EventPublisher.PublishEventAsync(evt, direction, ct);
+            
+            // 记录发布指标
+            stopwatch.Stop();
+            AgentMetrics.RecordEventPublished(typeof(TEvent).Name, Id.ToString());
+            AgentMetrics.EventPublishLatency.Record(stopwatch.ElapsedMilliseconds,
+                new KeyValuePair<string, object?>("event.type", typeof(TEvent).Name),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()));
+                
+            return eventId;
+        }
+        catch (Exception ex)
+        {
+            // 记录异常指标
+            AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "PublishEvent");
+            throw;
+        }
     }
 
     /// <summary>
@@ -142,6 +183,18 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     /// </summary>
     public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
+        // 创建事件处理的日志作用域
+        var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+        using var scope = LoggingScope.CreateEventHandlingScope(
+            Logger, 
+            Id, 
+            envelope.Id, 
+            eventType,
+            envelope.CorrelationId);
+        
+        var stopwatch = Stopwatch.StartNew();
+        var handled = false;
+        
         var handlers = GetEventHandlers();
 
         foreach (var handler in handlers)
@@ -158,6 +211,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                 if (handler.GetCustomAttribute<AllEventHandlerAttribute>() != null)
                 {
                     await InvokeHandler(handler, envelope, ct);
+                    handled = true;
                     continue;
                 }
 
@@ -175,11 +229,12 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                         {
                             var message = unpackMethod.Invoke(envelope.Payload, null);
 
-                            // 检查类型是否匹配
-                            if (message != null && paramType.IsInstanceOfType(message))
-                            {
-                                await InvokeHandler(handler, message, ct);
-                            }
+                        // 检查类型是否匹配
+                        if (message != null && paramType.IsInstanceOfType(message))
+                        {
+                            await InvokeHandler(handler, message, ct);
+                            handled = true;
+                        }
                         }
                     }
                     catch (Exception ex)
@@ -192,12 +247,29 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
+                
+                // 记录异常指标
+                AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Name}");
 
                 // 发布异常事件
                 await PublishExceptionEventAsync(envelope, handler.Name, ex);
 
                 // 继续处理其他 handler
             }
+        }
+        
+        // 记录事件处理指标
+        stopwatch.Stop();
+        if (handled)
+        {
+            AgentMetrics.RecordEventHandled(eventType, Id.ToString(), stopwatch.ElapsedMilliseconds);
+        }
+        else
+        {
+            // 没有处理器处理这个事件
+            AgentMetrics.EventsDropped.Add(1, 
+                new KeyValuePair<string, object?>("event.type", eventType),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()));
         }
     }
 

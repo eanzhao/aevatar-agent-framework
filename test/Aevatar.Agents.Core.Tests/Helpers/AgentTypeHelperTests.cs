@@ -136,7 +136,7 @@ public class AgentTypeHelperTests
         // Setup using reflection to handle the generic method call
         var createMethod = typeof(IGAgentActorFactory)
             .GetMethods()
-            .First(m => m.Name == "CreateAgentAsync" && m.GetGenericArguments().Length == 2)
+            .First(m => m.Name == "CreateGAgentActorAsync" && m.GetGenericArguments().Length == 2)
             .MakeGenericMethod(agentType, stateType);
         
         mockFactory
