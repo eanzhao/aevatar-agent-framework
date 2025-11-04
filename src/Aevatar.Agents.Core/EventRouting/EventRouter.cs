@@ -88,7 +88,7 @@ public class EventRouter
             PublisherId = _agentId.ToString(),
             Direction = direction,
             ShouldStopPropagation = false,
-            MaxHopCount = -1, // -1 表示无限制
+            MaxHopCount = 50, // 设置合理的默认最大跳数，防止无限递归
             CurrentHopCount = 0,
             MinHopCount = -1,
             Message = $"Published by {_agentId}",
@@ -173,10 +173,40 @@ public class EventRouter
             return;
         }
         
+        // 检查最大跳数限制，防止无限递归
+        if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
+        {
+            _logger.LogWarning("Event {EventId} reached max hop count {MaxHop}, stopping DOWN propagation",
+                envelope.Id, envelope.MaxHopCount);
+            return;
+        }
+        
+        // 安全检查：如果当前跳数异常高，强制停止以防止栈溢出
+        const int SafetyMaxHops = 100;
+        if (envelope.CurrentHopCount >= SafetyMaxHops)
+        {
+            _logger.LogError("Event {EventId} exceeded safety max hop count {SafetyMax}, force stopping to prevent stack overflow",
+                envelope.Id, SafetyMaxHops);
+            return;
+        }
+        
         foreach (var childId in _childrenIds)
         {
-            // DOWN方向传播不需要检查子节点是否已访问
-            // 因为DOWN是单向的父到子传播，不会形成循环
+            // DOWN方向也需要检查循环：如果子节点已经在Publishers列表中，说明形成了循环
+            if (envelope.Publishers.Contains(childId.ToString()))
+            {
+                _logger.LogWarning("Event {EventId} already visited child {ChildId}, skipping to avoid loop in DOWN direction",
+                    envelope.Id, childId);
+                continue;
+            }
+            
+            // 防止节点将事件发送给自己（父子关系配置错误的情况）
+            if (childId == _agentId)
+            {
+                _logger.LogError("Agent {AgentId} attempted to send event to itself as child, skipping to prevent loop",
+                    _agentId);
+                continue;
+            }
             
             _logger.LogDebug("Sending event {EventId} to child {ChildId}",
                 envelope.Id, childId);

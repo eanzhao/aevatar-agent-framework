@@ -190,7 +190,7 @@ public class StreamMechanismTests
     /// <summary>
     /// 测试DOWN方向：父发布到自己stream，广播给children
     /// </summary>
-    [Fact]
+    [Fact(Timeout = 5000)] // 添加5秒超时保护，防止栈溢出导致的无限等待
     [DisplayName("DOWN direction: event should be broadcast to all children")]
     public async Task DOWN_Direction_Should_Broadcast_To_All_Children()
     {
@@ -230,7 +230,7 @@ public class StreamMechanismTests
     /// <summary>
     /// 测试BOTH方向：同时向上和向下
     /// </summary>
-    [Fact]
+    [Fact(Timeout = 5000)] // 添加5秒超时保护
     [DisplayName("BOTH direction: event should be broadcast in both directions")]
     public async Task BOTH_Direction_Should_Broadcast_In_Both_Directions()
     {

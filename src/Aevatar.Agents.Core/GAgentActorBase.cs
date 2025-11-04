@@ -19,6 +19,11 @@ public abstract class GAgentActorBase : IGAgentActor
     protected readonly IGAgent Agent;
     private ILogger _logger = NullLogger.Instance;
     protected EventRouter EventRouter;
+    
+    // 事件去重机制：记录已处理的事件ID
+    private readonly HashSet<string> _processedEventIds = new();
+    private readonly Lock _eventIdLock = new();
+    private const int MaxProcessedEventIds = 10000; // 防止内存泄漏
 
     /// <summary>
     /// Logger 属性 - 支持自动注入
@@ -178,6 +183,38 @@ public abstract class GAgentActorBase : IGAgentActor
 
 
     /// <summary>
+    /// 尝试记录事件ID，如果是新事件返回true，重复事件返回false
+    /// </summary>
+    private bool TryRecordEventId(string eventId)
+    {
+        lock (_eventIdLock)
+        {
+            // 如果已经处理过，返回false
+            if (_processedEventIds.Contains(eventId))
+            {
+                return false;
+            }
+            
+            // 添加到已处理集合
+            _processedEventIds.Add(eventId);
+            
+            // 防止内存泄漏：如果集合太大，清理最早的一半
+            if (_processedEventIds.Count > MaxProcessedEventIds)
+            {
+                var toKeep = _processedEventIds.Skip(_processedEventIds.Count / 2).ToHashSet();
+                _processedEventIds.Clear();
+                foreach (var id in toKeep)
+                {
+                    _processedEventIds.Add(id);
+                }
+                Logger.LogDebug("Cleared half of processed event IDs to prevent memory leak");
+            }
+            
+            return true;
+        }
+    }
+
+    /// <summary>
     /// 处理接收到的事件（标准流程）
     /// </summary>
     public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
@@ -193,6 +230,17 @@ public abstract class GAgentActorBase : IGAgentActor
             
         Logger.LogDebug("Agent {AgentId} handling event {EventId}", Id, envelope.Id);
 
+        // 事件去重检查
+        if (!TryRecordEventId(envelope.Id))
+        {
+            Logger.LogDebug("Skipping duplicate event {EventId}", envelope.Id);
+            AgentMetrics.EventsDropped.Add(1,
+                new KeyValuePair<string, object?>("event.type", eventType),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()),
+                new KeyValuePair<string, object?>("reason", "Duplicate"));
+            return;
+        }
+
         // 使用 EventRouter 检查是否应该处理事件
         if (!EventRouter.ShouldProcessEvent(envelope))
         {
@@ -200,7 +248,7 @@ public abstract class GAgentActorBase : IGAgentActor
             AgentMetrics.EventsDropped.Add(1,
                 new KeyValuePair<string, object?>("event.type", eventType),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()),
-                new KeyValuePair<string, object?>("reason", "Duplicate"));
+                new KeyValuePair<string, object?>("reason", "FilteredOut"));
             return;
         }
 
