@@ -38,14 +38,12 @@ To reach 90% coverage, we need comprehensive tests for:
 - [ ] IGAgentActorManager interface tests
 - [ ] IEventPublisher interface tests
 - [ ] IEventSourcingAgent interface tests
-- [ ] IMessageSerializer interface tests
 - [ ] IMessageStream interface tests
 - [ ] IStateDispatcher interface tests (partially done)
 - [ ] IEventStore interface tests (partially done)
 
 ## Test Coverage by File
 Based on the cobertura report:
-- Aevatar.Agents.Serialization: 80.76% ✅
 - Overall line coverage: 32.4% (845/2608 lines)
 - Overall branch coverage: 23.12% (228/986 branches)
 

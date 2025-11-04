@@ -26,7 +26,7 @@ public class LocalGAgentActorFactoryTests
         var id = Guid.NewGuid();
 
         // Act
-        var actor = await _factory.CreateAgentAsync<TestAgent, TestState>(id);
+        var actor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id);
 
         // Assert
         Assert.NotNull(actor);
@@ -41,10 +41,10 @@ public class LocalGAgentActorFactoryTests
     {
         // Arrange
         var id = Guid.NewGuid();
-        await _factory.CreateAgentAsync<TestAgent, TestState>(id);
+        await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id);
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await _factory.CreateAgentAsync<TestAgent, TestState>(id));
+            await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id));
     }
 }

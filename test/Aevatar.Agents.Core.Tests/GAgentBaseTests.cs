@@ -94,7 +94,7 @@ public class GAgentBaseTests
         var expectedResponse = "published";
         
         _mockEventPublisher
-            .Setup(p => p.PublishAsync(testEvent, EventDirection.Down, It.IsAny<CancellationToken>()))
+            .Setup(p => p.PublishEventAsync(testEvent, EventDirection.Down, It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedResponse);
         
         // Act
@@ -103,7 +103,7 @@ public class GAgentBaseTests
         // Assert
         result.Should().Be(expectedResponse);
         _mockEventPublisher.Verify(
-            p => p.PublishAsync(testEvent, EventDirection.Down, It.IsAny<CancellationToken>()), 
+            p => p.PublishEventAsync(testEvent, EventDirection.Down, It.IsAny<CancellationToken>()), 
             Times.Once);
     }
     
@@ -230,7 +230,7 @@ public class GAgentBaseTests
         
         // Setup the mock to handle any IMessage type
         _mockEventPublisher
-            .Setup(p => p.PublishAsync(
+            .Setup(p => p.PublishEventAsync(
                 It.IsAny<Google.Protobuf.IMessage>(), 
                 It.IsAny<EventDirection>(), 
                 It.IsAny<CancellationToken>()))

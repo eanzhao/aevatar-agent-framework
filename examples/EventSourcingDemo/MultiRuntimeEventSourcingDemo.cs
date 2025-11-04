@@ -65,7 +65,7 @@ public static class MultiRuntimeEventSourcingDemo
         IGAgentActor? actor = null;
         {
             // 使用工厂创建 Actor（Actor 内部会创建 Agent）
-            actor = await factory.CreateAgentAsync<BankAccountAgent, BankAccountState>(agentId);
+            actor = await factory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
             
             // 通过 Actor 获取 Agent
             var agent = actor.GetAgent() as BankAccountAgent;
@@ -110,7 +110,7 @@ public static class MultiRuntimeEventSourcingDemo
             Console.WriteLine($"  保存的事件数: {events.Count}");
             
             // 创建新的 Actor（模拟系统重启）
-            var newActor = await factory.CreateAgentAsync<BankAccountAgent, BankAccountState>(agentId);
+            var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
 
             if (newActor.GetAgent() is BankAccountAgent recoveredAgent)
             {
@@ -162,7 +162,7 @@ public static class MultiRuntimeEventSourcingDemo
             IGAgentActor? actor = null;
             {
                 // 使用工厂创建 Actor（Actor 内部会创建 Agent）
-                actor = await factory.CreateAgentAsync<BankAccountAgent, BankAccountState>(agentId);
+                actor = await factory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
                 
                 // 通过 Actor 获取 Agent
                 var agent = actor.GetAgent() as BankAccountAgent;
@@ -207,7 +207,7 @@ public static class MultiRuntimeEventSourcingDemo
                 Console.WriteLine($"  事件总数: {events.Count}");
                 
                 // 创建新的 Actor（模拟系统重启）
-                var newActor = await factory.CreateAgentAsync<BankAccountAgent, BankAccountState>(agentId);
+                var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
                 var recoveredAgent = newActor.GetAgent() as BankAccountAgent;
                 
                 if (recoveredAgent != null)

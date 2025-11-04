@@ -9,7 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
-    <ProjectReference Include="..\..\src\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,17 +10,17 @@ public interface IEventStore
     /// 保存状态变更事件
     /// </summary>
     Task SaveEventAsync(Guid agentId, StateLogEvent logEvent, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 批量保存事件
     /// </summary>
     Task SaveEventsAsync(Guid agentId, IEnumerable<StateLogEvent> logEvents, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 读取 Agent 的所有事件（用于重放）
     /// </summary>
     Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(Guid agentId, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 读取指定版本范围的事件
     /// </summary>
@@ -29,12 +29,12 @@ public interface IEventStore
         long fromVersion,
         long toVersion,
         CancellationToken ct = default);
-    
+
     /// <summary>
     /// 获取最新版本号
     /// </summary>
     Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default);
-    
+
     /// <summary>
     /// 清除 Agent 的所有事件
     /// </summary>
@@ -55,4 +55,3 @@ public class StateLogEvent
     public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
     public string? Metadata { get; set; }
 }
-

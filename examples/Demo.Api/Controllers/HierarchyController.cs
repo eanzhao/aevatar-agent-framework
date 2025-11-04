@@ -3,7 +3,6 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
-using Aevatar.Agents.Serialization;
 
 namespace Demo.Api.Controllers;
 
@@ -38,7 +37,7 @@ public class HierarchyController : ControllerBase
         {
             // 创建CEO
             var ceoId = Guid.NewGuid();
-            var ceo = await _agentFactory.CreateAgentAsync<ManagerAgent, ManagerState>(ceoId);
+            var ceo = await _agentFactory.CreateGAgentActorAsync<ManagerAgent, ManagerState>(ceoId);
             
             _logger.LogInformation("Created CEO {CeoId} on {Runtime}", ceoId, runtime);
 
@@ -52,7 +51,7 @@ public class HierarchyController : ControllerBase
             for (int d = 0; d < departmentCount; d++)
             {
                 var managerId = Guid.NewGuid();
-                var manager = await _agentFactory.CreateAgentAsync<ManagerAgent, ManagerState>(managerId);
+                var manager = await _agentFactory.CreateGAgentActorAsync<ManagerAgent, ManagerState>(managerId);
                 
                 // 设置CEO为父级
                 await manager.SetParentAsync(ceoId);
@@ -68,7 +67,7 @@ public class HierarchyController : ControllerBase
                 for (int e = 0; e < employeesPerDept; e++)
                 {
                     var employeeId = Guid.NewGuid();
-                    var employee = await _agentFactory.CreateAgentAsync<EmployeeAgent, EmployeeState>(employeeId);
+                    var employee = await _agentFactory.CreateGAgentActorAsync<EmployeeAgent, EmployeeState>(employeeId);
                     
                     // 设置经理为父级
                     await employee.SetParentAsync(managerId);
@@ -107,7 +106,7 @@ public class HierarchyController : ControllerBase
         try
         {
             // 创建或获取Agent (使用HierarchyAgent作为默认类型)
-            var agent = await _agentFactory.CreateAgentAsync<HierarchyAgent, HierarchyState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(agentId);
 
             _logger.LogInformation("Propagating event from {AgentId} {Direction} on {Runtime}", 
                 agentId, direction, runtime);
@@ -172,10 +171,10 @@ public class HierarchyController : ControllerBase
         try
         {
             // 创建或获取涉及的Agent (使用HierarchyAgent作为默认类型)
-            var child = await _agentFactory.CreateAgentAsync<HierarchyAgent, HierarchyState>(request.ChildId);
+            var child = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.ChildId);
             var oldParent = request.OldParentId.HasValue ? 
-                await _agentFactory.CreateAgentAsync<HierarchyAgent, HierarchyState>(request.OldParentId.Value) : null;
-            var newParent = await _agentFactory.CreateAgentAsync<HierarchyAgent, HierarchyState>(request.NewParentId);
+                await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.OldParentId.Value) : null;
+            var newParent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.NewParentId);
 
             if (child == null || newParent == null)
             {

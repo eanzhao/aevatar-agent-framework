@@ -23,7 +23,7 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
         _streamRegistry = new LocalMessageStreamRegistry();
     }
 
-    public async Task<IGAgentActor> CreateAgentAsync<TAgent>(Guid id, CancellationToken ct = default)
+    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent
     {
         // 提取状态类型
@@ -37,8 +37,8 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
         return await AgentTypeHelper.InvokeCreateAgentAsync(this, agentType, stateType, id, ct);
     }
 
-    public async Task<IGAgentActor> CreateAgentAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
-        where TAgent : IGAgent<TState>
+    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
+        where TAgent : IStateGAgent<TState>
         where TState : class, new()
     {
         _logger.LogDebug("Creating agent actor for type {AgentType} with id {Id}",

@@ -11,10 +11,9 @@ public class EventHandlerAttribute : Attribute
     /// 处理器优先级（数字越小优先级越高）
     /// </summary>
     public int Priority { get; set; } = 0;
-    
+
     /// <summary>
     /// 是否允许处理自己发出的事件
     /// </summary>
     public bool AllowSelfHandling { get; set; } = false;
 }
-

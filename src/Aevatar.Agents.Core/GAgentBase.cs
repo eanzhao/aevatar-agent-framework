@@ -12,7 +12,7 @@ namespace Aevatar.Agents.Core;
 /// 提供事件处理器自动发现和调用机制
 /// </summary>
 /// <typeparam name="TState">Agent 状态类型</typeparam>
-public abstract class GAgentBase<TState> : IGAgent<TState>
+public abstract class GAgentBase<TState> : IStateGAgent<TState>
     where TState : class, new()
 {
     // ============ 字段 ============
@@ -63,7 +63,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
                 "EventPublisher is not set. Make sure the Actor layer has initialized this agent.");
         }
 
-        return await EventPublisher.PublishAsync(evt, direction, ct);
+        return await EventPublisher.PublishEventAsync(evt, direction, ct);
     }
 
     /// <summary>
@@ -317,7 +317,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
 
             Logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
 
-            await EventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up);
         }
         catch (Exception ex)
         {
@@ -348,7 +348,7 @@ public abstract class GAgentBase<TState> : IGAgent<TState>
 
             Logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
 
-            await EventPublisher.PublishAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up);
         }
         catch (Exception ex)
         {

@@ -22,7 +22,7 @@ public static class AgentTypeHelper
             .GetInterfaces()
             .FirstOrDefault(i => 
                 i.IsGenericType && 
-                i.GetGenericTypeDefinition() == typeof(IGAgent<>));
+                i.GetGenericTypeDefinition() == typeof(IStateGAgent<>));
         
         if (gAgentInterface == null)
         {
@@ -34,7 +34,7 @@ public static class AgentTypeHelper
                     .GetInterfaces()
                     .FirstOrDefault(i => 
                         i.IsGenericType && 
-                        i.GetGenericTypeDefinition() == typeof(IGAgent<>));
+                        i.GetGenericTypeDefinition() == typeof(IStateGAgent<>));
                 
                 if (gAgentInterface != null)
                 {

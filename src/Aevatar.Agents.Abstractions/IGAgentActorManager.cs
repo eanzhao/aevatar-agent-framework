@@ -12,7 +12,7 @@ public interface IGAgentActorManager
     Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IGAgent<TState>
+        where TAgent : IStateGAgent<TState>
         where TState : class, new();
     
     /// <summary>

@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Orleans;
-using Aevatar.Agents.Serialization;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Moq;

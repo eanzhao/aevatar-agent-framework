@@ -3,7 +3,6 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
-using Aevatar.Agents.Serialization;
 
 namespace Demo.Api.Controllers;
 
@@ -37,7 +36,7 @@ public class StreamingController : ControllerBase
         {
             // 创建流处理Agent
             var agentId = Guid.NewGuid();
-            var agent = await _agentFactory.CreateAgentAsync<StreamProcessorAgent, StreamState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(agentId);
             
             _logger.LogInformation("Created StreamProcessorAgent {AgentId} on {Runtime}", agentId, runtime);
 
@@ -98,7 +97,7 @@ public class StreamingController : ControllerBase
         {
             // 创建发布者
             var publisherId = Guid.NewGuid();
-            var publisher = await _agentFactory.CreateAgentAsync<PublisherAgent, PublisherState>(publisherId);
+            var publisher = await _agentFactory.CreateGAgentActorAsync<PublisherAgent, PublisherState>(publisherId);
             
             // 创建订阅者
             var subscribers = new List<IGAgentActor>();
@@ -108,7 +107,7 @@ public class StreamingController : ControllerBase
             {
                 var subscriberId = Guid.NewGuid();
                 subscriberIds.Add(subscriberId);
-                var subscriber = await _agentFactory.CreateAgentAsync<SubscriberAgent, SubscriberState>(subscriberId);
+                var subscriber = await _agentFactory.CreateGAgentActorAsync<SubscriberAgent, SubscriberState>(subscriberId);
                 subscribers.Add(subscriber);
                 
                 // 建立父子关系（发布者为父）
@@ -172,9 +171,9 @@ public class StreamingController : ControllerBase
             var middleId = Guid.NewGuid();
             var leafId = Guid.NewGuid();
 
-            var root = await _agentFactory.CreateAgentAsync<StreamProcessorAgent, StreamState>(rootId);
-            var middle = await _agentFactory.CreateAgentAsync<StreamProcessorAgent, StreamState>(middleId);
-            var leaf = await _agentFactory.CreateAgentAsync<StreamProcessorAgent, StreamState>(leafId);
+            var root = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(rootId);
+            var middle = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(middleId);
+            var leaf = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(leafId);
 
             // 建立层级关系
             await middle.SetParentAsync(rootId);

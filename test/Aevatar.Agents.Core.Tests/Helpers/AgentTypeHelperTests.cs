@@ -106,7 +106,7 @@ public class AgentTypeHelperTests
         var stateType = typeof(TestState);
         
         mockFactory
-            .Setup(f => f.CreateAgentAsync<TestAgent, TestState>(agentId, It.IsAny<CancellationToken>()))
+            .Setup(f => f.CreateGAgentActorAsync<TestAgent, TestState>(agentId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockActor.Object);
         
         // Act
@@ -119,7 +119,7 @@ public class AgentTypeHelperTests
         // Assert
         result.Should().Be(mockActor.Object);
         mockFactory.Verify(
-            f => f.CreateAgentAsync<TestAgent, TestState>(agentId, It.IsAny<CancellationToken>()), 
+            f => f.CreateGAgentActorAsync<TestAgent, TestState>(agentId, It.IsAny<CancellationToken>()), 
             Times.Once);
     }
     
@@ -140,7 +140,7 @@ public class AgentTypeHelperTests
             .MakeGenericMethod(agentType, stateType);
         
         mockFactory
-            .Setup(f => f.CreateAgentAsync<AgentWithConfigState, TestConfigState>(
+            .Setup(f => f.CreateGAgentActorAsync<AgentWithConfigState, TestConfigState>(
                 It.IsAny<Guid>(), 
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(mockActor.Object);
@@ -168,7 +168,7 @@ public class AgentTypeHelperTests
         var cts = new CancellationTokenSource();
         
         mockFactory
-            .Setup(f => f.CreateAgentAsync<TestAgent, TestState>(agentId, cts.Token))
+            .Setup(f => f.CreateGAgentActorAsync<TestAgent, TestState>(agentId, cts.Token))
             .ReturnsAsync(mockActor.Object);
         
         // Act
@@ -182,7 +182,7 @@ public class AgentTypeHelperTests
         // Assert
         result.Should().Be(mockActor.Object);
         mockFactory.Verify(
-            f => f.CreateAgentAsync<TestAgent, TestState>(agentId, cts.Token), 
+            f => f.CreateGAgentActorAsync<TestAgent, TestState>(agentId, cts.Token), 
             Times.Once);
     }
 }

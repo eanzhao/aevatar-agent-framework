@@ -14,9 +14,9 @@ public static class MessageExtensions
     public static bool HasPayload<T>(this EventEnvelope envelope) where T : IMessage, new()
     {
         // 使用静态反射获取Descriptor
-        var descriptor = typeof(T).GetProperty("Descriptor", 
+        var descriptor = typeof(T).GetProperty("Descriptor",
             System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            
+
         if (descriptor != null)
         {
             var descriptorValue = descriptor.GetValue(null);
@@ -29,10 +29,10 @@ public static class MessageExtensions
                 }
             }
         }
-        
+
         return false;
     }
-    
+
     /// <summary>
     /// 从事件信封中解包指定类型的有效负载
     /// </summary>
@@ -42,10 +42,10 @@ public static class MessageExtensions
         {
             return default;
         }
-        
+
         return envelope.Payload.Unpack<T>();
     }
-    
+
     /// <summary>
     /// 创建带有指定负载的事件信封
     /// </summary>

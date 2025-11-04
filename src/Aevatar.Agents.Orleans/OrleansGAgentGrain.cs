@@ -1,6 +1,5 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
-using Aevatar.Agents.Serialization;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -145,7 +144,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
 
     // ============ 事件发布（IEventPublisher 实现） ============
 
-    async Task<string> IEventPublisher.PublishAsync<TEvent>(
+    async Task<string> IEventPublisher.PublishEventAsync<TEvent>(
         TEvent evt,
         EventDirection direction,
         CancellationToken ct)

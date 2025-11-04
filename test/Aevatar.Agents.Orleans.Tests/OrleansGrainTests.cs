@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Aevatar.Agents;
 using Aevatar.Agents.Core;
-using Aevatar.Agents.Serialization;
 using Aevatar.Agents.TestBase;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;

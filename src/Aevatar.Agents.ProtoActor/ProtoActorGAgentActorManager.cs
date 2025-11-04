@@ -28,13 +28,13 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IGAgent<TState>
+        where TAgent : IStateGAgent<TState>
         where TState : class, new()
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
 
-        var actor = await _factory.CreateAgentAsync<TAgent, TState>(id, ct);
+        var actor = await _factory.CreateGAgentActorAsync<TAgent, TState>(id, ct);
 
         lock (_lock)
         {

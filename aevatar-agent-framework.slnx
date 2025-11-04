@@ -19,7 +19,6 @@
     <Project Path="src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
     <Project Path="src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
-    <Project Path="src\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />

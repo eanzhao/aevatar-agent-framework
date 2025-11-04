@@ -17,7 +17,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
-    <ProjectReference Include="..\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
   </ItemGroup>
 
     <ItemGroup>

@@ -6,7 +6,7 @@ namespace Aevatar.Agents.Abstractions;
 /// Agent Actor 运行时抽象接口
 /// 负责：层级关系管理、Stream 订阅、事件路由、生命周期管理
 /// </summary>
-public interface IGAgentActor
+public interface IGAgentActor : IEventPublisher
 {
     /// <summary>
     /// Actor 标识符（与关联的 Agent Id 相同）
@@ -51,20 +51,6 @@ public interface IGAgentActor
     Task<Guid?> GetParentAsync();
 
     // ============ 事件发布和路由 ============
-
-    /// <summary>
-    /// 发布事件（带路由逻辑）
-    /// </summary>
-    /// <param name="evt">事件消息</param>
-    /// <param name="direction">传播方向</param>
-    /// <param name="ct">取消令牌</param>
-    /// <typeparam name="TEvent">事件类型</typeparam>
-    /// <returns>事件ID</returns>
-    Task<string> PublishEventAsync<TEvent>(
-        TEvent evt,
-        EventDirection direction = EventDirection.Down,
-        CancellationToken ct = default)
-        where TEvent : IMessage;
 
     /// <summary>
     /// 处理接收到的事件

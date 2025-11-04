@@ -77,7 +77,7 @@ public class LocalGAgentActorTests
         var agentId = Guid.NewGuid();
 
         // Act
-        var actor = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(agentId);
 
         // Assert
         Assert.NotNull(actor);
@@ -94,7 +94,7 @@ public class LocalGAgentActorTests
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateAgentAsync<LocalTestAgent>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<LocalTestAgent>(agentId);
         var agent = actor.GetAgent() as LocalTestAgent;
 
         // Act - 发送具体的消息类型，而不是 EventEnvelope
@@ -116,8 +116,8 @@ public class LocalGAgentActorTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
 
-        var parent = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(parentId);
-        var child = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(childId);
 
         // Act
         await parent.AddChildAsync(childId);
@@ -138,8 +138,8 @@ public class LocalGAgentActorTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
 
-        var parent = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(parentId);
-        var child = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(childId);
 
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
@@ -171,7 +171,7 @@ public class LocalGAgentActorTests
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(agentId);
 
         // Act - Send multiple events concurrently
         var tasks = new Task[10];
@@ -197,7 +197,7 @@ public class LocalGAgentActorTests
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(agentId);
         var agent = actor.GetAgent() as LocalTestAgent;
 
         // Act
@@ -215,8 +215,8 @@ public class LocalGAgentActorTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
 
-        var parent = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(parentId);
-        var child = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(childId);
 
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
@@ -236,8 +236,8 @@ public class LocalGAgentActorTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
 
-        var parent = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(parentId);
-        var child = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(childId);
 
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
@@ -257,7 +257,7 @@ public class LocalGAgentActorTests
         var agents = new IGAgentActor[5];
         for (var i = 0; i < 5; i++)
         {
-            agents[i] = await _factory.CreateAgentAsync<LocalTestAgent>(Guid.NewGuid());
+            agents[i] = await _factory.CreateGAgentActorAsync<LocalTestAgent>(Guid.NewGuid());
         }
 
         // Send different events to each
@@ -287,7 +287,7 @@ public class LocalGAgentActorTests
         var agentId = Guid.NewGuid();
 
         // Act - 使用单泛型参数版本
-        var actor = await _factory.CreateAgentAsync<LocalTestAgent>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<LocalTestAgent>(agentId);
 
         // Assert
         Assert.NotNull(actor);
@@ -312,8 +312,8 @@ public class LocalGAgentActorTests
         var id2 = Guid.NewGuid();
 
         // Act - 创建两个 agent，一个用单参数，一个用双参数
-        var actor1 = await _factory.CreateAgentAsync<LocalTestAgent>(id1);
-        var actor2 = await _factory.CreateAgentAsync<LocalTestAgent, LocalTestState>(id2);
+        var actor1 = await _factory.CreateGAgentActorAsync<LocalTestAgent>(id1);
+        var actor2 = await _factory.CreateGAgentActorAsync<LocalTestAgent, LocalTestState>(id2);
 
         // Assert - 两种方式应该创建相同类型的 agent
         Assert.IsType<LocalGAgentActor>(actor1);
@@ -337,9 +337,9 @@ public class LocalGAgentActorTests
         var middleId = Guid.NewGuid();
         var childId = Guid.NewGuid();
 
-        var parent = await _factory.CreateAgentAsync<LocalTestAgent>(parentId);
-        var middle = await _factory.CreateAgentAsync<LocalTestAgent>(middleId);
-        var child = await _factory.CreateAgentAsync<LocalTestAgent>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<LocalTestAgent>(parentId);
+        var middle = await _factory.CreateGAgentActorAsync<LocalTestAgent>(middleId);
+        var child = await _factory.CreateGAgentActorAsync<LocalTestAgent>(childId);
 
         // 建立层级关系
         await parent.AddChildAsync(middleId);

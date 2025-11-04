@@ -59,7 +59,6 @@ Aevatar.Agents.Abstractions/
 ├── IGAgentActorManager.cs        # Actor 管理器接口
 ├── IEventPublisher.cs            # 事件发布接口
 ├── IEventSourcingAgent.cs        # EventSourcing 接口
-├── IMessageSerializer.cs         # 消息序列化接口
 ├── IMessageStream.cs             # 消息流接口
 ├── IStateDispatcher.cs           # 状态分发接口
 ├── messages.proto                # Protobuf 消息定义

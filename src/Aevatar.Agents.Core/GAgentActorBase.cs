@@ -10,7 +10,7 @@ namespace Aevatar.Agents.Core;
 /// Agent Actor 基类
 /// 提供事件传播逻辑的标准实现
 /// </summary>
-public abstract class GAgentActorBase : IGAgentActor, IEventPublisher
+public abstract class GAgentActorBase : IGAgentActor
 {
     // ============ 字段 ============
 
@@ -82,7 +82,7 @@ public abstract class GAgentActorBase : IGAgentActor, IEventPublisher
 
     // ============ 事件发布（IEventPublisher 实现） ============
 
-    async Task<string> IEventPublisher.PublishAsync<TEvent>(
+    async Task<string> IEventPublisher.PublishEventAsync<TEvent>(
         TEvent evt,
         EventDirection direction,
         CancellationToken ct)

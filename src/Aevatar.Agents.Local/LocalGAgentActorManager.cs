@@ -24,14 +24,14 @@ public class LocalGAgentActorManager : IGAgentActorManager
     public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IGAgent<TState>
+        where TAgent : IStateGAgent<TState>
         where TState : class, new()
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
 
         // 创建 Actor
-        var actor = await _factory.CreateAgentAsync<TAgent, TState>(id, ct);
+        var actor = await _factory.CreateGAgentActorAsync<TAgent, TState>(id, ct);
 
         // 注册
         lock (_lock)

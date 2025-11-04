@@ -16,10 +16,9 @@ public interface IEventPublisher
     /// <param name="ct">取消令牌</param>
     /// <typeparam name="TEvent">事件类型</typeparam>
     /// <returns>事件ID</returns>
-    Task<string> PublishAsync<TEvent>(
-        TEvent evt, 
+    Task<string> PublishEventAsync<TEvent>(
+        TEvent evt,
         EventDirection direction = EventDirection.Down,
-        CancellationToken ct = default) 
+        CancellationToken ct = default)
         where TEvent : IMessage;
 }
-

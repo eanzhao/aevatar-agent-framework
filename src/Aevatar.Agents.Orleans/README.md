@@ -34,7 +34,6 @@ var builder = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
     {
         services.AddSingleton<IGAgentActorFactory, OrleansGAgentFactory>();
-        services.AddSingleton<IMessageSerializer, ProtobufSerializer>();
         // 注册你的业务Agent
         services.AddTransient<YourBusinessAgent>();
     });
