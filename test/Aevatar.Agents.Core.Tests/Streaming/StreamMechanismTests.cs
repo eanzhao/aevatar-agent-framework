@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Tests.Messages;
 using Aevatar.Agents.Local;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,9 @@ public class StreamMechanismTests
         // 注意：不需要注册Agent类型，它们由Factory直接创建
         // Agent实例应该由Factory管理，而不是从DI容器获取
         
+        // 使用自动发现模式，无需手动注册
+        services.AddGAgentActorFactoryProvider();
+        
         // 注册工厂和管理器
         services.AddSingleton<LocalGAgentActorFactory>();
         services.AddSingleton<IGAgentActorFactory>(sp => sp.GetRequiredService<LocalGAgentActorFactory>());
@@ -63,9 +67,9 @@ public class StreamMechanismTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var childActor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var childActor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             childId, CancellationToken.None);
         
         // Act
@@ -95,9 +99,9 @@ public class StreamMechanismTests
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var childActor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var childActor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             childId, CancellationToken.None);
         
         await childActor.SetParentAsync(parentId);
@@ -135,13 +139,13 @@ public class StreamMechanismTests
         var child2Id = Guid.NewGuid();
         var child3Id = Guid.NewGuid();
         
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child1Id, CancellationToken.None);
-        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child2Id, CancellationToken.None);
-        var child3Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child3Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child3Id, CancellationToken.None);
         
         // 立即获取Agent并打印HashCode
@@ -195,11 +199,11 @@ public class StreamMechanismTests
         var child1Id = Guid.NewGuid();
         var child2Id = Guid.NewGuid();
         
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child1Id, CancellationToken.None);
-        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child2Id, CancellationToken.None);
         
         // 建立父子关系
@@ -236,13 +240,13 @@ public class StreamMechanismTests
         var child1Id = Guid.NewGuid();
         var child2Id = Guid.NewGuid();
         
-        var grandparentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var grandparentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             grandparentId, CancellationToken.None);
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child1Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child1Id, CancellationToken.None);
-        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var child2Actor = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             child2Id, CancellationToken.None);
         
         // 建立层级关系
@@ -335,11 +339,11 @@ public class StreamMechanismTests
         var generalChildId = Guid.NewGuid();
         
         // SpecificChildAgent只处理TestSpecificEvent
-        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<TestParentAgent>(
             parentId, CancellationToken.None);
-        var specificChild = await _manager.CreateAndRegisterAsync<TestSpecificChildAgent, Messages.TestState>(
+        var specificChild = await _manager.CreateAndRegisterAsync<TestSpecificChildAgent>(
             specificChildId, CancellationToken.None);
-        var generalChild = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
+        var generalChild = await _manager.CreateAndRegisterAsync<TestChildAgent>(
             generalChildId, CancellationToken.None);
         
         // 建立关系

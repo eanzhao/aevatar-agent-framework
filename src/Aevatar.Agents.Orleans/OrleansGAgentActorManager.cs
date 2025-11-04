@@ -25,16 +25,15 @@ public class OrleansGAgentActorManager : IGAgentActorManager
         _logger = logger;
     }
 
-    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
+    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+        where TAgent : IGAgent
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
 
-        var actor = await _factory.CreateGAgentActorAsync<TAgent, TState>(id, ct);
+        var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
         lock (_lock)
         {
@@ -115,13 +114,12 @@ public class OrleansGAgentActorManager : IGAgentActorManager
 
     #region 新增接口实现
 
-    public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent, TState>(
+    public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<Guid> ids,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+        where TAgent : IGAgent
     {
-        var tasks = ids.Select(id => CreateAndRegisterAsync<TAgent, TState>(id, ct));
+        var tasks = ids.Select(id => CreateAndRegisterAsync<TAgent>(id, ct));
         var actors = await Task.WhenAll(tasks);
         return actors;
     }

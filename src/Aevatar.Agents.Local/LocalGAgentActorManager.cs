@@ -24,17 +24,16 @@ public class LocalGAgentActorManager : IGAgentActorManager
 
     #region 生命周期管理
 
-    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
+    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+        where TAgent : IGAgent
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
 
         // 创建 Actor
-        var actor = await _factory.CreateGAgentActorAsync<TAgent, TState>(id, ct);
+        var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
         // 注册
         lock (_lock)
@@ -47,17 +46,16 @@ public class LocalGAgentActorManager : IGAgentActorManager
         return actor;
     }
 
-    public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent, TState>(
+    public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<Guid> ids,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+        where TAgent : IGAgent
     {
         var idList = ids.ToList();
         _logger.LogDebug("Batch creating {Count} agents of type {AgentType}",
             idList.Count, typeof(TAgent).Name);
 
-        var tasks = idList.Select(id => CreateAndRegisterAsync<TAgent, TState>(id, ct));
+        var tasks = idList.Select(id => CreateAndRegisterAsync<TAgent>(id, ct));
         var actors = await Task.WhenAll(tasks);
 
         return actors;

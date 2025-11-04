@@ -1,3 +1,5 @@
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -12,6 +14,10 @@ public class LocalGAgentActorFactoryTests
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.AddConsole());
+        
+        // 使用自动发现模式，无需手动注册
+        services.AddGAgentActorFactoryProvider();
+        
         _serviceProvider = services.BuildServiceProvider();
 
         _factory = new LocalGAgentActorFactory(
@@ -26,7 +32,7 @@ public class LocalGAgentActorFactoryTests
         var id = Guid.NewGuid();
 
         // Act
-        var actor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id);
+        var actor = await _factory.CreateGAgentActorAsync<TestAgent>(id);
 
         // Assert
         Assert.NotNull(actor);
@@ -41,10 +47,10 @@ public class LocalGAgentActorFactoryTests
     {
         // Arrange
         var id = Guid.NewGuid();
-        await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id);
+        await _factory.CreateGAgentActorAsync<TestAgent>(id);
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await _factory.CreateGAgentActorAsync<TestAgent, TestState>(id));
+            await _factory.CreateGAgentActorAsync<TestAgent>(id));
     }
 }

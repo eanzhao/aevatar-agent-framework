@@ -48,11 +48,11 @@ public class ProtoActorStreamTests : IDisposable
         var child1Id = Guid.NewGuid();
         var child2Id = Guid.NewGuid();
         
-        var parentActor = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent, Messages.TestState>(
+        var parentActor = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
             parentId, CancellationToken.None);
-        var child1Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent, Messages.TestState>(
+        var child1Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             child1Id, CancellationToken.None);
-        var child2Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent, Messages.TestState>(
+        var child2Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             child2Id, CancellationToken.None);
         
         // Act - 建立父子关系
@@ -169,11 +169,11 @@ public class ProtoActorStreamTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var grandparent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent, Messages.TestState>(
+        var grandparent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
             grandparentId, CancellationToken.None);
-        var parent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent, Messages.TestState>(
+        var parent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
             parentId, CancellationToken.None);
-        var child = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent, Messages.TestState>(
+        var child = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             childId, CancellationToken.None);
         
         // 建立层级关系

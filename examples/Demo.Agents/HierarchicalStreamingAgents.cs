@@ -181,25 +181,25 @@ public static class HierarchicalStreamingTestScenario
         
         // 创建团队领导
         var leaderId = Guid.NewGuid();
-        var leaderActor = await actorManager.CreateAndRegisterAsync<TeamLeaderAgent, TeamLeaderState>(
+        var leaderActor = await actorManager.CreateAndRegisterAsync<TeamLeaderAgent>(
             leaderId, 
             ct: default);
         
         // 创建3个团队成员
         var member1Id = Guid.NewGuid();
-        var member1Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent, TeamMemberState>(
+        var member1Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent>(
             member1Id,
             ct: default);
         (member1Actor.GetAgent() as TeamMemberAgent)?.SetName("Alice");
             
         var member2Id = Guid.NewGuid();  
-        var member2Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent, TeamMemberState>(
+        var member2Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent>(
             member2Id,
             ct: default);
         (member2Actor.GetAgent() as TeamMemberAgent)?.SetName("Bob");
             
         var member3Id = Guid.NewGuid();
-        var member3Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent, TeamMemberState>(
+        var member3Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent>(
             member3Id,
             ct: default);
         (member3Actor.GetAgent() as TeamMemberAgent)?.SetName("Charlie");

@@ -62,7 +62,7 @@ public static class LocalEventSourcingExtensions
             ?? throw new InvalidOperationException($"Failed to create instance of {typeof(TAgent).Name}");
         
         // 创建 Actor (需要显式指定泛型参数)
-        var actor = await factory.CreateGAgentActorAsync<TAgent, TState>(agent.Id);
+        var actor = await factory.CreateGAgentActorAsync<TAgent>(agent.Id);
         
         // 激活并重放事件
         await agent.OnActivateAsync();

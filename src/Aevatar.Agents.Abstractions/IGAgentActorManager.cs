@@ -11,20 +11,18 @@ public interface IGAgentActorManager
     /// <summary>
     /// 创建并注册 Agent Actor
     /// </summary>
-    Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
+    Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new();
+        where TAgent : IGAgent;
     
     /// <summary>
     /// 批量创建并注册 Agent Actor
     /// </summary>
-    Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent, TState>(
+    Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<Guid> ids,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new();
+        where TAgent : IGAgent;
     
     /// <summary>
     /// 停用并注销 Actor

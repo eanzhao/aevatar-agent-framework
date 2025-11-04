@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Tests.Messages;
 using Aevatar.Agents.Local;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +43,9 @@ public class IntegrationStreamTests : IDisposable
         services.AddTransient<Manager>();
         services.AddTransient<Employee>();
         
+        // 使用自动发现模式，无需手动注册
+        services.AddGAgentActorFactoryProvider();
+        
         // 注册工厂和管理器
         services.AddSingleton<LocalGAgentActorFactory>();
         services.AddSingleton<IGAgentActorFactory>(sp => sp.GetRequiredService<LocalGAgentActorFactory>());
@@ -66,13 +70,13 @@ public class IntegrationStreamTests : IDisposable
         var developer2Id = Guid.NewGuid();
         var testerId = Guid.NewGuid();
         
-        var leader = await _manager.CreateAndRegisterAsync<TeamLeader, Messages.TeamState>(
+        var leader = await _manager.CreateAndRegisterAsync<TeamLeader>(
             teamLeaderId, CancellationToken.None);
-        var dev1 = await _manager.CreateAndRegisterAsync<Developer, Messages.DeveloperState>(
+        var dev1 = await _manager.CreateAndRegisterAsync<Developer>(
             developer1Id, CancellationToken.None);
-        var dev2 = await _manager.CreateAndRegisterAsync<Developer, Messages.DeveloperState>(
+        var dev2 = await _manager.CreateAndRegisterAsync<Developer>(
             developer2Id, CancellationToken.None);
-        var tester = await _manager.CreateAndRegisterAsync<Tester, Messages.TesterState>(
+        var tester = await _manager.CreateAndRegisterAsync<Tester>(
             testerId, CancellationToken.None);
         
         // 建立团队层级
@@ -135,17 +139,17 @@ public class IntegrationStreamTests : IDisposable
         var employee2Id = Guid.NewGuid();
         var employee3Id = Guid.NewGuid();
         
-        var ceo = await _manager.CreateAndRegisterAsync<Executive, ExecutiveState>(
+        var ceo = await _manager.CreateAndRegisterAsync<Executive>(
             ceoId, CancellationToken.None);
-        var manager1 = await _manager.CreateAndRegisterAsync<Manager, ManagerState>(
+        var manager1 = await _manager.CreateAndRegisterAsync<Manager>(
             manager1Id, CancellationToken.None);
-        var manager2 = await _manager.CreateAndRegisterAsync<Manager, ManagerState>(
+        var manager2 = await _manager.CreateAndRegisterAsync<Manager>(
             manager2Id, CancellationToken.None);
-        var emp1 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
+        var emp1 = await _manager.CreateAndRegisterAsync<Employee>(
             employee1Id, CancellationToken.None);
-        var emp2 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
+        var emp2 = await _manager.CreateAndRegisterAsync<Employee>(
             employee2Id, CancellationToken.None);
-        var emp3 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
+        var emp3 = await _manager.CreateAndRegisterAsync<Employee>(
             employee3Id, CancellationToken.None);
         
         // 建立组织层级
@@ -221,11 +225,11 @@ public class IntegrationStreamTests : IDisposable
         var newManagerId = Guid.NewGuid();
         var employeeId = Guid.NewGuid();
         
-        var oldManager = await _manager.CreateAndRegisterAsync<Manager, Messages.ManagerState>(
+        var oldManager = await _manager.CreateAndRegisterAsync<Manager>(
             oldManagerId, CancellationToken.None);
-        var newManager = await _manager.CreateAndRegisterAsync<Manager, Messages.ManagerState>(
+        var newManager = await _manager.CreateAndRegisterAsync<Manager>(
             newManagerId, CancellationToken.None);
-        var employee = await _manager.CreateAndRegisterAsync<Employee, Messages.EmployeeState>(
+        var employee = await _manager.CreateAndRegisterAsync<Employee>(
             employeeId, CancellationToken.None);
         
         // 初始组织结构
@@ -274,7 +278,7 @@ public class IntegrationStreamTests : IDisposable
     {
         // Arrange - 创建较大的团队
         var leaderId = Guid.NewGuid();
-        var leader = await _manager.CreateAndRegisterAsync<TeamLeader, Messages.TeamState>(
+        var leader = await _manager.CreateAndRegisterAsync<TeamLeader>(
             leaderId, CancellationToken.None);
         
         var memberActors = new List<IGAgentActor>();
@@ -285,7 +289,7 @@ public class IntegrationStreamTests : IDisposable
         {
             var memberId = Guid.NewGuid();
             memberIds.Add(memberId);
-            var member = await _manager.CreateAndRegisterAsync<Developer, Messages.DeveloperState>(
+            var member = await _manager.CreateAndRegisterAsync<Developer>(
                 memberId, CancellationToken.None);
             memberActors.Add(member);
             
@@ -347,15 +351,13 @@ public class IntegrationStreamTests : IDisposable
     }
 }
 
-#region Test Domain Models
-
 // 注意：所有State和Event类型现在从 test_messages.proto 生成
 // TeamState, DeveloperState, TesterState, ExecutiveState, ManagerState, EmployeeState
 // TaskAssignmentEvent, TaskCompletedEvent, TestingStartedEvent, 
 // AnnouncementEvent, TeamUpdateEvent, IssueReportEvent, TeamMessageEvent
 
 // Agent实现
-public class TeamLeader : GAgentBase<Messages.TeamState>
+public class TeamLeader : GAgentBase<TeamState>
 {
     public List<string> CompletedTasks { get; } = new();
     public List<string> TestingTasks { get; } = new();
@@ -551,31 +553,36 @@ public class Employee : GAgentBase<Messages.EmployeeState>
     public List<string> ReceivedAnnouncements { get; } = new();
     public List<string> ReceivedUpdates { get; } = new();
     public List<string> TeamIssues { get; } = new();
-    
-    public Employee(Guid id) : base(id) { }
-    public Employee() : base() { }
-    
+
+    public Employee(Guid id) : base(id)
+    {
+    }
+
+    public Employee() : base()
+    {
+    }
+
     public override Task<string> GetDescriptionAsync() => Task.FromResult("Employee");
-    
+
     public async Task ReportIssue(string issue)
     {
         await PublishAsync(new IssueReportEvent { Issue = issue }, EventDirection.Up);
     }
-    
+
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleAnnouncement(AnnouncementEvent evt)
     {
         ReceivedAnnouncements.Add(evt.Content);
         await Task.CompletedTask;
     }
-    
+
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamUpdate(TeamUpdateEvent evt)
     {
         ReceivedUpdates.Add(evt.Content);
         await Task.CompletedTask;
     }
-    
+
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleIssue(IssueReportEvent evt)
     {
@@ -583,7 +590,3 @@ public class Employee : GAgentBase<Messages.EmployeeState>
         await Task.CompletedTask;
     }
 }
-
-#endregion
-
-// Test Events 现在从 test_messages.proto 生成
