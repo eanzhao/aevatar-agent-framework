@@ -228,12 +228,21 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                         if (unpackMethod != null)
                         {
                             var message = unpackMethod.Invoke(envelope.Payload, null);
-
+                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}", 
+                                message?.GetType().Name ?? "null", handler.Name);
+                        
                         // 检查类型是否匹配
                         if (message != null && paramType.IsInstanceOfType(message))
                         {
+                            Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", 
+                                handler.Name, message.GetType().Name);
                             await InvokeHandler(handler, message, ct);
                             handled = true;
+                        }
+                        else
+                        {
+                            Logger.LogDebug("Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
+                                handler.Name, paramType.Name, message?.GetType().Name ?? "null");
                         }
                         }
                     }
@@ -299,12 +308,17 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     /// </summary>
     protected async Task InvokeHandler(MethodInfo handler, object parameter, CancellationToken ct)
     {
+        Logger.LogDebug("Invoking handler method {HandlerName} on {AgentType} with parameter type {ParameterType}",
+            handler.Name, GetType().Name, parameter.GetType().Name);
+        
         var result = handler.Invoke(this, new[] { parameter });
 
         if (result is Task task)
         {
             await task;
         }
+        
+        Logger.LogDebug("Handler method {HandlerName} completed", handler.Name);
     }
 
     // ============ 事件订阅信息 ============

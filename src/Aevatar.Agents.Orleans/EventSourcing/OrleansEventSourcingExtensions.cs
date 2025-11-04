@@ -2,10 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Orleans;
-using Orleans.Hosting;
 
 namespace Aevatar.Agents.Orleans.EventSourcing;
 

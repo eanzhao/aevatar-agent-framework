@@ -128,7 +128,7 @@ public abstract class GAgentActorBase : IGAgentActor
 
     // ============ 事件发布和路由 ============
 
-    public async Task<string> PublishEventAsync<TEvent>(
+    public virtual async Task<string> PublishEventAsync<TEvent>(
         TEvent evt,
         EventDirection direction = EventDirection.Down,
         CancellationToken ct = default)

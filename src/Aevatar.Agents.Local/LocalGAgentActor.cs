@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Observability;
 using Microsoft.Extensions.Logging;
+using Google.Protobuf;
 
 namespace Aevatar.Agents.Local;
 
@@ -70,21 +71,22 @@ public class LocalGAgentActor : GAgentActorBase
                 baseType = baseType.BaseType;
             }
             
-            // 创建组合过滤器：类型过滤 + 过滤掉自己发布的事件
+            // 创建组合过滤器：只应用类型过滤
+            // 注意：不再过滤自己发布的事件，因为UP方向的事件通过父stream广播时，发送者也应该收到
             Func<EventEnvelope, bool>? combinedFilter = envelope =>
             {
-                // 过滤掉自己发布的事件，避免循环
-                if (envelope.PublisherId == Id.ToString())
-                {
-                    return false;
-                }
-                
+                Logger.LogDebug("[FILTER] Agent {AgentId} checking envelope - EventId={EventId}, PublisherId={PublisherId}, PayloadType={PayloadType}", 
+                    Id, envelope.Id, envelope.PublisherId, envelope.Payload?.TypeUrl);
+                    
                 // 应用类型过滤
                 if (filter != null)
                 {
-                    return filter(envelope);
+                    var result = filter(envelope);
+                    Logger.LogDebug("[FILTER] Type filter result for Agent {AgentId}: {Result}", Id, result);
+                    return result;
                 }
                 
+                Logger.LogDebug("[FILTER] No type filter for Agent {AgentId}, allowing event", Id);
                 return true;
             };
             
@@ -92,34 +94,44 @@ public class LocalGAgentActor : GAgentActorBase
             _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
-                    // 从父stream接收到的事件，只需要处理，不需要继续传播
-                    // 因为这个事件已经在父stream中广播了
+                    // 从父stream接收到的事件处理逻辑：
+                    // - UP事件：只需要处理，不需要继续传播（已在父stream广播）
+                    // - DOWN事件：处理后需要继续向下传播给子节点（多层级传播）
                     
-                    Logger.LogDebug("Agent {AgentId} received event {EventId} from parent stream, processing without propagation", 
-                        Id, envelope.Id);
+                    Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from parent stream, PublisherId={PublisherId}, PayloadType={PayloadType}", 
+                        Id, envelope.Id, envelope.PublisherId, envelope.Payload?.TypeUrl);
                     
                     try
                     {
-                        // 通过反射调用Agent的HandleEventAsync方法
+                        // 处理事件
+                        Logger.LogDebug("Processing event {EventId} from parent stream on agent {AgentId}", 
+                            envelope.Id, Id);
+                            
+                        // 先调用Agent的HandleEventAsync方法处理事件
                         var handleMethod = Agent.GetType().GetMethod("HandleEventAsync", 
                             new[] { typeof(EventEnvelope), typeof(CancellationToken) });
                         
                         if (handleMethod != null)
                         {
-                            Logger.LogDebug("Invoking HandleEventAsync on agent {AgentId} for event {EventId}", 
-                                Id, envelope.Id);
-                                
                             var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
                             if (task != null)
                             {
                                 await task;
-                                Logger.LogDebug("HandleEventAsync completed for agent {AgentId}, event {EventId}", 
-                                    Id, envelope.Id);
+                                Logger.LogDebug("Event {EventId} processed by agent {AgentId}", 
+                                    envelope.Id, Id);
                             }
                         }
                         else
                         {
                             Logger.LogWarning("HandleEventAsync method not found on agent {AgentId}", Id);
+                        }
+                        
+                        // 对于DOWN方向的事件，需要继续向下传播给子节点
+                        if (envelope.Direction == EventDirection.Down)
+                        {
+                            Logger.LogDebug("Continuing DOWN propagation of event {EventId} from agent {AgentId} to children", 
+                                envelope.Id, Id);
+                            await EventRouter.ContinuePropagationAsync(envelope, ct);
                         }
                     }
                     catch (Exception ex)
@@ -175,6 +187,98 @@ public class LocalGAgentActor : GAgentActorBase
         }
     }
 
+    // ============ 事件发布（重写基类方法）============
+    
+    public override async Task<string> PublishEventAsync<TEvent>(
+        TEvent evt,
+        EventDirection direction = EventDirection.Down,
+        CancellationToken ct = default)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        
+        // 使用 EventRouter 创建 EventEnvelope
+        var envelope = EventRouter.CreateEventEnvelope(evt, direction);
+
+        using var scope = Core.Observability.LoggingScope.CreateAgentScope(
+            Logger, 
+            Id, 
+            "PublishEvent",
+            new Dictionary<string, object>
+            {
+                ["EventId"] = envelope.Id,
+                ["EventType"] = typeof(TEvent).Name,
+                ["Direction"] = direction.ToString()
+            });
+
+        Logger.LogDebug("Agent {AgentId} publishing event {EventId} with direction {Direction}",
+            Id, envelope.Id, direction);
+
+        try
+        {
+            // 根据不同的方向处理
+            switch (direction)
+            {
+                case EventDirection.Up:
+                    // UP方向：发送到父节点的stream（广播给siblings）
+                    if (EventRouter.GetParent() != null)
+                    {
+                        var parentStream = _streamRegistry.GetStream(EventRouter.GetParent().Value);
+                        if (parentStream != null)
+                        {
+                            await parentStream.ProduceAsync(envelope, ct);
+                            Logger.LogDebug("Event {EventId} sent to parent stream {ParentId}", 
+                                envelope.Id, EventRouter.GetParent());
+                        }
+                    }
+                    else
+                    {
+                        // 没有父节点，发送到自己的stream
+                        await _myStream.ProduceAsync(envelope, ct);
+                    }
+                    break;
+                    
+                case EventDirection.Down:
+                    // DOWN方向：发送到自己的stream（广播给children）
+                    await _myStream.ProduceAsync(envelope, ct);
+                    break;
+                    
+                case EventDirection.Both:
+                    // BOTH方向：同时发送到父stream和自己的stream
+                    if (EventRouter.GetParent() != null)
+                    {
+                        var parentStream = _streamRegistry.GetStream(EventRouter.GetParent().Value);
+                        if (parentStream != null)
+                        {
+                            await parentStream.ProduceAsync(envelope, ct);
+                        }
+                    }
+                    await _myStream.ProduceAsync(envelope, ct);
+                    break;
+            }
+            
+            // 记录发布指标
+            stopwatch.Stop();
+            AgentMetrics.RecordEventPublished(typeof(TEvent).Name, Id.ToString());
+            AgentMetrics.EventPublishLatency.Record(stopwatch.ElapsedMilliseconds,
+                new KeyValuePair<string, object?>("event_type", typeof(TEvent).Name));
+            
+            Logger.LogDebug("Agent {AgentId} successfully published event {EventId}",
+                Id, envelope.Id);
+            
+            return envelope.Id;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Agent {AgentId} failed to publish event {EventType}",
+                Id, typeof(TEvent).Name);
+            
+            // 记录失败指标
+            AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "PublishEvent");
+            
+            throw;
+        }
+    }
+    
     // ============ 生命周期 ============
 
     public override async Task ActivateAsync(CancellationToken ct = default)

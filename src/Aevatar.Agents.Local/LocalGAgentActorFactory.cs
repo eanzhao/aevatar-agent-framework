@@ -50,8 +50,12 @@ public class LocalGAgentActorFactory : IGAgentActorFactory
             throw new InvalidOperationException($"Agent with id {id} already exists");
         }
 
-        // 创建 Agent 实例
-        var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        // 创建 Agent 实例 - 直接调用带ID参数的构造函数
+        // 不使用ActivatorUtilities，因为它可能不会选择正确的构造函数
+        var agent = (TAgent)Activator.CreateInstance(typeof(TAgent), id)!;
+        
+        _logger.LogDebug("[Factory] Created Agent instance - Type: {AgentType}, Id: {Id}, HashCode: {HashCode}", 
+            typeof(TAgent).Name, id, agent.GetHashCode());
         
         // 自动注入 Logger
         AgentLoggerInjector.InjectLogger(agent, _serviceProvider);

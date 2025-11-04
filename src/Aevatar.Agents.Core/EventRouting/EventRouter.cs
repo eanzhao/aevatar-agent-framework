@@ -141,7 +141,8 @@ public class EventRouter
             return;
         }
         
-        // 检查是否已经访问过这个节点（避免循环）
+        // UP方向：检查是否会形成循环
+        // 如果父节点已经在Publishers列表中，说明形成了循环
         if (envelope.Publishers.Contains(_parentId.ToString()))
         {
             _logger.LogWarning("Event {EventId} already visited parent {ParentId}, skipping to avoid loop",
@@ -169,13 +170,8 @@ public class EventRouter
         
         foreach (var childId in _childrenIds)
         {
-            // 检查是否已经访问过这个节点（避免循环）
-            if (envelope.Publishers.Contains(childId.ToString()))
-            {
-                _logger.LogWarning("Event {EventId} already visited child {ChildId}, skipping to avoid loop",
-                    envelope.Id, childId);
-                continue;
-            }
+            // DOWN方向传播不需要检查子节点是否已访问
+            // 因为DOWN是单向的父到子传播，不会形成循环
             
             _logger.LogDebug("Sending event {EventId} to child {ChildId}",
                 envelope.Id, childId);

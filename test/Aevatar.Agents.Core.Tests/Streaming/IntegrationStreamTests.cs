@@ -135,17 +135,17 @@ public class IntegrationStreamTests : IDisposable
         var employee2Id = Guid.NewGuid();
         var employee3Id = Guid.NewGuid();
         
-        var ceo = await _manager.CreateAndRegisterAsync<Executive, Messages.ExecutiveState>(
+        var ceo = await _manager.CreateAndRegisterAsync<Executive, ExecutiveState>(
             ceoId, CancellationToken.None);
-        var manager1 = await _manager.CreateAndRegisterAsync<Manager, Messages.ManagerState>(
+        var manager1 = await _manager.CreateAndRegisterAsync<Manager, ManagerState>(
             manager1Id, CancellationToken.None);
-        var manager2 = await _manager.CreateAndRegisterAsync<Manager, Messages.ManagerState>(
+        var manager2 = await _manager.CreateAndRegisterAsync<Manager, ManagerState>(
             manager2Id, CancellationToken.None);
-        var emp1 = await _manager.CreateAndRegisterAsync<Employee, Messages.EmployeeState>(
+        var emp1 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
             employee1Id, CancellationToken.None);
-        var emp2 = await _manager.CreateAndRegisterAsync<Employee, Messages.EmployeeState>(
+        var emp2 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
             employee2Id, CancellationToken.None);
-        var emp3 = await _manager.CreateAndRegisterAsync<Employee, Messages.EmployeeState>(
+        var emp3 = await _manager.CreateAndRegisterAsync<Employee, EmployeeState>(
             employee3Id, CancellationToken.None);
         
         // 建立组织层级
@@ -377,21 +377,21 @@ public class TeamLeader : GAgentBase<Messages.TeamState>
         await PublishAsync(evt, EventDirection.Down);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTaskCompleted(TaskCompletedEvent evt)
     {
         CompletedTasks.Add(evt.TaskId);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTestingStarted(TestingStartedEvent evt)
     {
         TestingTasks.Add(evt.TaskId);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamMessage(TeamMessageEvent evt)
     {
         ReceivedMessages.Add(evt.Message);
@@ -423,7 +423,7 @@ public class Developer : GAgentBase<Messages.DeveloperState>
         await PublishAsync(new TeamMessageEvent { Message = message }, EventDirection.Up);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTaskAssignment(TaskAssignmentEvent evt)
     {
         if (evt.AssignedTo == Id.ToString())
@@ -433,35 +433,35 @@ public class Developer : GAgentBase<Messages.DeveloperState>
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTaskCompleted(TaskCompletedEvent evt)
     {
         TeamCompletedTasks.Add(evt.TaskId);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleAnnouncement(AnnouncementEvent evt)
     {
         ReceivedAnnouncements.Add(evt.Content);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamUpdate(TeamUpdateEvent evt)
     {
         ReceivedUpdates.Add(evt.Content);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleIssue(IssueReportEvent evt)
     {
         TeamIssues.Add(evt.Issue);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamMessage(TeamMessageEvent evt)
     {
         TeamMessages.Add(evt.Message);
@@ -485,7 +485,7 @@ public class Tester : GAgentBase<Messages.TesterState>
         await PublishAsync(new TestingStartedEvent { TaskId = taskId }, EventDirection.Up);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTaskCompleted(TaskCompletedEvent evt)
     {
         TeamCompletedTasks.Add(evt.TaskId);
@@ -508,7 +508,7 @@ public class Executive : GAgentBase<Messages.ExecutiveState>
         await PublishAsync(new AnnouncementEvent { Content = policy }, EventDirection.Down);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamUpdate(TeamUpdateEvent evt)
     {
         ReceivedUpdates.Add(evt.Content);
@@ -531,14 +531,14 @@ public class Manager : GAgentBase<Messages.ManagerState>
         await PublishAsync(new TeamUpdateEvent { Content = update }, EventDirection.Both);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleAnnouncement(AnnouncementEvent evt)
     {
         ReceivedAnnouncements.Add(evt.Content);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleIssue(IssueReportEvent evt)
     {
         TeamIssues.Add(evt.Issue);
@@ -562,21 +562,21 @@ public class Employee : GAgentBase<Messages.EmployeeState>
         await PublishAsync(new IssueReportEvent { Issue = issue }, EventDirection.Up);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleAnnouncement(AnnouncementEvent evt)
     {
         ReceivedAnnouncements.Add(evt.Content);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTeamUpdate(TeamUpdateEvent evt)
     {
         ReceivedUpdates.Add(evt.Content);
         await Task.CompletedTask;
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleIssue(IssueReportEvent evt)
     {
         TeamIssues.Add(evt.Issue);

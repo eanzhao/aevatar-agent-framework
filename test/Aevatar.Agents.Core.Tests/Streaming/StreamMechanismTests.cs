@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,10 +35,8 @@ public class StreamMechanismTests
         services.AddLogging(builder => 
             builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
         
-        // 注册测试用的Agent类型
-        services.AddTransient<TestParentAgent>();
-        services.AddTransient<TestChildAgent>();
-        services.AddTransient<TestSpecificChildAgent>();
+        // 注意：不需要注册Agent类型，它们由Factory直接创建
+        // Agent实例应该由Factory管理，而不是从DI容器获取
         
         // 注册工厂和管理器
         services.AddSingleton<LocalGAgentActorFactory>();
@@ -57,6 +56,7 @@ public class StreamMechanismTests
     /// 测试SetParent时自动订阅父stream
     /// </summary>
     [Fact]
+    [DisplayName("Setting parent should automatically subscribe to parent's stream")]
     public async Task SetParent_Should_Subscribe_To_Parent_Stream()
     {
         // Arrange
@@ -77,7 +77,7 @@ public class StreamMechanismTests
         await parentAgent!.PublishTestEvent("Hello Children");
         
         // 等待事件传播
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert
         var childAgent = childActor.GetAgent() as TestChildAgent;
@@ -88,6 +88,7 @@ public class StreamMechanismTests
     /// 测试ClearParent时自动取消订阅
     /// </summary>
     [Fact]
+    [DisplayName("Clearing parent should automatically unsubscribe from parent's stream")]
     public async Task ClearParent_Should_Unsubscribe_From_Parent_Stream()
     {
         // Arrange
@@ -110,7 +111,7 @@ public class StreamMechanismTests
         var parentAgent = parentActor.GetAgent() as TestParentAgent;
         await parentAgent!.PublishTestEvent("After Unsubscribe");
         
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert
         var childAgent = childActor.GetAgent() as TestChildAgent;
@@ -125,6 +126,7 @@ public class StreamMechanismTests
     /// 测试UP方向：子发布到父stream，自动广播给siblings
     /// </summary>
     [Fact]
+    [DisplayName("UP direction: event should be broadcast to all siblings")]
     public async Task UP_Direction_Should_Broadcast_To_All_Siblings()
     {
         // Arrange
@@ -142,6 +144,14 @@ public class StreamMechanismTests
         var child3Actor = await _manager.CreateAndRegisterAsync<TestChildAgent, Messages.TestState>(
             child3Id, CancellationToken.None);
         
+        // 立即获取Agent并打印HashCode
+        var immediateChild1 = child1Actor.GetAgent() as TestChildAgent;
+        var immediateChild2 = child2Actor.GetAgent() as TestChildAgent;
+        var immediateChild3 = child3Actor.GetAgent() as TestChildAgent;
+        Console.WriteLine($"[IMMEDIATE] child1Agent HashCode={immediateChild1!.GetHashCode()}, Id={child1Id}");
+        Console.WriteLine($"[IMMEDIATE] child2Agent HashCode={immediateChild2!.GetHashCode()}, Id={child2Id}");
+        Console.WriteLine($"[IMMEDIATE] child3Agent HashCode={immediateChild3!.GetHashCode()}, Id={child3Id}");
+        
         // 建立父子关系
         await child1Actor.SetParentAsync(parentId);
         await child2Actor.SetParentAsync(parentId);
@@ -154,12 +164,18 @@ public class StreamMechanismTests
         var child1Agent = child1Actor.GetAgent() as TestChildAgent;
         await child1Agent!.PublishUpEvent("Message from Child1");
         
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert - 所有siblings都应该收到消息
         var child2Agent = child2Actor.GetAgent() as TestChildAgent;
         var child3Agent = child3Actor.GetAgent() as TestChildAgent;
         var parentAgent = parentActor.GetAgent() as TestParentAgent;
+        
+        // 打印调试信息
+        Console.WriteLine($"[TEST] child1Agent HashCode={child1Agent.GetHashCode()}, ReceivedEvents={child1Agent.ReceivedEvents.Count}");
+        Console.WriteLine($"[TEST] child2Agent HashCode={child2Agent!.GetHashCode()}, ReceivedEvents={child2Agent.ReceivedEvents.Count}");
+        Console.WriteLine($"[TEST] child3Agent HashCode={child3Agent!.GetHashCode()}, ReceivedEvents={child3Agent.ReceivedEvents.Count}");
+        Console.WriteLine($"[TEST] parentAgent HashCode={parentAgent!.GetHashCode()}, ReceivedEvents={parentAgent.ReceivedEvents.Count}");
         
         Assert.Contains("Message from Child1", child1Agent.ReceivedEvents); // 包括自己
         Assert.Contains("Message from Child1", child2Agent!.ReceivedEvents);
@@ -171,6 +187,7 @@ public class StreamMechanismTests
     /// 测试DOWN方向：父发布到自己stream，广播给children
     /// </summary>
     [Fact]
+    [DisplayName("DOWN direction: event should be broadcast to all children")]
     public async Task DOWN_Direction_Should_Broadcast_To_All_Children()
     {
         // Arrange
@@ -195,7 +212,7 @@ public class StreamMechanismTests
         var parentAgent = parentActor.GetAgent() as TestParentAgent;
         await parentAgent!.PublishDownEvent("Announcement from Parent");
         
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert - 所有children都应该收到
         var child1Agent = child1Actor.GetAgent() as TestChildAgent;
@@ -210,6 +227,7 @@ public class StreamMechanismTests
     /// 测试BOTH方向：同时向上和向下
     /// </summary>
     [Fact]
+    [DisplayName("BOTH direction: event should be broadcast in both directions")]
     public async Task BOTH_Direction_Should_Broadcast_In_Both_Directions()
     {
         // Arrange - 三层结构：grandparent -> parent -> children
@@ -240,7 +258,7 @@ public class StreamMechanismTests
         var parentAgent = parentActor.GetAgent() as TestParentAgent;
         await parentAgent!.PublishBothEvent("Both Direction Message");
         
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert - grandparent和children都应该收到
         var grandparentAgent = grandparentActor.GetAgent() as TestParentAgent;
@@ -261,6 +279,7 @@ public class StreamMechanismTests
     /// 测试订阅的暂停和恢复
     /// </summary>
     [Fact]
+    [DisplayName("Resume mechanism should restore subscriptions")]
     public async Task Resume_Should_Restore_Subscription()
     {
         // Arrange
@@ -307,6 +326,7 @@ public class StreamMechanismTests
     /// 测试基于TEvent的类型过滤
     /// </summary>
     [Fact]
+    [DisplayName("Type filtering should only process matching event types")]
     public async Task Type_Filtering_Should_Only_Process_Matching_Events()
     {
         // Arrange
@@ -333,7 +353,7 @@ public class StreamMechanismTests
         await parentAgent!.PublishTestEvent("General Event");
         await parentAgent.PublishSpecificEvent("Specific Event");
         
-        await Task.Delay(500); // 增加等待时间确保事件处理完成
+        await Task.Delay(1000); // 增加等待时间确保事件处理完成
         
         // Assert
         var specificAgent = specificChild.GetAgent() as TestSpecificChildAgent;
@@ -366,7 +386,6 @@ public class TestParentAgent : GAgentBase<Messages.TestState>
     public List<string> ReceivedEvents { get; } = new();
     
     public TestParentAgent(Guid id) : base(id) { }
-    public TestParentAgent() : base() { }
     
     public override Task<string> GetDescriptionAsync() => 
         Task.FromResult("Test Parent Agent");
@@ -391,10 +410,19 @@ public class TestParentAgent : GAgentBase<Messages.TestState>
         await PublishAsync(new TestEvent { Content = content }, EventDirection.Both);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTestEvent(TestEvent evt)
     {
-        ReceivedEvents.Add(evt.Content);
+        Console.WriteLine($"[DEBUG] {GetType().Name}.HandleTestEvent on instance {GetHashCode()}: Content='{evt?.Content}', EventId='{evt?.EventId}'");
+        if (!string.IsNullOrEmpty(evt?.Content))
+        {
+            ReceivedEvents.Add(evt.Content);
+        }
+        else
+        {
+            Console.WriteLine($"[WARNING] Content is null or empty!");
+        }
+        Console.WriteLine($"[DEBUG] {GetType().Name} instance {GetHashCode()} ReceivedEvents now has {ReceivedEvents.Count} items");
         await Task.CompletedTask;
     }
     
@@ -412,7 +440,6 @@ public class TestChildAgent : GAgentBase<Messages.TestState>
     public List<string> ReceivedEvents { get; } = new();
     
     public TestChildAgent(Guid id) : base(id) { }
-    public TestChildAgent() : base() { }
     
     public override Task<string> GetDescriptionAsync() => 
         Task.FromResult("Test Child Agent");
@@ -422,10 +449,19 @@ public class TestChildAgent : GAgentBase<Messages.TestState>
         await PublishAsync(new TestEvent { Content = content }, EventDirection.Up);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTestEvent(TestEvent evt)
     {
-        ReceivedEvents.Add(evt.Content);
+        Console.WriteLine($"[DEBUG] {GetType().Name}.HandleTestEvent on instance {GetHashCode()}: Content='{evt?.Content}', EventId='{evt?.EventId}'");
+        if (!string.IsNullOrEmpty(evt?.Content))
+        {
+            ReceivedEvents.Add(evt.Content);
+        }
+        else
+        {
+            Console.WriteLine($"[WARNING] Content is null or empty!");
+        }
+        Console.WriteLine($"[DEBUG] {GetType().Name} instance {GetHashCode()} ReceivedEvents now has {ReceivedEvents.Count} items");
         await Task.CompletedTask;
     }
     
@@ -443,7 +479,6 @@ public class TestSpecificChildAgent : GAgentBase<Messages.TestState, Messages.Te
     public List<string> ReceivedEvents { get; } = new();
     
     public TestSpecificChildAgent(Guid id) : base(id) { }
-    public TestSpecificChildAgent() : base() { }
     
     public override Task<string> GetDescriptionAsync() => 
         Task.FromResult("Test Specific Child Agent");
