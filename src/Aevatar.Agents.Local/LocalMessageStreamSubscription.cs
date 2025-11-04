@@ -53,7 +53,8 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
         }
 
         _isActive = false;
-        _onDisposed?.Invoke();
+        // 不要调用_onDisposed，保留订阅在字典中以支持Resume
+        // 只有在DisposeAsync时才真正移除
         return Task.CompletedTask;
     }
 
@@ -82,6 +83,14 @@ internal class LocalMessageStreamSubscription : IMessageStreamSubscription
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        await UnsubscribeAsync();
+        if (!_isActive)
+        {
+            // 即使已经取消订阅，也要确保从字典中移除
+            _onDisposed?.Invoke();
+            return;
+        }
+        
+        _isActive = false;
+        _onDisposed?.Invoke(); // 真正从字典中移除
     }
 }

@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Tests.Messages;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;

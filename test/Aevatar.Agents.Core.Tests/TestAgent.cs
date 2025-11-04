@@ -1,10 +1,11 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Tests.Messages;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.Tests;
 
-public class TestAgent : GAgentBase<TestState>
+public class TestAgent : GAgentBase<Messages.TestState>
 {
     public int EventHandledCount { get; private set; }
     

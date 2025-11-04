@@ -159,13 +159,44 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
                     baseType = baseType.BaseType;
                 }
                 
+                // 获取自己的ID
+                var myId = await GetIdAsync();
+                
+                // 创建组合过滤器：类型过滤 + 过滤掉自己发布的事件
+                Func<EventEnvelope, bool>? combinedFilter = envelope =>
+                {
+                    // 过滤掉自己发布的事件，避免循环
+                    if (envelope.PublisherId == myId.ToString())
+                    {
+                        return false;
+                    }
+                    
+                    // 应用类型过滤
+                    if (filter != null)
+                    {
+                        return filter(envelope);
+                    }
+                    
+                    return true;
+                };
+                
                 _parentStreamSubscription = await messageStream.SubscribeAsync<EventEnvelope>(
                     async envelope =>
                     {
-                        // 处理从父节点stream接收到的事件
-                        await _agent.HandleEventAsync(envelope);
+                        // 从父stream接收到的事件，只需要处理，不需要继续传播
+                        // 因为这个事件已经在父stream中广播了
+                        // 直接调用Agent的处理器，跳过传播逻辑
+                        var handleMethod = _agent.GetType().GetMethod("HandleEventAsync");
+                        if (handleMethod != null)
+                        {
+                            var task = handleMethod.Invoke(_agent, new object[] { envelope }) as Task;
+                            if (task != null)
+                            {
+                                await task;
+                            }
+                        }
                     },
-                    filter);
+                    combinedFilter);
             }
         }
     }

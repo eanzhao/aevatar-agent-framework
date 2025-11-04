@@ -1,5 +1,6 @@
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Tests.Messages;
 using FluentAssertions;
 using Xunit;
 

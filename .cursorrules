@@ -1,0 +1,241 @@
+# Aevatar Agent Framework Development Rules
+
+## 🔴 CRITICAL: Protobuf Serialization Requirements
+
+### MANDATORY: All Serializable Types MUST Use Protocol Buffers
+
+**This is a non-negotiable framework requirement.** Any type that needs to be serialized or transmitted across runtime boundaries MUST be defined in a `.proto` file.
+
+#### Types That MUST Use Protobuf:
+
+1. **Agent State Types** (`TState` in `GAgentBase<TState>` or `GAgentBase<TState, TEvent>`)
+   - ❌ NEVER manually define state classes in C#
+   - ✅ ALWAYS define states in `.proto` files
+   - Example:
+     ```protobuf
+     message MyAgentState {
+         string id = 1;
+         int32 count = 2;
+         google.protobuf.Timestamp last_update = 3;
+     }
+     ```
+
+2. **Event Messages** (Any message sent through the streaming system)
+   - ❌ NEVER implement `IMessage` interface manually in C#
+   - ✅ ALWAYS define events in `.proto` files
+   - Example:
+     ```protobuf
+     message TaskAssignedEvent {
+         string task_id = 1;
+         string assigned_to = 2;
+         string description = 3;
+     }
+     ```
+
+3. **Event Sourcing Events** (State change events for persistence)
+   - Must be Protobuf messages for version compatibility
+   - Ensures events can be replayed after schema changes
+
+#### Why This Is Critical:
+
+1. **Orleans Streaming**: Uses `byte[]` for message transmission
+2. **Cross-Runtime Compatibility**: Ensures messages work across Local, Orleans, and ProtoActor
+3. **Version Compatibility**: Protobuf provides forward/backward compatibility
+4. **Performance**: Efficient binary serialization
+5. **Type Safety**: Generated code prevents serialization errors
+
+#### Common Mistakes to Avoid:
+
+```csharp
+// ❌ WRONG - Manual C# class
+public class MyState 
+{
+    public string Name { get; set; }
+    public decimal Balance { get; set; } // decimal can't serialize!
+}
+
+// ❌ WRONG - Manual IMessage implementation  
+public class MyEvent : IMessage
+{
+    // Manual implementation...
+}
+```
+
+Instead:
+```protobuf
+// ✅ CORRECT - Proto definition
+message MyState {
+    string name = 1;
+    double balance = 2; // Use double for monetary values
+}
+```
+
+## Core Framework Architecture
+
+### Stream Mechanism Design
+
+1. **Upward Echo Pattern**
+   - Child agents publish events UP to parent's stream
+   - Parent's stream broadcasts to all subscribers (siblings)
+   - This creates group-wide event propagation
+
+2. **Event Directions**
+   - `UP`: Send to parent's stream (broadcasts to siblings)
+   - `DOWN`: Send to own stream (broadcasts to children)
+   - `BOTH`: Send both UP and DOWN simultaneously
+   - NO deprecated directions (`UpThenDown`, `Bidirectional`)
+
+3. **Subscription Management**
+   - `SetParent()` automatically subscribes to parent's stream
+   - `ClearParent()` automatically unsubscribes
+   - Use `IMessageStreamSubscription` for lifecycle management
+   - Support Resume mechanism for reconnection
+
+4. **Type Filtering**
+   - Leverage `GAgentBase<TState, TEvent>` for early filtering
+   - Agents only process events they can handle
+   - Reduces unnecessary deserialization
+
+## Code Organization
+
+### Project Structure
+```
+src/
+  Aevatar.Agents.Abstractions/  # Core interfaces and protobuf definitions
+    messages.proto               # Framework messages (EventEnvelope, etc.)
+  Aevatar.Agents.Core/          # Shared implementations
+  Aevatar.Agents.Orleans/       # Orleans runtime
+  Aevatar.Agents.ProtoActor/    # ProtoActor runtime  
+  Aevatar.Agents.Local/         # Local runtime
+examples/
+  Demo.Agents/
+    *.proto                     # Domain-specific message definitions
+test/
+  *.Tests/                      # Runtime-specific tests
+```
+
+### Proto File Organization
+
+1. **Framework Proto Files** (`src/Aevatar.Agents.Abstractions/`)
+   - `messages.proto`: Core framework messages
+   - Don't modify without understanding impact
+
+2. **Application Proto Files** (`examples/` or your app)
+   - Create domain-specific `.proto` files
+   - Group related messages together
+   - Use clear, descriptive names
+
+## Testing Requirements
+
+### When Encountering Test Failures
+
+1. **NEVER delete failing tests**
+   - Tests represent valuable specifications
+   - Fix compilation errors by updating tests
+   - Adapt tests to API changes
+
+2. **Test Coverage Areas**
+   - Parent-child subscription/unsubscription
+   - Event propagation (UP, DOWN, BOTH)
+   - Type filtering with `TEvent`
+   - Resume mechanism
+   - Concurrent message handling
+
+### Test Organization
+
+- Unit tests for each runtime implementation
+- Integration tests for cross-runtime scenarios
+- Use Protobuf messages in all tests (not manual IMessage)
+
+## Development Workflow
+
+### Adding New Features
+
+1. **Define Messages First**
+   ```bash
+   1. Create/update .proto file
+   2. Build project to generate C# code
+   3. Implement feature using generated types
+   4. Write tests using generated types
+   ```
+
+2. **Type Checking**
+   - Ensure all state types derive from generated Protobuf classes
+   - Ensure all events derive from generated Protobuf classes
+   - Verify serialization with `ToByteArray()`/`ParseFrom()`
+
+### Debugging Serialization Issues
+
+1. Check generated code in `obj/Debug/net9.0/`
+2. Common errors:
+   - CS0260: Missing partial modifier → Conflicting definitions
+   - CS0102: Already contains definition → Duplicate fields
+   - CS0111: Member already defined → Method conflicts
+
+3. Resolution:
+   - Remove manual C# definitions
+   - Use only proto-generated types
+   - Clean and rebuild if necessary
+
+## Performance Considerations
+
+### Protobuf Best Practices
+
+1. **Numeric Types**
+   - Use `int32`/`int64` for integers
+   - Use `double` for floating point (no `decimal` in protobuf)
+   - For money: Consider `int64` cents instead of `double`
+
+2. **Collections**
+   - Use `repeated` for lists
+   - Use `map<K,V>` for dictionaries
+   - Avoid nested repeated fields when possible
+
+3. **Timestamps**
+   - Use `google.protobuf.Timestamp`
+   - Don't use string representations
+
+## Migration Guide
+
+### Converting Existing Code to Protobuf
+
+1. **Identify all state/event classes**
+2. **Create equivalent .proto definitions**
+3. **Update agent code to use generated types**
+4. **Update tests to use generated types**
+5. **Verify serialization/deserialization**
+
+### Version Compatibility Rules
+
+- ✅ Can add new optional fields
+- ✅ Can delete fields (don't reuse numbers)
+- ❌ Cannot change field numbers
+- ❌ Cannot change field types
+- ⚠️ Be careful with required fields
+
+## Quick Reference
+
+### Must Use Protobuf
+- Agent States (`TState`)
+- Event Messages
+- Any data crossing runtime boundaries
+- Event Sourcing events
+
+### Can Use Regular C#
+- Internal helper classes
+- Local-only data structures
+- UI models (if not transmitted)
+- Test utilities (unless testing serialization)
+
+## Enforcement
+
+**The framework will fail at runtime if non-Protobuf types are used for:**
+- State serialization
+- Event transmission
+- Stream messages
+
+**Prevention is better than debugging serialization errors!**
+
+---
+
+Remember: **If it crosses a boundary, define it in proto.** 🔴

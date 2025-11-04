@@ -226,13 +226,30 @@ public class EventRouter
                 break;
                 
             case EventDirection.Up:
-                // Up 方向继续向上传播给父节点
-                await SendToParentAsync(envelope, ct);
+                // Up 方向：只有当事件不是从父节点stream接收到的时候才继续向上传播
+                // 如果Publishers列表中包含父节点ID，说明事件已经通过父节点stream广播过了
+                if (_parentId.HasValue && !envelope.Publishers.Contains(_parentId.Value.ToString()))
+                {
+                    await SendToParentAsync(envelope, ct);
+                }
+                else if (!_parentId.HasValue)
+                {
+                    // 没有父节点时也尝试发送（可能是根节点）
+                    await SendToParentAsync(envelope, ct);
+                }
                 break;
                 
             case EventDirection.Both:
                 // 双向传播
-                await SendToParentAsync(envelope, ct);
+                // Up方向同样需要检查是否已经在父节点stream中
+                if (_parentId.HasValue && !envelope.Publishers.Contains(_parentId.Value.ToString()))
+                {
+                    await SendToParentAsync(envelope, ct);
+                }
+                else if (!_parentId.HasValue)
+                {
+                    await SendToParentAsync(envelope, ct);
+                }
                 await SendToChildrenAsync(envelope, ct);
                 break;
         }

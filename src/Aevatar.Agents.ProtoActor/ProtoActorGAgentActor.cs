@@ -83,14 +83,42 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 baseType = baseType.BaseType;
             }
             
+            // 创建组合过滤器：类型过滤 + 过滤掉自己发布的事件
+            Func<EventEnvelope, bool>? combinedFilter = envelope =>
+            {
+                // 过滤掉自己发布的事件，避免循环
+                if (envelope.PublisherId == Id.ToString())
+                {
+                    return false;
+                }
+                
+                // 应用类型过滤
+                if (filter != null)
+                {
+                    return filter(envelope);
+                }
+                
+                return true;
+            };
+            
             // Agent订阅父节点的stream，接收组内广播的事件
             _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
-                    // 处理从父节点stream接收到的事件
-                    await HandleEventAsync(envelope, ct);
+                    // 从父stream接收到的事件，只需要处理，不需要继续传播
+                    // 因为这个事件已经在父stream中广播了
+                    // 通过反射调用Agent的HandleEventAsync
+                    var handleMethod = Agent.GetType().GetMethod("HandleEventAsync", new[] { typeof(EventEnvelope), typeof(CancellationToken) });
+                    if (handleMethod != null)
+                    {
+                        var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
+                        if (task != null)
+                        {
+                            await task;
+                        }
+                    }
                 },
-                filter,
+                combinedFilter,
                 ct);
             
             Logger.LogDebug("Agent {AgentId} subscribed to parent {ParentId} stream", Id, parentId);

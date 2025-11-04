@@ -2,6 +2,7 @@ using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.Messages;
 using FluentAssertions;
 using Moq;
 using Xunit;
