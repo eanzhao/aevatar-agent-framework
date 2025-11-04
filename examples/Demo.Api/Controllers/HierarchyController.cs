@@ -125,7 +125,7 @@ public class HierarchyController : ControllerBase
             {
                 "up" => EventDirection.Up,
                 "down" => EventDirection.Down,
-                "bidirectional" => EventDirection.Bidirectional,
+                "both" => EventDirection.Both,
                 _ => EventDirection.Down
             };
 

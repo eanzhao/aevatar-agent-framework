@@ -122,12 +122,7 @@ public class EventRouter
                 await SendToChildrenAsync(envelope, ct);
                 break;
                 
-            case EventDirection.UpThenDown:
-                envelope.Direction = EventDirection.Down;
-                await SendToParentAsync(envelope, ct);
-                break;
-                
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 await SendToParentAsync(envelope, ct);
                 await SendToChildrenAsync(envelope, ct);
                 break;
@@ -235,22 +230,7 @@ public class EventRouter
                 await SendToParentAsync(envelope, ct);
                 break;
                 
-            case EventDirection.UpThenDown:
-                if (_parentId == null)
-                {
-                    // 到达根节点，改为 Down 向下传播
-                    _logger.LogDebug("Event {EventId} reached root, changing direction to Down", envelope.Id);
-                    envelope.Direction = EventDirection.Down;
-                    await SendToChildrenAsync(envelope, ct);
-                }
-                else
-                {
-                    // 继续向上传播
-                    await SendToParentAsync(envelope, ct);
-                }
-                break;
-                
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 // 双向传播
                 await SendToParentAsync(envelope, ct);
                 await SendToChildrenAsync(envelope, ct);

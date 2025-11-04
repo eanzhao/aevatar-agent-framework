@@ -245,11 +245,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
                 await SendToChildrenAsync(envelope);
                 break;
 
-            case EventDirection.UpThenDown:
-                await SendToParentAsync(envelope);
-                break;
-
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 await SendToParentAsync(envelope);
                 await SendToChildrenAsync(envelope);
                 break;
@@ -366,7 +362,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             return;
 
         // 根据方向继续传播（只向下传播）
-        if (envelope.Direction is EventDirection.Down or EventDirection.Bidirectional)
+        if (envelope.Direction is EventDirection.Down or EventDirection.Both)
         {
             await SendToChildrenAsync(envelope);
         }

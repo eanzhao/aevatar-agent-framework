@@ -197,10 +197,10 @@ public class StreamingController : ControllerBase
                 Id = Guid.NewGuid().ToString(),
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 Payload = Any.Pack(message),
-                Direction = EventDirection.Bidirectional // 双向传播
+                Direction = EventDirection.Both // 双向传播
             };
 
-            var eventId = await leaf.PublishEventAsync(Any.Pack(envelope), EventDirection.Bidirectional);
+            var eventId = await leaf.PublishEventAsync(Any.Pack(envelope), EventDirection.Both);
             
             // 等待消息传播
             await Task.Delay(500);
