@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.ProtoActor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public class BasicProtoActorTests : IDisposable
         
         // 添加ProtoActor消息流注册表
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
+        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
         
         _serviceProvider = services.BuildServiceProvider();
         

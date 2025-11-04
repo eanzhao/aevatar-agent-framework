@@ -153,7 +153,12 @@ public class EventRouter
         _logger.LogDebug("Sending event {EventId} to parent {ParentId}",
             envelope.Id, _parentId);
         
-        await _sendToActorAsync(_parentId.Value, envelope, ct);
+        // 创建副本并增加 HopCount，添加当前节点到Publishers列表
+        var parentEnvelope = envelope.Clone();
+        parentEnvelope.CurrentHopCount++;
+        parentEnvelope.Publishers.Add(_agentId.ToString());
+        
+        await _sendToActorAsync(_parentId.Value, parentEnvelope, ct);
     }
     
     /// <summary>

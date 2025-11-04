@@ -185,6 +185,8 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     {
         // 创建事件处理的日志作用域
         var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+        Console.WriteLine($"GAgentBase.HandleEventAsync called for agent {Id} with event type {eventType}");
+        
         using var scope = LoggingScope.CreateEventHandlingScope(
             Logger, 
             Id, 
@@ -196,16 +198,21 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         var handled = false;
         
         var handlers = GetEventHandlers();
+        Console.WriteLine($"GAgentBase.HandleEventAsync found {handlers.Count()} handlers");
 
         foreach (var handler in handlers)
         {
             try
             {
+                var paramType = handler.GetParameters()[0].ParameterType;
+                Console.WriteLine($"GAgentBase: Processing handler {handler.Name} with parameter type {paramType.Name}");
+                
                 // 检查是否允许处理自己发出的事件
                 if (!ShouldHandleEvent(handler, envelope))
+                {
+                    Console.WriteLine($"GAgentBase: Handler {handler.Name} skipped by ShouldHandleEvent");
                     continue;
-
-                var paramType = handler.GetParameters()[0].ParameterType;
+                }
 
                 // AllEventHandler - 直接传递 EventEnvelope
                 if (handler.GetCustomAttribute<AllEventHandlerAttribute>() != null)
@@ -231,19 +238,22 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                             Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}", 
                                 message?.GetType().Name ?? "null", handler.Name);
                         
-                        // 检查类型是否匹配
-                        if (message != null && paramType.IsInstanceOfType(message))
-                        {
-                            Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", 
-                                handler.Name, message.GetType().Name);
-                            await InvokeHandler(handler, message, ct);
-                            handled = true;
-                        }
-                        else
-                        {
-                            Logger.LogDebug("Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
-                                handler.Name, paramType.Name, message?.GetType().Name ?? "null");
-                        }
+                            // 检查类型是否匹配
+                            if (message != null && paramType.IsInstanceOfType(message))
+                            {
+                                Console.WriteLine($"GAgentBase: Invoking handler {handler.Name} with message type {message.GetType().Name}");
+                                Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", 
+                                    handler.Name, message.GetType().Name);
+                                await InvokeHandler(handler, message, ct);
+                                handled = true;
+                                Console.WriteLine($"GAgentBase: Handler {handler.Name} completed successfully");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"GAgentBase: Type mismatch - handler {handler.Name} expects {paramType.Name}, got {message?.GetType().Name ?? "null"}");
+                                Logger.LogDebug("Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
+                                    handler.Name, paramType.Name, message?.GetType().Name ?? "null");
+                            }
                         }
                     }
                     catch (Exception ex)

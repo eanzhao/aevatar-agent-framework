@@ -33,14 +33,29 @@ public class ProtoActorMessageStream : IMessageStream
         {
             // 发送 HandleEventMessage 到目标 Actor
             _rootContext.Send(_targetPid, new HandleEventMessage { Envelope = envelope });
+            
+            // 触发所有订阅的处理器
+            var tasks = new List<Task>();
+            Console.WriteLine($"ProtoActorMessageStream {StreamId} producing event, subscriptions count: {_subscriptions.Count}");
+            foreach (var subscription in _subscriptions.Values)
+            {
+                if (subscription.IsActive)
+                {
+                    Console.WriteLine($"ProtoActorMessageStream {StreamId} invoking subscription {subscription.SubscriptionId}");
+                    tasks.Add(subscription.HandleMessageAsync(envelope));
+                }
+            }
+            
+            if (tasks.Count > 0)
+            {
+                await Task.WhenAll(tasks);
+            }
         }
         else
         {
             throw new InvalidOperationException(
                 $"ProtoActorMessageStream only supports EventEnvelope, got {typeof(T).Name}");
         }
-
-        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -90,6 +105,8 @@ public class ProtoActorMessageStream : IMessageStream
             () => _subscriptions.TryRemove(subscriptionId, out _));
         
         _subscriptions.TryAdd(subscriptionId, subscription);
+        
+        Console.WriteLine($"ProtoActorMessageStream {StreamId} added subscription {subscriptionId}, total subscriptions: {_subscriptions.Count}");
         
         // Proto.Actor 的实际消息处理在 Actor 的 Receive 方法中
         // 订阅只是记录 handler 供后续使用

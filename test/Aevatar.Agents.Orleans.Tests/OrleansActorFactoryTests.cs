@@ -2,6 +2,8 @@ using System;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Orleans;
 using Aevatar.Agents.TestBase;
 using Google.Protobuf;
@@ -34,11 +36,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Factory_Should_Create_Actor_With_Orleans_Grain()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();  // 使用自动发现
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -59,11 +66,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Factory_Should_Create_Actor_With_Single_Generic_Parameter()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -88,11 +100,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Factory_Created_Actors_Should_Support_Hierarchical_Relationships()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();  // 使用自动发现
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -119,11 +136,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Factory_Created_Actors_Should_Support_Event_Publishing()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();  // 使用自动发现
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -150,11 +172,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Multiple_Actors_Should_Work_Independently()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -191,11 +218,16 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
     public async Task Factory_Should_Handle_Concurrent_Creation()
     {
         // Arrange
-        var logger = _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = _serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddGAgentActorFactoryProvider();  // 使用自动发现
+        
+        var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
-            _serviceProvider,
+            serviceProvider,
             _grainFactory,
             logger,
             options);
@@ -230,36 +262,32 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
 // Test Agent Implementation for Orleans
 public class OrleansTestAgent : GAgentBase<OrleansTestState>
 {
-    public Guid Id { get; set; }
-    public OrleansTestState State { get; set; } = new();
-    public IEventPublisher? EventPublisher { get; set; }
     
     // Default constructor
-    public OrleansTestAgent()
+    public OrleansTestAgent() : base()
     {
     }
     
     // Constructor with ID parameter for dependency injection
-    public OrleansTestAgent(Guid id)
+    public OrleansTestAgent(Guid id) : base(id)
     {
-        Id = id;
     }
 
     public Task InitializeAsync()
     {
-        State.IsInitialized = true;
+        GetState().IsInitialized = true;
         return Task.CompletedTask;
     }
     
     public Task<string> ProcessAsync(IMessage message)
     {
-        State.ProcessedCount++;
+        GetState().ProcessedCount++;
         return Task.FromResult($"Processed by Orleans agent {Id}");
     }
     
-    public OrleansTestState GetState()
+    public override OrleansTestState GetState()
     {
-        return State;
+        return base.GetState();
     }
     
     public override Task<string> GetDescriptionAsync()
@@ -270,14 +298,15 @@ public class OrleansTestAgent : GAgentBase<OrleansTestState>
     [EventHandler]
     public Task HandleTestEvent(StringValue message)
     {
-        State.LastMessage = message.Value;
-        State.EventCount++;
+        var state = GetState();
+        state.LastMessage = message.Value;
+        state.EventCount++;
         return Task.CompletedTask;
     }
     
     public void Dispose()
     {
-        State.IsDisposed = true;
+        GetState().IsDisposed = true;
     }
 }
 

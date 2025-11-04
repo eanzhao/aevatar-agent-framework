@@ -41,12 +41,12 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentGrain = _grainFactory.GetGrain<IGAgentGrain>(parentId.ToString());
-        var childGrain = _grainFactory.GetGrain<IGAgentGrain>(childId.ToString());
+        var parentGrain = _grainFactory.GetGrain<IStandardGAgentGrain>(parentId.ToString());
+        var childGrain = _grainFactory.GetGrain<IStandardGAgentGrain>(childId.ToString());
         
-        // 激活grains
-        await parentGrain.ActivateAsync("TestParentAgent", "TestState");
-        await childGrain.ActivateAsync("TestChildAgent", "TestState");
+        // 激活grains (使用Orleans测试的实际Agent类型)
+        await parentGrain.ActivateAsync("Aevatar.Agents.Orleans.Tests.OrleansTestAgent", "Aevatar.Agents.Orleans.Tests.OrleansTestState");
+        await childGrain.ActivateAsync("Aevatar.Agents.Orleans.Tests.OrleansTestAgent", "Aevatar.Agents.Orleans.Tests.OrleansTestState");
         
         // Act - 建立父子关系
         await childGrain.SetParentAsync(parentId);

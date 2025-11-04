@@ -1,3 +1,4 @@
+using System.Linq;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
@@ -8,6 +9,47 @@ using Orleans.Runtime;
 using Orleans.Streams;
 
 namespace Aevatar.Agents.Orleans;
+
+/// <summary>
+/// Agent包装器，用于包装非object状态类型的agent
+/// </summary>
+internal class AgentWrapper : GAgentBase<object>
+{
+    private readonly object _innerAgent;
+    
+    public AgentWrapper(object innerAgent) : base(GetAgentId(innerAgent))
+    {
+        _innerAgent = innerAgent;
+    }
+    
+    private static Guid GetAgentId(object agent)
+    {
+        var idProperty = agent.GetType().GetProperty("Id");
+        if (idProperty != null && idProperty.CanRead)
+        {
+            var id = idProperty.GetValue(agent);
+            if (id is Guid guidId)
+            {
+                return guidId;
+            }
+        }
+        return Guid.NewGuid();
+    }
+    
+    public override Task<string> GetDescriptionAsync()
+    {
+        var method = _innerAgent.GetType().GetMethod("GetDescriptionAsync");
+        if (method != null)
+        {
+            var result = method.Invoke(_innerAgent, null);
+            if (result is Task<string> task)
+            {
+                return task;
+            }
+        }
+        return Task.FromResult($"Wrapped {_innerAgent.GetType().Name}");
+    }
+}
 
 /// <summary>
 /// Orleans Grain 实现
@@ -408,18 +450,76 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         {
             try
             {
+                // 尝试通过Type.GetType获取类型，如果失败则搜索所有加载的程序集
                 var agentType = System.Type.GetType(agentTypeName);
+                if (agentType == null)
+                {
+                    // 搜索所有程序集
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        agentType = assembly.GetTypes().FirstOrDefault(t => t.Name == agentTypeName || t.FullName == agentTypeName);
+                        if (agentType != null) break;
+                    }
+                }
+                
                 var stateType = System.Type.GetType(stateTypeName);
+                if (stateType == null)
+                {
+                    // 搜索所有程序集
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        stateType = assembly.GetTypes().FirstOrDefault(t => t.Name == stateTypeName || t.FullName == stateTypeName);
+                        if (stateType != null) break;
+                    }
+                }
                 
                 if (agentType != null && stateType != null)
                 {
                     // 创建Agent实例
                     var agentId = await GetIdAsync();
-                    var agent = Activator.CreateInstance(agentType, agentId) as GAgentBase<object>;
                     
-                    if (agent != null)
+                    // 尝试不同的构造函数
+                    object? agent = null;
+                    
+                    // 尝试带ID参数的构造函数
+                    try
                     {
-                        SetAgent(agent);
+                        agent = Activator.CreateInstance(agentType, agentId);
+                    }
+                    catch
+                    {
+                        // 尝试无参构造函数
+                        try
+                        {
+                            agent = Activator.CreateInstance(agentType);
+                            // 设置ID属性
+                            var idProperty = agentType.GetProperty("Id");
+                            if (idProperty != null && idProperty.CanWrite)
+                            {
+                                idProperty.SetValue(agent, agentId);
+                            }
+                        }
+                        catch
+                        {
+                            // 两种构造方式都失败
+                        }
+                    }
+                    
+                    if (agent is GAgentBase<object> agentBase)
+                    {
+                        SetAgent(agentBase);
+                    }
+                    else if (agent != null)
+                    {
+                        // 尝试通过反射获取agent的实际类型并创建包装
+                        var agentInterfaces = agent.GetType().GetInterfaces();
+                        if (agentInterfaces.Any(i => i.Name.StartsWith("IStateGAgent")))
+                        {
+                            // 这是一个有状态的agent，但状态类型不是object
+                            // 需要创建一个适配器
+                            var wrapper = new AgentWrapper(agent);
+                            SetAgent(wrapper);
+                        }
                     }
                 }
             }

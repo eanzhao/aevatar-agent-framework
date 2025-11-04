@@ -146,7 +146,10 @@ public class ProtoActorGAgentActor : GAgentActorBase
     /// </summary>
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
+        Console.WriteLine($"ProtoActor {Id} SendToSelfAsync called with event {envelope.Id}");
+        Logger.LogDebug("ProtoActor {AgentId} sending event to self via stream", Id);
         await _myStream.ProduceAsync(envelope, ct);
+        Logger.LogDebug("ProtoActor {AgentId} sent event to self via stream", Id);
     }
 
     /// <summary>
@@ -169,11 +172,28 @@ public class ProtoActorGAgentActor : GAgentActorBase
 
     public override async Task ActivateAsync(CancellationToken ct = default)
     {
+        Console.WriteLine($"ProtoActorGAgentActor.ActivateAsync called for agent {Id}");
         Logger.LogInformation("Activating agent {AgentId}", Id);
 
         // 订阅自己的 Stream
         await _myStream.SubscribeAsync<EventEnvelope>(
-            async envelope => await HandleEventAsync(envelope, ct),
+            async envelope => 
+            {
+                try
+                {
+                    Console.WriteLine($"ProtoActor {Id} received event {envelope.Id} from stream");
+                    Logger.LogDebug("ProtoActor {AgentId} received event {EventId} from stream", Id, envelope.Id);
+                    await HandleEventAsync(envelope, ct);
+                    Logger.LogDebug("ProtoActor {AgentId} handled event {EventId}", Id, envelope.Id);
+                    Console.WriteLine($"ProtoActor {Id} handled event {envelope.Id}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ProtoActor {Id} ERROR handling event: {ex.Message}");
+                    Logger.LogError(ex, "Error handling event {EventId}", envelope.Id);
+                    throw;
+                }
+            },
             ct);
 
         // 调用 Agent 的激活回调

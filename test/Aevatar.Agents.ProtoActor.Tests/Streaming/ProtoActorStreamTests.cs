@@ -4,8 +4,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.ProtoActor;
 using Aevatar.Agents.ProtoActor.Tests.Messages;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Proto;
@@ -21,18 +23,33 @@ public class ProtoActorStreamTests : IDisposable
 {
     private readonly ActorSystem _actorSystem;
     private readonly ProtoActorGAgentActorManager _manager;
+    private readonly ProtoActorGAgentActorFactory _factory;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ProtoActorStreamTests> _logger;
     
     public ProtoActorStreamTests()
     {
-        var loggerFactory = LoggerFactory.Create(builder => 
+        var services = new ServiceCollection();
+        services.AddLogging(builder => 
             builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+        
+        // Setup ProtoActor
+        var systemConfig = ActorSystemConfig.Setup();
+        _actorSystem = new ActorSystem(systemConfig);
+        
+        services.AddSingleton(_actorSystem);
+        services.AddSingleton<ProtoActorMessageStreamRegistry>();
+        services.AddSingleton<ProtoActorGAgentActorFactory>();
+        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
+        
+        _serviceProvider = services.BuildServiceProvider();
+        _factory = _serviceProvider.GetRequiredService<ProtoActorGAgentActorFactory>();
+        
+        var loggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>();
         _logger = loggerFactory.CreateLogger<ProtoActorStreamTests>();
         
-        _actorSystem = new ActorSystem();
-        var actorFactory = new Mock<IGAgentActorFactory>();
         _manager = new ProtoActorGAgentActorManager(
-            actorFactory.Object,
+            _factory,
             _actorSystem.Root, 
             loggerFactory.CreateLogger<ProtoActorGAgentActorManager>());
     }
@@ -231,7 +248,7 @@ public class ProtoTestParentAgent : GAgentBase<Messages.TestState>
         await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Both);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleEvent(ProtoTestEvent evt)
     {
         ReceivedMessages.Add(evt.Message);
@@ -254,7 +271,7 @@ public class ProtoTestChildAgent : GAgentBase<Messages.TestState>
         await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Up);
     }
     
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleEvent(ProtoTestEvent evt)
     {
         ReceivedMessages.Add(evt.Message);

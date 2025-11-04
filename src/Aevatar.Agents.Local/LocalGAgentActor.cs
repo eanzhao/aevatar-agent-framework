@@ -71,12 +71,31 @@ public class LocalGAgentActor : GAgentActorBase
                 baseType = baseType.BaseType;
             }
             
-            // 创建组合过滤器：只应用类型过滤
-            // 注意：不再过滤自己发布的事件，因为UP方向的事件通过父stream广播时，发送者也应该收到
+            // 创建组合过滤器：应用类型过滤、Publishers列表检查和方向过滤
+            // - DOWN事件：不应该通过父stream广播，过滤掉
+            // - UP事件：检查Publishers列表，避免重复处理
+            // - BOTH事件：允许通过
             Func<EventEnvelope, bool>? combinedFilter = envelope =>
             {
-                Logger.LogDebug("[FILTER] Agent {AgentId} checking envelope - EventId={EventId}, PublisherId={PublisherId}, PayloadType={PayloadType}", 
-                    Id, envelope.Id, envelope.PublisherId, envelope.Payload?.TypeUrl);
+                Logger.LogDebug("[FILTER] Agent {AgentId} checking envelope from parent stream - EventId={EventId}, Direction={Direction}, PublisherId={PublisherId}, PayloadType={PayloadType}, Publishers={Publishers}", 
+                    Id, envelope.Id, envelope.Direction, envelope.PublisherId, envelope.Payload?.TypeUrl, string.Join(",", envelope.Publishers));
+                    
+                // DOWN事件不应该通过父stream广播，直接过滤掉
+                // DOWN事件应该直接发送到子节点的stream，而不是通过父stream广播
+                if (envelope.Direction == EventDirection.Down)
+                {
+                    Logger.LogDebug("[FILTER] Agent {AgentId} filtering out DOWN event {EventId} from parent stream", 
+                        Id, envelope.Id);
+                    return false;
+                }
+                    
+                // 对于UP事件，检查自己是否已经在Publishers列表中
+                if (envelope.Direction == EventDirection.Up && envelope.Publishers.Contains(Id.ToString()))
+                {
+                    Logger.LogDebug("[FILTER] Agent {AgentId} already in Publishers list for UP event {EventId}, filtering out", 
+                        Id, envelope.Id);
+                    return false;  // 过滤掉已经处理过的UP事件
+                }
                     
                 // 应用类型过滤
                 if (filter != null)
@@ -126,13 +145,18 @@ public class LocalGAgentActor : GAgentActorBase
                             Logger.LogWarning("HandleEventAsync method not found on agent {AgentId}", Id);
                         }
                         
-                        // 对于DOWN方向的事件，需要继续向下传播给子节点
-                        if (envelope.Direction == EventDirection.Down)
+                        // 从父stream接收到的事件处理逻辑：
+                        // - UP事件：只需要处理，不需要继续传播（已在父stream广播）
+                        // - DOWN事件：处理后需要继续向下传播给子节点（多层级传播）
+                        // - BOTH事件：继续向下传播给子节点
+                        if (envelope.Direction == EventDirection.Down || 
+                            envelope.Direction == EventDirection.Both)
                         {
-                            Logger.LogDebug("Continuing DOWN propagation of event {EventId} from agent {AgentId} to children", 
-                                envelope.Id, Id);
+                            Logger.LogDebug("Continuing {Direction} propagation of event {EventId} from agent {AgentId} to children", 
+                                envelope.Direction, envelope.Id, Id);
                             await EventRouter.ContinuePropagationAsync(envelope, ct);
                         }
+                        // UP事件不需要继续传播，因为它已经在父stream中广播
                     }
                     catch (Exception ex)
                     {
@@ -219,40 +243,22 @@ public class LocalGAgentActor : GAgentActorBase
             switch (direction)
             {
                 case EventDirection.Up:
-                    // UP方向：发送到父节点的stream（广播给siblings）
-                    if (EventRouter.GetParent() != null)
-                    {
-                        var parentStream = _streamRegistry.GetStream(EventRouter.GetParent().Value);
-                        if (parentStream != null)
-                        {
-                            await parentStream.ProduceAsync(envelope, ct);
-                            Logger.LogDebug("Event {EventId} sent to parent stream {ParentId}", 
-                                envelope.Id, EventRouter.GetParent());
-                        }
-                    }
-                    else
-                    {
-                        // 没有父节点，发送到自己的stream
-                        await _myStream.ProduceAsync(envelope, ct);
-                    }
+                    // UP方向：直接使用EventRouter来路由事件
+                    // EventRouter会：1) 先发送给自己处理 2) 然后发送到父节点的stream
+                    await EventRouter.RouteEventAsync(envelope, ct);
+                    Logger.LogDebug("Event {EventId} routed via EventRouter for UP direction", envelope.Id);
                     break;
                     
                 case EventDirection.Down:
-                    // DOWN方向：发送到自己的stream（广播给children）
-                    await _myStream.ProduceAsync(envelope, ct);
+                    // DOWN方向：使用EventRouter来路由事件
+                    await EventRouter.RouteEventAsync(envelope, ct);
+                    Logger.LogDebug("Event {EventId} routed via EventRouter for DOWN direction", envelope.Id);
                     break;
                     
                 case EventDirection.Both:
-                    // BOTH方向：同时发送到父stream和自己的stream
-                    if (EventRouter.GetParent() != null)
-                    {
-                        var parentStream = _streamRegistry.GetStream(EventRouter.GetParent().Value);
-                        if (parentStream != null)
-                        {
-                            await parentStream.ProduceAsync(envelope, ct);
-                        }
-                    }
-                    await _myStream.ProduceAsync(envelope, ct);
+                    // BOTH方向：使用EventRouter来路由事件
+                    await EventRouter.RouteEventAsync(envelope, ct);
+                    Logger.LogDebug("Event {EventId} routed via EventRouter for BOTH direction", envelope.Id);
                     break;
             }
             

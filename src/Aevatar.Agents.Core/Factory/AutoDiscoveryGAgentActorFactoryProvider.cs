@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,13 +76,78 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
 
             try
             {
-                // 尝试使用 DI 容器创建
-                agent = ActivatorUtilities.CreateInstance(_serviceProvider, agentType, id) as IGAgent;
-
+                // 首先尝试使用DI容器创建（能处理依赖注入）
+                try
+                {
+                    agent = ActivatorUtilities.CreateInstance(_serviceProvider, agentType, id) as IGAgent;
+                }
+                catch
+                {
+                    // 如果使用DI失败，回退到直接使用构造函数
+                    agent = null;
+                }
+                
                 if (agent == null)
                 {
-                    // 回退到直接使用 Activator
-                    agent = Activator.CreateInstance(agentType, id) as IGAgent;
+                    // 查找所有带Guid参数的构造函数
+                    var constructors = agentType.GetConstructors()
+                        .Where(c => c.GetParameters().Any(p => p.ParameterType == typeof(Guid)))
+                        .OrderBy(c => c.GetParameters().Length)
+                        .ToList();
+                    
+                    foreach (var ctor in constructors)
+                    {
+                        try
+                        {
+                            var parameters = ctor.GetParameters();
+                            var args = new object[parameters.Length];
+                            
+                            for (int i = 0; i < parameters.Length; i++)
+                            {
+                                if (parameters[i].ParameterType == typeof(Guid))
+                                {
+                                    args[i] = id;
+                                }
+                                else if (parameters[i].HasDefaultValue)
+                                {
+                                    args[i] = parameters[i].DefaultValue!;
+                                }
+                                else
+                                {
+                                    // 尝试从 DI 容器获取
+                                    args[i] = _serviceProvider.GetService(parameters[i].ParameterType)!;
+                                }
+                            }
+                            
+                            agent = ctor.Invoke(args) as IGAgent;
+                            if (agent != null) break;
+                        }
+                        catch
+                        {
+                            // 继续尝试下一个构造函数
+                        }
+                    }
+                }
+                
+                if (agent == null)
+                {
+                    // 最后尝试使用默认构造函数并设置ID
+                    try
+                    {
+                        agent = Activator.CreateInstance(agentType) as IGAgent;
+                        if (agent != null)
+                        {
+                            var idProperty = agentType.GetProperty("Id");
+                            if (idProperty != null && idProperty.CanWrite)
+                            {
+                                idProperty.SetValue(agent, id);
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 忽略
+                    }
                 }
 
                 if (agent == null)

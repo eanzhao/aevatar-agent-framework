@@ -244,14 +244,27 @@ public abstract class GAgentActorBase : IGAgentActor
         try
         {
             // 让 Agent 处理事件
-            var handleMethod = Agent.GetType().GetMethod("HandleEventAsync");
+            var agentType = Agent.GetType();
+            Logger.LogDebug("ProcessEventAsync: Agent type is {AgentType}", agentType.Name);
+            
+            var handleMethod = agentType.GetMethod("HandleEventAsync", new[] { typeof(EventEnvelope), typeof(CancellationToken) });
             if (handleMethod != null)
             {
+                Logger.LogDebug("ProcessEventAsync: Found HandleEventAsync on {AgentType}", agentType.Name);
                 var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
                 if (task != null)
                 {
                     await task;
+                    Logger.LogDebug("ProcessEventAsync: HandleEventAsync completed for event {EventId}", envelope.Id);
                 }
+                else
+                {
+                    Logger.LogWarning("ProcessEventAsync: HandleEventAsync did not return a Task");
+                }
+            }
+            else
+            {
+                Logger.LogWarning("ProcessEventAsync: HandleEventAsync not found on {AgentType}", agentType.Name);
             }
         }
         catch (Exception ex)

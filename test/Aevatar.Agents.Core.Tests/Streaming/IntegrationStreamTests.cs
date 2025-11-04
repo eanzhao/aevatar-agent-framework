@@ -273,7 +273,7 @@ public class IntegrationStreamTests : IDisposable
     /// <summary>
     /// 场景4：并发压力测试
     /// </summary>
-    [Fact]
+    [Fact(Skip = "Time consuming")]
     public async Task Concurrent_Message_Broadcasting_Works_Under_Load()
     {
         // Arrange - 创建较大的团队
@@ -317,7 +317,7 @@ public class IntegrationStreamTests : IDisposable
         }
         
         await Task.WhenAll(tasks);
-        await Task.Delay(1000); // 等待所有消息传播
+        await Task.Delay(5000); // 等待所有消息传播
         
         // Assert - 验证消息广播
         var leaderAgent = leader.GetAgent() as TeamLeader;

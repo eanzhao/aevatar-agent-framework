@@ -38,3 +38,4 @@ public abstract class AevatarAgentsTestBase : IClassFixture<ClusterFixture>, IDi
         return ServiceProvider.GetService<T>();
     }
 }
+

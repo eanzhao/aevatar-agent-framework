@@ -70,7 +70,8 @@ internal class ProtoActorStreamSubscription : IMessageStreamSubscription
         }
 
         _isActive = false;
-        _onDisposed?.Invoke();
+        // 注意：不调用 _onDisposed，保留订阅在字典中，以支持Resume
+        // _onDisposed 只在真正销毁时调用
         
         // 在Proto.Actor中，取消订阅意味着停止处理消息
         // 实际的消息路由由Actor系统管理
@@ -100,8 +101,16 @@ internal class ProtoActorStreamSubscription : IMessageStreamSubscription
     /// <summary>
     /// 异步释放资源
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await UnsubscribeAsync();
+        if (_isActive)
+        {
+            _isActive = false;
+        }
+        
+        // 真正销毁时才从字典中移除
+        _onDisposed?.Invoke();
+        
+        return ValueTask.CompletedTask;
     }
 }
