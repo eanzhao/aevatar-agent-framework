@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package Demo.Agents;
+
+option csharp_namespace = "Demo.Agents";
+
+// 任务分配事件
+message TaskAssignedEvent {
+  string task_id = 1;
+  string assigned_to = 2;
+  string description = 3;
+}
+
+// 任务完成事件  
+message TaskCompletedEvent {
+  string task_id = 1;
+  string completed_by = 2;
+}
+
+// 团队消息事件
+message TeamMessageEvent {
+  string from = 1;
+  string message = 2;
+}
+
+// 团队领导状态
+message TeamLeaderState {
+  string name = 1;
+  repeated string assigned_tasks = 2;
+  repeated string completed_tasks = 3;
+}
+
+// 团队成员状态
+message TeamMemberState {
+  string name = 1;
+  repeated string my_tasks = 2;
+  repeated string messages = 3;
+}

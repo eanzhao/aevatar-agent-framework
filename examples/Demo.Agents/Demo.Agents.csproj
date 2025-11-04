@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <Protobuf Include="demo_messages.proto" />
+    <Protobuf Include="team_events.proto" />
   </ItemGroup>
 
     <ItemGroup>

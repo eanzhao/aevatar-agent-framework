@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Proto;
+using System.Collections.Concurrent;
 
 namespace Aevatar.Agents.ProtoActor;
 
@@ -12,6 +13,7 @@ public class ProtoActorMessageStream : IMessageStream
 {
     private readonly PID _targetPid;
     private readonly IRootContext _rootContext;
+    private readonly ConcurrentDictionary<Guid, ProtoActorStreamSubscription> _subscriptions = new();
 
     public Guid StreamId { get; }
 
@@ -42,12 +44,55 @@ public class ProtoActorMessageStream : IMessageStream
     }
 
     /// <summary>
-    /// 订阅 Stream 消息（Proto.Actor 中由 AgentActor 处理）
+    /// 订阅 Stream 消息
     /// </summary>
-    public Task SubscribeAsync<T>(Func<T, Task> handler, CancellationToken ct = default) where T : IMessage
+    public Task<IMessageStreamSubscription> SubscribeAsync<T>(
+        Func<T, Task> handler, 
+        CancellationToken ct = default) where T : IMessage
     {
-        // 在 Proto.Actor 中，订阅由 AgentActor 的 ReceiveAsync 处理
-        // 这里不需要额外操作，因为 Actor 已经在接收消息
-        return Task.CompletedTask;
+        return SubscribeAsync(handler, filter: null, ct);
+    }
+    
+    /// <summary>
+    /// 订阅 Stream 消息（带过滤器）
+    /// </summary>
+    public Task<IMessageStreamSubscription> SubscribeAsync<T>(
+        Func<T, Task> handler,
+        Func<T, bool>? filter,
+        CancellationToken ct = default) where T : IMessage
+    {
+        // 在 Proto.Actor 中，消息处理由 Actor 自身完成
+        // 这里只需要创建一个订阅句柄用于管理
+        var subscriptionId = Guid.NewGuid();
+        
+        // 转换为 IMessage 类型的 handler 和 filter
+        Func<IMessage, Task> messageHandler = async (msg) =>
+        {
+            if (msg is T typedMsg)
+            {
+                await handler(typedMsg);
+            }
+        };
+        
+        Func<IMessage, bool>? messageFilter = null;
+        if (filter != null)
+        {
+            messageFilter = (msg) => msg is T typedMsg && filter(typedMsg);
+        }
+        
+        var subscription = new ProtoActorStreamSubscription(
+            subscriptionId,
+            StreamId,
+            messageHandler,
+            messageFilter,
+            _targetPid,
+            _rootContext,
+            () => _subscriptions.TryRemove(subscriptionId, out _));
+        
+        _subscriptions.TryAdd(subscriptionId, subscription);
+        
+        // Proto.Actor 的实际消息处理在 Actor 的 Receive 方法中
+        // 订阅只是记录 handler 供后续使用
+        return Task.FromResult<IMessageStreamSubscription>(subscription);
     }
 }

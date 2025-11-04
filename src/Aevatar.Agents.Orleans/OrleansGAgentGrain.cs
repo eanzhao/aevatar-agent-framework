@@ -24,6 +24,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
     private StreamSubscriptionHandle<byte[]>? _streamSubscription;
     private readonly Dictionary<Guid, IAsyncStream<byte[]>> _childStreams = new();
     private IAsyncStream<byte[]>? _parentStream;
+    private IMessageStreamSubscription? _parentStreamSubscription;  // 父节点stream订阅句柄
 
     // 层级关系
     private Guid? _parentId;
@@ -113,23 +114,73 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
 
     public async Task SetParentAsync(Guid parentId)
     {
+        // 如果已有父节点，先清除
+        if (_parentId != null)
+        {
+            await ClearParentAsync();
+        }
+        
         _parentId = parentId;
         
-        // 如果使用Streaming，获取父节点的Stream
+        // 如果使用Streaming，订阅父节点的Stream
         if (_streamProvider != null)
         {
             var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, parentId.ToString());
             _parentStream = _streamProvider.GetStream<byte[]>(streamId);
+            
+            // 创建Orleans MessageStream包装器并订阅
+            var messageStream = new OrleansMessageStream(parentId, _parentStream);
+            
+            // Agent订阅父节点的stream，接收组内广播的事件
+            if (_agent != null)
+            {
+                // 创建类型过滤器（如果Agent有特定的事件类型约束）
+                Func<EventEnvelope, bool>? filter = null;
+                
+                // 检查Agent是否继承自GAgentBase<TState, TEvent>，获取TEvent类型
+                var agentType = _agent.GetType();
+                var baseType = agentType.BaseType;
+                while (baseType != null)
+                {
+                    if (baseType.IsGenericType && 
+                        baseType.GetGenericTypeDefinition() == typeof(GAgentBase<,>))
+                    {
+                        var eventType = baseType.GetGenericArguments()[1];
+                        // 创建类型过滤器
+                        filter = envelope =>
+                        {
+                            if (envelope.Payload == null) return false;
+                            // 检查TypeUrl是否包含事件类型名
+                            return envelope.Payload.TypeUrl.Contains(eventType.Name) ||
+                                   envelope.Payload.TypeUrl.Contains(eventType.FullName);
+                        };
+                        break;
+                    }
+                    baseType = baseType.BaseType;
+                }
+                
+                _parentStreamSubscription = await messageStream.SubscribeAsync<EventEnvelope>(
+                    async envelope =>
+                    {
+                        // 处理从父节点stream接收到的事件
+                        await _agent.HandleEventAsync(envelope);
+                    },
+                    filter);
+            }
         }
-        
-        await Task.CompletedTask;
     }
 
-    public Task ClearParentAsync()
+    public async Task ClearParentAsync()
     {
         _parentId = null;
         _parentStream = null;
-        return Task.CompletedTask;
+        
+        // 取消订阅父节点的stream
+        if (_parentStreamSubscription != null)
+        {
+            await _parentStreamSubscription.UnsubscribeAsync();
+            _parentStreamSubscription = null;
+        }
     }
 
     public Task<IReadOnlyList<Guid>> GetChildrenAsync()
@@ -213,11 +264,12 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             return;
         }
 
-        // 优先使用Stream
+        // 向上发布：发送到父节点的stream，会自动广播给所有订阅者（包括其他子节点）
         if (_parentStream != null)
         {
             try
             {
+                // 发送到父节点的stream，实现组内广播
                 await _parentStream.OnNextAsync(envelope.ToByteArray());
                 return;
             }
@@ -227,7 +279,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             }
         }
         
-        // Fallback到直接调用
+        // Fallback到直接调用（如果stream不可用）
         var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value.ToString());
         await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
