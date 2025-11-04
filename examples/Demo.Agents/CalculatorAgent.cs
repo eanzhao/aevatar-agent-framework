@@ -75,18 +75,18 @@ public class CalculatorAgent : GAgentBase<CalculatorAgentState>
     /// <summary>
     /// 获取计算历史
     /// </summary>
-    public List<string> GetHistory() => _state.History;
+    public List<string> GetHistory() => State.History;
 
     /// <summary>
     /// 获取上次结果
     /// </summary>
-    public double GetLastResult() => _state.LastResult;
+    public double GetLastResult() => State.LastResult;
 
     private async Task RecordOperation(string operation, double result, CancellationToken ct)
     {
-        _state.LastResult = result;
-        _state.OperationCount++;
-        _state.History.Add($"[{_state.OperationCount}] {operation}");
+        State.LastResult = result;
+        State.OperationCount++;
+        State.History.Add($"[{State.OperationCount}] {operation}");
 
         Console.WriteLine($"[CalculatorAgent] 计算完成: {operation}");
 

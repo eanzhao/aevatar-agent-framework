@@ -6,7 +6,7 @@ namespace Aevatar.Agents.Orleans;
 /// <summary>
 /// Orleans Grain 接口
 /// </summary>
-public interface IGAgentGrain : IGrainWithGuidKey
+public interface IGAgentGrain : IGrainWithStringKey
 {
     /// <summary>
     /// 获取关联的 Agent ID
@@ -49,9 +49,11 @@ public interface IGAgentGrain : IGrainWithGuidKey
     Task<Guid?> GetParentAsync();
     
     /// <summary>
-    /// 激活
+    /// 激活并设置Agent类型
     /// </summary>
-    Task ActivateAsync();
+    /// <param name="agentTypeName">Agent类型的完全限定名</param>
+    /// <param name="stateTypeName">State类型的完全限定名</param>
+    Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null);
     
     /// <summary>
     /// 停用

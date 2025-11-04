@@ -39,8 +39,18 @@ switch (runtimeType.ToLower())
 }
 
 Console.WriteLine("🌐 服务配置完成");
-Console.WriteLine("📊 Dashboard: https://localhost:15888");
-Console.WriteLine("🔗 API: https://localhost:7001 (从 launchSettings.json 读取)");
+Console.WriteLine("");
+Console.WriteLine("📊 访问 Aspire Dashboard: http://localhost:20888");
+Console.WriteLine("   - 在 Dashboard 中查看所有服务的运行状态");
+Console.WriteLine("");
+Console.WriteLine("📈 Prometheus Metrics: http://localhost:7001/metrics");
+Console.WriteLine("🔗 API Swagger: https://localhost:7001/swagger");
+Console.WriteLine("");
+Console.WriteLine("💡 Metrics 包含:");
+Console.WriteLine("   - aevatar.agents.events.* (事件发布、处理、丢弃指标)");
+Console.WriteLine("   - aevatar.agents.active.count (活跃 Actor 数)");
+Console.WriteLine("   - aevatar.agents.exceptions (异常统计)");
+Console.WriteLine("   - aevatar.agents.queue.length (队列长度)");
 
 var app = builder.Build();
 await app.RunAsync();

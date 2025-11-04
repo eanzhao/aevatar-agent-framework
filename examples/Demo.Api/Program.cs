@@ -1,10 +1,15 @@
 using Demo.Api;
+using Demo.Api.Extensions;
 using Orleans;
 using Orleans.Configuration;
 using Orleans.Hosting;
 using Orleans.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 添加 Aspire 可观察性
+builder.AddServiceDefaults();  // Aspire 默认配置
+builder.AddAevatarObservability();  // Aevatar Agents 可观察性
 
 // 读取运行时配置
 var runtimeOptions = builder.Configuration
@@ -65,7 +70,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
+
+// 添加 Prometheus metrics 端点
+app.UsePrometheusMetrics();
+
 app.MapControllers();
+app.MapDefaultEndpoints();  // Aspire 健康检查端点
 
 // 显示当前使用的运行时
 Console.WriteLine($"🚀 Agent Framework Demo API");

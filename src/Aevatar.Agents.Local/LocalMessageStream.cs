@@ -13,9 +13,9 @@ public class LocalMessageStream : IMessageStream
     private readonly Channel<EventEnvelope> _channel;
     private readonly List<Func<EventEnvelope, Task>> _subscribers = new();
     private readonly CancellationTokenSource _cts = new();
-    
+
     public Guid StreamId { get; }
-    
+
     public LocalMessageStream(Guid streamId, int capacity = 1000)
     {
         StreamId = streamId;
@@ -25,11 +25,11 @@ public class LocalMessageStream : IMessageStream
             SingleWriter = false,
             FullMode = BoundedChannelFullMode.Wait
         });
-        
+
         // 启动消息处理循环
         _ = ProcessMessagesAsync();
     }
-    
+
     /// <summary>
     /// 发布消息到 Stream
     /// </summary>
@@ -41,10 +41,11 @@ public class LocalMessageStream : IMessageStream
         }
         else
         {
-            throw new InvalidOperationException($"LocalMessageStream only supports EventEnvelope, got {typeof(T).Name}");
+            throw new InvalidOperationException(
+                $"LocalMessageStream only supports EventEnvelope, got {typeof(T).Name}");
         }
     }
-    
+
     /// <summary>
     /// 订阅 Stream 消息
     /// </summary>
@@ -68,7 +69,7 @@ public class LocalMessageStream : IMessageStream
                         var unpackMethod = typeof(Google.Protobuf.WellKnownTypes.Any)
                             .GetMethod("Unpack", Type.EmptyTypes)
                             ?.MakeGenericMethod(typeof(T));
-                        
+
                         if (unpackMethod != null)
                         {
                             var message = (T)unpackMethod.Invoke(env.Payload, null)!;
@@ -82,10 +83,10 @@ public class LocalMessageStream : IMessageStream
                 }
             });
         }
-        
+
         return Task.CompletedTask;
     }
-    
+
     /// <summary>
     /// 处理消息循环
     /// </summary>
@@ -94,7 +95,7 @@ public class LocalMessageStream : IMessageStream
         await foreach (var envelope in _channel.Reader.ReadAllAsync(_cts.Token))
         {
             // 并发调用所有订阅者
-            var tasks = _subscribers.Select(subscriber => 
+            var tasks = _subscribers.Select(subscriber =>
                 Task.Run(async () =>
                 {
                     try
@@ -106,11 +107,11 @@ public class LocalMessageStream : IMessageStream
                         // 忽略订阅者错误，不影响其他订阅者
                     }
                 }));
-            
+
             await Task.WhenAll(tasks);
         }
     }
-    
+
     /// <summary>
     /// 停止 Stream
     /// </summary>
@@ -120,4 +121,3 @@ public class LocalMessageStream : IMessageStream
         _cts.Cancel();
     }
 }
-

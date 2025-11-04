@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Aevatar.Agents.Abstractions;
 
 namespace Aevatar.Agents.Core;
@@ -10,13 +11,13 @@ public static class GAgentExtensions
     /// <summary>
     /// 获取状态快照（JSON 序列化）
     /// </summary>
-    public static string? GetStateSnapshot<TState>(this IGAgent<TState> agent)
+    public static string? GetStateSnapshot<TState>(this IStateGAgent<TState> agent)
         where TState : class, new()
     {
         try
         {
             var state = agent.GetState();
-            return System.Text.Json.JsonSerializer.Serialize(state);
+            return JsonSerializer.Serialize(state);
         }
         catch
         {

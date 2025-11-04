@@ -11,13 +11,13 @@ public interface IStateDispatcher
     /// </summary>
     Task PublishSingleAsync<TState>(Guid agentId, StateSnapshot<TState> snapshot, CancellationToken ct = default)
         where TState : class, new();
-    
+
     /// <summary>
     /// 发布批量状态变更
     /// </summary>
     Task PublishBatchAsync<TState>(Guid agentId, StateSnapshot<TState> snapshot, CancellationToken ct = default)
         where TState : class, new();
-    
+
     /// <summary>
     /// 订阅 Agent 的状态变更
     /// </summary>
@@ -35,11 +35,11 @@ public class StateSnapshot<TState> where TState : class, new()
     public TState State { get; set; } = new();
     public long Version { get; set; }
     public DateTime TimestampUtc { get; set; }
-    
+
     public StateSnapshot()
     {
     }
-    
+
     public StateSnapshot(Guid agentId, TState state, long version)
     {
         AgentId = agentId;
@@ -48,4 +48,3 @@ public class StateSnapshot<TState> where TState : class, new()
         TimestampUtc = DateTime.UtcNow;
     }
 }
-

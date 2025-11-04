@@ -11,7 +11,7 @@ public class OrleansMessageStreamProvider
     private readonly IStreamProvider _streamProvider;
     private readonly string _streamNamespace;
     
-    public OrleansMessageStreamProvider(IStreamProvider streamProvider, string streamNamespace = "AgentStreams")
+    public OrleansMessageStreamProvider(IStreamProvider streamProvider, string streamNamespace = AevatarAgentsOrleansConstants.StreamNamespace)
     {
         _streamProvider = streamProvider;
         _streamNamespace = streamNamespace;

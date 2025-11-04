@@ -17,7 +17,7 @@ public static class DependencyInjectionExtensions
     {
         // 注册工厂
         services.AddSingleton<IGAgentActorFactory, ProtoActorGAgentActorFactory>();
-        
+
         return services;
     }
 }

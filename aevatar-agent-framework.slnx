@@ -2,8 +2,9 @@
   <Folder Name="/apps/" />
   <Folder Name="/docs/">
     <File Path="README.md" />
-    <File Path="docs\AgentSystem_Architecture.md" />
+    <File Path="ARCHITECTURE.md" />
     <File Path="docs\Protobuf_Configuration_Guide.md" />
+    <File Path="docs\Serialization_Rules.md" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" Type="Classic C#" />
@@ -18,12 +19,13 @@
     <Project Path="src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
     <Project Path="src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
-    <Project Path="src\Aevatar.Agents.Serialization\Aevatar.Agents.Serialization.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" Type="Classic C#" />
     <File Path="test/README.md" />
   </Folder>
 </Solution>

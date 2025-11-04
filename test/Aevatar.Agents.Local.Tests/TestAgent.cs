@@ -25,7 +25,7 @@ public class TestAgent : GAgentBase<TestState>
     [EventHandler]
     public Task HandleConfigEventAsync(GeneralConfigEvent evt)
     {
-        _state.Name = evt.ConfigKey;
+        State.Name = evt.ConfigKey;
         return Task.CompletedTask;
     }
 }

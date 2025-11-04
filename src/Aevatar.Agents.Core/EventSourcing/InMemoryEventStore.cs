@@ -8,8 +8,8 @@ namespace Aevatar.Agents.Core.EventSourcing;
 public class InMemoryEventStore : IEventStore
 {
     private readonly Dictionary<Guid, List<StateLogEvent>> _events = new();
-    private readonly object _lock = new();
-    
+    private readonly Lock _lock = new();
+
     public Task SaveEventAsync(Guid agentId, StateLogEvent logEvent, CancellationToken ct = default)
     {
         lock (_lock)
@@ -18,13 +18,13 @@ public class InMemoryEventStore : IEventStore
             {
                 _events[agentId] = new List<StateLogEvent>();
             }
-            
+
             _events[agentId].Add(logEvent);
         }
-        
+
         return Task.CompletedTask;
     }
-    
+
     public Task SaveEventsAsync(Guid agentId, IEnumerable<StateLogEvent> logEvents, CancellationToken ct = default)
     {
         lock (_lock)
@@ -33,26 +33,28 @@ public class InMemoryEventStore : IEventStore
             {
                 _events[agentId] = new List<StateLogEvent>();
             }
-            
+
             _events[agentId].AddRange(logEvents);
         }
-        
+
         return Task.CompletedTask;
     }
-    
+
     public Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(Guid agentId, CancellationToken ct = default)
     {
         lock (_lock)
         {
             if (_events.TryGetValue(agentId, out var events))
             {
-                return Task.FromResult<IReadOnlyList<StateLogEvent>>(events.ToList());
+                // Return events sorted by version
+                var sortedEvents = events.OrderBy(e => e.Version).ToList();
+                return Task.FromResult<IReadOnlyList<StateLogEvent>>(sortedEvents);
             }
-            
+
             return Task.FromResult<IReadOnlyList<StateLogEvent>>(Array.Empty<StateLogEvent>());
         }
     }
-    
+
     public Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(
         Guid agentId,
         long fromVersion,
@@ -65,15 +67,16 @@ public class InMemoryEventStore : IEventStore
             {
                 var filtered = events
                     .Where(e => e.Version >= fromVersion && e.Version <= toVersion)
+                    .OrderBy(e => e.Version)
                     .ToList();
-                
+
                 return Task.FromResult<IReadOnlyList<StateLogEvent>>(filtered);
             }
-            
+
             return Task.FromResult<IReadOnlyList<StateLogEvent>>(Array.Empty<StateLogEvent>());
         }
     }
-    
+
     public Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default)
     {
         lock (_lock)
@@ -82,18 +85,18 @@ public class InMemoryEventStore : IEventStore
             {
                 return Task.FromResult(events.Max(e => e.Version));
             }
-            
+
             return Task.FromResult(0L);
         }
     }
-    
+
     public Task ClearEventsAsync(Guid agentId, CancellationToken ct = default)
     {
         lock (_lock)
         {
             _events.Remove(agentId);
         }
-        
+
         return Task.CompletedTask;
     }
 }

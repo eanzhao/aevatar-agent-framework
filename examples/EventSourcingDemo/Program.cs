@@ -95,3 +95,6 @@ if (recoveredAgent.GetState().Balance == agent.GetState().Balance &&
 }
 
 Console.WriteLine($"\n✅ EventSourcing Demo completed successfully!");
+
+// 运行多运行时演示
+await MultiRuntimeEventSourcingDemo.RunAsync();
