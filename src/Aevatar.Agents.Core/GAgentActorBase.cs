@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
+using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -20,10 +21,8 @@ public abstract class GAgentActorBase : IGAgentActor
     private ILogger _logger = NullLogger.Instance;
     protected EventRouter EventRouter;
     
-    // 事件去重机制：记录已处理的事件ID
-    private readonly HashSet<string> _processedEventIds = new();
-    private readonly Lock _eventIdLock = new();
-    private const int MaxProcessedEventIds = 10000; // 防止内存泄漏
+    // 改进的事件去重机制
+    protected IEventDeduplicator EventDeduplicator { get; set; }
 
     /// <summary>
     /// Logger 属性 - 支持自动注入
@@ -64,6 +63,17 @@ public abstract class GAgentActorBase : IGAgentActor
             SendEventToActorAsync,
             SendToSelfAsync,
             _logger
+        );
+        
+        // 创建事件去重器（使用改进的MemoryCache实现）
+        EventDeduplicator = new MemoryCacheEventDeduplicator(
+            new DeduplicationOptions
+            {
+                EventExpiration = TimeSpan.FromMinutes(5),
+                MaxCachedEvents = 50_000,
+                EnableAutoCleanup = true
+            },
+            logger as ILogger<MemoryCacheEventDeduplicator>
         );
 
         // 设置 Agent 的 EventPublisher
@@ -182,37 +192,6 @@ public abstract class GAgentActorBase : IGAgentActor
     }
 
 
-    /// <summary>
-    /// 尝试记录事件ID，如果是新事件返回true，重复事件返回false
-    /// </summary>
-    private bool TryRecordEventId(string eventId)
-    {
-        lock (_eventIdLock)
-        {
-            // 如果已经处理过，返回false
-            if (_processedEventIds.Contains(eventId))
-            {
-                return false;
-            }
-            
-            // 添加到已处理集合
-            _processedEventIds.Add(eventId);
-            
-            // 防止内存泄漏：如果集合太大，清理最早的一半
-            if (_processedEventIds.Count > MaxProcessedEventIds)
-            {
-                var toKeep = _processedEventIds.Skip(_processedEventIds.Count / 2).ToHashSet();
-                _processedEventIds.Clear();
-                foreach (var id in toKeep)
-                {
-                    _processedEventIds.Add(id);
-                }
-                Logger.LogDebug("Cleared half of processed event IDs to prevent memory leak");
-            }
-            
-            return true;
-        }
-    }
 
     /// <summary>
     /// 处理接收到的事件（标准流程）
@@ -230,8 +209,8 @@ public abstract class GAgentActorBase : IGAgentActor
             
         Logger.LogDebug("Agent {AgentId} handling event {EventId}", Id, envelope.Id);
 
-        // 事件去重检查
-        if (!TryRecordEventId(envelope.Id))
+        // 使用改进的事件去重机制
+        if (!await EventDeduplicator.TryRecordEventAsync(envelope.Id))
         {
             Logger.LogDebug("Skipping duplicate event {EventId}", envelope.Id);
             AgentMetrics.EventsDropped.Add(1,

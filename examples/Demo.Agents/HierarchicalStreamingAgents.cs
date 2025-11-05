@@ -17,7 +17,7 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
     }
     
     // 公开State访问方法
-    public TeamLeaderState GetState() => State;
+    public new TeamLeaderState GetState() => State;
     
     public override Task<string> GetDescriptionAsync()
     {
@@ -84,7 +84,7 @@ public class TeamMemberAgent : GAgentBase<TeamMemberState, IMessage>
     }
     
     // 公开State访问方法
-    public TeamMemberState GetState() => State;
+    public new TeamMemberState GetState() => State;
     
     public override Task<string> GetDescriptionAsync()
     {

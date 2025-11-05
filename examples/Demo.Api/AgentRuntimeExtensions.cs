@@ -2,6 +2,12 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Local;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Local.Subscription;
+using Aevatar.Agents.Orleans.Subscription;
+using Aevatar.Agents.ProtoActor.Subscription;
+using Aevatar.Agents.Core.EventDeduplication;
+using Aevatar.Agents.Orleans;
+using Microsoft.Extensions.Logging;
 
 namespace Demo.Api;
 
@@ -18,11 +24,25 @@ public static class AgentRuntimeExtensions
         // 注册Event Store（用于Event Sourcing）
         services.AddSingleton<IEventStore, InMemoryEventStore>();
         
+        // 注册Event Deduplicator（共享组件）
+        services.AddSingleton<IEventDeduplicator>(sp => 
+            new MemoryCacheEventDeduplicator(new DeduplicationOptions
+            {
+                EventExpiration = TimeSpan.FromMinutes(5),
+                MaxCachedEvents = 10_000,
+                EnableAutoCleanup = true
+            }));
+        
         switch (runtimeOptions.RuntimeType)
         {
             case AgentRuntimeType.Local:
                 // 使用 Local 运行时
                 services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
+                services.AddSingleton<LocalMessageStreamRegistry>();
+                services.AddSingleton<ISubscriptionManager>(sp => 
+                    new LocalSubscriptionManager(
+                        sp.GetRequiredService<LocalMessageStreamRegistry>(),
+                        sp.GetRequiredService<ILogger<LocalSubscriptionManager>>()));
                 Console.WriteLine("✅ 使用 Local 运行时");
                 break;
 
@@ -30,8 +50,16 @@ public static class AgentRuntimeExtensions
                 // ProtoActor 运行时
                 var actorSystem = new Proto.ActorSystem();
                 services.AddSingleton(actorSystem);
+                services.AddSingleton(actorSystem.Root);
                 services.AddSingleton<Aevatar.Agents.ProtoActor.ProtoActorMessageStreamRegistry>();
+                services.AddSingleton<Aevatar.Agents.ProtoActor.ProtoActorGAgentActorManager>();
                 services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.ProtoActor.ProtoActorGAgentActorFactory>();
+                services.AddSingleton<ISubscriptionManager>(sp =>
+                    new ProtoActorSubscriptionManager(
+                        sp.GetRequiredService<Proto.IRootContext>(),
+                        sp.GetRequiredService<Aevatar.Agents.ProtoActor.ProtoActorMessageStreamRegistry>(),
+                        sp.GetRequiredService<Aevatar.Agents.ProtoActor.ProtoActorGAgentActorManager>(),
+                        sp.GetRequiredService<ILogger<ProtoActorSubscriptionManager>>()));
                 Console.WriteLine("✅ 使用 ProtoActor 运行时");
                 break;
 
@@ -44,6 +72,19 @@ public static class AgentRuntimeExtensions
                     options.DefaultGrainType = Aevatar.Agents.Orleans.GrainType.Standard;
                 });
                 services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Orleans.OrleansGAgentActorFactory>();
+                
+                // Orleans的SubscriptionManager需要IStreamProvider
+                // 注意：Orleans的流提供者需要在Silo配置中设置，这里只是注册Manager
+                services.AddSingleton<ISubscriptionManager>(sp =>
+                {
+                    // 获取Orleans的流提供者
+                    var client = sp.GetRequiredService<Orleans.IClusterClient>();
+                    var streamProvider = client.GetStreamProvider("DefaultStreamProvider");
+                    return new OrleansSubscriptionManager(
+                        streamProvider,
+                        AevatarAgentsOrleansConstants.StreamNamespace,
+                        sp.GetRequiredService<ILogger<OrleansSubscriptionManager>>());
+                });
                 Console.WriteLine("✅ 使用 Orleans 运行时");
                 break;
 

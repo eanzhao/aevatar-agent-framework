@@ -148,13 +148,24 @@ public class LocalGAgentActor : GAgentActorBase
                         // 从父stream接收到的事件处理逻辑：
                         // - UP事件：只需要处理，不需要继续传播（已在父stream广播）
                         // - DOWN事件：处理后需要继续向下传播给子节点（多层级传播）
-                        // - BOTH事件：继续向下传播给子节点
-                        if (envelope.Direction == EventDirection.Down || 
-                            envelope.Direction == EventDirection.Both)
+                        // - BOTH事件：只向下传播给子节点（不能再向上，避免循环）
+                        if (envelope.Direction == EventDirection.Down)
                         {
-                            Logger.LogDebug("Continuing {Direction} propagation of event {EventId} from agent {AgentId} to children", 
-                                envelope.Direction, envelope.Id, Id);
+                            // DOWN事件：继续向下传播
+                            Logger.LogDebug("Continuing DOWN propagation of event {EventId} from agent {AgentId} to children", 
+                                envelope.Id, Id);
                             await EventRouter.ContinuePropagationAsync(envelope, ct);
+                        }
+                        else if (envelope.Direction == EventDirection.Both)
+                        {
+                            // BOTH事件从父节点来：只向下传播，不向上（避免循环）
+                            Logger.LogDebug("Continuing DOWN-ONLY propagation for BOTH event {EventId} from parent stream", 
+                                envelope.Id);
+                            
+                            // 创建一个新的DOWN方向的envelope继续传播
+                            var downOnlyEnvelope = envelope.Clone();
+                            downOnlyEnvelope.Direction = EventDirection.Down;
+                            await EventRouter.ContinuePropagationAsync(downOnlyEnvelope, ct);
                         }
                         // UP事件不需要继续传播，因为它已经在父stream中广播
                     }
