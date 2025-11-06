@@ -206,3 +206,4 @@ public static class ImprovedSubscriptionDemo
         logger.LogInformation("Subscription unsubscribed");
     }
 }
+

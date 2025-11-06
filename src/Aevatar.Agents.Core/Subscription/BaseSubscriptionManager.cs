@@ -296,3 +296,4 @@ public static class SubscriptionManagerExtensions
         );
     }
 }
+

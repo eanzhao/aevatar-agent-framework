@@ -1,120 +1,114 @@
-# 栈溢出问题修复记录
+# Stack Overflow Fix - Event Propagation Issue
 
-## 问题描述
+## 🔴 问题描述
 
-`DOWN_Direction_Should_Broadcast_To_All_Children` 测试容易引发栈溢出异常。
+运行 Core.Tests 时出现栈溢出错误，特别是在 `BOTH_Direction_Should_Broadcast_In_Both_Directions` 测试中。
 
-## 根本原因
+## 🎯 根本原因
 
-DOWN 方向的事件传播存在无限递归风险：
+当子节点从父节点stream接收到 `EventDirection.Both` 事件时，错误地继续向所有方向传播，导致无限循环。
 
-1. **缺少循环检测**：DOWN 方向传播没有检查节点是否已被访问过
-2. **无递归深度限制**：没有强制执行 MaxHopCount 限制
-3. **缺少去重机制**：同一事件可能被多次处理
-4. **测试超时保护不足**：测试没有超时限制，栈溢出时会无限等待
-
-## 递归链条分析
+### 无限循环过程
 
 ```
-父节点发布 DOWN 事件
-  ↓ RouteEventAsync
-  ↓ SendToChildrenAsync (发送给所有子节点)
-  ↓ 
-子节点收到事件
-  ↓ HandleEventAsync
-  ↓ ContinuePropagationAsync (继续传播)
-  ↓ SendToChildrenAsync (如果有子节点)
-  ↓
-如果存在循环引用或配置错误 → 无限递归 → 栈溢出
+1. Parent 发布 BOTH 事件
+   ├── 向上：发送到 Grandparent
+   └── 向下：发送到 Children (Child1, Child2)
+
+2. Child1 从 Parent stream 接收到 BOTH 事件
+   └── 调用 ContinuePropagationAsync(BOTH)
+       ├── ❌ 向上：又发送回 Parent（形成循环！）
+       └── 向下：发送到自己的子节点
+
+3. Parent 再次收到来自 Child1 的事件
+   └── 又广播给所有 Children
+       └── Child1 再次收到...（无限循环）
 ```
 
-## 修复方案
+## ✅ 解决方案
 
-### 1. 添加 DOWN 方向的循环检测
+### 修复代码位置：`src/Aevatar.Agents.Local/LocalGAgentActor.cs`
+
 ```csharp
-// EventRouter.cs - SendToChildrenAsync
-if (envelope.Publishers.Contains(childId.ToString()))
+// 原代码（第148-159行）
+// 从父stream接收到的事件处理逻辑：
+// - UP事件：只需要处理，不需要继续传播（已在父stream广播）
+// - DOWN事件：处理后需要继续向下传播给子节点（多层级传播）
+// - BOTH事件：继续向下传播给子节点
+if (envelope.Direction == EventDirection.Down || 
+    envelope.Direction == EventDirection.Both)  // ❌ 问题
 {
-    _logger.LogWarning("Event {EventId} already visited child {ChildId}, skipping to avoid loop");
-    continue;
-}
-```
-
-### 2. 强制执行递归深度限制
-```csharp
-// 检查最大跳数
-if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
-{
-    return;
+    Logger.LogDebug("Continuing {Direction} propagation...");
+    await EventRouter.ContinuePropagationAsync(envelope, ct);
 }
 
-// 安全阈值防止栈溢出
-const int SafetyMaxHops = 100;
-if (envelope.CurrentHopCount >= SafetyMaxHops)
+// 修复后的代码
+// 从父stream接收到的事件处理逻辑：
+// - UP事件：只需要处理，不需要继续传播（已在父stream广播）
+// - DOWN事件：处理后需要继续向下传播给子节点（多层级传播）
+// - BOTH事件：只向下传播给子节点（不能再向上，避免循环）
+if (envelope.Direction == EventDirection.Down)
 {
-    _logger.LogError("Event exceeded safety max hop count, force stopping");
-    return;
+    // DOWN事件：继续向下传播
+    Logger.LogDebug("Continuing DOWN propagation of event {EventId} from agent {AgentId} to children", 
+        envelope.Id, Id);
+    await EventRouter.ContinuePropagationAsync(envelope, ct);
 }
-```
-
-### 3. 设置合理的默认 MaxHopCount
-```csharp
-// EventRouter.cs - CreateEventEnvelope
-MaxHopCount = 50, // 之前是 -1（无限制）
-```
-
-### 4. 添加事件去重机制
-```csharp
-// GAgentActorBase.cs
-private readonly HashSet<string> _processedEventIds = new();
-
-private bool TryRecordEventId(string eventId)
+else if (envelope.Direction == EventDirection.Both)
 {
-    lock (_eventIdLock)
-    {
-        if (_processedEventIds.Contains(eventId))
-            return false;
-        _processedEventIds.Add(eventId);
-        // 防止内存泄漏的清理逻辑...
-        return true;
-    }
+    // BOTH事件从父节点来：只向下传播，不向上（避免循环）
+    Logger.LogDebug("Continuing DOWN-ONLY propagation for BOTH event {EventId} from parent stream", 
+        envelope.Id);
+    
+    // 创建一个新的DOWN方向的envelope继续传播
+    var downOnlyEnvelope = envelope.Clone();
+    downOnlyEnvelope.Direction = EventDirection.Down;
+    await EventRouter.ContinuePropagationAsync(downOnlyEnvelope, ct);
 }
+// UP事件不需要继续传播，因为它已经在父stream中广播
 ```
 
-### 5. 防止自引用
-```csharp
-// EventRouter.cs - SendToChildrenAsync
-if (childId == _agentId)
-{
-    _logger.LogError("Agent attempted to send event to itself as child");
-    continue;
-}
+## 🔧 实施步骤
+
+1. 修改 `LocalGAgentActor.cs` 中的事件传播逻辑
+2. 对 Orleans 和 ProtoActor 运行时进行相同的修复
+3. 添加单元测试验证循环检测
+4. 运行所有stream相关测试确保没有栈溢出
+
+## 📝 测试验证
+
+运行以下测试确保修复有效：
+
+```bash
+dotnet test --filter "FullyQualifiedName~StreamMechanismTests"
 ```
 
-### 6. 测试超时保护
-```csharp
-[Fact(Timeout = 5000)] // 5秒超时
-public async Task DOWN_Direction_Should_Broadcast_To_All_Children()
-```
+特别注意这个测试：
+- `BOTH_Direction_Should_Broadcast_In_Both_Directions`
 
-## 修复后的效果
+## 🎯 其他运行时的修复
 
-- ✅ 测试正常通过（~1秒完成）
-- ✅ 事件正确传播到所有子节点
-- ✅ 没有无限递归
-- ✅ 循环引用被正确检测和阻止
-- ✅ 内存使用受控（去重缓存有大小限制）
+### Orleans (`OrleansGAgentGrain.cs`)
+需要检查和修复类似的逻辑
 
-## 最佳实践建议
+### ProtoActor (`ProtoActorGAgentActor.cs`)
+需要检查和修复类似的逻辑
 
-1. **始终设置 MaxHopCount**：不要使用 -1（无限制）
-2. **监控日志**：注意循环检测警告
-3. **测试超时**：所有涉及事件传播的测试都应该有超时保护
-4. **父子关系验证**：添加子节点时验证不是自己
-5. **定期清理**：事件ID缓存需要定期清理防止内存泄漏
+## 💡 设计改进建议
 
-## 相关文件
+1. **明确的传播规则**：
+   - 从父stream收到的事件，永远不应该再向上传播
+   - BOTH事件在接收端应该转换为单向传播
 
-- `/src/Aevatar.Agents.Core/EventRouting/EventRouter.cs`
-- `/src/Aevatar.Agents.Core/GAgentActorBase.cs`
-- `/test/Aevatar.Agents.Core.Tests/Streaming/StreamMechanismTests.cs`
+2. **增强循环检测**：
+   - 在EventRouter中添加更严格的循环检测
+   - 记录事件路径用于调试
+
+3. **测试增强**：
+   - 添加专门的循环检测测试
+   - 增加多层级传播的边界测试
+
+---
+
+*Issue Date: 2025-01-05*
+*Status: Fix Identified*

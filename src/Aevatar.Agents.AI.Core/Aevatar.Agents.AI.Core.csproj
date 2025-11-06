@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+        <Authors>Aevatar Team</Authors>
+        <Description>AI capabilities for Aevatar Agent Framework</Description>
+        <PackageProjectUrl>https://github.com/aevatar/agent-framework</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/aevatar/agent-framework</RepositoryUrl>
+        <PackageTags>agents;ai;llm;semantic-kernel;autogen;distributed</PackageTags>
+        <Version>1.0.0-alpha</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+        <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+        <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- AI Provider Abstractions -->
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+    </ItemGroup>
+
+</Project>

@@ -17,6 +17,8 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" Type="Classic C#" />
+    <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />

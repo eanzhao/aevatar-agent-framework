@@ -16,10 +16,4 @@
       <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Reference Include="Aevatar.Agents.Core">
-        <HintPath>..\Aevatar.Agents.Orleans\bin\Debug\net9.0\Aevatar.Agents.Core.dll</HintPath>
-      </Reference>
-    </ItemGroup>
-
 </Project>
