@@ -32,7 +32,7 @@ public class ToolContext
     /// <summary>
     /// 获取Agent状态的回调
     /// </summary>
-    public Func<object>? GetStateCallback { get; set; }
+    public Func<IMessage>? GetStateCallback { get; set; }
     
     /// <summary>
     /// 发布事件的回调

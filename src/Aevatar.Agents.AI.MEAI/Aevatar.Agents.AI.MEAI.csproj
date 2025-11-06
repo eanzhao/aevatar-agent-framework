@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.Extensions.AI - Core AI abstractions -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="9.0.0-preview.9.24556.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.0.0-preview.9.24556.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.AzureAIInference" Version="9.0.0-preview.9.24556.5" />
+    
+    <!-- Azure OpenAI SDK -->
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.0.0" />
+    
+    <!-- OpenAI SDK -->
+    <PackageReference Include="OpenAI" Version="2.0.0" />
+    
+    <!-- Azure Identity for authentication -->
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    
+    <!-- Logging (use version 9.0.0 to match Microsoft.Extensions.AI) -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    
+    <!-- JSON (use version 9.0.0 to match Microsoft.Extensions.AI) -->
+    <PackageReference Include="System.Text.Json" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

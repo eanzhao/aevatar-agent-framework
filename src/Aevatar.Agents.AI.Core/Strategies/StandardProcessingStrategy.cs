@@ -41,10 +41,13 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
         // 如果有工具，添加函数定义
         if (config?.RequiredTools?.Length > 0)
         {
-            var functions = await dependencies.ToolManager.GenerateFunctionDefinitionsAsync(
-                config.RequiredTools,
-                cancellationToken);
-            request.Functions = functions.ToList();
+            // 简化实现：获取所有工具定义
+            var functions = await dependencies.ToolManager.GenerateFunctionDefinitionsAsync(cancellationToken);
+            // 过滤出需要的工具
+            var requiredFunctions = functions
+                .Where(f => config.RequiredTools.Contains(f.Name))
+                .ToList();
+            request.Functions = requiredFunctions;
         }
         
         var response = await dependencies.LLMProvider.GenerateAsync(request, cancellationToken);
@@ -57,13 +60,11 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
                 dependencies,
                 cancellationToken);
             
-            // 将结果添加到对话并重新生成
-            await dependencies.Memory.AddMessageAsync(new AevatarConversationMessage
-            {
-                Role = AevatarChatRole.Function,
-                FunctionName = response.AevatarFunctionCall.Name,
-                Content = result?.ToString() ?? string.Empty
-            }, cancellationToken);
+            // 将结果添加到对话并重新生成 - 简化实现
+            await dependencies.Memory.AddMessageAsync(
+                "function",
+                $"[{response.AevatarFunctionCall.Name}]: {result?.ToString() ?? string.Empty}",
+                cancellationToken);
             
             // 递归调用以获取最终响应
             return await ProcessAsync(context, config, dependencies, cancellationToken);
@@ -87,7 +88,7 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
                 ["state"] = context.AgentState
             };
             
-            return await dependencies.PromptManager.BuildPromptAsync(
+            return await dependencies.PromptManager.FormatPromptAsync(
                 config.PromptTemplate,
                 parameters,
                 cancellationToken);

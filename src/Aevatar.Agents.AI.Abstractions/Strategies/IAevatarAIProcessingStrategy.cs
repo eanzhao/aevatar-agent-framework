@@ -4,6 +4,7 @@ namespace Aevatar.Agents.AI.Abstractions;
 /// AI处理策略接口
 /// 定义不同AI处理模式的通用契约
 /// </summary>
+// ReSharper disable once InconsistentNaming
 public interface IAevatarAIProcessingStrategy
 {
     /// <summary>

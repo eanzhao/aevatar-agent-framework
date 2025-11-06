@@ -235,19 +235,10 @@ public class DefaultToolExecutor : IToolExecutor
                               $"{(result.Success ? "successfully" : "with error")}. " +
                               $"Result: {result.Result?.ToString() ?? result.Error ?? "N/A"}";
             
-            await context.Memory.StoreMemoryAsync(
-                new AevatarMemoryItem
-                {
-                    Content = memoryContent,
-                    Category = "ToolExecution",
-                    Metadata = new Dictionary<string, object>
-                    {
-                        ["toolName"] = result.ToolName,
-                        ["executionId"] = result.ExecutionId,
-                        ["success"] = result.Success,
-                        ["duration_ms"] = result.ExecutionTime.TotalMilliseconds
-                    }
-                },
+            // 使用简化的记忆接口 - 添加为对话记录
+            await context.Memory.AddMessageAsync(
+                "system",
+                memoryContent,
                 cancellationToken);
             
             _logger?.LogDebug("Recorded tool execution to memory for {ToolName}", result.ToolName);

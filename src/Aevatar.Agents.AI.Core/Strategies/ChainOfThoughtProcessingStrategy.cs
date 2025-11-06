@@ -27,11 +27,11 @@ public class ChainOfThoughtProcessingStrategy : IAevatarAIProcessingStrategy
         
         while (stepNumber <= maxSteps)
         {
-            // 构建思考提示词
-            var prompt = await dependencies.PromptManager.BuildChainOfThoughtPromptAsync(
-                thoughts,
-                context.Question,
-                cancellationToken);
+            // 构建思考提示词 - 简化实现
+            var thoughtSteps = thoughts.Count > 0 
+                ? string.Join("\n", thoughts.Select((t, i) => $"Step {i + 1}: {t}"))
+                : "Let's think step by step.";
+            var prompt = $"{thoughtSteps}\n\nQuestion: {context.Question}";
             
             // 生成思考步骤
             var response = await dependencies.LLMProvider.GenerateAsync(new AevatarLLMRequest
