@@ -41,7 +41,7 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
         // 如果有工具，添加函数定义
         if (config?.RequiredTools?.Length > 0)
         {
-            var functions = await dependencies.ToolManager.GenerateAevatarFunctionDefinitionsAsync(
+            var functions = await dependencies.ToolManager.GenerateFunctionDefinitionsAsync(
                 config.RequiredTools,
                 cancellationToken);
             request.Functions = functions.ToList();

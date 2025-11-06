@@ -326,14 +326,14 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         };
 
         // 获取所有工具
-        var tools = await ToolProvider.GetToolsAsync(toolContext);
+        var toolDefinitions = await ToolProvider.GetToolsAsync(toolContext);
 
         // 注册到工具管理器
-        foreach (var tool in tools)
+        foreach (var toolDef in toolDefinitions)
         {
-            await ToolManager.RegisterToolAsync(tool, cancellationToken);
+            await ToolManager.RegisterToolAsync(toolDef, cancellationToken);
             Logger?.LogDebug("Registered tool: {ToolName} (Category: {Category})", 
-                tool.Name, tool.Category);
+                toolDef.Name, toolDef.Category);
         }
     }
 

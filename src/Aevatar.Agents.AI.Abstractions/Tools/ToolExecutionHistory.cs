@@ -1,14 +1,14 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
-/// 工具执行历史
+/// 工具执行历史记录
 /// </summary>
-public class AevatarAevatarToolExecutionHistory
+public class ToolExecutionHistory
 {
     /// <summary>
     /// 执行ID
     /// </summary>
-    public string ExecutionId { get; set; } = string.Empty;
+    public string ExecutionId { get; set; } = Guid.NewGuid().ToString();
     
     /// <summary>
     /// 工具名称
@@ -16,12 +16,12 @@ public class AevatarAevatarToolExecutionHistory
     public string ToolName { get; set; } = string.Empty;
     
     /// <summary>
-    /// 参数
+    /// 执行参数
     /// </summary>
     public Dictionary<string, object>? Parameters { get; set; }
     
     /// <summary>
-    /// 结果
+    /// 执行结果
     /// </summary>
     public object? Result { get; set; }
     
@@ -41,12 +41,32 @@ public class AevatarAevatarToolExecutionHistory
     public TimeSpan ExecutionTime { get; set; }
     
     /// <summary>
-    /// 时间戳
+    /// 开始时间
     /// </summary>
-    public DateTimeOffset Timestamp { get; set; }
+    public DateTimeOffset StartTime { get; set; }
+    
+    /// <summary>
+    /// 结束时间
+    /// </summary>
+    public DateTimeOffset EndTime { get; set; }
     
     /// <summary>
     /// 执行上下文
     /// </summary>
-    public AevatarExecutionContext? Context { get; set; }
+    public ExecutionContext? Context { get; set; }
+    
+    /// <summary>
+    /// Agent ID
+    /// </summary>
+    public string? AgentId { get; set; }
+    
+    /// <summary>
+    /// 会话ID
+    /// </summary>
+    public string? SessionId { get; set; }
+    
+    /// <summary>
+    /// 元数据
+    /// </summary>
+    public Dictionary<string, object>? Metadata { get; set; }
 }

@@ -10,14 +10,14 @@ public interface IAevatarToolManager
     /// 注册工具
     /// </summary>
     Task RegisterToolAsync(
-        AevatarTool tool,
+        ToolDefinition tool,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量注册工具
     /// </summary>
     Task RegisterToolsAsync(
-        IEnumerable<AevatarTool> tools,
+        IEnumerable<ToolDefinition> tools,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -30,44 +30,44 @@ public interface IAevatarToolManager
     /// <summary>
     /// 获取工具
     /// </summary>
-    Task<AevatarTool?> GetToolAsync(
+    Task<ToolDefinition?> GetToolAsync(
         string toolName,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取所有可用工具
     /// </summary>
-    Task<IReadOnlyList<AevatarTool>> GetAvailableToolsAsync(
+    Task<IReadOnlyList<ToolDefinition>> GetAvailableToolsAsync(
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 根据标签获取工具
     /// </summary>
-    Task<IReadOnlyList<AevatarTool>> GetToolsByTagAsync(
+    Task<IReadOnlyList<ToolDefinition>> GetToolsByTagAsync(
         string tag,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 执行工具
     /// </summary>
-    Task<AevatarAevatarToolExecutionResult> ExecuteToolAsync(
+    Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        AevatarExecutionContext? context = null,
+        ExecutionContext? context = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量执行工具（并行）
     /// </summary>
-    Task<IReadOnlyList<AevatarAevatarToolExecutionResult>> ExecuteToolsAsync(
-        IEnumerable<AevatarToolExecution> executions,
-        AevatarExecutionContext? context = null,
+    Task<IReadOnlyList<ToolExecutionResult>> ExecuteToolsAsync(
+        IEnumerable<ToolExecution> executions,
+        ExecutionContext? context = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 验证工具参数
     /// </summary>
-    Task<AevatarValidationResult> ValidateParametersAsync(
+    Task<ValidationResult> ValidateParametersAsync(
         string toolName,
         Dictionary<string, object> parameters,
         CancellationToken cancellationToken = default);
@@ -76,14 +76,14 @@ public interface IAevatarToolManager
     /// 生成工具描述（用于LLM）
     /// </summary>
     Task<string> GenerateToolDescriptionsAsync(
-        AevatarDescriptionFormat format = AevatarDescriptionFormat.Json,
+        DescriptionFormat format = DescriptionFormat.Json,
         IEnumerable<string>? toolNames = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 生成函数定义（用于Function Calling）
     /// </summary>
-    Task<IReadOnlyList<AevatarFunctionDefinition>> GenerateAevatarFunctionDefinitionsAsync(
+    Task<IReadOnlyList<AevatarFunctionDefinition>> GenerateFunctionDefinitionsAsync(
         IEnumerable<string>? toolNames = null,
         CancellationToken cancellationToken = default);
 
@@ -97,7 +97,7 @@ public interface IAevatarToolManager
     /// <summary>
     /// 获取工具执行历史
     /// </summary>
-    Task<IReadOnlyList<AevatarAevatarToolExecutionHistory>> GetExecutionHistoryAsync(
+    Task<IReadOnlyList<ToolExecutionHistory>> GetExecutionHistoryAsync(
         string? toolName = null,
         DateTimeOffset? startTime = null,
         DateTimeOffset? endTime = null,

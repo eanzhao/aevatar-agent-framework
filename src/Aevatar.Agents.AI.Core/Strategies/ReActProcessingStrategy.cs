@@ -141,7 +141,7 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
         prompt += "1. A function call with the tool name and parameters\n";
         prompt += "2. FINISH: <final answer> if you're ready to provide the final answer";
         
-        var functions = await dependencies.ToolManager.GenerateAevatarFunctionDefinitionsAsync(
+        var functions = await dependencies.ToolManager.GenerateFunctionDefinitionsAsync(
             cancellationToken: cancellationToken);
         
         var response = await dependencies.LLMProvider.GenerateAsync(new AevatarLLMRequest

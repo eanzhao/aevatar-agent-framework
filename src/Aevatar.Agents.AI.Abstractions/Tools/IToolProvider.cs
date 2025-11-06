@@ -7,19 +7,19 @@ namespace Aevatar.Agents.AI.Abstractions;
 public interface IToolProvider
 {
     /// <summary>
-    /// 获取所有可用的工具
+    /// 获取所有可用的工具定义
     /// </summary>
     /// <param name="context">工具上下文</param>
-    /// <returns>工具列表</returns>
-    Task<IEnumerable<AevatarTool>> GetToolsAsync(ToolContext context);
+    /// <returns>工具定义列表</returns>
+    Task<IEnumerable<ToolDefinition>> GetToolsAsync(ToolContext context);
 
     /// <summary>
-    /// 获取特定的工具
+    /// 获取特定的工具定义
     /// </summary>
     /// <param name="toolName">工具名称</param>
     /// <param name="context">工具上下文</param>
-    /// <returns>工具实例，如果不存在则返回null</returns>
-    Task<AevatarTool?> GetToolAsync(string toolName, ToolContext context);
+    /// <returns>工具定义，如果不存在则返回null</returns>
+    Task<ToolDefinition?> GetToolAsync(string toolName, ToolContext context);
 
     /// <summary>
     /// 获取工具分类

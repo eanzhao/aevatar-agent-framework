@@ -25,6 +25,12 @@
         <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+        
+        <!-- JSON Processing -->
+        <PackageReference Include="System.Text.Json" Version="9.0.0" />
+        
+        <!-- Protobuf Dynamic Message Creation -->
+        <PackageReference Include="Google.Protobuf" Version="3.33.0" />
     </ItemGroup>
 
 </Project>
