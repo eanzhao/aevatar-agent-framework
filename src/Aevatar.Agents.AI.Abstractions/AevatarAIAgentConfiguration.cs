@@ -12,12 +12,15 @@ public class AevatarAIAgentConfiguration
     public string? SystemPrompt { get; set; }
     public int? MaxChainOfAevatarThoughtSteps { get; set; }
     public int? MaxReActIterations { get; set; }
-    
+
     // Tree of Thoughts configuration
     public int? MaxTreeDepth { get; set; } = 3;
     public int? TreeBranchingFactor { get; set; } = 3;
     public int? MaxTreeNodes { get; set; } = 20;
-    
+
+    // Tool configuration
+    public bool? RecordToolExecutions { get; set; } = true;
+
     public List<string> EnabledTools { get; set; } = new();
     public Dictionary<string, object> ProviderSettings { get; set; } = new();
 }

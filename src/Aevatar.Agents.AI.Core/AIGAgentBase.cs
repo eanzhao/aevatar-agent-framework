@@ -1,5 +1,6 @@
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Strategies;
+using Aevatar.Agents.AI.Core.Tools;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// <summary>
     /// 记忆管理器
     /// </summary>
-    protected IAevatarMemory Memory { get; private set; } = null!;
+    protected IAevatarAIMemory Memory { get; private set; } = null!;
 
     /// <summary>
     /// AI配置
@@ -45,6 +46,16 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// AI处理策略工厂
     /// </summary>
     protected IAevatarAIProcessingStrategyFactory StrategyFactory { get; private set; } = null!;
+    
+    /// <summary>
+    /// 工具提供者
+    /// </summary>
+    protected IToolProvider ToolProvider { get; private set; } = null!;
+    
+    /// <summary>
+    /// 工具执行器
+    /// </summary>
+    protected IToolExecutor ToolExecutor { get; private set; } = null!;
 
     #endregion
 
@@ -59,8 +70,10 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         IAevatarLLMProvider llmProvider,
         IAevatarPromptManager promptManager,
         IAevatarToolManager toolManager,
-        IAevatarMemory memory,
+        IAevatarAIMemory memory,
         IAevatarAIProcessingStrategyFactory? strategyFactory = null,
+        IToolProvider? toolProvider = null,
+        IToolExecutor? toolExecutor = null,
         ILogger? logger = null) : base(logger)
     {
         LLMProvider = llmProvider ?? throw new ArgumentNullException(nameof(llmProvider));
@@ -68,6 +81,8 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         ToolManager = toolManager ?? throw new ArgumentNullException(nameof(toolManager));
         Memory = memory ?? throw new ArgumentNullException(nameof(memory));
         StrategyFactory = strategyFactory ?? new AevatarAIProcessingStrategyFactory();
+        ToolProvider = toolProvider ?? new DefaultToolProvider();
+        ToolExecutor = toolExecutor ?? new DefaultToolExecutor();
     }
 
     #endregion
@@ -89,8 +104,10 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         IAevatarLLMProvider? llmProvider = null,
         IAevatarPromptManager? promptManager = null,
         IAevatarToolManager? toolManager = null,
-        IAevatarMemory? memory = null,
+        IAevatarAIMemory? memory = null,
         IAevatarAIProcessingStrategyFactory? strategyFactory = null,
+        IToolProvider? toolProvider = null,
+        Abstractions.IToolExecutor? toolExecutor = null,
         CancellationToken cancellationToken = default)
     {
         // 设置组件（如果提供）
@@ -99,9 +116,13 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         if (toolManager != null) ToolManager = toolManager;
         if (memory != null) Memory = memory;
         if (strategyFactory != null) StrategyFactory = strategyFactory;
+        if (toolProvider != null) ToolProvider = toolProvider;
+        if (toolExecutor != null) ToolExecutor = toolExecutor;
         
-        // 确保策略工厂已初始化
+        // 确保所有组件已初始化
         StrategyFactory ??= new AevatarAIProcessingStrategyFactory();
+        ToolProvider ??= new DefaultToolProvider();
+        ToolExecutor ??= new DefaultToolExecutor();
 
         // 配置
         ConfigureAI(Configuration);
@@ -184,7 +205,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
             throw;
         }
     }
-    
+
     /// <summary>
     /// 创建策略依赖项
     /// </summary>
@@ -217,34 +238,22 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         Dictionary<string, object> parameters,
         CancellationToken cancellationToken = default)
     {
-        var context = new AevatarExecutionContext
+        var context = new ToolExecutionContext
         {
-            AgentId = Id,
-            SessionId = GetSessionId()
+            AgentId = Id.ToString(),
+            ToolManager = ToolManager,
+            Memory = Memory,
+            PublishEventCallback = async (message) => await PublishAsync(message),
+            GetSessionId = GetSessionId,
+            RecordToMemory = Configuration.RecordToolExecutions ?? true,
+            Logger = Logger
         };
 
-        var result = await ToolManager.ExecuteToolAsync(
+        var result = await ToolExecutor.ExecuteToolAsync(
             toolName,
             parameters,
             context,
             cancellationToken);
-
-        // 发布工具执行事件
-        var toolEvent = new AevatarToolExecutedEvent
-        {
-            ToolName = toolName,
-            Result = result.Result?.ToString() ?? string.Empty,
-            Success = result.Success,
-            DurationMs = (long)result.ExecutionTime.TotalMilliseconds
-        };
-
-        // 添加参数到 map
-        foreach (var param in parameters)
-        {
-            toolEvent.Parameters[param.Key] = param.Value?.ToString() ?? string.Empty;
-        }
-
-        await PublishAsync(toolEvent);
 
         return result.Result;
     }
@@ -299,18 +308,33 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     }
 
     /// <summary>
-    /// 注册内置工具
+    /// 注册工具
     /// </summary>
     protected virtual async Task RegisterBuiltInToolsAsync(CancellationToken cancellationToken)
     {
-        // 注册事件发布工具
-        await ToolManager.RegisterToolAsync(CreateEventPublishTool(), cancellationToken);
+        // 创建工具上下文
+        var toolContext = new ToolContext
+        {
+            AgentId = Id.ToString(),
+            AgentType = GetType().Name,
+            IncludeCoreTools = true,
+            GetStateCallback = () => State,
+            PublishEventCallback = async (message) => await PublishAsync(message),
+            Memory = Memory,
+            Logger = Logger,
+            GetSessionIdCallback = GetSessionId
+        };
 
-        // 注册状态查询工具
-        await ToolManager.RegisterToolAsync(CreateStateQueryTool(), cancellationToken);
+        // 获取所有工具
+        var tools = await ToolProvider.GetToolsAsync(toolContext);
 
-        // 注册记忆搜索工具
-        await ToolManager.RegisterToolAsync(CreateMemorySearchTool(), cancellationToken);
+        // 注册到工具管理器
+        foreach (var tool in tools)
+        {
+            await ToolManager.RegisterToolAsync(tool, cancellationToken);
+            Logger?.LogDebug("Registered tool: {ToolName} (Category: {Category})", 
+                tool.Name, tool.Category);
+        }
     }
 
     /// <summary>
@@ -331,91 +355,6 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     {
         return $"{Id}_{DateTimeOffset.UtcNow:yyyyMMdd}";
     }
-
-
-    #region 内置工具创建
-
-    private AevatarTool CreateEventPublishTool()
-    {
-        return new AevatarTool
-        {
-            Name = "publish_event",
-            Description = "Publish an event to the agent stream",
-            Parameters = new AevatarAevatarToolParameters
-            {
-                Items = new Dictionary<string, AevatarToolParameter>
-                {
-                    ["event_type"] = new() { Type = "string", Required = true },
-                    ["payload"] = new() { Type = "object", Required = true },
-                    ["direction"] = new() { Type = "string", Enum = new[] { "up", "down", "both" } }
-                },
-                Required = new[] { "event_type", "payload" }
-            },
-            ExecuteAsync = async (parameters, context, ct) =>
-            {
-                // 实现事件发布逻辑
-                return new { success = true, eventId = Guid.NewGuid() };
-            }
-        };
-    }
-
-    private AevatarTool CreateStateQueryTool()
-    {
-        return new AevatarTool
-        {
-            Name = "query_state",
-            Description = "Query agent state information",
-            Parameters = new AevatarAevatarToolParameters
-            {
-                Items = new Dictionary<string, AevatarToolParameter>
-                {
-                    ["field"] = new() { Type = "string", Required = true }
-                }
-            },
-            ExecuteAsync = async (parameters, context, ct) =>
-            {
-                // 实现状态查询逻辑
-                var field = parameters["field"]?.ToString();
-                // 使用反射或其他方式获取状态字段
-                return State.ToString();
-            }
-        };
-    }
-
-    private AevatarTool CreateMemorySearchTool()
-    {
-        return new AevatarTool
-        {
-            Name = "search_memory",
-            Description = "Search long-term memory",
-            Parameters = new AevatarAevatarToolParameters
-            {
-                Items = new Dictionary<string, AevatarToolParameter>
-                {
-                    ["query"] = new() { Type = "string", Required = true },
-                    ["top_k"] = new() { Type = "integer", DefaultValue = 5 }
-                }
-            },
-            ExecuteAsync = async (parameters, context, ct) =>
-            {
-                var query = parameters["query"]?.ToString() ?? "";
-                var topK = Convert.ToInt32(parameters.GetValueOrDefault("top_k", 5));
-
-                var results = await Memory.RecallAsync(
-                    query,
-                    new AevatarRecallOptions { TopK = topK },
-                    ct);
-
-                return results.Select(r => new
-                {
-                    content = r.Item.Content,
-                    score = r.RelevanceScore
-                });
-            }
-        };
-    }
-
-    #endregion
 
     #endregion
 }
