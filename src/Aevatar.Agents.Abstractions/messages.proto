@@ -6,10 +6,15 @@ import "google/protobuf/any.proto";
 // 事件传播方向
 enum EventDirection {
   EVENT_DIRECTION_UNSPECIFIED = 0;
-  EVENT_DIRECTION_UP = 1;           // 向父级传播
-  EVENT_DIRECTION_DOWN = 2;         // 向子级传播
-  EVENT_DIRECTION_UP_THEN_DOWN = 3; // 先向上再向下（广播到兄弟节点）
-  EVENT_DIRECTION_BIDIRECTIONAL = 4; // 双向传播
+  
+  // 向下发送：Parent发送到自己的stream，自动广播给所有children
+  EVENT_DIRECTION_DOWN = 1;         
+  
+  // 向上发送：Child发送到parent的stream，自动广播给所有siblings（包括自己）
+  EVENT_DIRECTION_UP = 2;           
+  
+  // 双向发送：同时向上和向下发送
+  EVENT_DIRECTION_BOTH = 3;         
 }
 
 message MessageEnvelope {

@@ -15,16 +15,4 @@ public interface IGAgentActorFactory
     /// <returns>Actor 实例</returns>
     Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent;
-
-    /// <summary>
-    /// 创建 Agent Actor（显式指定状态类型，保留用于向后兼容）
-    /// </summary>
-    /// <param name="id">Agent ID（Guid 类型）</param>
-    /// <param name="ct">取消令牌</param>
-    /// <typeparam name="TAgent">Agent 类型</typeparam>
-    /// <typeparam name="TState">状态类型</typeparam>
-    /// <returns>Actor 实例</returns>
-    Task<IGAgentActor> CreateGAgentActorAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new();
 }

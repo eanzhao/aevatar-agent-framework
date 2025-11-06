@@ -1,3 +1,4 @@
+using System.Linq;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
@@ -8,6 +9,47 @@ using Orleans.Runtime;
 using Orleans.Streams;
 
 namespace Aevatar.Agents.Orleans;
+
+/// <summary>
+/// Agent包装器，用于包装非object状态类型的agent
+/// </summary>
+internal class AgentWrapper : GAgentBase<object>
+{
+    private readonly object _innerAgent;
+    
+    public AgentWrapper(object innerAgent) : base(GetAgentId(innerAgent))
+    {
+        _innerAgent = innerAgent;
+    }
+    
+    private static Guid GetAgentId(object agent)
+    {
+        var idProperty = agent.GetType().GetProperty("Id");
+        if (idProperty != null && idProperty.CanRead)
+        {
+            var id = idProperty.GetValue(agent);
+            if (id is Guid guidId)
+            {
+                return guidId;
+            }
+        }
+        return Guid.NewGuid();
+    }
+    
+    public override Task<string> GetDescriptionAsync()
+    {
+        var method = _innerAgent.GetType().GetMethod("GetDescriptionAsync");
+        if (method != null)
+        {
+            var result = method.Invoke(_innerAgent, null);
+            if (result is Task<string> task)
+            {
+                return task;
+            }
+        }
+        return Task.FromResult($"Wrapped {_innerAgent.GetType().Name}");
+    }
+}
 
 /// <summary>
 /// Orleans Grain 实现
@@ -24,6 +66,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
     private StreamSubscriptionHandle<byte[]>? _streamSubscription;
     private readonly Dictionary<Guid, IAsyncStream<byte[]>> _childStreams = new();
     private IAsyncStream<byte[]>? _parentStream;
+    private IMessageStreamSubscription? _parentStreamSubscription;  // 父节点stream订阅句柄
 
     // 层级关系
     private Guid? _parentId;
@@ -113,23 +156,104 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
 
     public async Task SetParentAsync(Guid parentId)
     {
+        // 如果已有父节点，先清除
+        if (_parentId != null)
+        {
+            await ClearParentAsync();
+        }
+        
         _parentId = parentId;
         
-        // 如果使用Streaming，获取父节点的Stream
+        // 如果使用Streaming，订阅父节点的Stream
         if (_streamProvider != null)
         {
             var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, parentId.ToString());
             _parentStream = _streamProvider.GetStream<byte[]>(streamId);
+            
+            // 创建Orleans MessageStream包装器并订阅
+            var messageStream = new OrleansMessageStream(parentId, _parentStream);
+            
+            // Agent订阅父节点的stream，接收组内广播的事件
+            if (_agent != null)
+            {
+                // 创建类型过滤器（如果Agent有特定的事件类型约束）
+                Func<EventEnvelope, bool>? filter = null;
+                
+                // 检查Agent是否继承自GAgentBase<TState, TEvent>，获取TEvent类型
+                var agentType = _agent.GetType();
+                var baseType = agentType.BaseType;
+                while (baseType != null)
+                {
+                    if (baseType.IsGenericType && 
+                        baseType.GetGenericTypeDefinition() == typeof(GAgentBase<,>))
+                    {
+                        var eventType = baseType.GetGenericArguments()[1];
+                        // 创建类型过滤器
+                        filter = envelope =>
+                        {
+                            if (envelope.Payload == null) return false;
+                            // 检查TypeUrl是否包含事件类型名
+                            return envelope.Payload.TypeUrl.Contains(eventType.Name) ||
+                                   envelope.Payload.TypeUrl.Contains(eventType.FullName);
+                        };
+                        break;
+                    }
+                    baseType = baseType.BaseType;
+                }
+                
+                // 获取自己的ID
+                var myId = await GetIdAsync();
+                
+                // 创建组合过滤器：类型过滤 + 过滤掉自己发布的事件
+                Func<EventEnvelope, bool>? combinedFilter = envelope =>
+                {
+                    // 过滤掉自己发布的事件，避免循环
+                    if (envelope.PublisherId == myId.ToString())
+                    {
+                        return false;
+                    }
+                    
+                    // 应用类型过滤
+                    if (filter != null)
+                    {
+                        return filter(envelope);
+                    }
+                    
+                    return true;
+                };
+                
+                _parentStreamSubscription = await messageStream.SubscribeAsync<EventEnvelope>(
+                    async envelope =>
+                    {
+                        // 从父stream接收到的事件，只需要处理，不需要继续传播
+                        // 因为这个事件已经在父stream中广播了
+                        // 直接调用Agent的处理器，跳过传播逻辑
+                        var handleMethod = _agent.GetType().GetMethod("HandleEventAsync");
+                        if (handleMethod != null)
+                        {
+                            var task = handleMethod.Invoke(_agent, new object[] { envelope }) as Task;
+                            if (task != null)
+                            {
+                                await task;
+                            }
+                        }
+                    },
+                    combinedFilter);
+            }
         }
-        
-        await Task.CompletedTask;
     }
 
-    public Task ClearParentAsync()
+    public async Task ClearParentAsync()
     {
         _parentId = null;
         _parentStream = null;
-        return Task.CompletedTask;
+        
+        // 取消订阅父节点的stream
+        if (_parentStreamSubscription != null)
+        {
+            await _parentStreamSubscription.UnsubscribeAsync();
+            _parentStreamSubscription = null;
+        }
     }
 
     public Task<IReadOnlyList<Guid>> GetChildrenAsync()
@@ -194,11 +318,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
                 await SendToChildrenAsync(envelope);
                 break;
 
-            case EventDirection.UpThenDown:
-                await SendToParentAsync(envelope);
-                break;
-
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 await SendToParentAsync(envelope);
                 await SendToChildrenAsync(envelope);
                 break;
@@ -213,11 +333,12 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             return;
         }
 
-        // 优先使用Stream
+        // 向上发布：发送到父节点的stream，会自动广播给所有订阅者（包括其他子节点）
         if (_parentStream != null)
         {
             try
             {
+                // 发送到父节点的stream，实现组内广播
                 await _parentStream.OnNextAsync(envelope.ToByteArray());
                 return;
             }
@@ -227,7 +348,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             }
         }
         
-        // Fallback到直接调用
+        // Fallback到直接调用（如果stream不可用）
         var parentGrain = _grainFactory!.GetGrain<IGAgentGrain>(_parentId.Value.ToString());
         await parentGrain.HandleEventAsync(envelope.ToByteArray());
     }
@@ -314,7 +435,7 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             return;
 
         // 根据方向继续传播（只向下传播）
-        if (envelope.Direction is EventDirection.Down or EventDirection.Bidirectional)
+        if (envelope.Direction is EventDirection.Down or EventDirection.Both)
         {
             await SendToChildrenAsync(envelope);
         }
@@ -329,18 +450,76 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         {
             try
             {
+                // 尝试通过Type.GetType获取类型，如果失败则搜索所有加载的程序集
                 var agentType = System.Type.GetType(agentTypeName);
+                if (agentType == null)
+                {
+                    // 搜索所有程序集
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        agentType = assembly.GetTypes().FirstOrDefault(t => t.Name == agentTypeName || t.FullName == agentTypeName);
+                        if (agentType != null) break;
+                    }
+                }
+                
                 var stateType = System.Type.GetType(stateTypeName);
+                if (stateType == null)
+                {
+                    // 搜索所有程序集
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        stateType = assembly.GetTypes().FirstOrDefault(t => t.Name == stateTypeName || t.FullName == stateTypeName);
+                        if (stateType != null) break;
+                    }
+                }
                 
                 if (agentType != null && stateType != null)
                 {
                     // 创建Agent实例
                     var agentId = await GetIdAsync();
-                    var agent = Activator.CreateInstance(agentType, agentId) as GAgentBase<object>;
                     
-                    if (agent != null)
+                    // 尝试不同的构造函数
+                    object? agent = null;
+                    
+                    // 尝试带ID参数的构造函数
+                    try
                     {
-                        SetAgent(agent);
+                        agent = Activator.CreateInstance(agentType, agentId);
+                    }
+                    catch
+                    {
+                        // 尝试无参构造函数
+                        try
+                        {
+                            agent = Activator.CreateInstance(agentType);
+                            // 设置ID属性
+                            var idProperty = agentType.GetProperty("Id");
+                            if (idProperty != null && idProperty.CanWrite)
+                            {
+                                idProperty.SetValue(agent, agentId);
+                            }
+                        }
+                        catch
+                        {
+                            // 两种构造方式都失败
+                        }
+                    }
+                    
+                    if (agent is GAgentBase<object> agentBase)
+                    {
+                        SetAgent(agentBase);
+                    }
+                    else if (agent != null)
+                    {
+                        // 尝试通过反射获取agent的实际类型并创建包装
+                        var agentInterfaces = agent.GetType().GetInterfaces();
+                        if (agentInterfaces.Any(i => i.Name.StartsWith("IStateGAgent")))
+                        {
+                            // 这是一个有状态的agent，但状态类型不是object
+                            // 需要创建一个适配器
+                            var wrapper = new AgentWrapper(agent);
+                            SetAgent(wrapper);
+                        }
                     }
                 }
             }

@@ -1,16 +1,18 @@
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Orleans.Streams;
+using System.Collections.Concurrent;
 
 namespace Aevatar.Agents.Orleans;
 
 /// <summary>
 /// Orleans 运行时的 Message Stream 实现
-/// 基于 Orleans Stream 系统
+/// 基于 Orleans Stream 系统，支持订阅管理
 /// </summary>
 public class OrleansMessageStream : IMessageStream
 {
     private readonly IAsyncStream<byte[]> _stream;  // 使用 byte[] 避免序列化问题
+    private readonly ConcurrentDictionary<Guid, OrleansMessageStreamSubscription> _subscriptions = new();
     
     public Guid StreamId { get; }
     
@@ -44,21 +46,43 @@ public class OrleansMessageStream : IMessageStream
     /// <summary>
     /// 订阅 Stream 消息
     /// </summary>
-    public async Task SubscribeAsync<T>(Func<T, Task> handler, CancellationToken ct = default) where T : IMessage
+    public async Task<IMessageStreamSubscription> SubscribeAsync<T>(
+        Func<T, Task> handler, 
+        CancellationToken ct = default) where T : IMessage
+    {
+        return await SubscribeAsync(handler, filter: null, ct);
+    }
+    
+    /// <summary>
+    /// 订阅 Stream 消息（带过滤器）
+    /// </summary>
+    public async Task<IMessageStreamSubscription> SubscribeAsync<T>(
+        Func<T, Task> handler,
+        Func<T, bool>? filter,
+        CancellationToken ct = default) where T : IMessage
     {
         if (typeof(T) != typeof(EventEnvelope))
         {
-            throw new InvalidOperationException($"OrleansMessageStream only supports EventEnvelope subscription, got {typeof(T).Name}");
+            throw new InvalidOperationException(
+                $"OrleansMessageStream only supports EventEnvelope subscription, got {typeof(T).Name}");
         }
         
-        // 创建 Observer
+        // 创建带过滤器的 Observer
         var observer = new OrleansStreamObserver(async bytes =>
         {
             try
             {
                 // 反序列化 EventEnvelope
                 var envelope = EventEnvelope.Parser.ParseFrom(bytes);
-                await handler((T)(object)envelope);
+                var typedMessage = (T)(object)envelope;
+                
+                // 应用过滤器
+                if (filter != null && !filter(typedMessage))
+                {
+                    return;
+                }
+                
+                await handler(typedMessage);
             }
             catch (Exception)
             {
@@ -66,8 +90,21 @@ public class OrleansMessageStream : IMessageStream
             }
         });
         
-        // 订阅 Stream
-        await _stream.SubscribeAsync(observer);
+        // 订阅 Stream 并获取句柄
+        var streamHandle = await _stream.SubscribeAsync(observer);
+        
+        // 创建订阅包装器
+        var subscriptionId = Guid.NewGuid();
+        var subscription = new OrleansMessageStreamSubscription(
+            subscriptionId,
+            StreamId,
+            streamHandle,
+            observer,
+            _stream,
+            () => _subscriptions.TryRemove(subscriptionId, out _));
+        
+        _subscriptions.TryAdd(subscriptionId, subscription);
+        return subscription;
     }
 }
 

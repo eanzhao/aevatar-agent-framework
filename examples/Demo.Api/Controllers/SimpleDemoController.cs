@@ -35,7 +35,7 @@ public class SimpleDemoController : ControllerBase
         {
             // 创建Agent
             var agentId = Guid.NewGuid();
-            var agent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(agentId);
             
             _logger.LogInformation("Created agent {AgentId} on {Runtime}", agentId, runtime);
 
@@ -79,8 +79,8 @@ public class SimpleDemoController : ControllerBase
             var parentId = Guid.NewGuid();
             var childId = Guid.NewGuid();
             
-            var parent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(parentId);
-            var child = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(childId);
+            var parent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(parentId);
+            var child = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(childId);
             
             // 建立层级关系
             await child.SetParentAsync(parentId);
@@ -132,9 +132,9 @@ public class SimpleDemoController : ControllerBase
             var child1Id = Guid.NewGuid();
             var child2Id = Guid.NewGuid();
             
-            var root = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(rootId);
-            var child1 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(child1Id);
-            var child2 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent, WeatherAgentState>(child2Id);
+            var root = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(rootId);
+            var child1 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(child1Id);
+            var child2 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(child2Id);
             
             // 建立层级关系
             await child1.SetParentAsync(rootId);

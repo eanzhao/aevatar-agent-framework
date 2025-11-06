@@ -17,6 +17,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
     private readonly IGrainFactory _grainFactory;
     private readonly ILogger<OrleansGAgentActorFactory> _logger;
     private readonly OrleansGAgentActorFactoryOptions _options;
+    private readonly IGAgentActorFactoryProvider? _factoryProvider;
 
     public OrleansGAgentActorFactory(
         IServiceProvider serviceProvider,
@@ -28,31 +29,40 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         _grainFactory = grainFactory;
         _logger = logger;
         _options = options?.Value ?? new OrleansGAgentActorFactoryOptions();
+        _factoryProvider = serviceProvider.GetService<IGAgentActorFactoryProvider>();
     }
 
     public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent
     {
-        // 提取状态类型
+        if (_factoryProvider == null)
+        {
+            throw new InvalidOperationException(
+                $"No IGAgentActorFactoryProvider registered. Please register an agent factory for type {typeof(TAgent).Name}");
+        }
+
         var agentType = typeof(TAgent);
-        var stateType = AgentTypeHelper.ExtractStateType(agentType);
+        var factory = _factoryProvider.GetFactory(agentType);
         
-        _logger.LogDebug("Creating agent actor for type {AgentType} with state {StateType} and id {Id}",
-            agentType.Name, stateType.Name, id);
+        if (factory == null)
+        {
+            throw new InvalidOperationException(
+                $"No factory found for agent type {agentType.Name}. Please ensure the agent is properly registered.");
+        }
+
+        _logger.LogDebug("Creating agent actor using factory for type {AgentType} with id {Id}",
+            agentType.Name, id);
         
-        // 调用双参数版本
-        return await AgentTypeHelper.InvokeCreateAgentAsync(this, agentType, stateType, id, ct);
+        return await factory(this, id, ct);
     }
-
-    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+    
+    /// <summary>
+    /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
+    /// </summary>
+    public async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default)
     {
-        _logger.LogDebug("Creating agent actor for type {AgentType} with id {Id} using grain type {GrainType}",
-            typeof(TAgent).Name, id, _options.DefaultGrainType);
-
-        // 创建本地 Agent 实例
-        var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}", 
+            agent.GetType().Name, id);
         
         // 自动注入 Logger
         AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
@@ -78,7 +88,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         }
         else
         {
-            // 使用标准 Grain - 明确指定 IStandardGAgentGrain 以避免歧义
+            // 使用标准 Grain
             grain = _grainFactory.GetGrain<IStandardGAgentGrain>(id.ToString());
             _logger.LogDebug("Using Standard Grain for agent {Id}", id);
         }
@@ -89,7 +99,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         // 激活
         await actor.ActivateAsync(ct);
 
-        _logger.LogInformation("Created and activated agent actor {Id} with grain type {GrainType}", 
+        _logger.LogInformation("Created and activated Orleans agent actor {Id} with grain type {GrainType}", 
             id, grain.GetType().Name);
 
         return actor;

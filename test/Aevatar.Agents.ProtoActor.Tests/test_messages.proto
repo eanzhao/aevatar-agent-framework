@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package Aevatar.Agents.ProtoActor.Tests;
+
+option csharp_namespace = "Aevatar.Agents.ProtoActor.Tests.Messages";
+
+// ProtoActor测试事件
+message ProtoTestEvent {
+    string message = 1;
+}
+
+// 测试状态
+message TestState {
+    repeated string events = 1;
+}

@@ -5,6 +5,8 @@
     <File Path="ARCHITECTURE.md" />
     <File Path="docs\Protobuf_Configuration_Guide.md" />
     <File Path="docs\Serialization_Rules.md" />
+    <File Path="docs\OBSERVABILITY.md" />
+    <File Path="docs\GAGENTACTORMANAGER_ENHANCEMENT.md" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" Type="Classic C#" />

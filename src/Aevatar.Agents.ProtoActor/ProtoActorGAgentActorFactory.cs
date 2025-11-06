@@ -16,6 +16,7 @@ public class ProtoActorGAgentActorFactory : IGAgentActorFactory
     private readonly ILogger<ProtoActorGAgentActorFactory> _logger;
     private readonly ActorSystem _actorSystem;
     private readonly ProtoActorMessageStreamRegistry _streamRegistry;
+    private readonly IGAgentActorFactoryProvider? _factoryProvider;
 
     public ProtoActorGAgentActorFactory(
         IServiceProvider serviceProvider,
@@ -26,65 +27,60 @@ public class ProtoActorGAgentActorFactory : IGAgentActorFactory
         _actorSystem = actorSystem;
         _logger = logger;
         _streamRegistry = new ProtoActorMessageStreamRegistry(actorSystem.Root);
+        _factoryProvider = serviceProvider.GetService<IGAgentActorFactoryProvider>();
     }
 
     public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent
     {
-        // 提取状态类型
-        var agentType = typeof(TAgent);
-        var stateType = AgentTypeHelper.ExtractStateType(agentType);
-
-        _logger.LogDebug("Creating agent actor for type {AgentType} with state {StateType} and id {Id}",
-            agentType.Name, stateType.Name, id);
-
-        // 调用双参数版本
-        return await AgentTypeHelper.InvokeCreateAgentAsync(this, agentType, stateType, id, ct);
-    }
-
-    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent, TState>(Guid id, CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
-    {
-        _logger.LogDebug("Creating agent actor for type {AgentType} with id {Id}",
-            typeof(TAgent).Name, id);
-
-        // 检查是否已存在
-        if (_streamRegistry.Exists(id))
+        if (_factoryProvider == null)
         {
-            throw new InvalidOperationException($"Agent with id {id} already exists");
+            throw new InvalidOperationException(
+                $"No IGAgentActorFactoryProvider registered. Please register an agent factory for type {typeof(TAgent).Name}");
         }
 
-        // 创建 Agent 实例
-        var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        var agentType = typeof(TAgent);
+        var factory = _factoryProvider.GetFactory(agentType);
+        
+        if (factory == null)
+        {
+            throw new InvalidOperationException(
+                $"No factory found for agent type {agentType.Name}. Please ensure the agent is properly registered.");
+        }
+
+        _logger.LogDebug("Creating agent actor using factory for type {AgentType} with id {Id}",
+            agentType.Name, id);
+        
+        return await factory(this, id, ct);
+    }
+    
+    /// <summary>
+    /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
+    /// </summary>
+    public async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default)
+    {
+        _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}", 
+            agent.GetType().Name, id);
         
         // 自动注入 Logger
         AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
 
-        // 创建 Proto.Actor Actor
+        // 创建 ProtoActor Actor
         var props = Props.FromProducer(() => new AgentActor());
-        var pid = _actorSystem.Root.Spawn(props);
-
-        // 创建 ProtoActorGAgentActor 包装器（使用 Stream）
-        var gagentActor = new ProtoActorGAgentActor(
-            agent,
+        var actorPid = _actorSystem.Root.Spawn(props);
+        
+        var actor = new ProtoActorGAgentActor(
+            agent, 
             _actorSystem.Root,
-            pid,
+            actorPid,
             _streamRegistry,
-            _serviceProvider.GetService<ILogger<ProtoActorGAgentActor>>()
-        );
-
-        // 自动注入 Actor 的 Logger（使用更精确的类型）
-        AgentLoggerInjector.InjectLogger(gagentActor, _serviceProvider);
-
-        // 设置 GAgentActor 到 Proto.Actor Actor
-        _actorSystem.Root.Send(pid, new SetGAgentActor { GAgentActor = gagentActor });
-
+            _serviceProvider.GetService<ILogger<ProtoActorGAgentActor>>());
+        
         // 激活
-        await gagentActor.ActivateAsync(ct);
+        await actor.ActivateAsync(ct);
 
-        _logger.LogInformation("Created and activated agent actor {Id}", id);
+        _logger.LogInformation("Created and activated ProtoActor agent actor {Id}", id);
 
-        return gagentActor;
+        return actor;
     }
 }

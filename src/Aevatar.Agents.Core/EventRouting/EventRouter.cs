@@ -88,7 +88,7 @@ public class EventRouter
             PublisherId = _agentId.ToString(),
             Direction = direction,
             ShouldStopPropagation = false,
-            MaxHopCount = -1, // -1 表示无限制
+            MaxHopCount = 50, // 设置合理的默认最大跳数，防止无限递归
             CurrentHopCount = 0,
             MinHopCount = -1,
             Message = $"Published by {_agentId}",
@@ -122,12 +122,7 @@ public class EventRouter
                 await SendToChildrenAsync(envelope, ct);
                 break;
                 
-            case EventDirection.UpThenDown:
-                envelope.Direction = EventDirection.Down;
-                await SendToParentAsync(envelope, ct);
-                break;
-                
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 await SendToParentAsync(envelope, ct);
                 await SendToChildrenAsync(envelope, ct);
                 break;
@@ -146,7 +141,8 @@ public class EventRouter
             return;
         }
         
-        // 检查是否已经访问过这个节点（避免循环）
+        // UP方向：检查是否会形成循环
+        // 如果父节点已经在Publishers列表中，说明形成了循环
         if (envelope.Publishers.Contains(_parentId.ToString()))
         {
             _logger.LogWarning("Event {EventId} already visited parent {ParentId}, skipping to avoid loop",
@@ -157,7 +153,12 @@ public class EventRouter
         _logger.LogDebug("Sending event {EventId} to parent {ParentId}",
             envelope.Id, _parentId);
         
-        await _sendToActorAsync(_parentId.Value, envelope, ct);
+        // 创建副本并增加 HopCount，添加当前节点到Publishers列表
+        var parentEnvelope = envelope.Clone();
+        parentEnvelope.CurrentHopCount++;
+        parentEnvelope.Publishers.Add(_agentId.ToString());
+        
+        await _sendToActorAsync(_parentId.Value, parentEnvelope, ct);
     }
     
     /// <summary>
@@ -172,13 +173,38 @@ public class EventRouter
             return;
         }
         
+        // 检查最大跳数限制，防止无限递归
+        if (envelope.MaxHopCount > 0 && envelope.CurrentHopCount >= envelope.MaxHopCount)
+        {
+            _logger.LogWarning("Event {EventId} reached max hop count {MaxHop}, stopping DOWN propagation",
+                envelope.Id, envelope.MaxHopCount);
+            return;
+        }
+        
+        // 安全检查：如果当前跳数异常高，强制停止以防止栈溢出
+        const int SafetyMaxHops = 100;
+        if (envelope.CurrentHopCount >= SafetyMaxHops)
+        {
+            _logger.LogError("Event {EventId} exceeded safety max hop count {SafetyMax}, force stopping to prevent stack overflow",
+                envelope.Id, SafetyMaxHops);
+            return;
+        }
+        
         foreach (var childId in _childrenIds)
         {
-            // 检查是否已经访问过这个节点（避免循环）
+            // DOWN方向也需要检查循环：如果子节点已经在Publishers列表中，说明形成了循环
             if (envelope.Publishers.Contains(childId.ToString()))
             {
-                _logger.LogWarning("Event {EventId} already visited child {ChildId}, skipping to avoid loop",
+                _logger.LogWarning("Event {EventId} already visited child {ChildId}, skipping to avoid loop in DOWN direction",
                     envelope.Id, childId);
+                continue;
+            }
+            
+            // 防止节点将事件发送给自己（父子关系配置错误的情况）
+            if (childId == _agentId)
+            {
+                _logger.LogError("Agent {AgentId} attempted to send event to itself as child, skipping to prevent loop",
+                    _agentId);
                 continue;
             }
             
@@ -231,28 +257,30 @@ public class EventRouter
                 break;
                 
             case EventDirection.Up:
-                // Up 方向继续向上传播给父节点
-                await SendToParentAsync(envelope, ct);
-                break;
-                
-            case EventDirection.UpThenDown:
-                if (_parentId == null)
+                // Up 方向：只有当事件不是从父节点stream接收到的时候才继续向上传播
+                // 如果Publishers列表中包含父节点ID，说明事件已经通过父节点stream广播过了
+                if (_parentId.HasValue && !envelope.Publishers.Contains(_parentId.Value.ToString()))
                 {
-                    // 到达根节点，改为 Down 向下传播
-                    _logger.LogDebug("Event {EventId} reached root, changing direction to Down", envelope.Id);
-                    envelope.Direction = EventDirection.Down;
-                    await SendToChildrenAsync(envelope, ct);
+                    await SendToParentAsync(envelope, ct);
                 }
-                else
+                else if (!_parentId.HasValue)
                 {
-                    // 继续向上传播
+                    // 没有父节点时也尝试发送（可能是根节点）
                     await SendToParentAsync(envelope, ct);
                 }
                 break;
                 
-            case EventDirection.Bidirectional:
+            case EventDirection.Both:
                 // 双向传播
-                await SendToParentAsync(envelope, ct);
+                // Up方向同样需要检查是否已经在父节点stream中
+                if (_parentId.HasValue && !envelope.Publishers.Contains(_parentId.Value.ToString()))
+                {
+                    await SendToParentAsync(envelope, ct);
+                }
+                else if (!_parentId.HasValue)
+                {
+                    await SendToParentAsync(envelope, ct);
+                }
                 await SendToChildrenAsync(envelope, ct);
                 break;
         }

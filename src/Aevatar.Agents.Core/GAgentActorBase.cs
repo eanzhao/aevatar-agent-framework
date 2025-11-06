@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
+using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,9 @@ public abstract class GAgentActorBase : IGAgentActor
     protected readonly IGAgent Agent;
     private ILogger _logger = NullLogger.Instance;
     protected EventRouter EventRouter;
+    
+    // 改进的事件去重机制
+    protected IEventDeduplicator EventDeduplicator { get; set; }
 
     /// <summary>
     /// Logger 属性 - 支持自动注入
@@ -59,6 +63,17 @@ public abstract class GAgentActorBase : IGAgentActor
             SendEventToActorAsync,
             SendToSelfAsync,
             _logger
+        );
+        
+        // 创建事件去重器（使用改进的MemoryCache实现）
+        EventDeduplicator = new MemoryCacheEventDeduplicator(
+            new DeduplicationOptions
+            {
+                EventExpiration = TimeSpan.FromMinutes(5),
+                MaxCachedEvents = 50_000,
+                EnableAutoCleanup = true
+            },
+            logger as ILogger<MemoryCacheEventDeduplicator>
         );
 
         // 设置 Agent 的 EventPublisher
@@ -128,7 +143,7 @@ public abstract class GAgentActorBase : IGAgentActor
 
     // ============ 事件发布和路由 ============
 
-    public async Task<string> PublishEventAsync<TEvent>(
+    public virtual async Task<string> PublishEventAsync<TEvent>(
         TEvent evt,
         EventDirection direction = EventDirection.Down,
         CancellationToken ct = default)
@@ -177,6 +192,7 @@ public abstract class GAgentActorBase : IGAgentActor
     }
 
 
+
     /// <summary>
     /// 处理接收到的事件（标准流程）
     /// </summary>
@@ -193,6 +209,17 @@ public abstract class GAgentActorBase : IGAgentActor
             
         Logger.LogDebug("Agent {AgentId} handling event {EventId}", Id, envelope.Id);
 
+        // 使用改进的事件去重机制
+        if (!await EventDeduplicator.TryRecordEventAsync(envelope.Id))
+        {
+            Logger.LogDebug("Skipping duplicate event {EventId}", envelope.Id);
+            AgentMetrics.EventsDropped.Add(1,
+                new KeyValuePair<string, object?>("event.type", eventType),
+                new KeyValuePair<string, object?>("agent.id", Id.ToString()),
+                new KeyValuePair<string, object?>("reason", "Duplicate"));
+            return;
+        }
+
         // 使用 EventRouter 检查是否应该处理事件
         if (!EventRouter.ShouldProcessEvent(envelope))
         {
@@ -200,7 +227,7 @@ public abstract class GAgentActorBase : IGAgentActor
             AgentMetrics.EventsDropped.Add(1,
                 new KeyValuePair<string, object?>("event.type", eventType),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()),
-                new KeyValuePair<string, object?>("reason", "Duplicate"));
+                new KeyValuePair<string, object?>("reason", "FilteredOut"));
             return;
         }
 
@@ -244,14 +271,27 @@ public abstract class GAgentActorBase : IGAgentActor
         try
         {
             // 让 Agent 处理事件
-            var handleMethod = Agent.GetType().GetMethod("HandleEventAsync");
+            var agentType = Agent.GetType();
+            Logger.LogDebug("ProcessEventAsync: Agent type is {AgentType}", agentType.Name);
+            
+            var handleMethod = agentType.GetMethod("HandleEventAsync", new[] { typeof(EventEnvelope), typeof(CancellationToken) });
             if (handleMethod != null)
             {
+                Logger.LogDebug("ProcessEventAsync: Found HandleEventAsync on {AgentType}", agentType.Name);
                 var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
                 if (task != null)
                 {
                     await task;
+                    Logger.LogDebug("ProcessEventAsync: HandleEventAsync completed for event {EventId}", envelope.Id);
                 }
+                else
+                {
+                    Logger.LogWarning("ProcessEventAsync: HandleEventAsync did not return a Task");
+                }
+            }
+            else
+            {
+                Logger.LogWarning("ProcessEventAsync: HandleEventAsync not found on {AgentType}", agentType.Name);
             }
         }
         catch (Exception ex)

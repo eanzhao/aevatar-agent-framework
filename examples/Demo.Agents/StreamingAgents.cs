@@ -17,10 +17,10 @@ public class StreamProcessorAgent : GAgentBase<StreamState>
     }
     
     [EventHandler]
-    public Task HandleStreamMessage(EventEnvelope envelope)
+    public Task HandleStreamMessage(StreamMessage message)
     {
         _messageCount++;
-        Logger?.LogInformation("StreamProcessor {Id} received message #{Count}", Id, _messageCount);
+        Logger?.LogInformation("StreamProcessor {Id} received message #{Count}: {Content}", Id, _messageCount, message.Content);
         State.MessagesProcessed++;
         State.LastMessageTime = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
         return Task.CompletedTask;
@@ -48,10 +48,11 @@ public class PublisherAgent : GAgentBase<PublisherState>
     }
     
     [EventHandler]
-    public Task HandlePublishEvent(EventEnvelope envelope)
+    public Task HandlePublishEvent(PublishMessage publishMsg)
     {
         State.MessagesPublished++;
-        Logger?.LogInformation("Publisher {Id} publishing message #{Count}", Id, State.MessagesPublished);
+        Logger?.LogInformation("Publisher {Id} publishing message #{Count} to topic {Topic}", 
+            Id, State.MessagesPublished, publishMsg.Topic);
         return Task.CompletedTask;
     }
 }
@@ -66,7 +67,7 @@ public class SubscriberAgent : GAgentBase<SubscriberState>
     {
     }
     
-    [EventHandler]
+    [AllEventHandler]
     public Task HandleSubscribedMessage(EventEnvelope envelope)
     {
         State.MessagesReceived++;

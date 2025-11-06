@@ -40,7 +40,7 @@ public class EventSourcingController : ControllerBase
         {
             // 创建银行账户Agent
             var accountId = Guid.NewGuid();
-            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(accountId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent>(accountId);
             
             _logger.LogInformation("Created BankAccountAgent {AccountId} on {Runtime}", accountId, runtime);
 
@@ -129,7 +129,7 @@ public class EventSourcingController : ControllerBase
         try
         {
             // 创建新的Agent实例
-            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
             
             _logger.LogInformation("Replaying events for Agent {AgentId} on {Runtime}", agentId, runtime);
 
@@ -214,7 +214,7 @@ public class EventSourcingController : ControllerBase
         try
         {
             // 获取或创建Agent
-            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent, BankAccountState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
             
             _logger.LogInformation("Creating snapshot for Agent {AgentId} on {Runtime}", agentId, runtime);
 

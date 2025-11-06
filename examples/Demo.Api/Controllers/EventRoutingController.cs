@@ -43,7 +43,7 @@ public class EventRoutingController : ControllerBase
             {
                 var agentId = Guid.NewGuid();
                 agentIds.Add(agentId);
-                var agent = await _agentFactory.CreateGAgentActorAsync<RouterAgent, RouterState>(agentId);
+                var agent = await _agentFactory.CreateGAgentActorAsync<RouterAgent>(agentId);
                 agents.Add(agent);
                 
                 // 建立链式关系
@@ -116,10 +116,10 @@ public class EventRoutingController : ControllerBase
             var filterId = Guid.NewGuid();
             var loggerId = Guid.NewGuid();
 
-            var router = await _agentFactory.CreateGAgentActorAsync<RouterAgent, RouterState>(routerId);
-            var processor = await _agentFactory.CreateGAgentActorAsync<ProcessorAgent, ProcessorState>(processorId);
-            var filter = await _agentFactory.CreateGAgentActorAsync<FilterAgent, FilterState>(filterId);
-            var logger = await _agentFactory.CreateGAgentActorAsync<LoggerAgent, LoggerState>(loggerId);
+            var router = await _agentFactory.CreateGAgentActorAsync<RouterAgent>(routerId);
+            var processor = await _agentFactory.CreateGAgentActorAsync<ProcessorAgent>(processorId);
+            var filter = await _agentFactory.CreateGAgentActorAsync<FilterAgent>(filterId);
+            var logger = await _agentFactory.CreateGAgentActorAsync<LoggerAgent>(loggerId);
 
             // 建立关系：Router -> Filter -> Processor/Logger
             await filter.SetParentAsync(routerId);
@@ -207,7 +207,7 @@ public class EventRoutingController : ControllerBase
         {
             // 创建广播Agent
             var broadcasterId = Guid.NewGuid();
-            var broadcaster = await _agentFactory.CreateGAgentActorAsync<BroadcastAgent, BroadcastState>(broadcasterId);
+            var broadcaster = await _agentFactory.CreateGAgentActorAsync<BroadcastAgent>(broadcasterId);
             
             // 创建接收者
             var receivers = new List<IGAgentActor>();
@@ -217,7 +217,7 @@ public class EventRoutingController : ControllerBase
             {
                 var receiverId = Guid.NewGuid();
                 receiverIds.Add(receiverId);
-                var receiver = await _agentFactory.CreateGAgentActorAsync<ProcessorAgent, ProcessorState>(receiverId);
+                var receiver = await _agentFactory.CreateGAgentActorAsync<ProcessorAgent>(receiverId);
                 receivers.Add(receiver);
                 
                 // 设置广播者为父级

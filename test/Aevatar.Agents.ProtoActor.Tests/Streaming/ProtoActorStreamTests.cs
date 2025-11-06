@@ -1,0 +1,282 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.ProtoActor;
+using Aevatar.Agents.ProtoActor.Tests.Messages;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Proto;
+using Xunit;
+using Google.Protobuf;
+
+namespace Aevatar.Agents.ProtoActor.Tests.Streaming;
+
+/// <summary>
+/// ProtoActor Stream机制测试
+/// </summary>
+public class ProtoActorStreamTests : IDisposable
+{
+    private readonly ActorSystem _actorSystem;
+    private readonly ProtoActorGAgentActorManager _manager;
+    private readonly ProtoActorGAgentActorFactory _factory;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<ProtoActorStreamTests> _logger;
+    
+    public ProtoActorStreamTests()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging(builder => 
+            builder.AddConsole().SetMinimumLevel(LogLevel.Debug));
+        
+        // Setup ProtoActor
+        var systemConfig = ActorSystemConfig.Setup();
+        _actorSystem = new ActorSystem(systemConfig);
+        
+        services.AddSingleton(_actorSystem);
+        services.AddSingleton<ProtoActorMessageStreamRegistry>();
+        services.AddSingleton<ProtoActorGAgentActorFactory>();
+        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
+        
+        _serviceProvider = services.BuildServiceProvider();
+        _factory = _serviceProvider.GetRequiredService<ProtoActorGAgentActorFactory>();
+        
+        var loggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>();
+        _logger = loggerFactory.CreateLogger<ProtoActorStreamTests>();
+        
+        _manager = new ProtoActorGAgentActorManager(
+            _factory,
+            _actorSystem.Root, 
+            loggerFactory.CreateLogger<ProtoActorGAgentActorManager>());
+    }
+    
+    /// <summary>
+    /// 测试ProtoActor的父子关系订阅
+    /// </summary>
+    [Fact]
+    public async Task ProtoActor_Parent_Child_Subscription_Works()
+    {
+        // Arrange
+        var parentId = Guid.NewGuid();
+        var child1Id = Guid.NewGuid();
+        var child2Id = Guid.NewGuid();
+        
+        var parentActor = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
+            parentId, CancellationToken.None);
+        var child1Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
+            child1Id, CancellationToken.None);
+        var child2Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
+            child2Id, CancellationToken.None);
+        
+        // Act - 建立父子关系
+        await child1Actor.SetParentAsync(parentId);
+        await child2Actor.SetParentAsync(parentId);
+        await parentActor.AddChildAsync(child1Id);
+        await parentActor.AddChildAsync(child2Id);
+        
+        // Child1发送UP事件（应该广播给所有siblings）
+        var child1Agent = child1Actor.GetAgent() as ProtoTestChildAgent;
+        await child1Agent!.SendUpMessage("Hello from Child1");
+        
+        // 等待消息传播
+        await Task.Delay(200);
+        
+        // Assert
+        var child2Agent = child2Actor.GetAgent() as ProtoTestChildAgent;
+        var parentAgent = parentActor.GetAgent() as ProtoTestParentAgent;
+        
+        // 验证所有节点都收到消息
+        Assert.Contains("Hello from Child1", child1Agent.ReceivedMessages);
+        Assert.Contains("Hello from Child1", child2Agent!.ReceivedMessages);
+        Assert.Contains("Hello from Child1", parentAgent!.ReceivedMessages);
+    }
+    
+    /// <summary>
+    /// 测试ProtoActor的消息路由
+    /// </summary>
+    [Fact]
+    public async Task ProtoActor_Message_Routing_Works_Correctly()
+    {
+        // Arrange
+        var rootContext = _actorSystem.Root;
+        var registry = new ProtoActorMessageStreamRegistry(rootContext);
+        
+        // 创建Actor PIDs
+        var parentPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
+        var childPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
+        
+        var parentStream = new ProtoActorMessageStream(Guid.NewGuid(), parentPid, rootContext);
+        var childStream = new ProtoActorMessageStream(Guid.NewGuid(), childPid, rootContext);
+        
+        var receivedMessages = new List<string>();
+        
+        // Act - 订阅stream
+        await parentStream.SubscribeAsync<EventEnvelope>(async envelope =>
+        {
+            receivedMessages.Add(envelope.Message);
+            await Task.CompletedTask;
+        });
+        
+        // 发送消息
+        await parentStream.ProduceAsync(new EventEnvelope 
+        { 
+            Message = "Proto Message 1",
+            Direction = EventDirection.Down 
+        });
+        
+        await Task.Delay(100);
+        
+        // Assert
+        Assert.Contains("Proto Message 1", receivedMessages);
+    }
+    
+    /// <summary>
+    /// 测试ProtoActor的Resume机制
+    /// </summary>
+    [Fact]
+    public async Task ProtoActor_Resume_Works_After_Pause()
+    {
+        // Arrange
+        var rootContext = _actorSystem.Root;
+        var pid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
+        var stream = new ProtoActorMessageStream(Guid.NewGuid(), pid, rootContext);
+        
+        var receivedMessages = new List<string>();
+        var subscription = await stream.SubscribeAsync<EventEnvelope>(
+            async envelope =>
+            {
+                receivedMessages.Add(envelope.Message);
+                await Task.CompletedTask;
+            });
+        
+        // Act
+        await stream.ProduceAsync(new EventEnvelope { Message = "Before pause" });
+        await Task.Delay(50);
+        
+        // 暂停
+        await subscription.UnsubscribeAsync();
+        
+        await stream.ProduceAsync(new EventEnvelope { Message = "During pause" });
+        await Task.Delay(50);
+        
+        // 恢复
+        await subscription.ResumeAsync();
+        
+        await stream.ProduceAsync(new EventEnvelope { Message = "After resume" });
+        await Task.Delay(50);
+        
+        // Assert
+        Assert.Contains("Before pause", receivedMessages);
+        Assert.DoesNotContain("During pause", receivedMessages); // 暂停期间的消息不应收到
+        Assert.Contains("After resume", receivedMessages);
+    }
+    
+    /// <summary>
+    /// 测试多层级的事件传播
+    /// </summary>
+    [Fact]
+    public async Task ProtoActor_Multi_Level_Propagation_Works()
+    {
+        // Arrange - 创建三层结构
+        var grandparentId = Guid.NewGuid();
+        var parentId = Guid.NewGuid();
+        var childId = Guid.NewGuid();
+        
+        var grandparent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
+            grandparentId, CancellationToken.None);
+        var parent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
+            parentId, CancellationToken.None);
+        var child = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
+            childId, CancellationToken.None);
+        
+        // 建立层级关系
+        await parent.SetParentAsync(grandparentId);
+        await grandparent.AddChildAsync(parentId);
+        
+        await child.SetParentAsync(parentId);
+        await parent.AddChildAsync(childId);
+        
+        // Act - child发送UP事件
+        var childAgent = child.GetAgent() as ProtoTestChildAgent;
+        await childAgent!.SendUpMessage("Bubble up from bottom");
+        
+        await Task.Delay(200);
+        
+        // Assert - 验证parent收到（通过parent stream广播）
+        var parentAgent = parent.GetAgent() as ProtoTestParentAgent;
+        Assert.Contains("Bubble up from bottom", parentAgent!.ReceivedMessages);
+        
+        // parent发送BOTH事件
+        await parentAgent.SendBothMessage("Both direction from middle");
+        await Task.Delay(200);
+        
+        // 验证grandparent和child都收到
+        var grandparentAgent = grandparent.GetAgent() as ProtoTestParentAgent;
+        Assert.Contains("Both direction from middle", grandparentAgent!.ReceivedMessages);
+        Assert.Contains("Both direction from middle", childAgent.ReceivedMessages);
+    }
+    
+    public void Dispose()
+    {
+        // ActorSystem doesn't have traditional disposal
+        // Just nullify the reference
+    }
+}
+
+// 测试用的Agent类
+public class ProtoTestParentAgent : GAgentBase<Messages.TestState>
+{
+    public List<string> ReceivedMessages { get; } = new();
+    
+    public ProtoTestParentAgent(Guid id) : base(id) { }
+    public ProtoTestParentAgent() : base() { }
+    
+    public override Task<string> GetDescriptionAsync() => 
+        Task.FromResult("Proto Test Parent");
+    
+    public async Task SendDownMessage(string message)
+    {
+        await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Down);
+    }
+    
+    public async Task SendBothMessage(string message)
+    {
+        await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Both);
+    }
+    
+    [EventHandler(AllowSelfHandling = true)]
+    public async Task HandleEvent(ProtoTestEvent evt)
+    {
+        ReceivedMessages.Add(evt.Message);
+        await Task.CompletedTask;
+    }
+}
+
+public class ProtoTestChildAgent : GAgentBase<Messages.TestState>
+{
+    public List<string> ReceivedMessages { get; } = new();
+    
+    public ProtoTestChildAgent(Guid id) : base(id) { }
+    public ProtoTestChildAgent() : base() { }
+    
+    public override Task<string> GetDescriptionAsync() => 
+        Task.FromResult("Proto Test Child");
+    
+    public async Task SendUpMessage(string message)
+    {
+        await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Up);
+    }
+    
+    [EventHandler(AllowSelfHandling = true)]
+    public async Task HandleEvent(ProtoTestEvent evt)
+    {
+        ReceivedMessages.Add(evt.Message);
+        await Task.CompletedTask;
+    }
+}
+
+// 注意：ProtoTestEvent 和 TestState 现在从 test_messages.proto 生成

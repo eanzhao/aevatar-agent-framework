@@ -36,7 +36,7 @@ public class StreamingController : ControllerBase
         {
             // 创建流处理Agent
             var agentId = Guid.NewGuid();
-            var agent = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(agentId);
             
             _logger.LogInformation("Created StreamProcessorAgent {AgentId} on {Runtime}", agentId, runtime);
 
@@ -97,7 +97,7 @@ public class StreamingController : ControllerBase
         {
             // 创建发布者
             var publisherId = Guid.NewGuid();
-            var publisher = await _agentFactory.CreateGAgentActorAsync<PublisherAgent, PublisherState>(publisherId);
+            var publisher = await _agentFactory.CreateGAgentActorAsync<PublisherAgent>(publisherId);
             
             // 创建订阅者
             var subscribers = new List<IGAgentActor>();
@@ -107,7 +107,7 @@ public class StreamingController : ControllerBase
             {
                 var subscriberId = Guid.NewGuid();
                 subscriberIds.Add(subscriberId);
-                var subscriber = await _agentFactory.CreateGAgentActorAsync<SubscriberAgent, SubscriberState>(subscriberId);
+                var subscriber = await _agentFactory.CreateGAgentActorAsync<SubscriberAgent>(subscriberId);
                 subscribers.Add(subscriber);
                 
                 // 建立父子关系（发布者为父）
@@ -171,9 +171,9 @@ public class StreamingController : ControllerBase
             var middleId = Guid.NewGuid();
             var leafId = Guid.NewGuid();
 
-            var root = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(rootId);
-            var middle = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(middleId);
-            var leaf = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent, StreamState>(leafId);
+            var root = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(rootId);
+            var middle = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(middleId);
+            var leaf = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(leafId);
 
             // 建立层级关系
             await middle.SetParentAsync(rootId);
@@ -197,10 +197,10 @@ public class StreamingController : ControllerBase
                 Id = Guid.NewGuid().ToString(),
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 Payload = Any.Pack(message),
-                Direction = EventDirection.Bidirectional // 双向传播
+                Direction = EventDirection.Both // 双向传播
             };
 
-            var eventId = await leaf.PublishEventAsync(Any.Pack(envelope), EventDirection.Bidirectional);
+            var eventId = await leaf.PublishEventAsync(Any.Pack(envelope), EventDirection.Both);
             
             // 等待消息传播
             await Task.Delay(500);

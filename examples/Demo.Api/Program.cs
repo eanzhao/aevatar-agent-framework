@@ -1,3 +1,4 @@
+using Aevatar.Agents.Core.Extensions;
 using Demo.Api;
 using Demo.Api.Extensions;
 using Orleans;
@@ -58,6 +59,8 @@ builder.Services.AddSwaggerGen();
 
 // 添加Agent运行时（基于配置自动选择）
 builder.Services.AddAgentRuntime(builder.Configuration);
+
+builder.Services.AddGAgentActorFactoryProvider();
 
 var app = builder.Build();
 

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.ProtoActor;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
@@ -56,12 +57,29 @@ public class ProtoTestAgent : GAgentBase<ProtoTestState>
     }
     
     // Use StringValue as the test event type since it's a real IMessage implementation
-    [EventHandler]
+    [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTestEvent(StringValue message)
     {
+        Console.WriteLine($"ProtoTestAgent {Id} received message: {message.Value}");
         GetState().Counter++;
         GetState().LastUpdate = DateTime.UtcNow;
         await Task.CompletedTask;
+    }
+    
+    // Public methods for testing event publishing
+    public async Task SendEventUp(string message)
+    {
+        await PublishAsync(new StringValue { Value = message }, EventDirection.Up);
+    }
+    
+    public async Task SendEventDown(string message)
+    {
+        await PublishAsync(new StringValue { Value = message }, EventDirection.Down);
+    }
+    
+    public async Task SendEventBoth(string message)
+    {
+        await PublishAsync(new StringValue { Value = message }, EventDirection.Both);
     }
 }
 
@@ -83,6 +101,7 @@ public class ProtoActorGAgentActorTests : IDisposable
         services.AddSingleton(_actorSystem);
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         services.AddSingleton<ProtoActorGAgentActorFactory>();
+        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
         
         _serviceProvider = services.BuildServiceProvider();
         _factory = _serviceProvider.GetRequiredService<ProtoActorGAgentActorFactory>();
@@ -101,7 +120,7 @@ public class ProtoActorGAgentActorTests : IDisposable
         var agentId = Guid.NewGuid();
         
         // Act
-        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(agentId);
         
         // Assert
         Assert.NotNull(actor);
@@ -118,18 +137,12 @@ public class ProtoActorGAgentActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(agentId);
         var agent = actor.GetAgent() as ProtoTestAgent;
         
         // Act
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "test" }),
-            Direction = EventDirection.Down
-        };
-        
-        await actor.PublishEventAsync(envelope);
+        var message = new StringValue { Value = "test" };
+        await actor.PublishEventAsync(message, EventDirection.Down);
         
         // Give time for async processing
         await Task.Delay(100);
@@ -146,8 +159,8 @@ public class ProtoActorGAgentActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(parentId);
-        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(childId);
         
         // Act
         await parent.AddChildAsync(childId);
@@ -168,44 +181,37 @@ public class ProtoActorGAgentActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(parentId);
-        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(childId);
         
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
         
-        // Act - Send event down from parent
-        var downEvent = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "down" }),
-            Direction = EventDirection.Down
-        };
-        
-        await parent.PublishEventAsync(downEvent);
-        
-        // Act - Send event up from child
-        var upEvent = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "up" }),
-            Direction = EventDirection.Up
-        };
-        
-        await child.PublishEventAsync(upEvent);
-        
-        // Give time for async processing
-        await Task.Delay(100);
-        
-        // Assert - Both should handle their events
+        // Get the agents
         var parentAgent = parent.GetAgent() as ProtoTestAgent;
         var childAgent = child.GetAgent() as ProtoTestAgent;
         
         Assert.NotNull(parentAgent);
         Assert.NotNull(childAgent);
         
-        // Both should have processed events
-        Assert.True(parentAgent.GetState().Counter > 0 || childAgent.GetState().Counter > 0);
+        // Reset counters
+        parentAgent.GetState().Counter = 0;
+        childAgent.GetState().Counter = 0;
+        
+        // Act - Parent sends event down to child
+        await parentAgent.SendEventDown("down");
+        
+        // Act - Child sends event up to parent
+        await childAgent.SendEventUp("up");
+        
+        // Give time for async processing
+        await Task.Delay(200);
+        
+        // Assert - Check that events were routed correctly
+        // Parent should have received the UP event from child
+        // Child should have received the DOWN event from parent
+        Assert.True(parentAgent.GetState().Counter > 0, "Parent should have received UP event from child");
+        Assert.True(childAgent.GetState().Counter > 0, "Child should have received DOWN event from parent");
     }
     
     [Fact]
@@ -213,20 +219,14 @@ public class ProtoActorGAgentActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(agentId);
         
         // Act - Send multiple events concurrently
         var tasks = new Task[10];
         for (int i = 0; i < 10; i++)
         {
-            var envelope = new EventEnvelope
-            {
-                Id = Guid.NewGuid().ToString(),
-                Payload = Any.Pack(new StringValue { Value = $"test_{i}" }),
-                Direction = EventDirection.Down
-            };
-            
-            tasks[i] = actor.PublishEventAsync(envelope);
+            var message = new StringValue { Value = $"test_{i}" };
+            tasks[i] = actor.PublishEventAsync(message, EventDirection.Down);
         }
         
         await Task.WhenAll(tasks);
@@ -245,7 +245,7 @@ public class ProtoActorGAgentActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(agentId);
         var agent = actor.GetAgent() as ProtoTestAgent;
         
         // Act
@@ -263,8 +263,8 @@ public class ProtoActorGAgentActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(parentId);
-        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(childId);
         
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
@@ -284,8 +284,8 @@ public class ProtoActorGAgentActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(parentId);
-        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(childId);
+        var parent = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(parentId);
+        var child = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(childId);
         
         await parent.AddChildAsync(childId);
         await child.SetParentAsync(parentId);
@@ -305,21 +305,15 @@ public class ProtoActorGAgentActorTests : IDisposable
         var agents = new IGAgentActor[5];
         for (int i = 0; i < 5; i++)
         {
-            agents[i] = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(Guid.NewGuid());
+            agents[i] = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(Guid.NewGuid());
         }
         
         // Send different events to each
         var tasks = new Task[5];
         for (int i = 0; i < 5; i++)
         {
-            var envelope = new EventEnvelope
-            {
-                Id = Guid.NewGuid().ToString(),
-                Payload = Any.Pack(new StringValue { Value = $"agent_{i}" }),
-                Direction = EventDirection.Down
-            };
-            
-            tasks[i] = agents[i].PublishEventAsync(envelope);
+            var message = new StringValue { Value = $"agent_{i}" };
+            tasks[i] = agents[i].PublishEventAsync(message, EventDirection.Down);
         }
         
         await Task.WhenAll(tasks);
@@ -339,7 +333,7 @@ public class ProtoActorGAgentActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent, ProtoTestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<ProtoTestAgent>(agentId);
         
         // Act - Test ProtoActor-specific message handling
         var protoActor = actor as ProtoActorGAgentActor;
@@ -349,14 +343,8 @@ public class ProtoActorGAgentActorTests : IDisposable
         // Note: PID is internal to the actor
         
         // Send a message directly through ProtoActor
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new StringValue { Value = "direct" }),
-            Direction = EventDirection.Down
-        };
-        
-        await actor.PublishEventAsync(envelope);
+        var message = new StringValue { Value = "direct" };
+        await actor.PublishEventAsync(message, EventDirection.Down);
         await Task.Delay(100);
         
         // Assert

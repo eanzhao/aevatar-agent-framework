@@ -13,7 +13,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     private readonly IRootContext _rootContext;
     private readonly ILogger<ProtoActorGAgentActorManager> _logger;
     private readonly Dictionary<Guid, IGAgentActor> _actors = new();
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public ProtoActorGAgentActorManager(
         IGAgentActorFactory factory,
@@ -25,16 +25,15 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
         _logger = logger;
     }
 
-    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent, TState>(
+    public async Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(
         Guid id,
         CancellationToken ct = default)
-        where TAgent : IStateGAgent<TState>
-        where TState : class, new()
+        where TAgent : IGAgent
     {
         _logger.LogDebug("Creating and registering agent {AgentType} with id {Id}",
             typeof(TAgent).Name, id);
 
-        var actor = await _factory.CreateGAgentActorAsync<TAgent, TState>(id, ct);
+        var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
         lock (_lock)
         {
@@ -112,4 +111,117 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
             return Task.FromResult(_actors.Count);
         }
     }
+
+    #region 新增接口实现
+
+    public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
+        IEnumerable<Guid> ids,
+        CancellationToken ct = default)
+        where TAgent : IGAgent
+    {
+        var tasks = ids.Select(id => CreateAndRegisterAsync<TAgent>(id, ct));
+        var actors = await Task.WhenAll(tasks);
+        return actors;
+    }
+
+    public async Task DeactivateBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default)
+    {
+        var tasks = ids.Select(id => DeactivateAndUnregisterAsync(id, ct));
+        await Task.WhenAll(tasks);
+    }
+
+    public Task<IReadOnlyList<IGAgentActor>> GetActorsAsync(IEnumerable<Guid> ids)
+    {
+        var actors = new List<IGAgentActor>();
+        
+        lock (_lock)
+        {
+            foreach (var id in ids)
+            {
+                if (_actors.TryGetValue(id, out var actor))
+                {
+                    actors.Add(actor);
+                }
+            }
+        }
+        
+        return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
+    }
+
+    public Task<IReadOnlyList<IGAgentActor>> GetActorsByTypeAsync<TAgent>()
+        where TAgent : IGAgent
+    {
+        lock (_lock)
+        {
+            var actors = _actors.Values
+                .Where(a => a.GetAgent() is TAgent)
+                .ToList();
+            
+            return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
+        }
+    }
+
+    public Task<IReadOnlyList<IGAgentActor>> GetActorsByTypeNameAsync(string typeName)
+    {
+        lock (_lock)
+        {
+            var actors = _actors.Values
+                .Where(a => a.GetAgent().GetType().Name == typeName)
+                .ToList();
+            
+            return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
+        }
+    }
+
+    public Task<int> GetCountByTypeAsync<TAgent>()
+        where TAgent : IGAgent
+    {
+        lock (_lock)
+        {
+            var count = _actors.Values.Count(a => a.GetAgent() is TAgent);
+            return Task.FromResult(count);
+        }
+    }
+
+    public Task<ActorHealthStatus> GetHealthStatusAsync(Guid id)
+    {
+        lock (_lock)
+        {
+            if (!_actors.TryGetValue(id, out var actor))
+            {
+                return Task.FromResult(new ActorHealthStatus
+                {
+                    Id = id,
+                    IsHealthy = false,
+                    ErrorMessage = "Actor not found"
+                });
+            }
+
+            return Task.FromResult(new ActorHealthStatus
+            {
+                Id = id,
+                IsHealthy = true,
+                LastActivityTime = DateTimeOffset.UtcNow
+            });
+        }
+    }
+
+    public Task<ActorManagerStatistics> GetStatisticsAsync()
+    {
+        lock (_lock)
+        {
+            var actorsByType = _actors.Values
+                .GroupBy(a => a.GetAgent().GetType().Name)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            return Task.FromResult(new ActorManagerStatistics
+            {
+                TotalActors = _actors.Count,
+                ActiveActors = _actors.Count,
+                ActorsByType = actorsByType
+            });
+        }
+    }
+
+    #endregion
 }

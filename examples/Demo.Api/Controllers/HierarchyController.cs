@@ -37,7 +37,7 @@ public class HierarchyController : ControllerBase
         {
             // 创建CEO
             var ceoId = Guid.NewGuid();
-            var ceo = await _agentFactory.CreateGAgentActorAsync<ManagerAgent, ManagerState>(ceoId);
+            var ceo = await _agentFactory.CreateGAgentActorAsync<ManagerAgent>(ceoId);
             
             _logger.LogInformation("Created CEO {CeoId} on {Runtime}", ceoId, runtime);
 
@@ -51,7 +51,7 @@ public class HierarchyController : ControllerBase
             for (int d = 0; d < departmentCount; d++)
             {
                 var managerId = Guid.NewGuid();
-                var manager = await _agentFactory.CreateGAgentActorAsync<ManagerAgent, ManagerState>(managerId);
+                var manager = await _agentFactory.CreateGAgentActorAsync<ManagerAgent>(managerId);
                 
                 // 设置CEO为父级
                 await manager.SetParentAsync(ceoId);
@@ -67,7 +67,7 @@ public class HierarchyController : ControllerBase
                 for (int e = 0; e < employeesPerDept; e++)
                 {
                     var employeeId = Guid.NewGuid();
-                    var employee = await _agentFactory.CreateGAgentActorAsync<EmployeeAgent, EmployeeState>(employeeId);
+                    var employee = await _agentFactory.CreateGAgentActorAsync<EmployeeAgent>(employeeId);
                     
                     // 设置经理为父级
                     await employee.SetParentAsync(managerId);
@@ -106,7 +106,7 @@ public class HierarchyController : ControllerBase
         try
         {
             // 创建或获取Agent (使用HierarchyAgent作为默认类型)
-            var agent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(agentId);
+            var agent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent>(agentId);
 
             _logger.LogInformation("Propagating event from {AgentId} {Direction} on {Runtime}", 
                 agentId, direction, runtime);
@@ -125,7 +125,7 @@ public class HierarchyController : ControllerBase
             {
                 "up" => EventDirection.Up,
                 "down" => EventDirection.Down,
-                "bidirectional" => EventDirection.Bidirectional,
+                "both" => EventDirection.Both,
                 _ => EventDirection.Down
             };
 
@@ -171,10 +171,10 @@ public class HierarchyController : ControllerBase
         try
         {
             // 创建或获取涉及的Agent (使用HierarchyAgent作为默认类型)
-            var child = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.ChildId);
+            var child = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent>(request.ChildId);
             var oldParent = request.OldParentId.HasValue ? 
-                await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.OldParentId.Value) : null;
-            var newParent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent, HierarchyState>(request.NewParentId);
+                await _agentFactory.CreateGAgentActorAsync<HierarchyAgent>(request.OldParentId.Value) : null;
+            var newParent = await _agentFactory.CreateGAgentActorAsync<HierarchyAgent>(request.NewParentId);
 
             if (child == null || newParent == null)
             {

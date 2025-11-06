@@ -1,5 +1,7 @@
+using System;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Extensions;
+using Aevatar.Agents.Core.Tests.Messages;
 using FluentAssertions;
 using Google.Protobuf.WellKnownTypes;
 using Xunit;
@@ -12,11 +14,11 @@ public class MessageExtensionsTests
     public void HasPayload_ShouldReturnTrueWhenEnvelopeContainsMatchingPayloadType()
     {
         // Arrange
-        var testEvent = new TestEvent
+        var testEvent = new TestEvent 
         {
             EventId = "test-123",
             EventData = "Test data",
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
         };
         
         var envelope = new EventEnvelope
@@ -76,11 +78,11 @@ public class MessageExtensionsTests
     public void UnpackPayload_ShouldReturnCorrectPayloadWhenTypeMatches()
     {
         // Arrange
-        var testEvent = new TestEvent
+        var testEvent = new TestEvent 
         {
             EventId = "test-123",
             EventData = "Test data",
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
         };
         
         var envelope = new EventEnvelope
@@ -143,11 +145,11 @@ public class MessageExtensionsTests
     public void CreateEventEnvelope_ShouldCreateEnvelopeWithCorrectPayloadAndVersion()
     {
         // Arrange
-        var testEvent = new TestEvent
+        var testEvent = new TestEvent 
         {
             EventId = "test-123",
             EventData = "Test data",
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            Timestamp = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow)
         };
         const long version = 42;
         

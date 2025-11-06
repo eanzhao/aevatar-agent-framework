@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.ProtoActor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public class BasicProtoActorTests : IDisposable
         
         // 添加ProtoActor消息流注册表
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
+        services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
         
         _serviceProvider = services.BuildServiceProvider();
         
@@ -55,7 +57,7 @@ public class BasicProtoActorTests : IDisposable
     {
         // Arrange & Act
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<TestAgent>(agentId);
         
         // Assert
         Assert.NotNull(actor);
@@ -70,7 +72,7 @@ public class BasicProtoActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<TestAgent>(agentId);
         
         // Act
         // Send StringValue directly - it will be wrapped in EventEnvelope by the framework
@@ -98,8 +100,8 @@ public class BasicProtoActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(parentId);
-        var childActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(childId);
+        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent>(parentId);
+        var childActor = await _factory.CreateGAgentActorAsync<TestAgent>(childId);
         
         // Act
         await childActor.SetParentAsync(parentId);
@@ -124,8 +126,8 @@ public class BasicProtoActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(parentId);
-        var childActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(childId);
+        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent>(parentId);
+        var childActor = await _factory.CreateGAgentActorAsync<TestAgent>(childId);
         
         await childActor.SetParentAsync(parentId);
         await parentActor.AddChildAsync(childId);
@@ -153,8 +155,8 @@ public class BasicProtoActorTests : IDisposable
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
         
-        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(parentId);
-        var childActor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(childId);
+        var parentActor = await _factory.CreateGAgentActorAsync<TestAgent>(parentId);
+        var childActor = await _factory.CreateGAgentActorAsync<TestAgent>(childId);
         
         await childActor.SetParentAsync(parentId);
         await parentActor.AddChildAsync(childId);
@@ -180,7 +182,7 @@ public class BasicProtoActorTests : IDisposable
     {
         // Arrange
         var agentId = Guid.NewGuid();
-        var actor = await _factory.CreateGAgentActorAsync<TestAgent, TestState>(agentId);
+        var actor = await _factory.CreateGAgentActorAsync<TestAgent>(agentId);
         
         // Act
         var protoActor = actor as ProtoActorGAgentActor;
@@ -204,7 +206,7 @@ public class BasicProtoActorTests : IDisposable
         for (int i = 0; i < actorCount; i++)
         {
             var agentId = Guid.NewGuid();
-            tasks.Add(_factory.CreateGAgentActorAsync<TestAgent, TestState>(agentId));
+            tasks.Add(_factory.CreateGAgentActorAsync<TestAgent>(agentId));
         }
         
         var actors = await Task.WhenAll(tasks);
