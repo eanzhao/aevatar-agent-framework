@@ -1,57 +1,60 @@
 namespace Aevatar.Agents.Abstractions.EventSourcing;
 
 /// <summary>
-/// 事件存储接口
-/// 用于持久化和读取 StateLogEvent
+/// EventSourcing storage interface (unified across all runtimes)
+/// Uses Protobuf AgentStateEvent for serialization consistency
+/// 
+/// Design reference: Aevatar.EventSourcing.Core.ILogConsistentStorage
+/// Enhanced features: Snapshot, range query, optimistic concurrency
 /// </summary>
 public interface IEventStore
 {
+    // ========== Event Operations ==========
+    
     /// <summary>
-    /// 保存状态变更事件
+    /// Append events with optimistic concurrency control
     /// </summary>
-    Task SaveEventAsync(Guid agentId, StateLogEvent logEvent, CancellationToken ct = default);
-
-    /// <summary>
-    /// 批量保存事件
-    /// </summary>
-    Task SaveEventsAsync(Guid agentId, IEnumerable<StateLogEvent> logEvents, CancellationToken ct = default);
-
-    /// <summary>
-    /// 读取 Agent 的所有事件（用于重放）
-    /// </summary>
-    Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(Guid agentId, CancellationToken ct = default);
-
-    /// <summary>
-    /// 读取指定版本范围的事件
-    /// </summary>
-    Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(
+    /// <param name="agentId">Agent ID</param>
+    /// <param name="events">Events to append</param>
+    /// <param name="expectedVersion">Expected current version (optimistic concurrency)</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>New version number</returns>
+    Task<long> AppendEventsAsync(
         Guid agentId,
-        long fromVersion,
-        long toVersion,
+        IEnumerable<AgentStateEvent> events,
+        long expectedVersion,
         CancellationToken ct = default);
-
+    
     /// <summary>
-    /// 获取最新版本号
+    /// Get events with range query and pagination support
+    /// </summary>
+    /// <param name="agentId">Agent ID</param>
+    /// <param name="fromVersion">Start version (inclusive)</param>
+    /// <param name="toVersion">End version (inclusive)</param>
+    /// <param name="maxCount">Maximum count (pagination)</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>Event list</returns>
+    Task<IReadOnlyList<AgentStateEvent>> GetEventsAsync(
+        Guid agentId,
+        long? fromVersion = null,
+        long? toVersion = null,
+        int? maxCount = null,
+        CancellationToken ct = default);
+    
+    /// <summary>
+    /// Get latest version number
     /// </summary>
     Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default);
-
+    
+    // ========== Snapshot Operations (Optional Implementation) ==========
+    
     /// <summary>
-    /// 清除 Agent 的所有事件
+    /// Save snapshot for performance optimization
     /// </summary>
-    Task ClearEventsAsync(Guid agentId, CancellationToken ct = default);
-}
-
-/// <summary>
-/// 状态日志事件
-/// Agent 状态变更的原子事件
-/// </summary>
-public class StateLogEvent
-{
-    public Guid EventId { get; set; } = Guid.NewGuid();
-    public Guid AgentId { get; set; }
-    public long Version { get; set; }
-    public string EventType { get; set; } = string.Empty;
-    public byte[] EventData { get; set; } = Array.Empty<byte>();
-    public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
-    public string? Metadata { get; set; }
+    Task SaveSnapshotAsync(Guid agentId, AgentSnapshot snapshot, CancellationToken ct = default);
+    
+    /// <summary>
+    /// Get latest snapshot
+    /// </summary>
+    Task<AgentSnapshot?> GetLatestSnapshotAsync(Guid agentId, CancellationToken ct = default);
 }

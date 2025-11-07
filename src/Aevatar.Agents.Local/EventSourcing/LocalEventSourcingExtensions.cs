@@ -24,23 +24,45 @@ public static class LocalEventSourcingExtensions
         // 获取 Agent 实例
         var agent = actor.GetAgent();
         
-        // 如果 Agent 支持 EventSourcing，配置并重放事件
-        if (agent is GAgentBaseWithEventSourcing<object> esAgent)
+        // 使用反射检查是否支持 EventSourcing
+        var agentType = agent.GetType();
+        var baseType = agentType.BaseType;
+        
+        while (baseType != null)
         {
-            // 注入 EventStore（如果还没有）
-            if (eventStore != null && esAgent.GetEventStore() == null)
+            if (baseType.IsGenericType && 
+                baseType.GetGenericTypeDefinition() == typeof(GAgentBaseWithEventSourcing<>))
             {
-                esAgent.SetEventStore(eventStore);
+                // 找到了 GAgentBaseWithEventSourcing 基类
+                var setEventStoreMethod = baseType.GetMethod("SetEventStore");
+                var getCurrentVersionMethod = baseType.GetMethod("GetCurrentVersion");
+                var onActivateMethod = baseType.GetMethod("OnActivateAsync");
+                
+                if (setEventStoreMethod != null && eventStore != null)
+                {
+                    setEventStoreMethod.Invoke(agent, new object[] { eventStore });
+                }
+                
+                var logger = serviceProvider?.GetService<ILogger<LocalGAgentActor>>();
+                logger?.LogInformation("Enabling EventSourcing for Local Agent {AgentId}", agent.Id);
+                
+                // 激活时重放事件
+                if (onActivateMethod != null)
+                {
+                    var task = onActivateMethod.Invoke(agent, new object[] { CancellationToken.None }) as Task;
+                    if (task != null)
+                    {
+                        await task;
+                    }
+                }
+                
+                var version = getCurrentVersionMethod?.Invoke(agent, null);
+                logger?.LogInformation("EventSourcing enabled, replayed to version {Version}", version);
+                
+                break;
             }
             
-            var logger = serviceProvider?.GetService<ILogger<LocalGAgentActor>>();
-            logger?.LogInformation("Enabling EventSourcing for Local Agent {AgentId}", agent.Id);
-            
-            // 激活时重放事件
-            await esAgent.OnActivateAsync();
-            
-            logger?.LogInformation("EventSourcing enabled, replayed to version {Version}", 
-                esAgent.GetCurrentVersion());
+            baseType = baseType.BaseType;
         }
         
         return actor;
@@ -55,7 +77,7 @@ public static class LocalEventSourcingExtensions
         IEventStore eventStore,
         IServiceProvider? serviceProvider = null)
         where TAgent : GAgentBaseWithEventSourcing<TState>, new()
-        where TState : class, new()
+        where TState : class, Google.Protobuf.IMessage<TState>, new()
     {
         // 创建 Agent 实例（需要通过构造函数设置 ID）
         var agent = Activator.CreateInstance(typeof(TAgent), id, eventStore, null) as TAgent
@@ -68,28 +90,5 @@ public static class LocalEventSourcingExtensions
         await agent.OnActivateAsync();
         
         return actor;
-    }
-}
-
-/// <summary>
-/// EventStore 访问扩展（内部使用）
-/// </summary>
-internal static class EventSourcingInternals
-{
-    private static readonly System.Reflection.FieldInfo? EventStoreField =
-        typeof(GAgentBaseWithEventSourcing<>)
-            .GetField("_eventStore",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-    public static IEventStore? GetEventStore<TState>(this GAgentBaseWithEventSourcing<TState> agent)
-        where TState : class, new()
-    {
-        return EventStoreField?.GetValue(agent) as IEventStore;
-    }
-
-    public static void SetEventStore<TState>(this GAgentBaseWithEventSourcing<TState> agent, IEventStore eventStore)
-        where TState : class, new()
-    {
-        EventStoreField?.SetValue(agent, eventStore);
     }
 }

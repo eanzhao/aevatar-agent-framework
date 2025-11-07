@@ -1,20 +1,29 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.EventSourcing;
 
 /// <summary>
-/// 支持 EventSourcing 的 Agent 基类
-/// 状态变更通过事件持久化，支持重放
+/// Agent base class with EventSourcing support
+/// State changes are persisted as events and can be replayed
+/// 
+/// Features:
+/// - Batch event commit (borrowed from JournaledGrain)
+/// - Pure functional state transitions
+/// - Snapshot optimization
+/// - Metadata support
 /// </summary>
 public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
-    where TState : class, new()
+    where TState : class, IMessage<TState>, new()
 {
-    private readonly IEventStore? _eventStore;
+    private IEventStore? _eventStore;
     private long _currentVersion = 0;
-    private const int SnapshotInterval = 100; // 每100个事件做一次快照
+
+    // Batch event management (borrowed from JournaledGrain)
+    private readonly List<AgentStateEvent> _pendingEvents = new();
 
     protected GAgentBaseWithEventSourcing(
         Guid id,
@@ -25,156 +34,383 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         _eventStore = eventStore;
     }
 
+    // ========== Event Operations (Borrowed from JournaledGrain) ==========
+
     /// <summary>
-    /// 触发状态变更事件
+    /// Stage event (does not persist immediately)
+    /// Borrowed from: JournaledGrain.RaiseEvent()
     /// </summary>
-    protected async Task RaiseStateChangeEventAsync<TEvent>(
+    protected void RaiseEvent<TEvent>(
         TEvent evt,
-        CancellationToken ct = default)
+        Dictionary<string, string>? metadata = null)
         where TEvent : class, IMessage
     {
+        var stateEvent = new AgentStateEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            EventType = evt.Descriptor.FullName,
+            EventData = Any.Pack(evt),
+            AgentId = Id.ToString(),
+            Version = _currentVersion + _pendingEvents.Count + 1,
+        };
+
+        // Add metadata
+        if (metadata != null)
+        {
+            foreach (var (key, value) in metadata)
+            {
+                stateEvent.Metadata[key] = value;
+            }
+        }
+
+        _pendingEvents.Add(stateEvent);
+    }
+
+    /// <summary>
+    /// Commit pending events (batch persist)
+    /// Borrowed from: JournaledGrain.ConfirmEvents()
+    /// </summary>
+    protected async Task ConfirmEventsAsync(CancellationToken ct = default)
+    {
+        if (_pendingEvents.Count == 0) return;
+
         if (_eventStore == null)
         {
-            Logger.LogWarning("EventStore not configured, state change event will not be persisted");
+            Logger?.LogWarning("EventStore not configured, events will not be persisted");
+            _pendingEvents.Clear();
             return;
         }
 
-        // 创建 StateLogEvent
-        _currentVersion++;
-
-        using var stream = new MemoryStream();
-        using var output = new CodedOutputStream(stream);
-        evt.WriteTo(output);
-        output.Flush();
-
-        var logEvent = new StateLogEvent
+        try
         {
-            EventId = Guid.NewGuid(),
-            AgentId = Id,
-            Version = _currentVersion,
-            EventType = evt.GetType().AssemblyQualifiedName ?? evt.GetType().FullName ?? evt.GetType().Name,
-            EventData = stream.ToArray(),
-            TimestampUtc = DateTime.UtcNow
-        };
+            // Batch persist
+            _currentVersion = await _eventStore.AppendEventsAsync(
+                Id,
+                _pendingEvents,
+                _currentVersion,
+                ct);
 
-        // 持久化事件
-        await _eventStore.SaveEventAsync(Id, logEvent, ct);
+            // Apply events to state
+            foreach (var evt in _pendingEvents)
+            {
+                await ApplyEventInternalAsync(evt, ct);
+            }
 
-        Logger.LogDebug("State change event persisted: Agent {AgentId}, Version {Version}, Type {EventType}",
-            Id, _currentVersion, logEvent.EventType);
+            _pendingEvents.Clear();
 
-        // 应用事件到状态
-        await ApplyStateChangeEventAsync(evt, ct);
+            // Check snapshot strategy
+            if (SnapshotStrategy.ShouldCreateSnapshot(_currentVersion))
+            {
+                await CreateSnapshotInternalAsync(ct);
+            }
 
-        // 检查是否需要快照
-        if (_currentVersion % SnapshotInterval == 0)
+            Logger?.LogDebug(
+                "Confirmed {Count} events for agent {AgentId}, version: {Version}",
+                _pendingEvents.Count, Id, _currentVersion);
+        }
+        catch (Exception ex)
         {
-            await CreateSnapshotAsync(ct);
+            Logger?.LogError(ex, "Error confirming events for agent {AgentId}", Id);
+            throw;
+        }
+    }
+
+    // ========== Pure Functional State Transition ==========
+
+    /// <summary>
+    /// Pure functional state transition
+    /// Borrowed from: JournaledGrain.TransitionState()
+    /// 
+    /// Given the same state + event, always produces the same result
+    /// No side effects, easy to test
+    /// </summary>
+    /// <param name="state">Current state (immutable)</param>
+    /// <param name="evt">Event</param>
+    /// <returns>New state</returns>
+    protected abstract TState TransitionState(TState state, IMessage evt);
+
+    /// <summary>
+    /// Apply event internally (uses pure function)
+    /// </summary>
+    private Task ApplyEventInternalAsync(AgentStateEvent evt, CancellationToken ct)
+    {
+        try
+        {
+            // Get event type
+            var eventTypeName = evt.EventType;
+            var eventType = System.Type.GetType(eventTypeName);
+            if (eventType == null)
+            {
+                Logger?.LogWarning("Unknown event type: {EventType}", eventTypeName);
+                return Task.CompletedTask;
+            }
+
+            // Check if it's a Protobuf message
+            if (!typeof(IMessage).IsAssignableFrom(eventType))
+            {
+                Logger?.LogWarning("Event type {EventType} is not a Protobuf message", eventTypeName);
+                return Task.CompletedTask;
+            }
+
+            // Unpack event using reflection
+            var unpackMethod = typeof(Any).GetMethod(nameof(Any.Unpack), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                ?.MakeGenericMethod(eventType);
+            
+            if (unpackMethod == null)
+            {
+                Logger?.LogWarning("Cannot find Unpack method for type {EventType}", eventTypeName);
+                return Task.CompletedTask;
+            }
+
+            var message = unpackMethod.Invoke(evt.EventData, null) as IMessage;
+            if (message == null)
+            {
+                Logger?.LogWarning("Failed to unpack event {EventType}", eventTypeName);
+                return Task.CompletedTask;
+            }
+
+            // Pure function call
+            var newState = TransitionState(State, message);
+
+            // Update state (use SetState method from base)
+            SetStateInternal(newState);
+
+            Logger?.LogDebug(
+                "Applied event {EventType} version {Version} to agent {AgentId}",
+                evt.EventType, evt.Version, Id);
+
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex,
+                "Error applying event {EventType} version {Version}",
+                evt.EventType, evt.Version);
+            throw;
         }
     }
 
     /// <summary>
-    /// 应用状态变更事件（由子类实现）
+    /// Set state internally (workaround for readonly State field)
     /// </summary>
-    protected abstract Task ApplyStateChangeEventAsync<TEvent>(TEvent evt, CancellationToken ct = default)
-        where TEvent : class, IMessage;
+    private void SetStateInternal(TState newState)
+    {
+        // Use reflection to set readonly field
+        var stateField = typeof(GAgentBase<TState>).GetField("_state", 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        
+        if (stateField != null)
+        {
+            stateField.SetValue(this, newState);
+        }
+    }
+
+    // ========== Event Replay ==========
 
     /// <summary>
-    /// 从事件存储重放状态
+    /// Replay events from event store (with snapshot optimization)
     /// </summary>
     public async Task ReplayEventsAsync(CancellationToken ct = default)
     {
         if (_eventStore == null)
         {
-            Logger.LogWarning("EventStore not configured, cannot replay events");
+            Logger?.LogWarning("EventStore not configured, cannot replay events");
             return;
         }
 
-        Logger.LogInformation("Replaying events for Agent {AgentId}", Id);
+        Logger?.LogInformation("Replaying events for agent {AgentId}", Id);
 
-        var events = await _eventStore.GetEventsAsync(Id, ct);
-
-        if (events == null || !events.Any())
+        // Step 1: Load latest snapshot
+        var snapshot = await _eventStore.GetLatestSnapshotAsync(Id, ct);
+        if (snapshot != null)
         {
-            Logger.LogInformation("No events to replay for Agent {AgentId}", Id);
+            Logger?.LogInformation(
+                "Loading snapshot at version {Version} for agent {AgentId}",
+                snapshot.Version, Id);
+
+            var snapshotState = snapshot.StateData.Unpack<TState>();
+            SetStateInternal(snapshotState);
+            _currentVersion = snapshot.Version;
+        }
+
+        // Step 2: Replay events after snapshot
+        var events = await _eventStore.GetEventsAsync(
+            Id,
+            fromVersion: _currentVersion + 1,
+            ct: ct);
+
+        if (!events.Any())
+        {
+            Logger?.LogInformation("No new events to replay for agent {AgentId}", Id);
             return;
         }
 
-        foreach (var logEvent in events.OrderBy(e => e.Version))
+        // Step 3: Apply events
+        foreach (var evt in events.OrderBy(e => e.Version))
         {
-            try
-            {
-                // 反序列化事件
-                var eventType = Type.GetType(logEvent.EventType);
-                if (eventType == null)
-                {
-                    Logger.LogWarning("Unknown event type: {EventType}", logEvent.EventType);
-                    continue;
-                }
-
-                // 使用 Protobuf Parser 反序列化
-                var parserProperty = eventType.GetProperty("Parser",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                if (parserProperty != null)
-                {
-                    var parser = parserProperty.GetValue(null);
-                    var parseMethod = parser?.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
-                    if (parseMethod != null)
-                    {
-                        var evt = parseMethod.Invoke(parser, [logEvent.EventData]);
-
-                        // 应用事件
-                        var applyMethod = GetType()
-                            .GetMethod("ApplyStateChangeEventAsync",
-                                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                            ?.MakeGenericMethod(eventType);
-
-                        if (applyMethod != null && evt != null)
-                        {
-                            await (applyMethod.Invoke(this, new[] { evt, ct }) as Task ?? Task.CompletedTask);
-                        }
-                    }
-                }
-
-                _currentVersion = logEvent.Version;
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error replaying event {EventId} version {Version}",
-                    logEvent.EventId, logEvent.Version);
-            }
+            await ApplyEventInternalAsync(evt, ct);
+            _currentVersion = evt.Version;
         }
 
-        Logger.LogInformation("Replayed {Count} events, current version: {Version}",
-            events.Count, _currentVersion);
+        Logger?.LogInformation(
+            "Replayed {Count} events for agent {AgentId}, current version: {Version}",
+            events.Count, Id, _currentVersion);
     }
 
+    // ========== Snapshot Operations ==========
+
     /// <summary>
-    /// 创建状态快照
+    /// Snapshot strategy (can be overridden)
     /// </summary>
-    protected virtual Task CreateSnapshotAsync(CancellationToken ct = default)
-    {
-        // 默认实现：记录日志
-        // 子类可以重写以实现真正的快照存储
-        Logger.LogInformation("Snapshot created for Agent {AgentId} at version {Version}",
-            Id, _currentVersion);
+    protected virtual ISnapshotStrategy SnapshotStrategy =>
+        new IntervalSnapshotStrategy(100);
 
-        return Task.CompletedTask;
+    /// <summary>
+    /// Create snapshot internally
+    /// </summary>
+    private async Task CreateSnapshotInternalAsync(CancellationToken ct)
+    {
+        if (_eventStore == null) return;
+
+        var snapshot = new AgentSnapshot
+        {
+            Version = _currentVersion,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            StateData = Any.Pack(State)
+        };
+
+        await _eventStore.SaveSnapshotAsync(Id, snapshot, ct);
+
+        Logger?.LogInformation(
+            "Snapshot created for agent {AgentId} at version {Version}",
+            Id, _currentVersion);
     }
 
     /// <summary>
-    /// 获取当前版本号
+    /// Manual snapshot creation (for API)
+    /// </summary>
+    public async Task CreateSnapshotAsync(CancellationToken ct = default)
+    {
+        await CreateSnapshotInternalAsync(ct);
+    }
+
+    // ========== Helper Methods ==========
+
+    /// <summary>
+    /// Deep copy protection (borrowed from JournaledGrain)
+    /// Prevents external code from accidentally modifying state
+    /// Note: Not used in current implementation due to readonly State field
+    /// Kept for reference
+    /// </summary>
+    private TState DeepCopy(TState state)
+    {
+        // Use Protobuf serialization for deep copy
+        var bytes = state.ToByteArray();
+        
+        // Get parser using reflection
+        var parserProperty = typeof(TState).GetProperty("Parser", 
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        
+        if (parserProperty == null)
+        {
+            throw new InvalidOperationException($"Cannot find Parser property for type {typeof(TState).Name}");
+        }
+
+        var parser = parserProperty.GetValue(null) as MessageParser<TState>;
+        if (parser == null)
+        {
+            throw new InvalidOperationException($"Cannot get parser for type {typeof(TState).Name}");
+        }
+
+        return parser.ParseFrom(bytes);
+    }
+
+    /// <summary>
+    /// Get current version (for monitoring)
     /// </summary>
     public long GetCurrentVersion() => _currentVersion;
 
     /// <summary>
-    /// 重写激活方法，自动重放事件
+    /// Set event store (for DI scenarios)
+    /// </summary>
+    public void SetEventStore(IEventStore eventStore)
+    {
+        _eventStore = eventStore;
+    }
+
+    // ========== Lifecycle ==========
+
+    /// <summary>
+    /// Override activation to auto-replay events
     /// </summary>
     public override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
 
-        // 重放事件恢复状态
-        await ReplayEventsAsync(ct);
+        // Auto-replay events
+        if (_eventStore != null)
+        {
+            await ReplayEventsAsync(ct);
+        }
+    }
+}
+
+// ========== Snapshot Strategies ==========
+
+/// <summary>
+/// Snapshot strategy interface
+/// </summary>
+public interface ISnapshotStrategy
+{
+    bool ShouldCreateSnapshot(long version);
+}
+
+/// <summary>
+/// Interval-based snapshot strategy
+/// </summary>
+public class IntervalSnapshotStrategy : ISnapshotStrategy
+{
+    private readonly long _interval;
+
+    public IntervalSnapshotStrategy(long interval)
+    {
+        _interval = interval;
+    }
+
+    public bool ShouldCreateSnapshot(long version)
+    {
+        return version % _interval == 0;
+    }
+}
+
+/// <summary>
+/// Hybrid snapshot strategy (interval + time)
+/// </summary>
+public class HybridSnapshotStrategy : ISnapshotStrategy
+{
+    private readonly long _interval;
+    private readonly TimeSpan _timeSpan;
+    private DateTime _lastSnapshotTime = DateTime.UtcNow;
+
+    public HybridSnapshotStrategy(long interval, TimeSpan timeSpan)
+    {
+        _interval = interval;
+        _timeSpan = timeSpan;
+    }
+
+    public bool ShouldCreateSnapshot(long version)
+    {
+        // Strategy 1: Every N events
+        if (version % _interval == 0) return true;
+
+        // Strategy 2: Time-based
+        if ((DateTime.UtcNow - _lastSnapshotTime) > _timeSpan)
+        {
+            _lastSnapshotTime = DateTime.UtcNow;
+            return true;
+        }
+
+        return false;
     }
 }
