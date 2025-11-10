@@ -24,30 +24,45 @@ public static class OrleansEventSourcingExtensions
         // 获取 Agent 实例
         var agent = actor.GetAgent();
         
-        // 如果 Agent 支持 EventSourcing，配置并重放事件
-        if (agent is GAgentBaseWithEventSourcing<object> esAgent)
+        // 使用反射检查是否支持 EventSourcing
+        var agentType = agent.GetType();
+        var baseType = agentType.BaseType;
+        
+        while (baseType != null)
         {
-            // 注入 EventStore（如果还没有）
-            if (eventStore != null)
+            if (baseType.IsGenericType && 
+                baseType.GetGenericTypeDefinition() == typeof(GAgentBaseWithEventSourcing<>))
             {
-                var field = typeof(GAgentBaseWithEventSourcing<>)
-                    .MakeGenericType(esAgent.GetType().BaseType!.GetGenericArguments()[0])
-                    .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                // 找到了 GAgentBaseWithEventSourcing 基类
+                var setEventStoreMethod = baseType.GetMethod("SetEventStore");
+                var getCurrentVersionMethod = baseType.GetMethod("GetCurrentVersion");
+                var onActivateMethod = baseType.GetMethod("OnActivateAsync");
                 
-                if (field != null && field.GetValue(esAgent) == null)
+                if (setEventStoreMethod != null && eventStore != null)
                 {
-                    field.SetValue(esAgent, eventStore);
+                    setEventStoreMethod.Invoke(agent, new object[] { eventStore });
                 }
+                
+                var logger = serviceProvider?.GetService<ILogger<OrleansGAgentActor>>();
+                logger?.LogInformation("Enabling EventSourcing for Orleans Agent {AgentId}", agent.Id);
+                
+                // 激活时重放事件
+                if (onActivateMethod != null)
+                {
+                    var task = onActivateMethod.Invoke(agent, new object[] { CancellationToken.None }) as Task;
+                    if (task != null)
+                    {
+                        await task;
+                    }
+                }
+                
+                var version = getCurrentVersionMethod?.Invoke(agent, null);
+                logger?.LogInformation("EventSourcing enabled for Orleans, replayed to version {Version}", version);
+                
+                break;
             }
             
-            var logger = serviceProvider?.GetService<ILogger<OrleansGAgentActor>>();
-            logger?.LogInformation("Enabling EventSourcing for Orleans Agent {AgentId}", agent.Id);
-            
-            // 激活时重放事件
-            await esAgent.OnActivateAsync();
-            
-            logger?.LogInformation("EventSourcing enabled for Orleans, replayed to version {Version}", 
-                esAgent.GetCurrentVersion());
+            baseType = baseType.BaseType;
         }
         
         return actor;
@@ -68,20 +83,23 @@ public static class OrleansEventSourcingExtensions
         {
             if (options.UseInMemoryStore)
             {
+                // 使用InMemory实现（开发/测试）
                 services.AddSingleton<IEventStore, InMemoryEventStore>();
+            }
+            else
+            {
+                // 使用Orleans GrainStorage实现（生产）
+                services.AddSingleton<IEventStore, OrleansEventStore>();
             }
             
             // 注册其他服务
             services.AddSingleton(options);
         });
         
-        // 配置 Grain Storage（如果需要）
-        if (!string.IsNullOrEmpty(options.StorageProvider))
-        {
-            // 未来可以配置不同的存储提供者
-            // builder.AddAzureTableGrainStorage("EventStore", ...);
-            // builder.AddAdoNetGrainStorage("EventStore", ...);
-        }
+        // Grain Storage 配置需要由用户在 Silo 配置中添加
+        // 例如: builder.AddMemoryGrainStorage("EventStoreStorage")
+        // 或: builder.AddAzureTableGrainStorage("EventStoreStorage", ...)
+        // 或: builder.AddAdoNetGrainStorage("EventStoreStorage", ...)
         
         return builder;
     }
@@ -100,7 +118,13 @@ public static class OrleansEventSourcingExtensions
         {
             if (options.UseInMemoryStore)
             {
+                // 使用InMemory实现（开发/测试）
                 services.AddSingleton<IEventStore, InMemoryEventStore>();
+            }
+            else
+            {
+                // 使用Orleans GrainStorage实现（生产）
+                services.AddSingleton<IEventStore, OrleansEventStore>();
             }
             
             services.AddSingleton(options);
