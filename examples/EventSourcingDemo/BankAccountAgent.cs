@@ -1,23 +1,21 @@
-using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
 using EventSourcingDemo.Events;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;
+using Google.Protobuf;
 
 namespace EventSourcingDemo;
 
 /// <summary>
 /// 支持 EventSourcing 的银行账户 Agent
-/// 使用 Demo.Agents 中定义的 BankAccountState
+/// 使用新的批量提交和纯函数式状态转换模式
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    // 完整构造函数
     public BankAccountAgent(
         Guid id,
-        IEventStore? eventStore = null,
         ILogger<BankAccountAgent>? logger = null)
-        : base(id, eventStore, logger)
+        : base(id, null, logger)
     {
     }
 
@@ -27,16 +25,37 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     }
 
     /// <summary>
+    /// Get current state (for demo/testing)
+    /// </summary>
+    public BankAccountState GetState() => State;
+
+    // ========== Business Operations (使用新 API) ==========
+
+    /// <summary>
     /// 创建账户
     /// </summary>
     public async Task CreateAccountAsync(string accountHolder, decimal initialBalance = 0)
     {
+        Logger?.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
+            accountHolder, initialBalance);
+
         var evt = new AccountCreated
         {
             AccountHolder = accountHolder,
             InitialBalance = (double)initialBalance
         };
-        await RaiseStateChangeEventAsync(evt);
+
+        // ✅ 新 API: RaiseEvent (暂存)
+        RaiseEvent(evt, new Dictionary<string, string>
+        {
+            ["Operation"] = "CreateAccount",
+            ["AccountHolder"] = accountHolder
+        });
+
+        // ✅ 新 API: ConfirmEventsAsync (批量提交)
+        await ConfirmEventsAsync();
+
+        Logger?.LogInformation("Account created successfully. Version: {Version}", GetCurrentVersion());
     }
 
     /// <summary>
@@ -44,12 +63,30 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     /// </summary>
     public async Task DepositAsync(decimal amount, string description = "")
     {
+        if (amount <= 0)
+        {
+            throw new ArgumentException("Deposit amount must be positive", nameof(amount));
+        }
+
+        Logger?.LogInformation("Depositing ${Amount}: {Description}", amount, description);
+
         var evt = new MoneyDeposited
         {
             Amount = (double)amount,
             Description = description ?? $"Deposit at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"
         };
-        await RaiseStateChangeEventAsync(evt);
+
+        // ✅ 新 API: RaiseEvent (暂存)
+        RaiseEvent(evt, new Dictionary<string, string>
+        {
+            ["Operation"] = "Deposit",
+            ["Amount"] = amount.ToString("F2")
+        });
+
+        // ✅ 新 API: ConfirmEventsAsync (批量提交)
+        await ConfirmEventsAsync();
+
+        Logger?.LogInformation("Deposit confirmed. New balance: ${Balance}", State.Balance);
     }
 
     /// <summary>
@@ -57,48 +94,122 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     /// </summary>
     public async Task WithdrawAsync(decimal amount, string description = "")
     {
+        if (amount <= 0)
+        {
+            throw new ArgumentException("Withdrawal amount must be positive", nameof(amount));
+        }
+
         if (State.Balance < (double)amount)
         {
             throw new InvalidOperationException(
-                $"Insufficient balance. Current: ${State.Balance}, Requested: ${amount}");
+                $"Insufficient balance. Current: ${State.Balance:F2}, Requested: ${amount:F2}");
         }
+
+        Logger?.LogInformation("Withdrawing ${Amount}: {Description}", amount, description);
 
         var evt = new MoneyWithdrawn
         {
             Amount = (double)amount,
             Description = description ?? $"Withdrawal at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"
         };
-        await RaiseStateChangeEventAsync(evt);
+
+        // ✅ 新 API: RaiseEvent (暂存)
+        RaiseEvent(evt, new Dictionary<string, string>
+        {
+            ["Operation"] = "Withdraw",
+            ["Amount"] = amount.ToString("F2")
+        });
+
+        // ✅ 新 API: ConfirmEventsAsync (批量提交)
+        await ConfirmEventsAsync();
+
+        Logger?.LogInformation("Withdrawal confirmed. New balance: ${Balance}", State.Balance);
     }
 
     /// <summary>
-    /// 应用状态变更事件
+    /// 批量交易（展示批量提交优势）
     /// </summary>
-    protected override Task ApplyStateChangeEventAsync<TEvent>(TEvent evt, CancellationToken ct = default)
+    public async Task BatchTransactionsAsync(
+        IEnumerable<(string type, decimal amount, string description)> transactions)
     {
+        Logger?.LogInformation("Starting batch transactions...");
+
+        // ✅ 新 API 优势: 可以先暂存多个事件，然后一次性提交
+        foreach (var (type, amount, description) in transactions)
+        {
+            IMessage evt = type.ToLower() switch
+            {
+                "deposit" => new MoneyDeposited 
+                { 
+                    Amount = (double)amount, 
+                    Description = description 
+                },
+                "withdraw" => new MoneyWithdrawn 
+                { 
+                    Amount = (double)amount, 
+                    Description = description 
+                },
+                _ => throw new ArgumentException($"Unknown transaction type: {type}")
+            };
+
+            RaiseEvent(evt);  // 暂存，不立即提交
+        }
+
+        // ✅ 一次性批量提交所有事件
+        await ConfirmEventsAsync();
+
+        Logger?.LogInformation("Batch transactions completed. New balance: ${Balance}", State.Balance);
+    }
+
+    // ========== Pure Functional State Transition (新 API) ==========
+
+    /// <summary>
+    /// ✅ 纯函数式状态转换
+    /// 不修改原状态，返回新状态
+    /// </summary>
+    protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
+    {
+        Logger?.LogInformation("🔄 TransitionState called with event type: {EventType}", evt.GetType().Name);
+        Logger?.LogInformation("   Current state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
+        
+        // 创建新状态副本 (deep copy via Protobuf)
+        var newState = state.Clone();
+
         switch (evt)
         {
             case AccountCreated created:
-                State.AccountHolder = created.AccountHolder;
-                State.Balance = created.InitialBalance;
-                State.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
+                Logger?.LogInformation("   ✅ Matched AccountCreated: Holder={Holder}, InitialBalance={Balance}", 
+                    created.AccountHolder, created.InitialBalance);
+                newState.AccountHolder = created.AccountHolder;
+                newState.Balance = created.InitialBalance;
+                newState.TransactionCount = 0;
+                newState.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
                 break;
 
             case MoneyDeposited deposited:
-                State.Balance += deposited.Amount;
-                State.TransactionCount++;
-                State.History.Add(
-                    $"[{State.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
+                Logger?.LogInformation("   ✅ Matched MoneyDeposited: Amount={Amount}", deposited.Amount);
+                newState.Balance += deposited.Amount;
+                newState.TransactionCount++;
+                newState.History.Add(
+                    $"[{newState.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
                 break;
 
             case MoneyWithdrawn withdrawn:
-                State.Balance -= withdrawn.Amount;
-                State.TransactionCount++;
-                State.History.Add(
-                    $"[{State.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
+                Logger?.LogInformation("   ✅ Matched MoneyWithdrawn: Amount={Amount}", withdrawn.Amount);
+                newState.Balance -= withdrawn.Amount;
+                newState.TransactionCount++;
+                newState.History.Add(
+                    $"[{newState.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
+                break;
+                
+            default:
+                Logger?.LogWarning("   ❌ Unknown event type in switch: {EventType}", evt.GetType().FullName);
                 break;
         }
 
-        return Task.CompletedTask;
+        Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", newState.Balance, newState.TransactionCount);
+
+        // ✅ 返回新状态（不修改原状态）
+        return newState;
     }
 }

@@ -25,30 +25,45 @@ public static class ProtoActorEventSourcingExtensions
         // 获取 Agent 实例
         var agent = actor.GetAgent();
         
-        // 如果 Agent 支持 EventSourcing，配置并重放事件
-        if (agent is GAgentBaseWithEventSourcing<object> esAgent)
+        // 使用反射检查是否支持 EventSourcing
+        var agentType = agent.GetType();
+        var baseType = agentType.BaseType;
+        
+        while (baseType != null)
         {
-            // 注入 EventStore（如果还没有）
-            if (eventStore != null)
+            if (baseType.IsGenericType && 
+                baseType.GetGenericTypeDefinition() == typeof(GAgentBaseWithEventSourcing<>))
             {
-                var field = typeof(GAgentBaseWithEventSourcing<>)
-                    .MakeGenericType(esAgent.GetType().BaseType!.GetGenericArguments()[0])
-                    .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                // 找到了 GAgentBaseWithEventSourcing 基类
+                var setEventStoreMethod = baseType.GetMethod("SetEventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var getCurrentVersionMethod = baseType.GetMethod("GetCurrentVersion", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                var onActivateMethod = baseType.GetMethod("OnActivateAsync", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
                 
-                if (field != null && field.GetValue(esAgent) == null)
+                if (setEventStoreMethod != null && eventStore != null)
                 {
-                    field.SetValue(esAgent, eventStore);
+                    setEventStoreMethod.Invoke(agent, new object[] { eventStore });
                 }
+                
+                var logger = serviceProvider?.GetService<ILogger<ProtoActorGAgentActor>>();
+                logger?.LogInformation("Enabling EventSourcing for ProtoActor Agent {AgentId}", agent.Id);
+                
+                // 激活时重放事件
+                if (onActivateMethod != null)
+                {
+                    var task = onActivateMethod.Invoke(agent, new object[] { CancellationToken.None }) as Task;
+                    if (task != null)
+                    {
+                        await task;
+                    }
+                }
+                
+                var version = getCurrentVersionMethod?.Invoke(agent, null);
+                logger?.LogInformation("EventSourcing enabled for ProtoActor, replayed to version {Version}", version);
+                
+                break;
             }
             
-            var logger = serviceProvider?.GetService<ILogger<ProtoActorGAgentActor>>();
-            logger?.LogInformation("Enabling EventSourcing for ProtoActor Agent {AgentId}", agent.Id);
-            
-            // 激活时重放事件
-            await esAgent.OnActivateAsync();
-            
-            logger?.LogInformation("EventSourcing enabled for ProtoActor, replayed to version {Version}", 
-                esAgent.GetCurrentVersion());
+            baseType = baseType.BaseType;
         }
         
         return actor;
@@ -63,7 +78,7 @@ public static class ProtoActorEventSourcingExtensions
         IEventStore eventStore,
         IServiceProvider? serviceProvider = null)
         where TAgent : GAgentBaseWithEventSourcing<TState>, new()
-        where TState : class, new()
+        where TState : class, Google.Protobuf.IMessage<TState>, new()
     {
         // 创建 Agent 实例（需要通过构造函数设置 ID）
         var agent = Activator.CreateInstance(typeof(TAgent), id, eventStore, null) as TAgent

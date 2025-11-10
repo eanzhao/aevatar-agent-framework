@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace Aevatar.Agents.Core.EventSourcing;
 
@@ -137,48 +138,70 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         try
         {
-            // Get event type
-            var eventTypeName = evt.EventType;
-            var eventType = System.Type.GetType(eventTypeName);
-            if (eventType == null)
-            {
-                Logger?.LogWarning("Unknown event type: {EventType}", eventTypeName);
-                return Task.CompletedTask;
-            }
-
-            // Check if it's a Protobuf message
-            if (!typeof(IMessage).IsAssignableFrom(eventType))
-            {
-                Logger?.LogWarning("Event type {EventType} is not a Protobuf message", eventTypeName);
-                return Task.CompletedTask;
-            }
-
-            // Unpack event using reflection
-            var unpackMethod = typeof(Any).GetMethod(nameof(Any.Unpack), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                ?.MakeGenericMethod(eventType);
+            // ✅ Extract type name from TypeUrl (format: "type.googleapis.com/PackageName.MessageName")
+            var typeUrl = evt.EventData.TypeUrl;
+            var fullTypeName = typeUrl.Substring(typeUrl.LastIndexOf('/') + 1);
             
-            if (unpackMethod == null)
+            // Extract simple type name (last part after '.')
+            var simpleTypeName = fullTypeName.Contains('.') 
+                ? fullTypeName.Substring(fullTypeName.LastIndexOf('.') + 1)
+                : fullTypeName;
+            
+            Logger?.LogDebug("Unpacking event {SimpleTypeName} (full: {FullTypeName}) from TypeUrl {TypeUrl}", 
+                simpleTypeName, fullTypeName, typeUrl);
+            
+            // ✅ Lookup type in the same assembly as the agent (this class)
+            // Match by simple name since Protobuf package names don't match C# namespaces
+            var assembly = this.GetType().Assembly;
+            var matchingType = assembly.GetTypes()
+                .FirstOrDefault(t => t.Name == simpleTypeName && typeof(IMessage).IsAssignableFrom(t));
+            
+            if (matchingType == null)
             {
-                Logger?.LogWarning("Cannot find Unpack method for type {EventType}", eventTypeName);
+                Logger?.LogWarning("Unknown event type from TypeUrl: {TypeUrl}. Cannot find type {TypeName} in assembly {Assembly}", 
+                    typeUrl, simpleTypeName, assembly.FullName);
                 return Task.CompletedTask;
             }
-
-            var message = unpackMethod.Invoke(evt.EventData, null) as IMessage;
+            
+            Logger?.LogDebug("Found matching type: {FullName}", matchingType.FullName);
+            
+            // ✅ Get Parser property
+            var parser = matchingType.GetProperty("Parser", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                ?.GetValue(null);
+                
+            if (parser == null)
+            {
+                Logger?.LogWarning("Cannot find Parser property for type {TypeName}", matchingType.FullName);
+                return Task.CompletedTask;
+            }
+            
+            // ✅ Parse from bytes
+            var parseFromMethod = parser.GetType().GetMethod("ParseFrom", new[] { typeof(byte[]) });
+            if (parseFromMethod == null)
+            {
+                Logger?.LogWarning("Cannot find ParseFrom method for parser of type {TypeName}", matchingType.FullName);
+                return Task.CompletedTask;
+            }
+            
+            var message = parseFromMethod.Invoke(parser, new object[] { evt.EventData.Value.ToByteArray() }) as IMessage;
+            
             if (message == null)
             {
-                Logger?.LogWarning("Failed to unpack event {EventType}", eventTypeName);
+                Logger?.LogWarning("Failed to parse event {TypeName} - ParseFrom returned null", matchingType.FullName);
                 return Task.CompletedTask;
             }
+            
+            Logger?.LogDebug("Successfully unpacked event: {MessageType}", message.GetType().Name);
 
-            // Pure function call
+            // ✅ Pure function call
             var newState = TransitionState(State, message);
 
-            // Update state (use SetState method from base)
+            // ✅ Update state
             SetStateInternal(newState);
 
             Logger?.LogDebug(
-                "Applied event {EventType} version {Version} to agent {AgentId}",
-                evt.EventType, evt.Version, Id);
+                "Applied event {TypeName} version {Version} to agent {AgentId}",
+                simpleTypeName, evt.Version, Id);
 
             return Task.CompletedTask;
         }
@@ -351,7 +374,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         // Auto-replay events
         if (_eventStore != null)
         {
-            await ReplayEventsAsync(ct);
+        await ReplayEventsAsync(ct);
         }
     }
 }

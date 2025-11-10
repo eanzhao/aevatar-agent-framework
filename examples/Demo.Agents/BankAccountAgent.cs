@@ -45,11 +45,9 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
             Description = deposit.Description
         };
         
-        // 持久化状态变更
-        await RaiseStateChangeEventAsync(Any.Pack(stateChange));
-        
-        // 应用状态变更
-        await ApplyDepositAsync(deposit.Amount);
+        // ✅ V2 API: Raise and Confirm
+        RaiseEvent(stateChange);
+        await ConfirmEventsAsync();
     }
     
     [EventHandler]
@@ -67,11 +65,9 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
                 Description = withdraw.Description
             };
             
-            // 持久化状态变更
-            await RaiseStateChangeEventAsync(Any.Pack(stateChange));
-            
-            // 应用状态变更
-            await ApplyWithdrawAsync(withdraw.Amount);
+            // ✅ V2 API: Raise and Confirm
+            RaiseEvent(stateChange);
+            await ConfirmEventsAsync();
         }
         else
         {
@@ -79,38 +75,32 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         }
     }
     
-    protected override async Task ApplyStateChangeEventAsync<TEvent>(TEvent evt, CancellationToken ct = default)
+    /// <summary>
+    /// Pure functional state transition (V2 API)
+    /// </summary>
+    protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
     {
+        // Create new state (deep copy)
+        var newState = state.Clone();
+        
         if (evt is BankAccountStateChange change)
         {
             switch (change.EventType)
             {
                 case "Deposit":
-                    await ApplyDepositAsync(change.Amount);
+                    newState.Balance += change.Amount;
+                    newState.TransactionCount++;
+                    newState.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
                     break;
                 case "Withdraw":
-                    await ApplyWithdrawAsync(change.Amount);
+                    newState.Balance -= change.Amount;
+                    newState.TransactionCount++;
+                    newState.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
                     break;
             }
         }
-    }
-    
-    private Task ApplyDepositAsync(double amount)
-    {
-        State.Balance += amount;
-        State.TransactionCount++;
-        State.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
-        Logger?.LogInformation("BankAccount {Id} balance after deposit: {Balance}", Id, State.Balance);
-        return Task.CompletedTask;
-    }
-    
-    private Task ApplyWithdrawAsync(double amount)
-    {
-        State.Balance -= amount;
-        State.TransactionCount++;
-        State.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
-        Logger?.LogInformation("BankAccount {Id} balance after withdrawal: {Balance}", Id, State.Balance);
-        return Task.CompletedTask;
+        
+        return newState;
     }
     
     public override Task<string> GetDescriptionAsync()
