@@ -8,7 +8,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Tests.Messages;
-using Aevatar.Agents.Local;
+using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;

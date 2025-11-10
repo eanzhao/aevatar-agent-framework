@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
-using Aevatar.Agents.ProtoActor;
+using Aevatar.Agents.Runtime.ProtoActor;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Google.Protobuf.WellKnownTypes;

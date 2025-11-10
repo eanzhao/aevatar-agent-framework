@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Orleans;
+using Aevatar.Agents.Runtime.Orleans;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

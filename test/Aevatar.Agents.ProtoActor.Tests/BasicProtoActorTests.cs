@@ -1,7 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
-using Aevatar.Agents.ProtoActor;
+using Aevatar.Agents.Runtime.ProtoActor;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Proto;

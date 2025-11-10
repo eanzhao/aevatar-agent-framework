@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

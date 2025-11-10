@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
   </ItemGroup>

@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
-using Aevatar.Agents.Orleans;
+using Aevatar.Agents.Runtime.Orleans;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Moq;

@@ -1,9 +1,9 @@
-using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI;
 
 namespace Aevatar.Agents.AI.MEAI;
@@ -31,7 +31,6 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
     /// </summary>
     private readonly List<ChatMessage> _chatMessages = [];
 
-
     #region Constructors
 
     /// <summary>
@@ -47,12 +46,9 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
         {
             _chatMessages.Add(new ChatMessage(ChatRole.System, SystemPrompt));
         }
-
-        // 初始化策略支持组件
-        InitializeStrategySupport();
     }
 
-    protected sealed override string SystemPrompt { get; }
+    protected override string SystemPrompt { get; } = "You are a helpful AI assistant.";
 
     /// <summary>
     /// 使用配置的构造函数
@@ -176,22 +172,16 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
 
     #endregion
 
+
     #region Tool Management
 
     /// <summary>
-    /// 注册工具 - 同时注册AITool和转换为ToolDefinition
+    /// 注册工具 - 简化版本
     /// </summary>
     protected override void RegisterTools()
     {
-        // 首先让子类注册AITools
+        // 让子类注册AITools
         RegisterAITools();
-
-        // 将AITools转换为ToolDefinition并注册
-        foreach (var aiTool in AITools)
-        {
-            var toolDef = ConvertAIToolToDefinition(aiTool);
-            RegisterTool(toolDef);
-        }
     }
 
     /// <summary>
@@ -203,42 +193,9 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
         // AITools.Add(AIFunctionFactory.Create(...));
     }
 
-    /// <summary>
-    /// 将AITool转换为ToolDefinition
-    /// </summary>
-    private ToolDefinition ConvertAIToolToDefinition(AITool aiTool)
-    {
-        // 简化实现：AITool由ChatClient直接管理
-        // 这里只创建一个占位的ToolDefinition用于框架集成
-        return new ToolDefinition
-        {
-            Name = $"ai_tool_{AITools.IndexOf(aiTool)}",
-            Description = "AI Tool managed by Microsoft.Extensions.AI",
-            Category = ToolCategory.Custom,
-            ExecuteAsync = async (args, context, ct) =>
-            {
-                // 实际的AITool执行由ChatClient处理
-                // 这里只是占位，不会被实际调用
-                Logger?.LogDebug("AITool execution is delegated to ChatClient");
-                return await Task.FromResult<object?>("Delegated to ChatClient");
-            }
-        };
-    }
 
     #endregion
 
-    #region Strategy Support
-
-    /// <summary>
-    /// 初始化策略支持
-    /// </summary>
-    private void InitializeStrategySupport()
-    {
-        // 简化实现：暂时不使用策略工厂
-        // 策略模式通过基类的简单实现即可
-    }
-
-    #endregion
 
     #region Helper Methods
 

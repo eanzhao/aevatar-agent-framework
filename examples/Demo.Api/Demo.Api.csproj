@@ -24,9 +24,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
-        <ProjectReference Include="..\..\src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
-        <ProjectReference Include="..\..\src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
         <ProjectReference Include="..\Demo.Agents\Demo.Agents.csproj" />
     </ItemGroup>
 

@@ -1,10 +1,10 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.Local;
-using Aevatar.Agents.Local.EventSourcing;
-using Aevatar.Agents.ProtoActor;
-using Aevatar.Agents.ProtoActor.EventSourcing;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Local.EventSourcing;
+using Aevatar.Agents.Runtime.ProtoActor;
+using Aevatar.Agents.Runtime.ProtoActor.EventSourcing;
 using EventSourcingDemo;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

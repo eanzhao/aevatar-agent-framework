@@ -1,12 +1,12 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Aevatar.Agents.Local;
+using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.Local.Subscription;
-using Aevatar.Agents.Orleans.Subscription;
-using Aevatar.Agents.ProtoActor.Subscription;
+using Aevatar.Agents.Runtime.Local.Subscription;
+using Aevatar.Agents.Runtime.Orleans.Subscription;
+using Aevatar.Agents.Runtime.ProtoActor.Subscription;
 using Aevatar.Agents.Core.EventDeduplication;
-using Aevatar.Agents.Orleans;
+using Aevatar.Agents.Runtime.Orleans;
 using Microsoft.Extensions.Logging;
 
 namespace Demo.Api;
@@ -51,14 +51,14 @@ public static class AgentRuntimeExtensions
                 var actorSystem = new Proto.ActorSystem();
                 services.AddSingleton(actorSystem);
                 services.AddSingleton(actorSystem.Root);
-                services.AddSingleton<Aevatar.Agents.ProtoActor.ProtoActorMessageStreamRegistry>();
-                services.AddSingleton<Aevatar.Agents.ProtoActor.ProtoActorGAgentActorManager>();
-                services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.ProtoActor.ProtoActorGAgentActorFactory>();
+                services.AddSingleton<Aevatar.Agents.Runtime.ProtoActor.ProtoActorMessageStreamRegistry>();
+                services.AddSingleton<Aevatar.Agents.Runtime.ProtoActor.ProtoActorGAgentActorManager>();
+                services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Runtime.ProtoActor.ProtoActorGAgentActorFactory>();
                 services.AddSingleton<ISubscriptionManager>(sp =>
                     new ProtoActorSubscriptionManager(
                         sp.GetRequiredService<Proto.IRootContext>(),
-                        sp.GetRequiredService<Aevatar.Agents.ProtoActor.ProtoActorMessageStreamRegistry>(),
-                        sp.GetRequiredService<Aevatar.Agents.ProtoActor.ProtoActorGAgentActorManager>(),
+                        sp.GetRequiredService<Aevatar.Agents.Runtime.ProtoActor.ProtoActorMessageStreamRegistry>(),
+                        sp.GetRequiredService<Aevatar.Agents.Runtime.ProtoActor.ProtoActorGAgentActorManager>(),
                         sp.GetRequiredService<ILogger<ProtoActorSubscriptionManager>>()));
                 Console.WriteLine("✅ 使用 ProtoActor 运行时");
                 break;
@@ -66,12 +66,12 @@ public static class AgentRuntimeExtensions
             case AgentRuntimeType.Orleans:
                 // Orleans 运行时（需要通过 Orleans Host 配置 Silo）
                 // 配置 Orleans 工厂选项
-                services.Configure<Aevatar.Agents.Orleans.OrleansGAgentActorFactoryOptions>(options =>
+                services.Configure<Aevatar.Agents.Runtime.Orleans.OrleansGAgentActorFactoryOptions>(options =>
                 {
                     options.UseEventSourcing = false; // 默认使用标准 Grain
-                    options.DefaultGrainType = Aevatar.Agents.Orleans.GrainType.Standard;
+                    options.DefaultGrainType = Aevatar.Agents.Runtime.Orleans.GrainType.Standard;
                 });
-                services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Orleans.OrleansGAgentActorFactory>();
+                services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Runtime.Orleans.OrleansGAgentActorFactory>();
                 
                 // Orleans的SubscriptionManager需要IStreamProvider
                 // 注意：Orleans的流提供者需要在Silo配置中设置，这里只是注册Manager

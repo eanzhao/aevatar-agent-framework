@@ -472,7 +472,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
         public async Task<ToolExecutionResult> ExecuteToolAsync(
             string toolName,
             Dictionary<string, object> parameters,
-            Abstractions.ExecutionContext? context = null,
+            Aevatar.Agents.AI.Abstractions.ExecutionContext? context = null,
             CancellationToken cancellationToken = default)
         {
             if (_tools.TryGetValue(toolName, out var tool) && tool.ExecuteAsync != null)

@@ -6,8 +6,8 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Subscription;
-using Aevatar.Agents.Local;
-using Aevatar.Agents.Local.Subscription;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Local.Subscription;
 using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
