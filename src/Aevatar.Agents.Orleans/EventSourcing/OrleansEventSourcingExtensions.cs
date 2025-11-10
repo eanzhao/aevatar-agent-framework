@@ -186,7 +186,7 @@ public static class OrleansJournaledGrainExtensions
         IClusterClient clusterClient,
         IServiceProvider? serviceProvider = null)
         where TAgent : GAgentBaseWithEventSourcing<TState>, new()
-        where TState : class, new()
+        where TState : class, Google.Protobuf.IMessage<TState>, new()
     {
         // 创建 Agent 实例
         var agent = new TAgent();
