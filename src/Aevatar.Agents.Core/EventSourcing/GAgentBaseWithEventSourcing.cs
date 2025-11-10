@@ -79,6 +79,10 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// <summary>
     /// Stage event (does not persist immediately)
     /// Borrowed from: JournaledGrain.RaiseEvent()
+    /// 
+    /// ⚠️ Thread Safety: This method is NOT thread-safe.
+    /// It should only be called from the Agent's execution context (Actor thread).
+    /// The underlying List&lt;AgentStateEvent&gt; is not thread-safe for concurrent access.
     /// </summary>
     protected void RaiseEvent<TEvent>(
         TEvent evt,
@@ -110,6 +114,10 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// <summary>
     /// Commit pending events (batch persist)
     /// Borrowed from: JournaledGrain.ConfirmEvents()
+    /// 
+    /// ⚠️ Thread Safety: This method is NOT thread-safe.
+    /// It should only be called from the Agent's execution context (Actor thread).
+    /// Do not call RaiseEvent() and ConfirmEventsAsync() concurrently.
     /// </summary>
     protected async Task ConfirmEventsAsync(CancellationToken ct = default)
     {
