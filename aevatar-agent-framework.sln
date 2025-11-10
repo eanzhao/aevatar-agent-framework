@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -7,8 +7,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "old", "old", "{48DCF74D-3AA9-37DE-8188-E18F574070E8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Orleans.Tests", "test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj", "{BF8FD084-94F8-38DE-BB18-5E564AAEEDD9}"
 EndProject
@@ -39,26 +37,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Local", "src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj", "{003FBDD0-F83F-2A80-7358-AD199C923EE3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Abstractions", "src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj", "{B5BB82D0-E3FF-B6B6-195E-E0295A36CCB5}"
-EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.EventSourcing.MongoDB", "old\src\Aevatar.EventSourcing.MongoDB\Aevatar.EventSourcing.MongoDB.csproj", "{9E965DED-3C6B-2086-8A54-DB1221A260F0}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Core.Interception", "old\src\Aevatar.Core.Interception\Aevatar.Core.Interception.csproj", "{1A892EB7-CEC6-3779-2136-2B3A3D7545B5}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Plugins", "old\src\Aevatar.Plugins\Aevatar.Plugins.csproj", "{FE4CB051-8191-798D-3054-81ED6C67A64C}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar", "old\src\Aevatar\Aevatar.csproj", "{A5C53860-C4E6-D3D9-BDE2-96C97678333C}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Core.Abstractions", "old\src\Aevatar.Core.Abstractions\Aevatar.Core.Abstractions.csproj", "{94E1BE85-EAB9-4078-C876-4D619F245E9F}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.TestKit", "old\src\Aevatar.TestKit\Aevatar.TestKit.csproj", "{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.PermissionManagement", "old\src\Aevatar.PermissionManagement\Aevatar.PermissionManagement.csproj", "{6EB28D25-A053-DD3C-5DAF-10291D45A86E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Core", "old\src\Aevatar.Core\Aevatar.Core.csproj", "{269200C7-C0AC-0AA4-4E78-6842972950DA}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.EventSourcing.Core", "old\src\Aevatar.EventSourcing.Core\Aevatar.EventSourcing.Core.csproj", "{0AD7CB32-DC14-2087-B31F-49445B5E0849}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -126,42 +104,6 @@ Global
 		{B5BB82D0-E3FF-B6B6-195E-E0295A36CCB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B5BB82D0-E3FF-B6B6-195E-E0295A36CCB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B5BB82D0-E3FF-B6B6-195E-E0295A36CCB5}.Release|Any CPU.Build.0 = Release|Any CPU
-		{9E965DED-3C6B-2086-8A54-DB1221A260F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{9E965DED-3C6B-2086-8A54-DB1221A260F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{9E965DED-3C6B-2086-8A54-DB1221A260F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{9E965DED-3C6B-2086-8A54-DB1221A260F0}.Release|Any CPU.Build.0 = Release|Any CPU
-		{1A892EB7-CEC6-3779-2136-2B3A3D7545B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1A892EB7-CEC6-3779-2136-2B3A3D7545B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1A892EB7-CEC6-3779-2136-2B3A3D7545B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1A892EB7-CEC6-3779-2136-2B3A3D7545B5}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FE4CB051-8191-798D-3054-81ED6C67A64C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FE4CB051-8191-798D-3054-81ED6C67A64C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FE4CB051-8191-798D-3054-81ED6C67A64C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FE4CB051-8191-798D-3054-81ED6C67A64C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A5C53860-C4E6-D3D9-BDE2-96C97678333C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A5C53860-C4E6-D3D9-BDE2-96C97678333C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A5C53860-C4E6-D3D9-BDE2-96C97678333C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A5C53860-C4E6-D3D9-BDE2-96C97678333C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{94E1BE85-EAB9-4078-C876-4D619F245E9F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{94E1BE85-EAB9-4078-C876-4D619F245E9F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{94E1BE85-EAB9-4078-C876-4D619F245E9F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{94E1BE85-EAB9-4078-C876-4D619F245E9F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6}.Release|Any CPU.Build.0 = Release|Any CPU
-		{6EB28D25-A053-DD3C-5DAF-10291D45A86E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{6EB28D25-A053-DD3C-5DAF-10291D45A86E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{6EB28D25-A053-DD3C-5DAF-10291D45A86E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{6EB28D25-A053-DD3C-5DAF-10291D45A86E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{269200C7-C0AC-0AA4-4E78-6842972950DA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{269200C7-C0AC-0AA4-4E78-6842972950DA}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{269200C7-C0AC-0AA4-4E78-6842972950DA}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{269200C7-C0AC-0AA4-4E78-6842972950DA}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0AD7CB32-DC14-2087-B31F-49445B5E0849}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0AD7CB32-DC14-2087-B31F-49445B5E0849}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0AD7CB32-DC14-2087-B31F-49445B5E0849}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0AD7CB32-DC14-2087-B31F-49445B5E0849}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -182,16 +124,6 @@ Global
 		{2D6533E1-AF95-C729-EE24-7AB9417FD7C9} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{003FBDD0-F83F-2A80-7358-AD199C923EE3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B5BB82D0-E3FF-B6B6-195E-E0295A36CCB5} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
-		{BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E} = {48DCF74D-3AA9-37DE-8188-E18F574070E8}
-		{9E965DED-3C6B-2086-8A54-DB1221A260F0} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{1A892EB7-CEC6-3779-2136-2B3A3D7545B5} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{FE4CB051-8191-798D-3054-81ED6C67A64C} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{A5C53860-C4E6-D3D9-BDE2-96C97678333C} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{94E1BE85-EAB9-4078-C876-4D619F245E9F} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{C5D45880-9EE8-B4FF-45C9-40B6823BDCC6} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{6EB28D25-A053-DD3C-5DAF-10291D45A86E} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{269200C7-C0AC-0AA4-4E78-6842972950DA} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
-		{0AD7CB32-DC14-2087-B31F-49445B5E0849} = {BB44483A-7AF9-8DE4-DA55-5A4CE5E9DA7E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {B28D36AD-C858-4D76-8018-BE29DD9FB1A2}
