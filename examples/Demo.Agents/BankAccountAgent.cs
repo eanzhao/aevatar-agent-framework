@@ -77,30 +77,26 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     
     /// <summary>
     /// Pure functional state transition (V2 API)
+    /// Framework automatically clones state, just modify it directly
     /// </summary>
-    protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
+    protected override void TransitionState(BankAccountState state, IMessage evt)
     {
-        // Create new state (deep copy)
-        var newState = state.Clone();
-        
         if (evt is BankAccountStateChange change)
         {
             switch (change.EventType)
             {
                 case "Deposit":
-                    newState.Balance += change.Amount;
-                    newState.TransactionCount++;
-                    newState.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+                    state.Balance += change.Amount;
+                    state.TransactionCount++;
+                    state.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
                     break;
                 case "Withdraw":
-                    newState.Balance -= change.Amount;
-                    newState.TransactionCount++;
-                    newState.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
+                    state.Balance -= change.Amount;
+                    state.TransactionCount++;
+                    state.LastTransaction = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
                     break;
             }
         }
-        
-        return newState;
     }
     
     public override Task<string> GetDescriptionAsync()

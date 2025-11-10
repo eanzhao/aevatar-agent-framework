@@ -165,41 +165,38 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 
     /// <summary>
     /// ✅ 纯函数式状态转换
-    /// 不修改原状态，返回新状态
+    /// 框架已自动Clone状态，开发者只需修改传入的state即可
     /// </summary>
-    protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
+    protected override void TransitionState(BankAccountState state, IMessage evt)
     {
         Logger?.LogInformation("🔄 TransitionState called with event type: {EventType}", evt.GetType().Name);
         Logger?.LogInformation("   Current state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
-        
-        // 创建新状态副本 (deep copy via Protobuf)
-        var newState = state.Clone();
 
         switch (evt)
         {
             case AccountCreated created:
                 Logger?.LogInformation("   ✅ Matched AccountCreated: Holder={Holder}, InitialBalance={Balance}", 
                     created.AccountHolder, created.InitialBalance);
-                newState.AccountHolder = created.AccountHolder;
-                newState.Balance = created.InitialBalance;
-                newState.TransactionCount = 0;
-                newState.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
+                state.AccountHolder = created.AccountHolder;
+                state.Balance = created.InitialBalance;
+                state.TransactionCount = 0;
+                state.History.Add($"[{DateTime.UtcNow:HH:mm:ss}] Account created for {created.AccountHolder}");
                 break;
 
             case MoneyDeposited deposited:
                 Logger?.LogInformation("   ✅ Matched MoneyDeposited: Amount={Amount}", deposited.Amount);
-                newState.Balance += deposited.Amount;
-                newState.TransactionCount++;
-                newState.History.Add(
-                    $"[{newState.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
+                state.Balance += deposited.Amount;
+                state.TransactionCount++;
+                state.History.Add(
+                    $"[{state.TransactionCount}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
                 break;
 
             case MoneyWithdrawn withdrawn:
                 Logger?.LogInformation("   ✅ Matched MoneyWithdrawn: Amount={Amount}", withdrawn.Amount);
-                newState.Balance -= withdrawn.Amount;
-                newState.TransactionCount++;
-                newState.History.Add(
-                    $"[{newState.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
+                state.Balance -= withdrawn.Amount;
+                state.TransactionCount++;
+                state.History.Add(
+                    $"[{state.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
                 break;
                 
             default:
@@ -207,9 +204,6 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
                 break;
         }
 
-        Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", newState.Balance, newState.TransactionCount);
-
-        // ✅ 返回新状态（不修改原状态）
-        return newState;
+        Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
     }
 }

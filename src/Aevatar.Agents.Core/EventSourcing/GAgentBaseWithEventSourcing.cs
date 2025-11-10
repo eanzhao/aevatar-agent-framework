@@ -170,13 +170,15 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// Pure functional state transition
     /// Borrowed from: JournaledGrain.TransitionState()
     /// 
+    /// ⚡ Framework automatically clones the state before calling this method.
+    /// ⚡ Developers only need to modify the passed-in state, no need to clone or return.
+    /// 
     /// Given the same state + event, always produces the same result
     /// No side effects, easy to test
     /// </summary>
-    /// <param name="state">Current state (immutable)</param>
-    /// <param name="evt">Event</param>
-    /// <returns>New state</returns>
-    protected abstract TState TransitionState(TState state, IMessage evt);
+    /// <param name="state">State to modify (already cloned by framework)</param>
+    /// <param name="evt">Event to apply</param>
+    protected abstract void TransitionState(TState state, IMessage evt);
 
     /// <summary>
     /// Apply event internally (optimized with type caching)
@@ -213,8 +215,11 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
                 "Applying event {TypeName} version {Version} to agent {AgentId}",
                 simpleTypeName, evt.Version, Id);
 
-            // ✅ Pure functional state transition
-            var newState = TransitionState(State, message);
+            // ✅ Framework automatically clones state (developers don't need to)
+            var newState = State.Clone();
+
+            // ✅ Pure functional state transition (void method, just modify the state)
+            TransitionState(newState, message);
 
             // ✅ Update state (optimized with cached FieldInfo)
             SetStateInternalOptimized(newState);
