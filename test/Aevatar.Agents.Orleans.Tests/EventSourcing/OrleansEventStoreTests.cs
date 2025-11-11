@@ -52,8 +52,9 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     public async Task AppendEventsAsync_ShouldAppendEvents()
     {
         // Arrange
+        var eventRepository = GetRequiredService<IEventRepository>();
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
         var events = new List<AgentStateEvent>
         {
@@ -76,7 +77,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
         await eventStore.AppendEventsAsync(agentId, new[] { CreateTestEvent(agentId, 1, "Event1") }, 0);
 
@@ -92,7 +94,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
         var events = new List<AgentStateEvent>
         {
@@ -117,7 +120,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
         var events = new List<AgentStateEvent>
         {
@@ -139,7 +143,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
         var snapshot = CreateTestSnapshot(agentId, 5);
 
@@ -158,7 +163,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
 
         // Act
@@ -173,7 +179,8 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var logger = GetRequiredService<ILogger<OrleansEventStore>>();
-        var eventStore = new OrleansEventStore(GrainFactory, logger);
+        var eventRepository = GetRequiredService<IEventRepository>();
+        var eventStore = new OrleansEventStore(GrainFactory, eventRepository, logger);
         var agentId = Guid.NewGuid();
 
         // Act

@@ -1,4 +1,5 @@
 using System;
+using Aevatar.Agents.Orleans.EventSourcing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -51,6 +52,9 @@ public class ClusterFixture : IDisposable
                         logging.SetMinimumLevel(LogLevel.Warning);
                     });
                     
+                    // Register in-memory EventSourcing for testing
+                    services.AddInMemoryEventSourcing();
+                    
                     services.AddSerializer(serializerBuilder =>
                     {
                         serializerBuilder.AddProtobufSerializer();
@@ -72,6 +76,9 @@ public class ClusterFixture : IDisposable
                 .AddMemoryStreams("StreamProvider")
                 .ConfigureServices(services =>
                 {
+                    // Register in-memory EventSourcing for testing
+                    services.AddInMemoryEventSourcing();
+                    
                     services.AddSerializer(serializerBuilder =>
                     {
                         serializerBuilder.AddProtobufSerializer();

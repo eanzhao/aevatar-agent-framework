@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Orleans;
 using Aevatar.Agents.Orleans.EventSourcing;
+using Aevatar.Agents.Orleans.MongoDB;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -84,7 +85,23 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices(services =>
     {
-        // ✅ Register OrleansEventStore (uses IEventStorageGrain internally)
+        // ✅ Register MongoDB Event Repository (decoupled storage implementation)
+        // IMPORTANT: Use separate collection per Agent type for better performance
+        services.AddSingleton<IEventRepository>(sp =>
+        {
+            var mongoClient = sp.GetRequiredService<IMongoClient>();
+            var logger = sp.GetRequiredService<ILogger<MongoEventRepository>>();
+            
+            // Collection name pattern: {AgentType}Events
+            // This ensures each agent type has its own collection with optimized indexes
+            return new MongoEventRepository(
+                mongoClient, 
+                mongoDatabase, 
+                collectionName: "BankAccountEvents",  // ✅ Separate collection for BankAccount
+                logger);
+        });
+        
+        // ✅ Register OrleansEventStore (uses IEventRepository + IEventStorageGrain)
         services.AddSingleton<IEventStore, OrleansEventStore>();
         
         // ✅ Register Orleans Agent Factory

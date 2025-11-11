@@ -62,7 +62,7 @@ dotnet run
 **4. View data:**
 - Mongo Express: http://localhost:8081
 - Collections: 
-  - `OrleansEventStore.BankAccountsevents` (Event storage)
+  - `OrleansEventStore.BankAccountEvents` (Event storage - per agent type)
   - `OrleansEventStore.BankAccountssnapshots` (Snapshot storage)
 
 ---
