@@ -1,8 +1,9 @@
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Orleans.EventSourcing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Aevatar.Agents.Orleans.EventSourcing;
+namespace Aevatar.Agents.TestBase;
 
 /// <summary>
 /// Extension methods for registering EventSourcing services in test environments
