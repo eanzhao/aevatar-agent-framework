@@ -21,7 +21,7 @@ public static class LocalEventSourcingExtensions
         IServiceProvider? serviceProvider = null)
     {
         var actor = await actorTask;
-        var logger = serviceProvider?.GetService<ILogger<LocalGAgentActor>>();
+            var logger = serviceProvider?.GetService<ILogger<LocalGAgentActor>>();
         
         // Use shared helper with MethodInfo caching (5-10x faster after first call)
         return await EventSourcingHelper.EnableEventSourcingAsync(actor, eventStore, logger);

@@ -10,7 +10,7 @@ namespace Aevatar.Agents.Abstractions.EventSourcing;
 public interface IEventStore
 {
     // ========== Event Operations ==========
-    
+
     /// <summary>
     /// Append events with optimistic concurrency control
     /// </summary>
@@ -24,7 +24,7 @@ public interface IEventStore
         IEnumerable<AgentStateEvent> events,
         long expectedVersion,
         CancellationToken ct = default);
-    
+
     /// <summary>
     /// Get events with range query and pagination support
     /// </summary>
@@ -40,21 +40,21 @@ public interface IEventStore
         long? toVersion = null,
         int? maxCount = null,
         CancellationToken ct = default);
-    
+
     /// <summary>
     /// Get latest version number
     /// </summary>
     Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default);
     
     // ========== Snapshot Operations (Optional Implementation) ==========
-    
+
     /// <summary>
     /// Save snapshot for performance optimization
     /// </summary>
     Task SaveSnapshotAsync(Guid agentId, AgentSnapshot snapshot, CancellationToken ct = default);
-    
-    /// <summary>
+
+/// <summary>
     /// Get latest snapshot
-    /// </summary>
+/// </summary>
     Task<AgentSnapshot?> GetLatestSnapshotAsync(Guid agentId, CancellationToken ct = default);
 }

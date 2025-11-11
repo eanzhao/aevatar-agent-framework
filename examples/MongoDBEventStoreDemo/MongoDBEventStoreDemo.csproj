@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
+        <ProjectReference Include="..\Demo.Agents\Demo.Agents.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Orleans Packages -->
+        <PackageReference Include="Microsoft.Orleans.Server" Version="9.2.1" />
+        <PackageReference Include="Microsoft.Orleans.Serialization.Protobuf" Version="9.2.1" />
+        
+        <!-- MongoDB Storage Provider for Orleans -->
+        <PackageReference Include="Orleans.Providers.MongoDB" Version="8.2.0" />
+        <PackageReference Include="MongoDB.Driver" Version="3.0.0" />
+        
+        <!-- Basic Dependencies -->
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+        
+        <!-- Protobuf -->
+        <PackageReference Include="Google.Protobuf" Version="3.33.0" />
+        <PackageReference Include="Grpc.Tools" Version="2.71.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+    
+    <ItemGroup>
+        <Protobuf Include="*.proto" />
+    </ItemGroup>
+
+</Project>
+

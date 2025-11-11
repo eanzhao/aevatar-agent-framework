@@ -104,7 +104,7 @@ public static class EventSourcingHelper
             {
                 // Found EventSourcing base class, get methods
                 var setEventStore = baseType.GetMethod("SetEventStore", 
-                    BindingFlags.NonPublic | BindingFlags.Instance);
+                    BindingFlags.Public | BindingFlags.Instance);
                 
                 var getCurrentVersion = baseType.GetMethod("GetCurrentVersion", 
                     BindingFlags.Public | BindingFlags.Instance);

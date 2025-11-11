@@ -22,7 +22,7 @@ public static class ProtoActorEventSourcingExtensions
         IServiceProvider? serviceProvider = null)
     {
         var actor = await actorTask;
-        var logger = serviceProvider?.GetService<ILogger<ProtoActorGAgentActor>>();
+            var logger = serviceProvider?.GetService<ILogger<ProtoActorGAgentActor>>();
         
         // Use shared helper with MethodInfo caching (5-10x faster after first call)
         return await EventSourcingHelper.EnableEventSourcingAsync(actor, eventStore, logger);

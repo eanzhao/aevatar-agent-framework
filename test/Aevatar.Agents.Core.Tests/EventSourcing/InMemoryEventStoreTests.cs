@@ -33,10 +33,10 @@ public class InMemoryEventStoreTests
             CreateTestEvent(agentId, 0, "Event1"),
             CreateTestEvent(agentId, 0, "Event2")
         };
-
+        
         // Act
         var newVersion = await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Assert
         newVersion.Should().Be(2);
         var retrievedEvents = await store.GetEventsAsync(agentId);
@@ -44,7 +44,7 @@ public class InMemoryEventStoreTests
         retrievedEvents[0].Version.Should().Be(1);
         retrievedEvents[1].Version.Should().Be(2);
     }
-
+    
     [Fact(DisplayName = "AppendEventsAsync should enforce optimistic concurrency")]
     public async Task AppendEventsAsync_ShouldEnforceOptimisticConcurrency()
     {
@@ -62,7 +62,7 @@ public class InMemoryEventStoreTests
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Concurrency conflict*");
     }
-
+    
     [Fact(DisplayName = "GetEventsAsync should return all events for agent")]
     public async Task GetEventsAsync_ShouldReturnAllEvents()
     {
@@ -77,17 +77,17 @@ public class InMemoryEventStoreTests
         };
         
         await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Act
         var retrievedEvents = await store.GetEventsAsync(agentId);
-
+        
         // Assert
         retrievedEvents.Should().HaveCount(3);
         retrievedEvents[0].EventType.Should().Be("Event1");
         retrievedEvents[1].EventType.Should().Be("Event2");
         retrievedEvents[2].EventType.Should().Be("Event3");
     }
-
+    
     [Fact(DisplayName = "GetEventsAsync should support range query (fromVersion)")]
     public async Task GetEventsAsync_ShouldSupportRangeQueryFromVersion()
     {
@@ -102,16 +102,16 @@ public class InMemoryEventStoreTests
         };
         
         await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Act
         var retrievedEvents = await store.GetEventsAsync(agentId, fromVersion: 2);
-
+        
         // Assert
         retrievedEvents.Should().HaveCount(2);
         retrievedEvents[0].Version.Should().Be(2);
         retrievedEvents[1].Version.Should().Be(3);
     }
-
+    
     [Fact(DisplayName = "GetEventsAsync should support range query (toVersion)")]
     public async Task GetEventsAsync_ShouldSupportRangeQueryToVersion()
     {
@@ -126,16 +126,16 @@ public class InMemoryEventStoreTests
         };
         
         await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Act
         var retrievedEvents = await store.GetEventsAsync(agentId, toVersion: 2);
-
+        
         // Assert
         retrievedEvents.Should().HaveCount(2);
         retrievedEvents[0].Version.Should().Be(1);
         retrievedEvents[1].Version.Should().Be(2);
     }
-
+    
     [Fact(DisplayName = "GetEventsAsync should support pagination (maxCount)")]
     public async Task GetEventsAsync_ShouldSupportPagination()
     {
@@ -150,16 +150,16 @@ public class InMemoryEventStoreTests
         };
         
         await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Act
         var retrievedEvents = await store.GetEventsAsync(agentId, maxCount: 2);
-
+        
         // Assert
         retrievedEvents.Should().HaveCount(2);
         retrievedEvents[0].Version.Should().Be(1);
         retrievedEvents[1].Version.Should().Be(2);
     }
-
+    
     [Fact(DisplayName = "GetLatestVersionAsync should return latest version")]
     public async Task GetLatestVersionAsync_ShouldReturnLatestVersion()
     {
@@ -174,28 +174,28 @@ public class InMemoryEventStoreTests
         };
         
         await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Act
         var latestVersion = await store.GetLatestVersionAsync(agentId);
-
+        
         // Assert
         latestVersion.Should().Be(3);
     }
-
+    
     [Fact(DisplayName = "GetLatestVersionAsync should return 0 for non-existent agent")]
     public async Task GetLatestVersionAsync_ShouldReturn0ForNonExistentAgent()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-
+        
         // Act
         var latestVersion = await store.GetLatestVersionAsync(agentId);
-
+        
         // Assert
         latestVersion.Should().Be(0);
     }
-
+    
     [Fact(DisplayName = "SaveSnapshotAsync should save snapshot")]
     public async Task SaveSnapshotAsync_ShouldSaveSnapshot()
     {
@@ -208,30 +208,30 @@ public class InMemoryEventStoreTests
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             StateData = Any.Pack(new ParentChangedEvent { NewParent = "snapshot" })
         };
-
+        
         // Act
         await store.SaveSnapshotAsync(agentId, snapshot);
         var retrievedSnapshot = await store.GetLatestSnapshotAsync(agentId);
-
+        
         // Assert
         retrievedSnapshot.Should().NotBeNull();
         retrievedSnapshot!.Version.Should().Be(100);
     }
-
+    
     [Fact(DisplayName = "GetLatestSnapshotAsync should return null for non-existent snapshot")]
     public async Task GetLatestSnapshotAsync_ShouldReturnNullForNonExistentSnapshot()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-
+        
         // Act
         var snapshot = await store.GetLatestSnapshotAsync(agentId);
-
+        
         // Assert
         snapshot.Should().BeNull();
     }
-
+    
     [Fact(DisplayName = "Multiple agents should be isolated")]
     public async Task MultipleAgents_ShouldBeIsolated()
     {
@@ -249,14 +249,14 @@ public class InMemoryEventStoreTests
 
         var agent1Retrieved = await store.GetEventsAsync(agent1Id);
         var agent2Retrieved = await store.GetEventsAsync(agent2Id);
-
+        
         // Assert
         agent1Retrieved.Should().HaveCount(1);
         agent2Retrieved.Should().HaveCount(1);
         agent1Retrieved[0].EventType.Should().Be("Agent1Event");
         agent2Retrieved[0].EventType.Should().Be("Agent2Event");
     }
-
+    
     [Fact(DisplayName = "Batch append should be atomic")]
     public async Task BatchAppend_ShouldBeAtomic()
     {
@@ -269,10 +269,10 @@ public class InMemoryEventStoreTests
             CreateTestEvent(agentId, 0, "Event2"),
             CreateTestEvent(agentId, 0, "Event3")
         };
-
+        
         // Act
         var newVersion = await store.AppendEventsAsync(agentId, events, 0);
-
+        
         // Assert
         newVersion.Should().Be(3);
         var retrievedEvents = await store.GetEventsAsync(agentId);
@@ -282,6 +282,6 @@ public class InMemoryEventStoreTests
         for (int i = 0; i < retrievedEvents.Count; i++)
         {
             retrievedEvents[i].Version.Should().Be(i + 1);
-        }
     }
+}
 }

@@ -123,11 +123,11 @@ await RaiseStateChangeEventAsync(evt);
 
 // 直接修改状态（不安全）
 protected override Task ApplyStateChangeEventAsync<TEvent>(TEvent evt)
-{
+    {
     State.Balance += amount;  // 修改原状态
     return Task.CompletedTask;
-}
-
+    }
+    
 // 手动反射注入 EventStore（繁琐）
 var field = typeof(...).GetField("_eventStore", BindingFlags...);
 field?.SetValue(agent, eventStore);
@@ -140,10 +140,10 @@ field?.SetValue(agent, eventStore);
 RaiseEvent(evt1);
 RaiseEvent(evt2);
 await ConfirmEventsAsync();
-
+    
 // 纯函数式（安全、可测试）
-protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
-{
+    protected override BankAccountState TransitionState(BankAccountState state, IMessage evt)
+    {
     var newState = state.Clone();
     newState.Balance += amount;  // 修改副本
     return newState;
@@ -227,7 +227,7 @@ var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(id)
 **Silo 配置**:
 ```csharp
 siloBuilder.AddAgentEventSourcing(options =>
-{
+    {
     options.UseInMemoryStore = false;  // 使用 OrleansEventStore
 });
 
@@ -341,15 +341,15 @@ public class MoneyDeposited  // ❌ 不推荐
 
 ✅ **DO**: 纯函数式，不修改原状态
 ```csharp
-var newState = state.Clone();
+    var newState = state.Clone();
 newState.Balance += amount;
-return newState;
+    return newState;
 ```
 
 ❌ **DON'T**: 直接修改原状态
 ```csharp
 state.Balance += amount;  // ❌ 破坏了不可变性
-return state;
+    return state;
 ```
 
 ### 3. **批量操作**

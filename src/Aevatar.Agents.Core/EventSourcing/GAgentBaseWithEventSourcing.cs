@@ -234,7 +234,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             throw;
         }
     }
-    
+
     /// <summary>
     /// Extract simple type name from Protobuf TypeUrl
     /// Example: "type.googleapis.com/EventSourcingDemo.MoneyDeposited" -> "MoneyDeposited"
@@ -274,7 +274,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         
         return cache;
     }
-    
+
     /// <summary>
     /// Build type cache using reflection (slow, called only once per event type)
     /// </summary>
@@ -397,7 +397,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         Logger?.LogInformation(
             "Replayed {Count} events for agent {AgentId}, current version: {Version}",
             events.Count, Id, _currentVersion);
-    }
+                }
 
     // ========== Snapshot Operations ==========
 
@@ -522,7 +522,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         if (_eventStore != null)
         {
         await ReplayEventsAsync(ct);
-        }
+    }
     }
 }
 
