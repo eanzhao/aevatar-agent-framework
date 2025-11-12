@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions.Tools;
 using Aevatar.Agents.AI.Core.Tools;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -17,7 +18,7 @@ namespace Aevatar.Agents.AI.Tests;
 public class InterfaceDefinitionTests
 {
     [Fact]
-    public void Test_IAevatarAIToolManager_InterfaceDefinition()
+    public async Task Test_IAevatarAIToolManager_InterfaceDefinition()
     {
         // Arrange
         var mockManager = new Mock<IAevatarAIToolManager>();
@@ -46,9 +47,9 @@ public class InterfaceDefinitionTests
         Assert.NotNull(manager);
 
         // Test interface methods exist and can be called
-        manager.RegisterAevatarAITool(testTool);
+        await manager.RegisterAevatarAIToolAsync(testTool);
 
-        manager.RegisterAevatarAITool(
+        await manager.RegisterAevatarAIToolAsync(
             "test_delegate",
             "Test delegate tool",
             async (context, parameters, ct) =>
@@ -74,7 +75,7 @@ public class InterfaceDefinitionTests
             CancellationToken.None).GetAwaiter().GetResult();
 
         Assert.True(result.Success);
-        Assert.Equal("test result", result.Data);
+        Assert.Equal(Any.Pack(new StringValue { Value = "test result" }), result.Data);
     }
 
     [Fact]
@@ -99,7 +100,7 @@ public class InterfaceDefinitionTests
             CancellationToken.None).GetAwaiter().GetResult();
 
         Assert.True(result.Success);
-        Assert.Equal("test executed", result.Data);
+        Assert.Equal(Any.Pack(new StringValue { Value = "test executed" }), result.Data);
     }
 
     [Fact]
@@ -121,8 +122,8 @@ public class InterfaceDefinitionTests
         var resultWithMetadata = new AevatarAIToolResult
         {
             Success = true,
-            Data = new { value = 42 },
-            Metadata = new Dictionary<string, object> { { "key", "value" } }
+            Data = Any.Pack(new Int32Value { Value = 42 }),
+            Metadata = { new Dictionary<string, string> { { "key", "value" } } }
         };
 
         Assert.True(resultWithMetadata.Success);

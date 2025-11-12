@@ -70,7 +70,7 @@ internal class MEAIToolManager : IAevatarToolManager
     public async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        Aevatar.Agents.AI.Abstractions.ExecutionContext? context = null,
+        Aevatar.Agents.AI.ExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         try

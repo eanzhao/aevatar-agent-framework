@@ -1,5 +1,5 @@
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Core.Models;
+// Models are now in Aevatar.Agents.AI namespace from protobuf
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.Core.Tests.Messages;
 using FluentAssertions;
@@ -55,7 +55,7 @@ public class TestAIAgentWithTools : AIGAgentWithToolBase<TestAIAgentState>
         mockManager.Setup(m => m.ExecuteToolAsync(
                 It.IsAny<string>(), 
                 It.IsAny<Dictionary<string, object>>(), 
-                It.IsAny<Aevatar.Agents.AI.Abstractions.ExecutionContext>(), 
+                It.IsAny<ExecutionContext>(), 
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ToolExecutionResult
             {
@@ -243,7 +243,7 @@ public class AIGAgentWithToolBaseTests
         mockManager.Setup(m => m.ExecuteToolAsync(
                 It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object>>(),
-                It.IsAny<Aevatar.Agents.AI.Abstractions.ExecutionContext>(),
+                It.IsAny<ExecutionContext>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ToolExecutionResult
             {
@@ -324,7 +324,7 @@ public class AIGAgentWithToolBaseTests
             mockManager.Setup(m => m.ExecuteToolAsync(
                     It.IsAny<string>(),
                     It.IsAny<Dictionary<string, object>>(),
-                    It.IsAny<Aevatar.Agents.AI.Abstractions.ExecutionContext>(),
+                    It.IsAny<ExecutionContext>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new ToolExecutionResult
                 {

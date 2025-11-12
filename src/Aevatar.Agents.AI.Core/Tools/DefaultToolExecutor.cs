@@ -44,9 +44,9 @@ public class DefaultToolExecutor : IToolExecutor
             var result = await context.ToolManager.ExecuteToolAsync(
                 toolName,
                 parameters,
-                new Aevatar.Agents.AI.Abstractions.ExecutionContext
+                new Aevatar.Agents.AI.ExecutionContext
                 {
-                    AgentId = Guid.TryParse(context.AgentId, out var agentGuid) ? agentGuid : (Guid?)null,
+                    AgentId = context.AgentId,
                     SessionId = context.GetSessionId()
                 },
                 cancellationToken);

@@ -3,7 +3,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.Core.Messages;
-using Aevatar.Agents.AI.Core.Models;
+// Models are now in Aevatar.Agents.AI namespace from protobuf
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -104,7 +104,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Override chat to include function calling support.
     /// 重写聊天以包含函数调用支持
     /// </summary>
-    protected override async Task<ChatResponse> ChatAsync(ChatRequest request)
+    protected override async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
     {
         try
         {
@@ -128,7 +128,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             aiState.AddAssistantMessage(llmResponse.Content, Configuration.MaxHistory);
             
             // Build and return chat response
-            return new ChatResponse
+            return new Aevatar.Agents.AI.ChatResponse
             {
                 Content = llmResponse.Content,
                 Usage = ConvertTokenUsage(llmResponse.Usage),
@@ -147,7 +147,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Build LLM request with tool definitions.
     /// 构建包含工具定义的LLM请求
     /// </summary>
-    protected virtual AevatarLLMRequest BuildLLMRequestWithTools(ChatRequest request)
+    protected virtual AevatarLLMRequest BuildLLMRequestWithTools(Aevatar.Agents.AI.ChatRequest request)
     {
         var llmRequest = base.BuildLLMRequest(request);
         
@@ -165,8 +165,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Handle function call from LLM.
     /// 处理来自LLM的函数调用
     /// </summary>
-    private async Task<ChatResponse> HandleFunctionCall(
-        ChatRequest request, 
+    private async Task<Aevatar.Agents.AI.ChatResponse> HandleFunctionCall(
+        Aevatar.Agents.AI.ChatRequest request, 
         AevatarLLMResponse llmResponse)
     {
         var functionCall = llmResponse.AevatarFunctionCall;
@@ -204,19 +204,28 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         // Add final response to history
         aiState.AddAssistantMessage(followUpResponse.Content, Configuration.MaxHistory);
         
-        return new ChatResponse
+        var response = new Aevatar.Agents.AI.ChatResponse
         {
             Content = followUpResponse.Content,
             Usage = ConvertTokenUsage(followUpResponse.Usage),
             RequestId = request.RequestId,
             ToolCalled = true,
-            ToolCall = new ToolCallInfo
+            ToolCall = new Aevatar.Agents.AI.ToolCallInfo
             {
                 ToolName = functionCall.Name,
-                Arguments = ParseToolArguments(functionCall.Arguments),
-                Result = toolResult.Result
+                // Arguments will be added below
+                Result = toolResult.Result?.ToString() ?? string.Empty
             }
         };
+        
+        // Add arguments to the ToolCall map
+        var parsedArgs = ParseToolArguments(functionCall.Arguments);
+        foreach (var arg in parsedArgs)
+        {
+            response.ToolCall.Arguments[arg.Key] = arg.Value?.ToString() ?? string.Empty;
+        }
+        
+        return response;
     }
     
     /// <summary>
@@ -229,11 +238,11 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         var parameters = ParseToolArguments(argumentsJson);
         
-        var context = new Aevatar.Agents.AI.Abstractions.ExecutionContext
+        var context = new Aevatar.Agents.AI.ExecutionContext
         {
-            AgentId = Id,
+            AgentId = Id.ToString(),
             SessionId = Guid.NewGuid().ToString(),
-            Metadata = new Dictionary<string, object>()
+            // Metadata is read-only, no initialization needed
         };
         
         var result = await _toolManager.ExecuteToolAsync(

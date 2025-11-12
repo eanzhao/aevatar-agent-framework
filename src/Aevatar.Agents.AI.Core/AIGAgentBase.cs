@@ -6,7 +6,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.Core.Messages;
-using Aevatar.Agents.AI.Core.Models;
+// Models are now in Aevatar.Agents.AI namespace from protobuf
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -184,7 +184,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// Process a chat request.
     /// 处理聊天请求
     /// </summary>
-    protected virtual async Task<ChatResponse> ChatAsync(ChatRequest request)
+    protected virtual async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
     {
         try
         {
@@ -206,7 +206,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
             aiState.TotalTokensUsed += llmResponse.Usage?.TotalTokens ?? 0;
             
             // Build and return chat response
-            return new ChatResponse
+            return new Aevatar.Agents.AI.ChatResponse
             {
                 Content = llmResponse.Content,
                 Usage = ConvertTokenUsage(llmResponse.Usage),
@@ -224,7 +224,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// Build LLM request from chat request.
     /// 从聊天请求构建LLM请求
     /// </summary>
-    protected virtual AevatarLLMRequest BuildLLMRequest(ChatRequest request)
+    protected virtual AevatarLLMRequest BuildLLMRequest(Aevatar.Agents.AI.ChatRequest request)
     {
         var llmRequest = new AevatarLLMRequest
         {
@@ -262,13 +262,13 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// Get LLM settings for the request.
     /// 获取请求的LLM设置
     /// </summary>
-    protected virtual AevatarLLMSettings GetLLMSettings(ChatRequest request)
+    protected virtual AevatarLLMSettings GetLLMSettings(Aevatar.Agents.AI.ChatRequest request)
     {
         return new AevatarLLMSettings
         {
             ModelId = Configuration.Model,
-            Temperature = request.Temperature ?? Configuration.Temperature,
-            MaxTokens = request.MaxTokens ?? Configuration.MaxTokens
+            Temperature = request.Temperature > 0 ? request.Temperature : Configuration.Temperature,
+            MaxTokens = request.MaxTokens > 0 ? request.MaxTokens : Configuration.MaxTokens
         };
     }
     
@@ -283,16 +283,22 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     [EventHandlerAttribute]
     protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
     {
-        var request = new ChatRequest
+        var request = new Aevatar.Agents.AI.ChatRequest
         {
             Message = evt.Message,
             RequestId = evt.RequestId,
-            Context = ConvertToContext(evt.Context)
+            // Context will be added below
+        };
+        
+        // Add context items to the map
+        foreach (var item in evt.Context)
+        {
+            request.Context[item.Key] = item.Value;
         };
         
         var response = await ChatAsync(request);
         
-        await PublishAsync(new ChatResponseEvent
+        await PublishAsync(new Aevatar.Agents.AI.Core.Messages.ChatResponseEvent
         {
             Content = response.Content,
             RequestId = evt.RequestId,

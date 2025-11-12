@@ -240,6 +240,108 @@ message AevatarMemoryCleanupEvent {
 }
 
 // =====================================================
+// Chat Request/Response Messages
+// =====================================================
+
+// Chat request
+message ChatRequest {
+    string message = 1;
+    map<string, string> context = 2;
+    string request_id = 3;
+    int32 max_tokens = 4;
+    double temperature = 5;
+}
+
+// Chat response
+message ChatResponse {
+    string content = 1;
+    AevatarTokenUsage usage = 2;
+    repeated ProcessingStep processing_steps = 3;
+    string request_id = 4;
+    bool tool_called = 5;
+    ToolCallInfo tool_call = 6;
+}
+
+// Tool call information
+message ToolCallInfo {
+    string tool_name = 1;
+    map<string, string> arguments = 2;
+    string result = 3;
+}
+
+// Processing step (moved from AI.Core)
+message ProcessingStep {
+    ProcessingStepType type = 1;
+    string description = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    string result = 4;
+    map<string, string> metadata = 5;
+}
+
+// Processing step type
+enum ProcessingStepType {
+    PROCESSING_STEP_TYPE_UNSPECIFIED = 0;
+    PROCESSING_STEP_TYPE_PREPARATION = 1;
+    PROCESSING_STEP_TYPE_LLM_GENERATION = 2;
+    PROCESSING_STEP_TYPE_TOOL_EXECUTION = 3;
+    PROCESSING_STEP_TYPE_REASONING = 4;
+    PROCESSING_STEP_TYPE_ACTION = 5;
+    PROCESSING_STEP_TYPE_OBSERVATION = 6;
+    PROCESSING_STEP_TYPE_STRATEGY_SELECTION = 7;
+}
+
+// =====================================================
+// Tool System Messages
+// =====================================================
+
+// AI Tool result
+message AevatarAIToolResult {
+    bool success = 1;
+    google.protobuf.Any data = 2;
+    string error_message = 3;
+    map<string, string> metadata = 4;
+}
+
+// AI Tool context
+message AevatarAIToolContext {
+    string agent_id = 1;
+    string session_id = 2;
+    string user_id = 3;
+    map<string, string> metadata = 4;
+    // Note: ServiceProvider and CancellationToken can't be serialized
+    // These will be injected at runtime via partial class
+}
+
+// Execution context (from ToolDefinition.cs)
+message ExecutionContext {
+    string agent_id = 1;
+    string session_id = 2;
+    string user_id = 3;
+    map<string, string> metadata = 4;
+}
+
+// =====================================================
+// AI Context Messages
+// =====================================================
+
+// AI processing context
+message AevatarAIContext {
+    string agent_id = 1;
+    string question = 2;
+    string system_prompt = 3;
+    google.protobuf.Any working_memory = 4;
+    google.protobuf.Any agent_state = 5;
+    repeated AevatarConversationEntry conversation_history = 6;
+    map<string, string> metadata = 7;
+}
+
+// Conversation entry
+message AevatarConversationEntry {
+    string role = 1;
+    string content = 2;
+}
+
+// =====================================================
 // Tool Events (Will be imported from AI.Core)
 // =====================================================
 
