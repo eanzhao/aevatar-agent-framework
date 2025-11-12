@@ -159,3 +159,4 @@ public record AgentTypeMetadata
     /// </summary>
     public DateTimeOffset RegisteredAt { get; init; } = DateTimeOffset.UtcNow;
 }
+

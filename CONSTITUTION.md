@@ -131,6 +131,12 @@ Every event SHALL be wrapped in an EventEnvelope containing:
 3. **Resource Disposal** - Implement IDisposable where appropriate
 4. **Logging** - Structured logging with correlation IDs
 
+### Section 3: Version Management
+1. **No Version Suffixes in Code** - Never use "V2", "V3" etc. in class names
+2. **Direct Updates Only** - Update existing implementations directly
+3. **Deprecation Over Duplication** - Mark old APIs deprecated, don't create new versions
+4. **Single Source of Truth** - One implementation per concept
+
 ## 🌍 Article IX: Community Governance
 
 ### Section 1: Contribution Principles

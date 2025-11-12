@@ -12,7 +12,36 @@ public class ReActProcessingStrategy : IAevatarAIProcessingStrategy
 {
     public string Name => "ReAct Processing";
     
+    public string Description => "ReAct策略 - 结合推理和行动，通过交替思考和执行工具来解决问题";
+    
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.ReAct;
+    
+    public bool CanHandle(AevatarAIContext context)
+    {
+        // 适合需要思考和行动结合的场景
+        if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
+        {
+            var preferred = context.Metadata["PreferredStrategy"]?.ToString();
+            return string.Equals(preferred, "ReAct", StringComparison.OrdinalIgnoreCase);
+        }
+        
+        // 适合需要多步骤操作或工具交互的场景
+        return context.Metadata?.ContainsKey("RequiresMultipleTools") == true;
+    }
+    
+    public double EstimateComplexity(AevatarAIContext context)
+    {
+        // ReAct适合中高复杂度，特别是需要工具交互的场景
+        return 0.7;
+    }
+    
+    public bool ValidateRequirements(AevatarAIStrategyDependencies dependencies)
+    {
+        // ReAct需要工具管理器
+        return dependencies?.LLMProvider != null && 
+               dependencies.Configuration != null &&
+               dependencies.ToolManager != null;
+    }
     
     public async Task<string> ProcessAsync(
         AevatarAIContext context,

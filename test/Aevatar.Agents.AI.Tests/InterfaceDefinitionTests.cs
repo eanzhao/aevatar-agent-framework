@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions.Tools;
 using Aevatar.Agents.AI.Core.Tools;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -24,7 +25,7 @@ public class InterfaceDefinitionTests
         var testContext = new AevatarAIToolContext
         {
             AgentId = "test-agent",
-            ServiceProvider = Microsoft.Extensions.DependencyInjection.EmptyServiceProvider.Instance,
+            ServiceProvider = new ServiceCollection().BuildServiceProvider(),
             CancellationToken = CancellationToken.None
         };
 
@@ -84,7 +85,7 @@ public class InterfaceDefinitionTests
         var context = new AevatarAIToolContext
         {
             AgentId = "test-agent",
-            ServiceProvider = Microsoft.Extensions.DependencyInjection.EmptyServiceProvider.Instance,
+            ServiceProvider = new ServiceCollection().BuildServiceProvider(),
             CancellationToken = CancellationToken.None
         };
 
@@ -136,7 +137,7 @@ public class InterfaceDefinitionTests
         var context = new AevatarAIToolContext
         {
             AgentId = "test-agent-123",
-            ServiceProvider = Microsoft.Extensions.DependencyInjection.EmptyServiceProvider.Instance,
+            ServiceProvider = new ServiceCollection().BuildServiceProvider(),
             CancellationToken = new CancellationTokenSource().Token
         };
 

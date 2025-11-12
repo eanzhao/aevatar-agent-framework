@@ -6,67 +6,15 @@ option csharp_namespace = "Aevatar.Agents.AI.Core.Messages";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/any.proto";
 
-// Chat message roles
-enum AevatarChatRole {
-  AEVATAR_CHAT_ROLE_UNSPECIFIED = 0;
-  AEVATAR_CHAT_ROLE_SYSTEM = 1;
-  AEVATAR_CHAT_ROLE_USER = 2;
-  AEVATAR_CHAT_ROLE_ASSISTANT = 3;
-  AEVATAR_CHAT_ROLE_FUNCTION = 4;
-}
+// Note: Core types like AevatarAIProcessingMode, AevatarChatRole, AevatarChatMessage, 
+// AevatarTokenUsage are defined in Aevatar.Agents.AI.Abstractions
 
-// Chat message in a conversation
-message AevatarChatMessage {
-  string id = 1;
-  AevatarChatRole role = 2;
-  string content = 3;
-  google.protobuf.Timestamp timestamp = 4;
-  
-  // Optional fields for function messages
-  string function_name = 5;
-  string function_arguments = 6;
-  
-  // Token count for this message
-  int32 token_count = 7;
-  
-  // Additional metadata
-  map<string, string> metadata = 8;
-}
+// Import the shared types from AI.Abstractions
+// However, proto imports work differently - we use C# for type sharing
 
-// AI processing modes
-enum AevatarAIProcessingMode {
-  AEVATAR_AI_PROCESSING_MODE_STANDARD = 0;
-  AEVATAR_AI_PROCESSING_MODE_CHAIN_OF_THOUGHT = 1;
-  AEVATAR_AI_PROCESSING_MODE_REACT = 2;
-  AEVATAR_AI_PROCESSING_MODE_TREE_OF_THOUGHTS = 3;
-}
-
-// AI Agent configuration
-message AevatarAIConfiguration {
-  string system_prompt = 1;
-  string model = 2;
-  double temperature = 3;
-  int32 max_tokens = 4;
-  double top_p = 5;
-  double frequency_penalty = 6;
-  double presence_penalty = 7;
-  AevatarAIProcessingMode processing_mode = 8;
-  int32 max_history = 9;
-  map<string, string> custom_settings = 10;
-}
-
-// AI Agent state
-message AevatarAIAgentState {
-  string agent_id = 1;
-  repeated AevatarChatMessage conversation_history = 2;
-  map<string, string> context = 3;
-  google.protobuf.Timestamp last_activity = 4;
-  int32 total_tokens_used = 5;
-  AevatarAIConfiguration configuration = 6;
-  google.protobuf.Any custom_state = 7;
-}
-
-// Events for AI agents
+// =====================================================
+// Core Events for AI Agents
+// =====================================================
 
 // Chat request event
 message ChatRequestEvent {
@@ -75,58 +23,120 @@ message ChatRequestEvent {
   string message = 3;
   map<string, string> context = 4;
   google.protobuf.Timestamp timestamp = 5;
+  
+  // Optional parameters
+  double temperature = 6;
+  int32 max_tokens = 7;
 }
 
-// Chat response event
+// Chat response event  
 message ChatResponseEvent {
   string request_id = 1;
   string content = 2;
   int32 tokens_used = 3;
-  AevatarAIProcessingMode processing_mode = 4;
+  int32 processing_mode = 4; // Maps to AevatarAIProcessingMode enum
   google.protobuf.Timestamp timestamp = 5;
   repeated ProcessingStep processing_steps = 6;
 }
 
+// =====================================================
+// Processing Steps
+// =====================================================
+
 // Processing step for advanced reasoning
 message ProcessingStep {
-  string type = 1;  // "reasoning", "action", "observation", "thought"
-  string content = 2;
+  ProcessingStepType type = 1;
+  string description = 2;
   google.protobuf.Timestamp timestamp = 3;
-  map<string, string> metadata = 4;
+  string result = 4;
+  map<string, string> metadata = 5;
 }
 
-// Tool execution request
-message AevatarToolExecutionRequest {
+// Processing step type enumeration
+enum ProcessingStepType {
+  PROCESSING_STEP_TYPE_UNSPECIFIED = 0;
+  PROCESSING_STEP_TYPE_PREPARATION = 1;
+  PROCESSING_STEP_TYPE_LLM_GENERATION = 2;
+  PROCESSING_STEP_TYPE_TOOL_EXECUTION = 3;
+  PROCESSING_STEP_TYPE_REASONING = 4;
+  PROCESSING_STEP_TYPE_ACTION = 5;
+  PROCESSING_STEP_TYPE_OBSERVATION = 6;
+  PROCESSING_STEP_TYPE_STRATEGY_SELECTION = 7;
+}
+
+// =====================================================
+// Tool Execution Events
+// =====================================================
+
+// Tool executed event (published when a tool completes)
+message AevatarToolExecutedEvent {
   string tool_name = 1;
-  string arguments = 2;
-  string request_id = 3;
+  map<string, string> parameters = 2;
+  string result = 3;
+  bool success = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  string agent_id = 6;
+  int64 execution_time_ms = 7;
+}
+
+// Tool execution request event (for agent event handler)
+message ToolExecutionRequestEvent {
+  string request_id = 1;
+  string tool_name = 2;
+  string arguments = 3;
   google.protobuf.Timestamp timestamp = 4;
 }
 
-// Tool execution response
-message AevatarToolExecutionResponse {
-  string tool_name = 1;
-  string result = 2;
+// Tool execution response event (for agent event handler)
+message ToolExecutionResponseEvent {
+  string request_id = 1;
+  string tool_name = 2;
   bool success = 3;
-  string error_message = 4;
-  string request_id = 5;
+  string result = 4;
+  string error = 5;
   google.protobuf.Timestamp timestamp = 6;
 }
 
-// Thought step event for Chain-of-Thought processing
-message AevatarThoughtStepEvent {
+// =====================================================
+// Chat Role Enum (for local use without import)
+// Using int32 for cross-proto compatibility
+// =====================================================
+
+// Maps to AevatarChatRole in AI.Abstractions
+enum AevatarChatRole {
+  UNSPECIFIED = 0;
+  SYSTEM = 1;
+  USER = 2;
+  ASSISTANT = 3;
+  FUNCTION = 4;
+}
+
+// Maps to AevatarAIProcessingMode in AI.Abstractions  
+enum AevatarAIProcessingMode {
+  STANDARD = 0;
+  CHAIN_OF_THOUGHT = 1;
+  REACT = 2;
+  TREE_OF_THOUGHTS = 3;
+}
+
+// =====================================================
+// Additional Event Types
+// =====================================================
+
+// Tree of Thoughts completed event
+message AevatarTreeOfThoughtsCompletedEvent {
   string agent_id = 1;
-  string thought_id = 2;
-  int32 step_number = 3;
-  string thought_content = 4;
-  string reasoning = 5;
-  google.protobuf.Timestamp timestamp = 6;
+  string thought_tree_id = 2;
+  string selected_path = 3;
+  double confidence = 4;
+  google.protobuf.Timestamp timestamp = 5;
 }
 
-// Token usage tracking
-message TokenUsage {
-  int32 prompt_tokens = 1;
-  int32 completion_tokens = 2;
-  int32 total_tokens = 3;
-  double estimated_cost = 4;
+// AI Error event
+message AevatarAIErrorEvent {
+  string agent_id = 1;
+  string error_type = 2;
+  string error_message = 3;
+  string context = 4;
+  google.protobuf.Timestamp timestamp = 5;
 }

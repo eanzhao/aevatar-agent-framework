@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package aevatar.agents.ai.tests;
+
+option csharp_namespace = "Aevatar.Agents.AI.Tests.Messages";
+
+import "google/protobuf/timestamp.proto";
+
+// Test state for AI agents
+message TestAgentState {
+    string test_data = 1;
+    int32 counter = 2;
+    string agent_id = 3;
+    google.protobuf.Timestamp last_updated = 4;
+}
+
+// Test event for testing
+message TestEvent {
+    string event_id = 1;
+    string content = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+

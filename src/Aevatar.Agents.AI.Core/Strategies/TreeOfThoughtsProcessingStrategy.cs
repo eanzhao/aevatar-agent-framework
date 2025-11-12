@@ -1,4 +1,6 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Messages;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
@@ -12,7 +14,37 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
 {
     public string Name => "Tree of Thoughts Processing";
     
+    public string Description => "思维树策略 - 通过探索多个思考路径来解决复杂问题，适用于需要全面探索的场景";
+    
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.TreeOfThoughts;
+    
+    public bool CanHandle(AevatarAIContext context)
+    {
+        // 适合极复杂的问题，需要多路径探索
+        if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
+        {
+            var preferred = context.Metadata["PreferredStrategy"]?.ToString();
+            return string.Equals(preferred, "TreeOfThoughts", StringComparison.OrdinalIgnoreCase);
+        }
+        
+        // 适合创造性或有多个解决方案的问题
+        var question = context.Question?.ToLower() ?? string.Empty;
+        return question.Contains("探索") || question.Contains("方案") ||
+               question.Contains("可能性") || question.Contains("选项") ||
+               question.Contains("explore") || question.Contains("solutions") ||
+               question.Contains("possibilities") || question.Contains("options");
+    }
+    
+    public double EstimateComplexity(AevatarAIContext context)
+    {
+        // 思维树适合高复杂度问题
+        return 0.9;
+    }
+    
+    public bool ValidateRequirements(AevatarAIStrategyDependencies dependencies)
+    {
+        return dependencies?.LLMProvider != null && dependencies.Configuration != null;
+    }
     
     public async Task<string> ProcessAsync(
         AevatarAIContext context,
@@ -276,10 +308,11 @@ public class TreeOfThoughtsProcessingStrategy : IAevatarAIProcessingStrategy
         {
             await dependencies.PublishEventCallback(new AevatarTreeOfThoughtsCompletedEvent
             {
-                NodesExplored = pathToRoot.Count,
-                FinalScore = node.Score,
-                SolutionPath = thoughtChain,
-                FinalAnswer = response.Content
+                AgentId = dependencies.AgentId,
+                ThoughtTreeId = Guid.NewGuid().ToString(),
+                SelectedPath = thoughtChain,
+                Confidence = node.Score,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             });
         }
         

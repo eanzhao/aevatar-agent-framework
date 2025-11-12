@@ -1,7 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Strategies;
-using Aevatar.Agents.AI.Core.Strategies;
-using Aevatar.Agents.AI.Core.Tools;
+using Aevatar.Agents.AI.Core.Extensions;
+using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.AI.Core.Models;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -9,515 +14,404 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.Core;
 
 /// <summary>
-/// AI Agent基类
-/// 提供可扩展的AI能力，支持多LLM框架实现
+/// Level 1: Basic AI Agent with chat capabilities using state-based conversation management.
+/// 第一级：使用基于状态的对话管理的具有基础聊天能力的AI代理
 /// </summary>
+/// <typeparam name="TState">The agent state type (must extend or contain AevatarAIAgentState)</typeparam>
 public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     where TState : class, IMessage, new()
 {
+    #region Fields
+    
+    private readonly ILLMProvider _llmProvider;
+    private AevatarAIAgentState? _aiState;
+    
+    #endregion
+    
     #region Properties
-
+    
     /// <summary>
+    /// System prompt for the AI agent.
+    /// AI代理的系统提示词
+    /// </summary>
+    public virtual string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
+    
+    /// <summary>
+    /// AI configuration.
     /// AI配置
     /// </summary>
-    protected AevatarAIAgentConfiguration Configuration { get; } = new();
-
+    public AIAgentConfiguration Configuration { get; }
+    
     /// <summary>
-    /// 系统提示词（子类必须实现）
+    /// Gets the LLM provider.
+    /// 获取LLM提供商
     /// </summary>
-    protected abstract string SystemPrompt { get; }
-
+    public ILLMProvider LLMProvider => _llmProvider;
+    
     /// <summary>
-    /// LLM提供者（可选注入）
+    /// Gets the AI state. Must be overridden to provide state access.
+    /// 获取AI状态。必须重写以提供状态访问
     /// </summary>
-    protected virtual IAevatarLLMProvider? LLMProvider { get; set; }
-
+    protected virtual AevatarAIAgentState GetAIState()
+    {
+        // Try to get AI state from the agent state
+        // This should be overridden in derived classes for proper state management
+        if (_aiState == null)
+        {
+            _aiState = new AevatarAIAgentState
+            {
+                AgentId = Id.ToString(),
+                AiConfig = new AevatarAIConfiguration
+                {
+                    Model = Configuration.Model,
+                    MaxHistory = Configuration.MaxHistory,
+                    Temperature = Configuration.Temperature,
+                    MaxTokens = Configuration.MaxTokens,
+                    SystemPrompt = SystemPrompt
+                }
+            };
+        }
+        return _aiState;
+    }
+    
     /// <summary>
-    /// 工具管理器（使用内置实现）
+    /// Gets the conversation history from AI state.
+    /// 从AI状态获取对话历史
     /// </summary>
-    protected virtual IAevatarToolManager ToolManager { get; }
-
-    /// <summary>
-    /// 对话历史
-    /// </summary>
-    private readonly List<(string role, string content)> _conversationHistory = new();
-
-    /// <summary>
-    /// AI处理策略工厂（可选）
-    /// </summary>
-    protected IAevatarAIProcessingStrategyFactory? StrategyFactory { get; set; }
-
+    public IList<AevatarChatMessage> ConversationHistory => GetAIState().ConversationHistory;
+    
     #endregion
-
+    
     #region Constructors
-
-    protected AIGAgentBase(ILogger? logger = null) : base(logger)
+    
+    /// <summary>
+    /// Initializes a new instance of the AIGAgentBase class.
+    /// 初始化AIGAgentBase类的新实例
+    /// </summary>
+    protected AIGAgentBase() : base()
     {
-        // 初始化工具管理器
-        ToolManager = new InternalToolManager();
-        Initialize();
-    }
-
-    #endregion
-
-    #region Initialization
-
-    private void Initialize()
-    {
-        // 配置AI
+        Configuration = new AIAgentConfiguration();
         ConfigureAI(Configuration);
-
-        // 注册核心工具
-        RegisterCoreTools();
-
-        // 注册自定义工具
-        RegisterTools();
+        
+        _llmProvider = CreateLLMProvider();
+        InitializeAIState();
+        InitializeConversation();
     }
-
+    
     /// <summary>
-    /// 配置AI（子类可重写）
+    /// Initializes a new instance with dependency injection.
+    /// 使用依赖注入初始化新实例
     /// </summary>
-    protected virtual void ConfigureAI(AevatarAIAgentConfiguration config)
+    protected AIGAgentBase(
+        ILLMProvider llmProvider,
+        ILogger? logger = null) : base(logger)
     {
-        config.SystemPrompt = SystemPrompt;
+        _llmProvider = llmProvider ?? throw new ArgumentNullException(nameof(llmProvider));
+        
+        Configuration = new AIAgentConfiguration();
+        ConfigureAI(Configuration);
+        InitializeAIState();
+        InitializeConversation();
+    }
+    
+    #endregion
+    
+    #region Configuration Methods
+    
+    /// <summary>
+    /// Configure AI settings. Override in derived classes.
+    /// 配置AI设置。在派生类中重写
+    /// </summary>
+    protected virtual void ConfigureAI(AIAgentConfiguration config)
+    {
+        config.Model = "gpt-4";
+        config.MaxHistory = 20;
         config.Temperature = 0.7;
-        config.MaxTokens = 32000;
+        config.MaxTokens = 2000;
     }
-
+    
     /// <summary>
-    /// 注册自定义工具（子类重写）
+    /// Creates the LLM provider. Override to customize.
+    /// 创建LLM提供商。重写以自定义
     /// </summary>
-    protected virtual void RegisterTools()
+    protected virtual ILLMProvider CreateLLMProvider()
     {
-        // 子类注册自己的工具
-    }
-
-    /// <summary>
-    /// 注册工具
-    /// </summary>
-    protected void RegisterTool(ToolDefinition tool)
-    {
-        ToolManager.RegisterToolAsync(tool).GetAwaiter().GetResult();
-        Logger?.LogDebug("Registered tool: {ToolName}", tool.Name);
-    }
-
-    #endregion
-
-    #region AI Processing - 核心方法供子类实现
-
-    /// <summary>
-    /// 处理AI请求的核心方法
-    /// 如果提供了LLMProvider，使用它；否则子类必须实现
-    /// </summary>
-    protected virtual async Task<string> GenerateResponseAsync(
-        string input,
-        string? systemPrompt = null,
-        CancellationToken cancellationToken = default)
-    {
-        // 如果有LLMProvider，使用它
-        if (LLMProvider != null)
-        {
-            var request = new AevatarLLMRequest
-            {
-                UserPrompt = input,
-                SystemPrompt = systemPrompt,
-                Settings = new AevatarLLMSettings
-                {
-                    Temperature = Configuration.Temperature,
-                    MaxTokens = Configuration.MaxTokens
-                }
-            };
-            var response = await LLMProvider.GenerateAsync(request, cancellationToken);
-            return response.Content;
-        }
-
-        // 否则使用子类实现
-        return await InternalGenerateResponseAsync(input, systemPrompt, cancellationToken);
-    }
-
-    /// <summary>
-    /// 内部生成方法（子类实现）
-    /// </summary>
-    protected virtual Task<string> InternalGenerateResponseAsync(
-        string input,
-        string? systemPrompt = null,
-        CancellationToken cancellationToken = default)
-    {
+        // In production, this would be injected or created from configuration
         throw new NotImplementedException(
-            "Either provide an IAevatarLLMProvider or override InternalGenerateResponseAsync");
+            "LLM Provider must be injected or CreateLLMProvider must be overridden");
     }
-
+    
     /// <summary>
-    /// 流式生成（可选实现）
+    /// Initialize AI state. Override to customize.
+    /// 初始化AI状态。重写以自定义
     /// </summary>
-    protected virtual async IAsyncEnumerable<string> GenerateStreamingResponseAsync(
-        string input,
-        string? systemPrompt = null,
-        [System.Runtime.CompilerServices.EnumeratorCancellation]
-        CancellationToken cancellationToken = default)
+    protected virtual void InitializeAIState()
     {
-        // 如果有LLMProvider，使用它
-        if (LLMProvider != null)
+        var aiState = GetAIState();
+        if (aiState.AiConfig == null)
         {
-            var request = new AevatarLLMRequest
+            aiState.AiConfig = new AevatarAIConfiguration
             {
-                UserPrompt = input,
-                SystemPrompt = systemPrompt,
-                Settings = new AevatarLLMSettings
-                {
-                    Temperature = Configuration.Temperature,
-                    MaxTokens = Configuration.MaxTokens
-                }
+                Model = Configuration.Model,
+                MaxHistory = Configuration.MaxHistory,
+                Temperature = Configuration.Temperature,
+                MaxTokens = Configuration.MaxTokens,
+                SystemPrompt = Configuration.SystemPrompt ?? SystemPrompt,
+                    ProcessingMode = AevatarAIProcessingMode.Standard
             };
-
-            await foreach (var token in LLMProvider.GenerateStreamAsync(request, cancellationToken))
-            {
-                yield return token.Content;
-            }
-        }
-        else
-        {
-            // 默认实现：返回非流式结果
-            var result = await GenerateResponseAsync(input, systemPrompt, cancellationToken);
-            yield return result;
         }
     }
-
+    
+    /// <summary>
+    /// Initialize conversation with system prompt if needed.
+    /// 如果需要，使用系统提示词初始化对话
+    /// </summary>
+    protected virtual void InitializeConversation()
+    {
+        var aiState = GetAIState();
+        // Add system prompt if conversation is empty and we have a prompt
+        if (aiState.ConversationHistory.Count == 0 && !string.IsNullOrEmpty(SystemPrompt))
+        {
+            aiState.AddSystemMessage(SystemPrompt, Configuration.MaxHistory);
+        }
+    }
+    
     #endregion
-
-    #region Public AI Methods
-
+    
+    #region Core Chat Abstraction
+    
     /// <summary>
-    /// 使用AI处理文本
+    /// Process a chat request.
+    /// 处理聊天请求
     /// </summary>
-    public virtual async Task<string> ProcessWithAIAsync(
-        string input,
-        CancellationToken cancellationToken = default)
+    protected virtual async Task<ChatResponse> ChatAsync(ChatRequest request)
     {
-        // 添加到对话历史
-        _conversationHistory.Add(("user", input));
-
-        // 生成响应
-        var response = await GenerateResponseAsync(input, Configuration.SystemPrompt, cancellationToken);
-
-        // 添加响应到历史
-        _conversationHistory.Add(("assistant", response));
-
-        return response;
-    }
-
-    /// <summary>
-    /// 使用特定策略处理（可选）
-    /// </summary>
-    public virtual async Task<string> ProcessWithStrategyAsync(
-        string input,
-        AevatarAIProcessingMode mode = AevatarAIProcessingMode.Standard,
-        CancellationToken cancellationToken = default)
-    {
-        // 如果有策略工厂，优先使用策略工厂
-        if (StrategyFactory != null)
+        try
         {
-            try
+            // Add user message to conversation history
+            var aiState = GetAIState();
+            aiState.AddUserMessage(request.Message, Configuration.MaxHistory);
+            
+            // Build LLM request
+            var llmRequest = BuildLLMRequest(request);
+            
+            // Get response from LLM
+            var llmResponse = await _llmProvider.GenerateAsync(llmRequest);
+            
+            // Add assistant response to history
+            aiState.AddAssistantMessage(llmResponse.Content, Configuration.MaxHistory);
+            
+            // Update activity tracking
+            aiState.LastActivity = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
+            aiState.TotalTokensUsed += llmResponse.Usage?.TotalTokens ?? 0;
+            
+            // Build and return chat response
+            return new ChatResponse
             {
-                var strategy = StrategyFactory.GetStrategy(mode);
-                var context = CreateAIContext(input);
-                var dependencies = CreateStrategyDependencies();
-
-                return await strategy.ProcessAsync(
-                    context,
-                    null, // 没有特定的event handler配置
-                    dependencies,
-                    cancellationToken);
-            }
-            catch (NotSupportedException ex)
-            {
-                Logger?.LogWarning(ex, "Strategy {Mode} not supported, falling back to simple implementation", mode);
-                // 继续执行简单实现
-            }
+                Content = llmResponse.Content,
+                Usage = ConvertTokenUsage(llmResponse.Usage),
+                RequestId = request.RequestId
+            };
         }
-
-        // 简单实现：根据模式调整处理
-        switch (mode)
+        catch (Exception ex)
         {
-            case AevatarAIProcessingMode.ChainOfThought:
-                var cotPrompt = $"Let's think step by step about this: {input}";
-                return await ProcessWithAIAsync(cotPrompt, cancellationToken);
-
-            case AevatarAIProcessingMode.ReAct:
-                var reactPrompt = $"Thought: Analyze the following\nQuestion: {input}\nAction:";
-                return await ProcessWithAIAsync(reactPrompt, cancellationToken);
-
-            case AevatarAIProcessingMode.TreeOfThoughts:
-                var totPrompt = $"Explore multiple approaches for: {input}";
-                return await ProcessWithAIAsync(totPrompt, cancellationToken);
-
-            default:
-                return await ProcessWithAIAsync(input, cancellationToken);
+            Logger?.LogError(ex, "Error processing chat request");
+            throw;
         }
     }
-
+    
     /// <summary>
-    /// 创建AI上下文（可被子类重写）
+    /// Build LLM request from chat request.
+    /// 从聊天请求构建LLM请求
     /// </summary>
-    protected virtual AevatarAIContext CreateAIContext(string input)
+    protected virtual AevatarLLMRequest BuildLLMRequest(ChatRequest request)
     {
-        return new AevatarAIContext
+        var llmRequest = new AevatarLLMRequest
         {
-            AgentId = Id.ToString(),
-            Question = input,
             SystemPrompt = SystemPrompt,
-            ConversationHistory = _conversationHistory.Select(h =>
-                new AevatarConversationEntry { Role = h.role, Content = h.content }).ToList()
+            UserPrompt = request.Message,
+            Settings = GetLLMSettings(request)
         };
-    }
-
-    /// <summary>
-    /// 创建策略依赖项（可被子类重写）
-    /// </summary>
-    protected virtual AevatarAIStrategyDependencies CreateStrategyDependencies()
-    {
-        return new AevatarAIStrategyDependencies
+        
+        // Add conversation history
+        var aiState = GetAIState();
+        if (aiState.ConversationHistory.Count > 0)
         {
-            Configuration = Configuration,
-            Logger = Logger,
-            // 这些依赖项需要子类提供具体实现
-            LLMProvider = null, // 子类应该提供
-            PromptManager = null, // 子类应该提供
-            ToolManager = null, // 子类应该提供
-            PublishEventCallback = async (evt) => { await PublishAsync(evt); }
-        };
-    }
-
-    #endregion
-
-    #region Tool Management
-
-    /// <summary>
-    /// 执行工具
-    /// </summary>
-    public virtual async Task<ToolExecutionResult> ExecuteToolAsync(
-        string toolName,
-        Dictionary<string, object> parameters,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            return await ToolManager.ExecuteToolAsync(toolName, parameters, null, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            Logger?.LogError(ex, "Error executing tool {ToolName}", toolName);
-            return new ToolExecutionResult
+            var history = aiState.GetRecentHistory(Configuration.MaxHistory);
+            // History is from AI namespace (Protobuf), llmRequest expects Abstractions types
+            // These are the same type, just different namespaces
+            foreach (var item in history)
             {
-                Success = false,
-                Error = ex.Message,
-                ToolName = toolName
-            };
-        }
-    }
-
-    /// <summary>
-    /// 获取所有工具定义
-    /// </summary>
-    public async Task<IReadOnlyList<ToolDefinition>> GetAvailableToolsAsync(
-        CancellationToken cancellationToken = default)
-    {
-        return await ToolManager.GetAvailableToolsAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// 获取工具的函数定义
-    /// </summary>
-    public async Task<IReadOnlyList<AevatarFunctionDefinition>> GetToolDefinitionsAsync(
-        CancellationToken cancellationToken = default)
-    {
-        return await ToolManager.GenerateFunctionDefinitionsAsync(cancellationToken);
-    }
-
-    #endregion
-
-    #region Event Handling
-
-    /// <summary>
-    /// 处理事件（使用AI）
-    /// </summary>
-    [Aevatar.Agents.Abstractions.EventHandler]
-    protected virtual async Task<IMessage?> HandleEventWithAIAsync(
-        EventEnvelope envelope,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            // 提取问题
-            var question = await ExtractQuestionFromEventAsync(envelope, cancellationToken);
-            if (string.IsNullOrEmpty(question))
-            {
-                return null;
+                llmRequest.Messages.Add(item);
             }
-
-            // 处理
-            var response = await ProcessWithAIAsync(question, cancellationToken);
-
-            // 转换响应
-            return await ConvertResponseToEventAsync(response, envelope, cancellationToken);
         }
-        catch (Exception ex)
+        
+        // Add context from state if available
+        if (aiState.Context != null && aiState.Context.Count > 0)
         {
-            Logger?.LogError(ex, "Failed to process event {EventId} with AI", envelope.Id);
+            foreach (var kvp in aiState.Context)
+            {
+                llmRequest.Context[kvp.Key] = kvp.Value;
+            }
+        }
+        
+        return llmRequest;
+    }
+    
+    /// <summary>
+    /// Get LLM settings for the request.
+    /// 获取请求的LLM设置
+    /// </summary>
+    protected virtual AevatarLLMSettings GetLLMSettings(ChatRequest request)
+    {
+        return new AevatarLLMSettings
+        {
+            ModelId = Configuration.Model,
+            Temperature = request.Temperature ?? Configuration.Temperature,
+            MaxTokens = request.MaxTokens ?? Configuration.MaxTokens
+        };
+    }
+    
+    #endregion
+    
+    #region Event Handlers
+    
+    /// <summary>
+    /// Handle chat request events.
+    /// 处理聊天请求事件
+    /// </summary>
+    [EventHandlerAttribute]
+    protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
+    {
+        var request = new ChatRequest
+        {
+            Message = evt.Message,
+            RequestId = evt.RequestId,
+            Context = ConvertToContext(evt.Context)
+        };
+        
+        var response = await ChatAsync(request);
+        
+        await PublishAsync(new ChatResponseEvent
+        {
+            Content = response.Content,
+            RequestId = evt.RequestId,
+            TokensUsed = response.Usage?.TotalTokens ?? 0
+        });
+    }
+    
+    #endregion
+    
+    #region Helper Methods
+    
+    
+    /// <summary>
+    /// Convert metadata from protobuf map to dictionary.
+    /// 将元数据从protobuf映射转换为字典
+    /// </summary>
+    private Dictionary<string, object>? ConvertMetadata(
+        Google.Protobuf.Collections.MapField<string, string> metadata)
+    {
+        if (metadata == null || metadata.Count == 0)
             return null;
-        }
-    }
-
-    /// <summary>
-    /// 从事件提取问题（子类可重写）
-    /// </summary>
-    protected virtual Task<string?> ExtractQuestionFromEventAsync(
-        EventEnvelope envelope,
-        CancellationToken cancellationToken)
-    {
-        // 子类实现
-        return Task.FromResult<string?>(null);
-    }
-
-    /// <summary>
-    /// 将响应转换为事件（子类可重写）
-    /// </summary>
-    protected virtual Task<IMessage?> ConvertResponseToEventAsync(
-        string response,
-        EventEnvelope originalEnvelope,
-        CancellationToken cancellationToken)
-    {
-        // 子类实现
-        return Task.FromResult<IMessage?>(null);
-    }
-
-    #endregion
-
-    #region Core Tools
-
-    private void RegisterCoreTools()
-    {
-        // 使用 CoreToolsRegistry 注册核心工具
-        // 这提供了更好的关注点分离和可测试性
-        var toolContext = new ToolContext
+            
+        var result = new Dictionary<string, object>();
+        foreach (var kvp in metadata)
         {
-            AgentId = Id.ToString(),
-            AgentType = GetType().Name,
-            GetStateCallback = () => State,
-            PublishEventCallback = async (evt) => await PublishAsync(evt),
-            Logger = Logger,
-            IncludeCoreTools = true
+            result[kvp.Key] = kvp.Value;
+        }
+        return result;
+    }
+    
+    /// <summary>
+    /// Convert protobuf map to dictionary context.
+    /// 将protobuf映射转换为字典上下文
+    /// </summary>
+    private Dictionary<string, object> ConvertToContext(
+        Google.Protobuf.Collections.MapField<string, string> protoContext)
+    {
+        var context = new Dictionary<string, object>();
+        if (protoContext != null)
+        {
+            foreach (var kvp in protoContext)
+            {
+                context[kvp.Key] = kvp.Value;
+            }
+        }
+        return context;
+    }
+    
+    /// <summary>
+    /// Convert LLM token usage to our token usage.
+    /// 转换LLM令牌使用量
+    /// </summary>
+    private AevatarTokenUsage ConvertTokenUsage(AevatarTokenUsage? llmUsage)
+    {
+        if (llmUsage == null) return null;
+        
+        return new AevatarTokenUsage
+        {
+            PromptTokens = llmUsage.PromptTokens,
+            CompletionTokens = llmUsage.CompletionTokens,
+            TotalTokens = llmUsage.TotalTokens
         };
-
-        // 注册所有核心工具
-        foreach (var coreToolInstance in CoreToolsRegistry.GetAllTools())
-        {
-            var toolDefinition = coreToolInstance.CreateToolDefinition(toolContext, Logger);
-            RegisterTool(toolDefinition);
-
-            Logger?.LogDebug("Registered core tool: {ToolName} - {ToolDescription}",
-                toolDefinition.Name,
-                toolDefinition.Description);
-        }
     }
-
-    /// <summary>
-    /// 可选：允许子类替换工具提供者
-    /// </summary>
-    protected virtual IToolProvider? ToolProvider { get; set; }
-
+    
     #endregion
+}
 
-    #region Memory Management (Simple)
-
+/// <summary>
+/// AI Agent configuration.
+/// AI代理配置
+/// </summary>
+public class AIAgentConfiguration
+{
     /// <summary>
-    /// 清空对话历史
+    /// LLM provider instance.
+    /// LLM提供商实例
     /// </summary>
-    public virtual void ClearConversationHistory()
-    {
-        _conversationHistory.Clear();
-        Logger?.LogDebug("Conversation history cleared");
-    }
-
+    public ILLMProvider? LLMProvider { get; set; }
+    
     /// <summary>
-    /// 获取对话历史
+    /// Model to use.
+    /// 要使用的模型
     /// </summary>
-    public IReadOnlyList<(string role, string content)> GetConversationHistory()
-    {
-        return _conversationHistory.AsReadOnly();
-    }
-
-    #endregion
-
-    #region Internal Tool Manager Implementation
-
+    public string Model { get; set; } = "gpt-4";
+    
     /// <summary>
-    /// 内部的简单工具管理器实现
+    /// System prompt.
+    /// 系统提示词
     /// </summary>
-    private class InternalToolManager : IAevatarToolManager
-    {
-        private readonly Dictionary<string, ToolDefinition> _tools = new();
+    public string? SystemPrompt { get; set; }
+    
+    /// <summary>
+    /// Maximum conversation history.
+    /// 最大对话历史
+    /// </summary>
+    public int MaxHistory { get; set; } = 20;
+    
+    /// <summary>
+    /// Default temperature.
+    /// 默认温度
+    /// </summary>
+    public double Temperature { get; set; } = 0.7;
+    
+    /// <summary>
+    /// Default max tokens.
+    /// 默认最大令牌数
+    /// </summary>
+    public int MaxTokens { get; set; } = 2000;
+}
 
-        public Task RegisterToolAsync(ToolDefinition tool, CancellationToken cancellationToken = default)
-        {
-            _tools[tool.Name] = tool;
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<ToolDefinition>> GetAvailableToolsAsync(CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<ToolDefinition>>(_tools.Values.ToList());
-        }
-
-        public async Task<ToolExecutionResult> ExecuteToolAsync(
-            string toolName,
-            Dictionary<string, object> parameters,
-            Aevatar.Agents.AI.Abstractions.ExecutionContext? context = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (_tools.TryGetValue(toolName, out var tool) && tool.ExecuteAsync != null)
-            {
-                var result = await tool.ExecuteAsync(parameters, context, cancellationToken);
-                return new ToolExecutionResult
-                {
-                    Success = true,
-                    Result = result,
-                    ToolName = toolName
-                };
-            }
-
-            return new ToolExecutionResult
-            {
-                Success = false,
-                Error = $"Tool {toolName} not found or has no executor",
-                ToolName = toolName
-            };
-        }
-
-        public Task<IReadOnlyList<AevatarFunctionDefinition>> GenerateFunctionDefinitionsAsync(
-            CancellationToken cancellationToken = default)
-        {
-            var definitions = new List<AevatarFunctionDefinition>();
-            foreach (var tool in _tools.Values)
-            {
-                definitions.Add(new AevatarFunctionDefinition
-                {
-                    Name = tool.Name,
-                    Description = tool.Description ?? "",
-                    Parameters = tool.Parameters?.Items?.ToDictionary(
-                        p => p.Key,
-                        p => new AevatarParameterDefinition
-                        {
-                            Type = p.Value.Type ?? "string",
-                            Description = p.Value.Description ?? "",
-                            Required = tool.Parameters?.Required?.Contains(p.Key) ?? false
-                        }) ?? new Dictionary<string, AevatarParameterDefinition>()
-                });
-            }
-
-            return Task.FromResult<IReadOnlyList<AevatarFunctionDefinition>>(definitions);
-        }
-    }
-
-    #endregion
+/// <summary>
+/// Interface for LLM providers.
+/// LLM提供商接口
+/// </summary>
+public interface ILLMProvider
+{
+    /// <summary>
+    /// Generate a response from the LLM.
+    /// 从LLM生成响应
+    /// </summary>
+    Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request);
 }

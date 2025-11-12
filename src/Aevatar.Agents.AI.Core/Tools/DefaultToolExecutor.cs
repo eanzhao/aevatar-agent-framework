@@ -1,5 +1,7 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Messages;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
@@ -170,7 +172,7 @@ public class DefaultToolExecutor : IToolExecutor
             ToolName = result.ToolName,
             Result = result.Result?.ToString() ?? string.Empty,
             Success = result.Success,
-            DurationMs = (long)result.ExecutionTime.TotalMilliseconds
+            ExecutionTimeMs = (long)result.ExecutionTime.TotalMilliseconds
         };
         
         // 添加参数到 map
@@ -204,10 +206,10 @@ public class DefaultToolExecutor : IToolExecutor
         
         var errorEvent = new AevatarAIErrorEvent
         {
+            AgentId = context.AgentId ?? string.Empty,
             ErrorType = "ToolExecutionError",
-            Message = $"Tool '{result.ToolName}' execution failed: {exception.Message}",
-            StackTrace = exception.StackTrace ?? string.Empty,
-            Context = $"ExecutionId: {result.ExecutionId}",
+            ErrorMessage = $"Tool '{result.ToolName}' execution failed: {exception.Message}",
+            Context = $"ExecutionId: {result.ExecutionId}, StackTrace: {exception.StackTrace ?? string.Empty}",
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
         };
         

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Aevatar.Agents.AI.Abstractions.Tools;
-using Aevatar.Agents.AI.Core.Tools;
+using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.MEAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -14,321 +14,297 @@ using Xunit.Abstractions;
 namespace Aevatar.Agents.AI.Tests;
 
 /// <summary>
-/// MEAIGAgentBase 新工具系统测试
+/// MEAIGAgentBase 测试
+/// 测试Microsoft.Extensions.AI集成和对话管理
 /// </summary>
 public class MEAIGAgentBaseTests
 {
     private readonly ITestOutputHelper _output;
     private readonly Mock<IChatClient> _mockChatClient;
-    private readonly Mock<ILogger> _mockLogger;
+    private readonly Mock<ILogger<TestMEAIAgent>> _mockLogger;
 
     public MEAIGAgentBaseTests(ITestOutputHelper output)
     {
         _output = output;
         _mockChatClient = new Mock<IChatClient>();
-        _mockLogger = new Mock<ILogger>();
+        _mockLogger = new Mock<ILogger<TestMEAIAgent>>();
     }
 
     /// <summary>
-    /// 测试新工具系统的基本功能
+    /// 测试基本初始化
     /// </summary>
     [Fact]
-    public async Task Test_NewAIToolSystem_BasicFunctionality()
+    public void Test_MEAIAgent_Initialization()
+    {
+        // Arrange & Act
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+
+        // Assert
+        Assert.NotNull(agent);
+        // ChatClient is protected, cannot access directly
+        Assert.Equal("You are a test MEAI assistant", agent.SystemPrompt);
+        
+        // Test AI state initialization
+        var aiState = agent.GetTestAIState();
+        Assert.NotNull(aiState);
+        Assert.NotNull(aiState.ConversationHistory);
+        Assert.Empty(aiState.ConversationHistory);
+    }
+
+    /// <summary>
+    /// 测试对话历史管理
+    /// </summary>
+    [Fact]
+    public void Test_ConversationHistory_Management()
     {
         // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+        var aiState = agent.GetTestAIState();
 
-        // 设置ChatClient的响应
-        var mockResponse = new MockChatResponse("Test response");
+        // Act - Add messages using extension methods
+        aiState.AddUserMessage("Hello AI", 100);
+        aiState.AddAssistantMessage("Hello! How can I help you?", 100);
+        aiState.AddUserMessage("What's the weather?", 100);
+        aiState.AddAssistantMessage("I don't have access to weather data.", 100);
+
+        // Assert
+        Assert.Equal(4, aiState.ConversationHistory.Count);
+        
+        // Test message content and roles
+        Assert.Equal("Hello AI", aiState.ConversationHistory[0].Content);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.User, aiState.ConversationHistory[0].Role);
+        
+        Assert.Equal("Hello! How can I help you?", aiState.ConversationHistory[1].Content);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.Assistant, aiState.ConversationHistory[1].Role);
+        
+        // Test GetChatMessages conversion
+        var chatMessages = agent.GetChatMessages();
+        Assert.Equal(4, chatMessages.Count);
+        Assert.Equal(ChatRole.User, chatMessages[0].Role);
+        Assert.Equal(ChatRole.Assistant, chatMessages[1].Role);
+        
+        _output.WriteLine($"Conversation history contains {aiState.ConversationHistory.Count} messages");
+    }
+
+    /// <summary>
+    /// 测试系统提示词添加
+    /// </summary>
+    [Fact]
+    public void Test_SystemPrompt_In_Conversation()
+    {
+        // Arrange
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+        var aiState = agent.GetTestAIState();
+
+        // Act - Add system message
+        aiState.AddSystemMessage(agent.SystemPrompt);
+        aiState.AddUserMessage("Hello", 100);
+
+        // Assert
+        Assert.Equal(2, aiState.ConversationHistory.Count);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.System, aiState.ConversationHistory[0].Role);
+        Assert.Equal(agent.SystemPrompt, aiState.ConversationHistory[0].Content);
+        
+        // Test conversion to Microsoft.Extensions.AI format
+        var chatMessages = agent.GetChatMessages();
+        Assert.Equal(ChatRole.System, chatMessages[0].Role);
+        Assert.Equal(agent.SystemPrompt, chatMessages[0].Text);
+    }
+
+    /// <summary>
+    /// 测试对话历史限制
+    /// </summary>
+    [Fact]
+    public void Test_ConversationHistory_MaxLimit()
+    {
+        // Arrange
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+        var aiState = agent.GetTestAIState();
+        const int maxHistory = 3;
+
+        // Act - Add more messages than max limit
+        aiState.AddUserMessage("Message 1", maxHistory);
+        aiState.AddAssistantMessage("Response 1", maxHistory);
+        aiState.AddUserMessage("Message 2", maxHistory);
+        aiState.AddAssistantMessage("Response 2", maxHistory);
+        aiState.AddUserMessage("Message 3", maxHistory);
+
+        // Assert - Should keep only last maxHistory messages
+        Assert.True(aiState.ConversationHistory.Count <= maxHistory);
+        
+        // The most recent messages should be kept
+        var lastMessage = aiState.ConversationHistory.Last();
+        Assert.Equal("Message 3", lastMessage.Content);
+        
+        _output.WriteLine($"History limited to {aiState.ConversationHistory.Count} messages (max: {maxHistory})");
+    }
+
+    /// <summary>
+    /// 测试清空对话历史
+    /// </summary>
+    [Fact]
+    public void Test_ClearConversationHistory()
+    {
+        // Arrange
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+        var aiState = agent.GetTestAIState();
+
+        // Add some messages
+        aiState.AddUserMessage("Hello", 100);
+        aiState.AddAssistantMessage("Hi there!", 100);
+        Assert.Equal(2, aiState.ConversationHistory.Count);
+
+        // Act - Clear the conversation history
+        aiState.ConversationHistory.Clear();
+
+        // Assert
+        Assert.Empty(aiState.ConversationHistory);
+        
+        var chatMessages = agent.GetChatMessages();
+        Assert.Empty(chatMessages);
+    }
+
+    /// <summary>
+    /// 测试获取最近的对话历史
+    /// </summary>
+    [Fact]
+    public void Test_GetRecentHistory()
+    {
+        // Arrange
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
+        var aiState = agent.GetTestAIState();
+
+        // Add multiple messages
+        for (int i = 1; i <= 10; i++)
+        {
+            aiState.AddUserMessage($"Message {i}", 100);
+            aiState.AddAssistantMessage($"Response {i}", 100);
+        }
+
+        // Act
+        var recentHistory = aiState.GetRecentHistory(3);
+
+        // Assert
+        Assert.Equal(3, recentHistory.Count);
+        
+        // Should get the last 3 messages
+        Assert.Equal("Response 9", recentHistory[0].Content);
+        Assert.Equal("Message 10", recentHistory[1].Content);
+        Assert.Equal("Response 10", recentHistory[2].Content);
+    }
+
+    /// <summary>
+    /// 测试ChatClient模拟
+    /// </summary>
+    [Fact]
+    public async Task Test_ChatClient_Integration()
+    {
+        // Arrange
+        var expectedResponse = new ChatMessage(ChatRole.Assistant, "This is a test response");
+        var chatCompletion = new TestChatCompletion(expectedResponse);
+        
         _mockChatClient
             .Setup(x => x.CompleteAsync(
                 It.IsAny<IList<ChatMessage>>(),
                 It.IsAny<ChatOptions>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockResponse);
+            .ReturnsAsync(chatCompletion);
 
-        // Act - 测试工具管理器初始化
-        Assert.NotNull(agent.AevatarAIToolManager);
-        Assert.NotNull(agent.AevatarAIToolContext);
-        Assert.Equal(agent.Id.ToString(), agent.AevatarAIToolContext.AgentId);
+        var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
 
-        // 测试获取所有工具
-        var allTools = agent.GetAvailableAevatarAITools();
-        Assert.NotEmpty(allTools); // 应该至少包含内置工具
-        _output.WriteLine($"Registered tools count: {allTools.Count}");
-
-        foreach (var tool in allTools)
+        // Act
+        var messages = new List<ChatMessage>
         {
-            _output.WriteLine($"Tool: {tool.Name} - {tool.Description}");
-        }
+            new ChatMessage(ChatRole.User, "Hello")
+        };
+        
+        var result = await _mockChatClient.Object.CompleteAsync(messages, null, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.NotNull(result.Message);
+        Assert.Equal("This is a test response", result.Message.Text);
+        Assert.Equal(ChatRole.Assistant, result.Message.Role);
+        
+        _output.WriteLine($"Chat completion returned: {result.Message.Text}");
     }
 
     /// <summary>
-    /// 测试委托工具注册和执行
+    /// 测试配置初始化
     /// </summary>
     [Fact]
-    public async Task Test_DelegateTool_RegistrationAndExecution()
+    public void Test_MEAIConfiguration()
     {
         // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
+        var config = new MEAIConfiguration
+        {
+            Provider = "azure",
+            Model = "gpt-4",
+            Temperature = 0.7,
+            MaxTokens = 2000,
+            DeploymentName = "my-deployment",
+            Endpoint = "https://test.openai.azure.com",
+            ApiKey = "test-key"
+        };
 
-        // 注册一个委托工具
-        agent.RegisterDelegateTool(
-            "test_calculator",
-            "A simple calculator",
-            async (context, parameters, ct) =>
-            {
-                var a = Convert.ToInt32(parameters["a"]);
-                var b = Convert.ToInt32(parameters["b"]);
-                var sum = a + b;
-                return AevatarAIToolResult.CreateSuccess(new { sum, a, b });
-            });
-
-        // Act
-        var result = await agent.ExecuteAevatarAIToolAsync(
-            "test_calculator",
-            new Dictionary<string, object> { { "a", 5 }, { "b", 3 } });
-
-        // Assert
-        Assert.True(result.Success);
-        Assert.NotNull(result.Data);
-
-        dynamic data = result.Data;
-        Assert.Equal(8, data.sum);
-        Assert.Equal(5, data.a);
-        Assert.Equal(3, data.b);
-
-        _output.WriteLine($"Tool execution result: {result.Data}");
-    }
-
-    /// <summary>
-    /// 测试接口工具注册和执行
-    /// </summary>
-    [Fact]
-    public async Task Test_InterfaceTool_RegistrationAndExecution()
-    {
-        // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
-
-        // 注册一个接口工具
-        var testTool = new TestDataProcessorTool(_mockLogger.Object);
-        agent.RegisterInterfaceTool(testTool);
-
-        // Act
-        var result = await agent.ExecuteAevatarAIToolAsync(
-            "process_test_data",
-            new Dictionary<string, object> { { "input", "hello world" } });
-
-        // Assert
-        Assert.True(result.Success);
-        Assert.NotNull(result.Data);
-
-        dynamic data = result.Data;
-        Assert.Equal("HELLO WORLD", data.result);
-        Assert.Equal("hello world", data.input);
-
-        _output.WriteLine($"Tool execution result: {result.Data}");
-    }
-
-    /// <summary>
-    /// 测试内置工具（内存搜索）
-    /// </summary>
-    [Fact]
-    public async Task Test_BuiltIn_MemorySearchTool()
-    {
-        // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
-
-        // Act
-        var result = await agent.ExecuteAevatarAIToolAsync(
-            "search_memory",
-            new Dictionary<string, object>
-            {
-                { "query", "test" },
-                { "maxResults", 5 },
-                { "memoryType", "all" }
-            });
-
-        // Assert
-        Assert.True(result.Success);
-        Assert.NotNull(result.Data);
-
-        // 验证返回的数据结构
-        dynamic data = result.Data;
-        Assert.NotNull(data.results);
-        Assert.NotNull(data.count);
-        Assert.Equal("test", data.query);
-        Assert.Equal("all", data.memoryType);
-
-        _output.WriteLine($"Memory search result: {result.Data}");
-    }
-
-    /// <summary>
-    /// 测试工具执行失败情况
-    /// </summary>
-    [Fact]
-    public async Task Test_ToolExecution_Failure()
-    {
-        // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
-
-        // 注册一个会失败的工具
-        agent.RegisterDelegateTool(
-            "failing_tool",
-            "A tool that always fails",
-            async (context, parameters, ct) =>
-            {
-                throw new InvalidOperationException("Tool execution failed");
-            });
-
-        // Act
-        var result = await agent.ExecuteAevatarAIToolAsync(
-            "failing_tool",
-            new Dictionary<string, object>());
-
-        // Assert
-        Assert.False(result.Success);
-        Assert.NotNull(result.ErrorMessage);
-        Assert.Contains("Tool execution failed", result.ErrorMessage);
-
-        _output.WriteLine($"Tool failure message: {result.ErrorMessage}");
-    }
-
-    /// <summary>
-    /// 测试不存在的工具
-    /// </summary>
-    [Fact]
-    public async Task Test_NonExistentTool()
-    {
-        // Arrange
-        var agent = new TestAgent(_mockChatClient.Object, _mockLogger.Object);
-
-        // Act
-        var result = await agent.ExecuteAevatarAIToolAsync(
-            "non_existent_tool",
-            new Dictionary<string, object>());
-
-        // Assert
-        Assert.False(result.Success);
-        Assert.NotNull(result.ErrorMessage);
-        Assert.Contains("not found", result.ErrorMessage);
-
-        _output.WriteLine($"Non-existent tool error: {result.ErrorMessage}");
+        // Act & Assert
+        Assert.Equal("azure", config.Provider);
+        Assert.Equal("gpt-4", config.Model);
+        Assert.Equal(0.7, config.Temperature);
+        Assert.Equal(2000, config.MaxTokens);
+        Assert.Equal("my-deployment", config.DeploymentName);
+        Assert.Equal("https://test.openai.azure.com", config.Endpoint);
+        Assert.Equal("test-key", config.ApiKey);
     }
 }
 
 /// <summary>
-/// 测试用的Agent实现
+/// 测试用的MEAI Agent实现
 /// </summary>
-public class TestAgent : MEAIGAgentBase<TestAgentState>
+public class TestMEAIAgent : MEAIGAgentBase<Aevatar.Agents.AI.AevatarAIAgentState>
 {
-    protected override string SystemPrompt => "You are a test agent for unit testing";
+    private readonly Aevatar.Agents.AI.AevatarAIAgentState _aiState = new Aevatar.Agents.AI.AevatarAIAgentState();
+    
+    public override string SystemPrompt => "You are a test MEAI assistant";
 
-    public TestAgent(IChatClient chatClient, ILogger? logger = null)
+    public TestMEAIAgent(IChatClient chatClient, ILogger<TestMEAIAgent>? logger = null)
         : base(chatClient, logger)
     {
+        _aiState.AgentId = Id.ToString();
     }
 
-    /// <summary>
-    /// 用于测试的委托工具注册方法
-    /// </summary>
-    public void RegisterDelegateTool(
-        string name,
-        string description,
-        Func<AevatarAIToolContext, Dictionary<string, object>, CancellationToken, Task<AevatarAIToolResult>> executeFunc)
+    public override Task<string> GetDescriptionAsync()
     {
-        AevatarAIToolManager.RegisterAevatarAITool(name, description, executeFunc);
+        return Task.FromResult("Test MEAI agent for unit tests");
     }
 
-    /// <summary>
-    /// 用于测试的接口工具注册方法
-    /// </summary>
-    public void RegisterInterfaceTool(IAevatarAITool tool)
+    protected override Aevatar.Agents.AI.AevatarAIAgentState GetAIState()
     {
-        AevatarAIToolManager.RegisterAevatarAITool(tool);
+        return _aiState;
+    }
+
+    public Aevatar.Agents.AI.AevatarAIAgentState GetTestAIState()
+    {
+        return _aiState;
     }
 }
 
 /// <summary>
-/// 测试用的数据处理工具
+/// 测试用的ChatCompletion实现
 /// </summary>
-public class TestDataProcessorTool : IAevatarAITool
+public class TestChatCompletion : ChatCompletion
 {
-    private readonly ILogger _logger;
-
-    public string Name => "process_test_data";
-    public string Description => "Process test data by converting to uppercase";
-
-    public TestDataProcessorTool(ILogger logger)
+    public TestChatCompletion(ChatMessage message) : base(message)
     {
-        _logger = logger;
+        CompletionId = Guid.NewGuid().ToString();
+        ModelId = "test-model";
+        CreatedAt = DateTimeOffset.UtcNow;
+        FinishReason = ChatFinishReason.Stop;
+        
+        // Initialize other properties  
+        Choices = new List<ChatMessage> { message };
+        Usage = null;
+        RawRepresentation = null;
+        AdditionalProperties = new AdditionalPropertiesDictionary();
     }
-
-    public async Task<AevatarAIToolResult> ExecuteAsync(
-        AevatarAIToolContext context,
-        Dictionary<string, object> parameters,
-        CancellationToken cancellationToken = default)
-    {
-        var input = parameters.GetValueOrDefault("input")?.ToString() ?? "";
-        var result = input.ToUpper();
-
-        _logger.LogInformation("Processed test data: {Input} -> {Result}", input, result);
-
-        return AevatarAIToolResult.CreateSuccess(new { input, result });
-    }
-}
-
-/// <summary>
-/// 测试用的状态类
-/// </summary>
-public class TestAgentState : IMessage<TestAgentState>
-{
-    public string TestData { get; set; } = string.Empty;
-    public int Counter { get; set; }
-
-    // 简化的IMessage实现
-    public MessageDescriptor Descriptor => throw new NotImplementedException();
-    public int CalculateSize() => 0;
-    public void MergeFrom(TestAgentState message) { }
-    public void MergeFrom(CodedInputStream input) { }
-    public void WriteTo(CodedOutputStream output) { }
-    public TestAgentState Clone() => new TestAgentState
-    {
-        TestData = this.TestData,
-        Counter = this.Counter
-    };
-    public bool Equals(TestAgentState? other) => false;
-    public void Freeze() { }
-    public bool IsFrozen => false;
-    Google.Protobuf.IMessage Google.Protobuf.IMessage.Clone() => Clone();
-    public void WriteTo(CodedOutputStream output) { }
-    public int CalculateSize() => 0;
-    public Google.Protobuf.IMessage? FindFieldByName(string name) => null;
-    public Google.Protobuf.Reflection.TypeRegistry TypeRegistry { get; set; } = Google.Protobuf.Reflection.TypeRegistry.Empty;
-}
-
-/// <summary>
-/// 模拟的ChatResponse
-/// </summary>
-public class MockChatResponse : ChatResponse
-{
-    public MockChatResponse(string text)
-    {
-        Message = new ChatMessage(ChatRole.Assistant, text);
-    }
-
-    public override ChatMessage Message { get; }
-    public override string? Text => Message.Text;
-    public override IReadOnlyList<ChatMessage>? Messages => new[] { Message };
-    public override int Count => 1;
-    public override ChatFinishReason FinishReason => ChatFinishReason.Stop;
-    public override UsageDetails? Usage => null;
-    public override IReadOnlyList<ChatResponseUpdate>? Updates => null;
-    public override ChatResponse this[int index] => this;
-    public override IEnumerator<ChatResponse> GetEnumerator()
-    {
-        yield return this;
-    }
-    public override ChatResponse UpdateFrom(ChatResponseUpdate update) => this;
-    public override ChatResponse Clone() => new MockChatResponse(Text ?? "");
 }

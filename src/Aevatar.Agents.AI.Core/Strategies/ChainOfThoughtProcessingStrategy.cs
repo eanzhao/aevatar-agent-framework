@@ -11,7 +11,37 @@ public class ChainOfThoughtProcessingStrategy : IAevatarAIProcessingStrategy
 {
     public string Name => "Chain of Thought Processing";
     
+    public string Description => "链式思考策略 - 通过逐步推理来解决复杂问题，适用于需要深度分析的场景";
+    
     public AevatarAIProcessingMode Mode => AevatarAIProcessingMode.ChainOfThought;
+    
+    public bool CanHandle(AevatarAIContext context)
+    {
+        // 适合处理复杂推理问题
+        if (context.Metadata?.ContainsKey("PreferredStrategy") == true)
+        {
+            var preferred = context.Metadata["PreferredStrategy"]?.ToString();
+            return string.Equals(preferred, "ChainOfThought", StringComparison.OrdinalIgnoreCase);
+        }
+        
+        // 检查问题是否需要推理
+        var question = context.Question?.ToLower() ?? string.Empty;
+        return question.Contains("为什么") || question.Contains("怎么") || 
+               question.Contains("分析") || question.Contains("解释") ||
+               question.Contains("why") || question.Contains("how") || 
+               question.Contains("analyze") || question.Contains("explain");
+    }
+    
+    public double EstimateComplexity(AevatarAIContext context)
+    {
+        // 链式思考适合中高复杂度问题
+        return 0.6;
+    }
+    
+    public bool ValidateRequirements(AevatarAIStrategyDependencies dependencies)
+    {
+        return dependencies?.LLMProvider != null && dependencies.Configuration != null;
+    }
     
     public async Task<string> ProcessAsync(
         AevatarAIContext context,
@@ -54,11 +84,12 @@ public class ChainOfThoughtProcessingStrategy : IAevatarAIProcessingStrategy
             {
                 await dependencies.PublishEventCallback(new AevatarThoughtStepEvent
                 {
+                    AgentId = dependencies.AgentId,
+                    ThoughtId = Guid.NewGuid().ToString(),
                     StepNumber = stepNumber,
-                    Thought = thought.Thought,
+                    ThoughtContent = thought.Thought,
                     Reasoning = thought.Reasoning ?? string.Empty,
-                    Conclusion = thought.Conclusion ?? string.Empty,
-                    Confidence = thought.Confidence
+                    Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
                 });
             }
             

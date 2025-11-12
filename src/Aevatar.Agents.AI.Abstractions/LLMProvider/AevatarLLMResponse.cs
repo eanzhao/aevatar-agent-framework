@@ -1,6 +1,31 @@
 namespace Aevatar.Agents.AI.Abstractions;
 
 /// <summary>
+/// LLM stream chunk
+/// LLM流块
+/// </summary>
+public class AevatarLLMStreamChunk
+{
+    /// <summary>
+    /// Content chunk
+    /// 内容块
+    /// </summary>
+    public string Content { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Whether this is the final chunk
+    /// 是否为最终块
+    /// </summary>
+    public bool IsComplete { get; set; }
+    
+    /// <summary>
+    /// Function call if present
+    /// 函数调用（如果存在）
+    /// </summary>
+    public AevatarFunctionCall? FunctionCall { get; set; }
+}
+
+/// <summary>
 /// LLM响应
 /// </summary>
 public class AevatarLLMResponse
