@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime;
 using Microsoft.Extensions.Logging;
 using Google.Protobuf;
 
