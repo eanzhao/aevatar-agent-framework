@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package MongoDBEventStoreDemo;
+
+option csharp_namespace = "MongoDBEventStoreDemo.Events";
+
+// Account created event
+message AccountCreated {
+    string account_holder = 1;
+    double initial_balance = 2;
+}
+
+// Money deposited event
+message MoneyDeposited {
+    double amount = 1;
+    string description = 2;
+}
+
+// Money withdrawn event
+message MoneyWithdrawn {
+    double amount = 1;
+    string description = 2;
+}
+

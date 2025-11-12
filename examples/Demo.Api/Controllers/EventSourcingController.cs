@@ -187,7 +187,7 @@ public class EventSourcingController : ControllerBase
                 e.AgentId,
                 e.EventType,
                 e.EventData,
-                Timestamp = e.TimestampUtc
+                Timestamp = e.Timestamp
             }).ToList();
 
             return Ok(new

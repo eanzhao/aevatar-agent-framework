@@ -1,65 +1,248 @@
-# Aevatar Agent Framework 测试项目
+# Testing Guidelines
 
-此目录包含了 Aevatar Agent Framework 的测试项目，用于验证各个组件的功能正确性。
+## 📋 Overview
 
-## 测试项目结构
+This directory contains all test projects for the Aevatar Agent Framework.
 
-- **Aevatar.Agents.Core.Tests**：测试核心组件和序列化功能
-  - `SerializationTests.cs`：测试 Protobuf 序列化和反序列化功能
-  - `GAgentBaseTests.cs`：测试代理基类功能
+---
 
-- **Aevatar.Agents.Local.Tests**：测试本地实现
-  - `LocalMessageStreamTests.cs`：测试本地消息流
-  - `LocalGAgentActorTests.cs`：测试本地代理Actor
-  - `LocalGAgentFactoryTests.cs`：测试本地代理工厂
+## 🧪 Test Structure
 
-- **Aevatar.Agents.ProtoActor.Tests**：测试 Proto.Actor 实现
-  - `ProtoActorMessageTests.cs`：测试消息包装器
-  - `StreamActorTests.cs`：测试流Actor
-  - `ProtoActorGAgentActorTests.cs`：测试Proto.Actor代理Actor
-
-- **Aevatar.Agents.GAgents.Tests**：测试代理实现
-  - `LlmGAgentTests.cs`：测试LLM代理
-  - `CodingGAgentTests.cs`：测试代码验证代理
-
-## 运行测试
-
-可以使用以下命令运行所有测试：
-
-```bash
-dotnet test aevatar-agent-framework.sln
+```
+test/
+├── Aevatar.Agents.TestBase/          # Shared test infrastructure
+│   └── ClusterFixture.cs             # Orleans test cluster setup
+├── Aevatar.Agents.Core.Tests/        # Core functionality tests
+├── Aevatar.Agents.Local.Tests/       # Local runtime tests
+├── Aevatar.Agents.Orleans.Tests/     # Orleans runtime tests
+├── Aevatar.Agents.ProtoActor.Tests/  # ProtoActor runtime tests
+└── Aevatar.Agents.Orleans.MongoDB.Tests/  # MongoDB repository tests
 ```
 
-或者运行特定项目的测试：
+---
 
-```bash
-dotnet test test/Aevatar.Agents.Core.Tests/Aevatar.Agents.Core.Tests.csproj
-dotnet test test/Aevatar.Agents.Local.Tests/Aevatar.Agents.Local.Tests.csproj
-dotnet test test/Aevatar.Agents.ProtoActor.Tests/Aevatar.Agents.ProtoActor.Tests.csproj
-dotnet test test/Aevatar.Agents.GAgents.Tests/Aevatar.Agents.GAgents.Tests.csproj
+## ✅ Unified Testing Approach
+
+### Problem Before
+
+Each interface required a separate in-memory implementation for testing:
+- `IEventStore` → `InMemoryEventStore` (Core)
+- `IEventRepository` → `InMemoryEventRepository` (TestBase)
+- Every new interface → New in-memory implementation ❌
+
+### Solution: Unified Test Extensions
+
+**All in-memory implementations now live in their respective runtime packages**, not in TestBase:
+
+```
+src/Aevatar.Agents.Orleans/EventSourcing/
+├── IEventRepository.cs              # Interface
+├── InMemoryEventRepository.cs       # ✅ In-memory implementation (for tests)
+├── EventSourcingTestExtensions.cs   # ✅ Unified registration
+└── OrleansEventStore.cs             # Production implementation
 ```
 
-## 测试结构说明
+---
 
-测试项目遵循以下结构：
+## 🚀 Usage
 
-1. **单元测试**：测试单个组件的功能，如序列化器、代理基类等
-2. **集成测试**：测试组件间的交互，如消息发送和处理流程
-3. **模拟测试**：使用Moq框架模拟依赖项，验证交互逻辑
+### In Test Projects
 
-## 添加新测试
+**Simply call `.AddInMemoryEventSourcing()`**:
 
-添加新测试时，请遵循以下步骤：
+```csharp
+// In ClusterFixture.cs or test setup
+hostBuilder.ConfigureServices(services =>
+{
+    // ✅ One line registers everything
+    services.AddInMemoryEventSourcing();
+});
+```
 
-1. 确定测试所属的模块（Core, Local, ProtoActor, GAgents）
-2. 在相应项目中创建测试类，使用有意义的命名
-3. 测试方法需要清晰描述测试意图，格式为：`方法名_条件_预期结果`
-4. 使用AAA模式：Arrange（准备）、Act（执行）、Assert（断言）
-5. 必要时使用Moq创建模拟对象
+This automatically registers:
+- `InMemoryEventRepository` as `IEventRepository`
+- `OrleansEventStore` as `IEventStore`
 
-## 注意事项
+### In Test Assertions
 
-- 确保测试不依赖外部服务（如数据库、网络服务等）
-- 测试应该是可重复的，多次运行结果相同
-- 测试应该是独立的，不依赖于其他测试的结果
-- 测试应该包含适当的注释，解释复杂的测试逻辑
+Access the in-memory repository for assertions:
+
+```csharp
+[Fact]
+public async Task MyTest()
+{
+    var repository = ServiceProvider.GetInMemoryEventRepository();
+    
+    // Do test operations...
+    await agent.DepositAsync(100);
+    
+    // Assert on in-memory data
+    Assert.Equal(1, repository.GetTotalEventCount());
+}
+```
+
+---
+
+## 🎯 Benefits
+
+### ✅ Single Source of Truth
+- In-memory implementations live next to their interfaces
+- No duplication across test projects
+
+### ✅ Easy to Extend
+- New interface? Add in-memory implementation in the same package
+- Update `AddInMemoryEventSourcing()` to register it
+- All tests automatically use it
+
+### ✅ Production-like Testing
+- Same `OrleansEventStore` logic as production
+- Only storage backend changes (memory vs MongoDB)
+
+### ✅ Fast & Isolated
+- No database dependencies
+- Each test gets a fresh in-memory instance
+- Parallel test execution
+
+---
+
+## 📦 Test Categories
+
+### Unit Tests
+**Purpose**: Test individual components in isolation  
+**Example**: `MongoEventRepositoryTests.cs`  
+**Approach**: Mock dependencies with Moq
+
+```csharp
+var mockClient = new Mock<IMongoClient>();
+var repository = new MongoEventRepository(mockClient.Object, options, logger);
+```
+
+### Integration Tests
+**Purpose**: Test components working together  
+**Example**: `OrleansEventStoreTests.cs`  
+**Approach**: Use in-memory implementations
+
+```csharp
+services.AddInMemoryEventSourcing();  // ✅ Unified approach
+```
+
+### End-to-End Tests
+**Purpose**: Test full user scenarios  
+**Example**: Sample applications in `examples/`  
+**Approach**: Use real implementations or Docker-based dependencies
+
+---
+
+## 🔧 Adding New Tests
+
+### 1. Create Test Project
+
+```bash
+dotnet new xunit -n Aevatar.Agents.MyFeature.Tests
+dotnet sln add test/Aevatar.Agents.MyFeature.Tests
+```
+
+### 2. Reference TestBase
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
+</ItemGroup>
+```
+
+### 3. Use Shared Test Infrastructure
+
+```csharp
+public class MyTests : AevatarAgentsTestBase
+{
+    // Inherit from AevatarAgentsTestBase for Orleans tests
+    // Or use standalone tests for unit tests
+}
+```
+
+---
+
+## 🏃 Running Tests
+
+### All Tests
+```bash
+dotnet test
+```
+
+### Specific Project
+```bash
+dotnet test test/Aevatar.Agents.Orleans.Tests/
+```
+
+### With Code Coverage
+```bash
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+### Filtered by Name
+```bash
+dotnet test --filter "FullyQualifiedName~EventSourcing"
+```
+
+---
+
+## 📊 Test Status
+
+| Test Project | Status | Coverage |
+|-------------|--------|----------|
+| Core.Tests | ✅ 97% (115/118) | ~85% |
+| Local.Tests | ✅ 91% (21/23) | ~80% |
+| Orleans.Tests | ✅ 86% (25/29) | ~75% |
+| ProtoActor.Tests | ✅ 100% (21/21) | ~85% |
+| Orleans.MongoDB.Tests | ✅ 100% (11/11) | ~90% |
+
+---
+
+## 🐛 Debugging Tests
+
+### Visual Studio
+- Set breakpoints in test methods
+- Right-click test → Debug Test
+
+### VS Code
+- Use `.vscode/launch.json` configuration
+- Set `"justMyCode": false` to debug framework code
+
+### Command Line
+```bash
+# Run with detailed output
+dotnet test --logger:"console;verbosity=detailed"
+
+# Run specific test
+dotnet test --filter "FullyQualifiedName=Aevatar.Agents.Orleans.Tests.EventSourcing.OrleansEventStoreTests.AppendEventsAsync_ShouldAppendEvents"
+```
+
+---
+
+## 📝 Best Practices
+
+### ✅ DO
+- Use `AddInMemoryEventSourcing()` for EventSourcing tests
+- Mock external dependencies (MongoDB, HTTP clients)
+- Write descriptive test names
+- Test both happy and error paths
+- Clean up resources in `Dispose()`
+
+### ❌ DON'T
+- Don't create duplicate in-memory implementations
+- Don't depend on test execution order
+- Don't use Thread.Sleep (use async properly)
+- Don't commit real connection strings
+
+---
+
+## 🔗 Related Documentation
+
+- [Agent Factory Usage](../docs/Agent_Factory_Usage.md)
+- [EventSourcing Design](../docs/EVENTSOURCING_DESIGN.md)
+- [Stream Architecture](../docs/STREAM_ARCHITECTURE.md)
+
+---
+
+**Last Updated**: 2025-11-11  
+**Status**: ✅ Active

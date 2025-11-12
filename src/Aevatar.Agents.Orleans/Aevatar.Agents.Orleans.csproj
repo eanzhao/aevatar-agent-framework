@@ -10,6 +10,7 @@
         <PackageReference Include="Microsoft.Orleans.Core" Version="9.2.1" />
         <PackageReference Include="Microsoft.Orleans.Runtime" Version="9.2.1" />
         <PackageReference Include="Microsoft.Orleans.Sdk" Version="9.2.1" />
+        <PackageReference Include="Microsoft.Orleans.Serialization.Protobuf" Version="9.2.1" />
         <PackageReference Include="Microsoft.Orleans.Streaming" Version="9.2.1" />
         <PackageReference Include="Microsoft.Orleans.EventSourcing" Version="9.2.1" />
     </ItemGroup>

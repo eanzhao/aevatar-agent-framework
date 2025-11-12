@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Configuration;
 using Orleans.Hosting;
+using Orleans.Serialization;
 using Orleans.Streams;
 using Orleans.TestingHost;
 using Xunit;
@@ -185,6 +186,13 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         public void Configure(ISiloBuilder siloBuilder)
         {
             siloBuilder
+                .ConfigureServices(services =>
+                {
+                    services.AddSerializer(serializerBuilder =>
+                    {
+                        serializerBuilder.AddProtobufSerializer();
+                    });
+                })
                 .ConfigureLogging(logging => logging.AddConsole())
                 .AddMemoryStreams("StreamProvider")
                 .AddMemoryGrainStorage("PubSubStore")
@@ -202,6 +210,13 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
         {
             clientBuilder
+                .ConfigureServices(services =>
+                {
+                    services.AddSerializer(serializerBuilder =>
+                    {
+                        serializerBuilder.AddProtobufSerializer();
+                    });
+                })
                 .AddMemoryStreams("StreamProvider")
                 .Configure<ClusterOptions>(options =>
                 {

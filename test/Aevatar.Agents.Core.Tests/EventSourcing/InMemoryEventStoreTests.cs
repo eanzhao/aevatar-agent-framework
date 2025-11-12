@@ -1,140 +1,163 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
 using FluentAssertions;
+using Google.Protobuf.WellKnownTypes;
 using Xunit;
 
 namespace Aevatar.Agents.Core.Tests.EventSourcing;
 
 public class InMemoryEventStoreTests
 {
-    [Fact(DisplayName = "SaveEventAsync should save single event")]
-    public async Task SaveEventAsync_ShouldSaveSingleEvent()
+    private static AgentStateEvent CreateTestEvent(Guid agentId, long version, string eventType)
+    {
+        return new AgentStateEvent
+        {
+            EventId = Guid.NewGuid().ToString(),
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            Version = version,
+            EventType = eventType,
+            EventData = Any.Pack(new ParentChangedEvent { NewParent = "test" }),
+            AgentId = agentId.ToString()
+        };
+    }
+
+    [Fact(DisplayName = "AppendEventsAsync should append events successfully")]
+    public async Task AppendEventsAsync_ShouldAppendEvents()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-        var logEvent = new StateLogEvent
+        var events = new[]
         {
-            AgentId = agentId,
-            Version = 1,
-            EventType = "TestEvent",
-            EventData = new byte[] { 1, 2, 3 },
-            Metadata = "test-metadata"
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2")
         };
         
         // Act
-        await store.SaveEventAsync(agentId, logEvent);
-        var events = await store.GetEventsAsync(agentId);
+        var newVersion = await store.AppendEventsAsync(agentId, events, 0);
         
         // Assert
-        events.Should().HaveCount(1);
-        events[0].Version.Should().Be(1);
-        events[0].EventType.Should().Be("TestEvent");
-        events[0].EventData.Should().BeEquivalentTo(new byte[] { 1, 2, 3 });
-        events[0].Metadata.Should().Be("test-metadata");
+        newVersion.Should().Be(2);
+        var retrievedEvents = await store.GetEventsAsync(agentId);
+        retrievedEvents.Should().HaveCount(2);
+        retrievedEvents[0].Version.Should().Be(1);
+        retrievedEvents[1].Version.Should().Be(2);
     }
     
-    [Fact(DisplayName = "SaveEventsAsync should save multiple events")]
-    public async Task SaveEventsAsync_ShouldSaveMultipleEvents()
+    [Fact(DisplayName = "AppendEventsAsync should enforce optimistic concurrency")]
+    public async Task AppendEventsAsync_ShouldEnforceOptimisticConcurrency()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-        var logEvents = new[]
+        var event1 = CreateTestEvent(agentId, 0, "Event1");
+        
+        await store.AppendEventsAsync(agentId, new[] { event1 }, 0);
+
+        // Act & Assert
+        var event2 = CreateTestEvent(agentId, 0, "Event2");
+        var act = () => store.AppendEventsAsync(agentId, new[] { event2 }, 0);
+        
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Concurrency conflict*");
+    }
+    
+    [Fact(DisplayName = "GetEventsAsync should return all events for agent")]
+    public async Task GetEventsAsync_ShouldReturnAllEvents()
+    {
+        // Arrange
+        var store = new InMemoryEventStore();
+        var agentId = Guid.NewGuid();
+        var events = new[]
         {
-            new StateLogEvent { AgentId = agentId, Version = 1, EventType = "Event1" },
-            new StateLogEvent { AgentId = agentId, Version = 2, EventType = "Event2" },
-            new StateLogEvent { AgentId = agentId, Version = 3, EventType = "Event3" }
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
         };
         
-        // Act
-        await store.SaveEventsAsync(agentId, logEvents);
-        var events = await store.GetEventsAsync(agentId);
-        
-        // Assert
-        events.Should().HaveCount(3);
-        events.Select(e => e.EventType).Should().BeEquivalentTo("Event1", "Event2", "Event3");
-        events.Select(e => e.Version).Should().BeInAscendingOrder();
-    }
-    
-    [Fact(DisplayName = "GetEventsAsync should return empty list for unknown agent")]
-    public async Task GetEventsAsync_ShouldReturnEmptyListForUnknownAgent()
-    {
-        // Arrange
-        var store = new InMemoryEventStore();
-        var unknownAgentId = Guid.NewGuid();
+        await store.AppendEventsAsync(agentId, events, 0);
         
         // Act
-        var events = await store.GetEventsAsync(unknownAgentId);
+        var retrievedEvents = await store.GetEventsAsync(agentId);
         
         // Assert
-        events.Should().NotBeNull();
-        events.Should().BeEmpty();
+        retrievedEvents.Should().HaveCount(3);
+        retrievedEvents[0].EventType.Should().Be("Event1");
+        retrievedEvents[1].EventType.Should().Be("Event2");
+        retrievedEvents[2].EventType.Should().Be("Event3");
     }
     
-    [Fact(DisplayName = "GetEventsAsync should return events sorted by version")]
-    public async Task GetEventsAsync_ShouldReturnEventsSortedByVersion()
+    [Fact(DisplayName = "GetEventsAsync should support range query (fromVersion)")]
+    public async Task GetEventsAsync_ShouldSupportRangeQueryFromVersion()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-        
-        // Save events in random order
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 3, EventType = "Event3" });
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 1, EventType = "Event1" });
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 2, EventType = "Event2" });
-        
-        // Act
-        var events = await store.GetEventsAsync(agentId);
-        
-        // Assert
-        events.Should().HaveCount(3);
-        events[0].Version.Should().Be(1);
-        events[1].Version.Should().Be(2);
-        events[2].Version.Should().Be(3);
-    }
-    
-    [Fact(DisplayName = "GetEventsAsync with version range should filter correctly")]
-    public async Task GetEventsAsync_WithVersionRange_ShouldFilterCorrectly()
-    {
-        // Arrange
-        var store = new InMemoryEventStore();
-        var agentId = Guid.NewGuid();
-        
-        for (int i = 1; i <= 10; i++)
+        var events = new[]
         {
-            await store.SaveEventAsync(agentId, new StateLogEvent 
-            { 
-                AgentId = agentId, 
-                Version = i, 
-                EventType = $"Event{i}" 
-            });
-        }
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
+        };
+        
+        await store.AppendEventsAsync(agentId, events, 0);
         
         // Act
-        var events = await store.GetEventsAsync(agentId, 3, 7);
+        var retrievedEvents = await store.GetEventsAsync(agentId, fromVersion: 2);
         
         // Assert
-        events.Should().HaveCount(5);
-        events.Select(e => e.Version).Should().BeEquivalentTo(new[] { 3, 4, 5, 6, 7 });
-        events.Select(e => e.EventType).Should().BeEquivalentTo("Event3", "Event4", "Event5", "Event6", "Event7");
+        retrievedEvents.Should().HaveCount(2);
+        retrievedEvents[0].Version.Should().Be(2);
+        retrievedEvents[1].Version.Should().Be(3);
     }
     
-    [Fact(DisplayName = "GetEventsAsync with version range should return empty for no matches")]
-    public async Task GetEventsAsync_WithVersionRange_ShouldReturnEmptyForNoMatches()
+    [Fact(DisplayName = "GetEventsAsync should support range query (toVersion)")]
+    public async Task GetEventsAsync_ShouldSupportRangeQueryToVersion()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
+        var events = new[]
+        {
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
+        };
         
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 1 });
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 2 });
+        await store.AppendEventsAsync(agentId, events, 0);
         
         // Act
-        var events = await store.GetEventsAsync(agentId, 5, 10);
+        var retrievedEvents = await store.GetEventsAsync(agentId, toVersion: 2);
         
         // Assert
-        events.Should().BeEmpty();
+        retrievedEvents.Should().HaveCount(2);
+        retrievedEvents[0].Version.Should().Be(1);
+        retrievedEvents[1].Version.Should().Be(2);
+    }
+    
+    [Fact(DisplayName = "GetEventsAsync should support pagination (maxCount)")]
+    public async Task GetEventsAsync_ShouldSupportPagination()
+    {
+        // Arrange
+        var store = new InMemoryEventStore();
+        var agentId = Guid.NewGuid();
+        var events = new[]
+        {
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
+        };
+        
+        await store.AppendEventsAsync(agentId, events, 0);
+        
+        // Act
+        var retrievedEvents = await store.GetEventsAsync(agentId, maxCount: 2);
+        
+        // Assert
+        retrievedEvents.Should().HaveCount(2);
+        retrievedEvents[0].Version.Should().Be(1);
+        retrievedEvents[1].Version.Should().Be(2);
     }
     
     [Fact(DisplayName = "GetLatestVersionAsync should return latest version")]
@@ -143,168 +166,122 @@ public class InMemoryEventStoreTests
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
+        var events = new[]
+        {
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
+        };
         
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 5 });
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 10 });
-        await store.SaveEventAsync(agentId, new StateLogEvent { AgentId = agentId, Version = 7 });
+        await store.AppendEventsAsync(agentId, events, 0);
         
         // Act
         var latestVersion = await store.GetLatestVersionAsync(agentId);
         
         // Assert
-        latestVersion.Should().Be(10);
+        latestVersion.Should().Be(3);
     }
     
-    [Fact(DisplayName = "GetLatestVersionAsync should return 0 for unknown agent")]
-    public async Task GetLatestVersionAsync_ShouldReturn0ForUnknownAgent()
-    {
-        // Arrange
-        var store = new InMemoryEventStore();
-        var unknownAgentId = Guid.NewGuid();
-        
-        // Act
-        var latestVersion = await store.GetLatestVersionAsync(unknownAgentId);
-        
-        // Assert
-        latestVersion.Should().Be(0);
-    }
-    
-    [Fact(DisplayName = "ClearEventsAsync should remove all events for agent")]
-    public async Task ClearEventsAsync_ShouldRemoveAllEventsForAgent()
+    [Fact(DisplayName = "GetLatestVersionAsync should return 0 for non-existent agent")]
+    public async Task GetLatestVersionAsync_ShouldReturn0ForNonExistentAgent()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
         
-        await store.SaveEventsAsync(agentId, new[]
-        {
-            new StateLogEvent { AgentId = agentId, Version = 1 },
-            new StateLogEvent { AgentId = agentId, Version = 2 }
-        });
-        
         // Act
-        await store.ClearEventsAsync(agentId);
-        var events = await store.GetEventsAsync(agentId);
         var latestVersion = await store.GetLatestVersionAsync(agentId);
         
         // Assert
-        events.Should().BeEmpty();
         latestVersion.Should().Be(0);
     }
     
-    [Fact(DisplayName = "Store should handle multiple agents independently")]
-    public async Task Store_ShouldHandleMultipleAgentsIndependently()
-    {
-        // Arrange
-        var store = new InMemoryEventStore();
-        var agentId1 = Guid.NewGuid();
-        var agentId2 = Guid.NewGuid();
-        
-        // Act
-        await store.SaveEventAsync(agentId1, new StateLogEvent { AgentId = agentId1, Version = 1, EventType = "Agent1Event" });
-        await store.SaveEventAsync(agentId2, new StateLogEvent { AgentId = agentId2, Version = 1, EventType = "Agent2Event" });
-        
-        var events1 = await store.GetEventsAsync(agentId1);
-        var events2 = await store.GetEventsAsync(agentId2);
-        
-        // Assert
-        events1.Should().HaveCount(1);
-        events1[0].EventType.Should().Be("Agent1Event");
-        
-        events2.Should().HaveCount(1);
-        events2[0].EventType.Should().Be("Agent2Event");
-    }
-    
-    [Fact(DisplayName = "Store should be thread-safe for concurrent operations")]
-    public async Task Store_ShouldBeThreadSafeForConcurrentOperations()
+    [Fact(DisplayName = "SaveSnapshotAsync should save snapshot")]
+    public async Task SaveSnapshotAsync_ShouldSaveSnapshot()
     {
         // Arrange
         var store = new InMemoryEventStore();
         var agentId = Guid.NewGuid();
-        var tasks = new List<Task>();
-        
-        // Act - Save 100 events concurrently
-        for (int i = 1; i <= 100; i++)
+        var snapshot = new AgentSnapshot
         {
-            int version = i;
-            tasks.Add(Task.Run(async () =>
-            {
-                await store.SaveEventAsync(agentId, new StateLogEvent 
-                { 
-                    AgentId = agentId, 
-                    Version = version, 
-                    EventType = $"Event{version}" 
-                });
-            }));
-        }
+            Version = 100,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            StateData = Any.Pack(new ParentChangedEvent { NewParent = "snapshot" })
+        };
         
-        await Task.WhenAll(tasks);
-        var events = await store.GetEventsAsync(agentId);
+        // Act
+        await store.SaveSnapshotAsync(agentId, snapshot);
+        var retrievedSnapshot = await store.GetLatestSnapshotAsync(agentId);
         
         // Assert
-        events.Should().HaveCount(100);
-        events.Select(e => e.Version).Should().BeEquivalentTo(Enumerable.Range(1, 100));
+        retrievedSnapshot.Should().NotBeNull();
+        retrievedSnapshot!.Version.Should().Be(100);
+    }
+    
+    [Fact(DisplayName = "GetLatestSnapshotAsync should return null for non-existent snapshot")]
+    public async Task GetLatestSnapshotAsync_ShouldReturnNullForNonExistentSnapshot()
+    {
+        // Arrange
+        var store = new InMemoryEventStore();
+        var agentId = Guid.NewGuid();
+        
+        // Act
+        var snapshot = await store.GetLatestSnapshotAsync(agentId);
+        
+        // Assert
+        snapshot.Should().BeNull();
+    }
+    
+    [Fact(DisplayName = "Multiple agents should be isolated")]
+    public async Task MultipleAgents_ShouldBeIsolated()
+    {
+        // Arrange
+        var store = new InMemoryEventStore();
+        var agent1Id = Guid.NewGuid();
+        var agent2Id = Guid.NewGuid();
+
+        var agent1Events = new[] { CreateTestEvent(agent1Id, 0, "Agent1Event") };
+        var agent2Events = new[] { CreateTestEvent(agent2Id, 0, "Agent2Event") };
+
+        // Act
+        await store.AppendEventsAsync(agent1Id, agent1Events, 0);
+        await store.AppendEventsAsync(agent2Id, agent2Events, 0);
+
+        var agent1Retrieved = await store.GetEventsAsync(agent1Id);
+        var agent2Retrieved = await store.GetEventsAsync(agent2Id);
+        
+        // Assert
+        agent1Retrieved.Should().HaveCount(1);
+        agent2Retrieved.Should().HaveCount(1);
+        agent1Retrieved[0].EventType.Should().Be("Agent1Event");
+        agent2Retrieved[0].EventType.Should().Be("Agent2Event");
+    }
+    
+    [Fact(DisplayName = "Batch append should be atomic")]
+    public async Task BatchAppend_ShouldBeAtomic()
+    {
+        // Arrange
+        var store = new InMemoryEventStore();
+        var agentId = Guid.NewGuid();
+        var events = new[]
+        {
+            CreateTestEvent(agentId, 0, "Event1"),
+            CreateTestEvent(agentId, 0, "Event2"),
+            CreateTestEvent(agentId, 0, "Event3")
+        };
+        
+        // Act
+        var newVersion = await store.AppendEventsAsync(agentId, events, 0);
+        
+        // Assert
+        newVersion.Should().Be(3);
+        var retrievedEvents = await store.GetEventsAsync(agentId);
+        retrievedEvents.Should().HaveCount(3);
+        
+        // All events should have consecutive versions
+        for (int i = 0; i < retrievedEvents.Count; i++)
+        {
+            retrievedEvents[i].Version.Should().Be(i + 1);
     }
 }
-
-public class StateLogEventTests
-{
-    [Fact(DisplayName = "StateLogEvent should initialize with default values")]
-    public void StateLogEvent_ShouldInitializeWithDefaultValues()
-    {
-        // Arrange & Act
-        var logEvent = new StateLogEvent();
-        
-        // Assert
-        logEvent.EventId.Should().NotBe(Guid.Empty);
-        logEvent.AgentId.Should().Be(Guid.Empty);
-        logEvent.Version.Should().Be(0);
-        logEvent.EventType.Should().BeEmpty();
-        logEvent.EventData.Should().BeEmpty();
-        logEvent.TimestampUtc.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
-        logEvent.Metadata.Should().BeNull();
-    }
-    
-    [Fact(DisplayName = "StateLogEvent should generate unique EventIds")]
-    public void StateLogEvent_ShouldGenerateUniqueEventIds()
-    {
-        // Arrange & Act
-        var event1 = new StateLogEvent();
-        var event2 = new StateLogEvent();
-        
-        // Assert
-        event1.EventId.Should().NotBe(event2.EventId);
-    }
-    
-    [Fact(DisplayName = "StateLogEvent properties should be settable")]
-    public void StateLogEvent_PropertiesShouldBeSettable()
-    {
-        // Arrange
-        var logEvent = new StateLogEvent();
-        var eventId = Guid.NewGuid();
-        var agentId = Guid.NewGuid();
-        var version = 42L;
-        var eventType = "TestEvent";
-        var eventData = new byte[] { 1, 2, 3, 4, 5 };
-        var timestamp = DateTime.UtcNow.AddMinutes(-5);
-        var metadata = "test-metadata";
-        
-        // Act
-        logEvent.EventId = eventId;
-        logEvent.AgentId = agentId;
-        logEvent.Version = version;
-        logEvent.EventType = eventType;
-        logEvent.EventData = eventData;
-        logEvent.TimestampUtc = timestamp;
-        logEvent.Metadata = metadata;
-        
-        // Assert
-        logEvent.EventId.Should().Be(eventId);
-        logEvent.AgentId.Should().Be(agentId);
-        logEvent.Version.Should().Be(version);
-        logEvent.EventType.Should().Be(eventType);
-        logEvent.EventData.Should().BeEquivalentTo(eventData);
-        logEvent.TimestampUtc.Should().Be(timestamp);
-        logEvent.Metadata.Should().Be(metadata);
-    }
 }
