@@ -230,28 +230,5 @@ public class RetryPolicy
     public int MaxRetryDelayMs { get; set; } = 30000;
 }
 
-/// <summary>
-/// 执行上下文
-/// </summary>
-public class ExecutionContext
-{
-    /// <summary>
-    /// Agent ID
-    /// </summary>
-    public Guid? AgentId { get; set; }
-    
-    /// <summary>
-    /// 会话ID
-    /// </summary>
-    public string? SessionId { get; set; }
-    
-    /// <summary>
-    /// 用户ID
-    /// </summary>
-    public string? UserId { get; set; }
-    
-    /// <summary>
-    /// 元数据
-    /// </summary>
-    public Dictionary<string, object>? Metadata { get; set; }
-}
+// ExecutionContext has been moved to ai_messages.proto
+// Use Aevatar.Agents.AI.ExecutionContext from the generated protobuf code

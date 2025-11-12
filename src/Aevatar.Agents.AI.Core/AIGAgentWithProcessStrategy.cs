@@ -2,7 +2,7 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Strategies;
 using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.Core.Messages;
-using Aevatar.Agents.AI.Core.Models;
+// Models are now in Aevatar.Agents.AI namespace from protobuf
 using Aevatar.Agents.AI.Core.Strategies;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -93,7 +93,7 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Select the appropriate strategy for a request.
     /// 为请求选择适当的策略
     /// </summary>
-    protected virtual string SelectStrategy(ChatRequest request)
+    protected virtual string SelectStrategy(Aevatar.Agents.AI.ChatRequest request)
     {
         // Check if strategy is specified in context
         if (request.Context?.ContainsKey("strategy") == true)
@@ -132,7 +132,7 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Override chat to use processing strategies.
     /// 重写聊天以使用处理策略
     /// </summary>
-    protected override async Task<ChatResponse> ChatAsync(ChatRequest request)
+    protected override async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
     {
         try
         {
@@ -182,16 +182,25 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Create AI context from chat request.
     /// 从聊天请求创建AI上下文
     /// </summary>
-    private AevatarAIContext CreateAIContext(ChatRequest request)
+    private Aevatar.Agents.AI.AevatarAIContext CreateAIContext(Aevatar.Agents.AI.ChatRequest request)
     {
-        return new AevatarAIContext
+        var context = new Aevatar.Agents.AI.AevatarAIContext
         {
             AgentId = Id.ToString(),
             Question = request.Message,
-            SystemPrompt = SystemPrompt,
-            ConversationHistory = ConvertToConversationEntries(),
-            Metadata = request.Context
+            SystemPrompt = SystemPrompt
         };
+        
+        // Add conversation history
+        context.ConversationHistory.AddRange(ConvertToConversationEntries());
+        
+        // Add metadata
+        foreach (var item in request.Context)
+        {
+            context.Metadata[item.Key] = item.Value;
+        }
+        
+        return context;
     }
     
     /// <summary>
@@ -217,32 +226,31 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Convert strategy result to chat response.
     /// 将策略结果转换为聊天响应
     /// </summary>
-    private ChatResponse ConvertStrategyResult(
-        string result, 
-        ChatRequest request,
+    private Aevatar.Agents.AI.ChatResponse ConvertStrategyResult(
+        string result,
+        Aevatar.Agents.AI.ChatRequest request,
         string strategyName)
     {
         // Add result to conversation history
         var aiState = GetAIState();
         aiState.AddAssistantMessage(result, Configuration.MaxHistory);
         
-            // Create processing steps if available
-            var steps = new List<ProcessingStep>
+            // Create response
+            var response = new Aevatar.Agents.AI.ChatResponse
             {
-                new()
-                {
-                    Type = ProcessingStepType.StrategySelection,
-                    Description = $"Selected {strategyName} strategy",
-                    Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
-                }
+                Content = result,
+                RequestId = request.RequestId
             };
-
-            return new ChatResponse
-        {
-            Content = result,
-            RequestId = request.RequestId,
-            ProcessingSteps = steps
-        };
+            
+            // Add processing steps
+            response.ProcessingSteps.Add(new Aevatar.Agents.AI.ProcessingStep
+            {
+                Type = Aevatar.Agents.AI.ProcessingStepType.StrategySelection,
+                Description = $"Selected {strategyName} strategy",
+                Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+            
+            return response;
     }
     
     #endregion
@@ -290,15 +298,15 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Convert conversation history to entries.
     /// 转换对话历史为条目
     /// </summary>
-    private List<AevatarConversationEntry> ConvertToConversationEntries()
+    private List<Aevatar.Agents.AI.AevatarConversationEntry> ConvertToConversationEntries()
     {
-        var entries = new List<AevatarConversationEntry>();
+        var entries = new List<Aevatar.Agents.AI.AevatarConversationEntry>();
         var aiState = GetAIState();
         var history = aiState.ConversationHistory;
         
         foreach (var msg in history)
         {
-            entries.Add(new AevatarConversationEntry
+            entries.Add(new Aevatar.Agents.AI.AevatarConversationEntry
             {
                 Role = msg.Role.ToString().ToLower(),
                 Content = msg.Content

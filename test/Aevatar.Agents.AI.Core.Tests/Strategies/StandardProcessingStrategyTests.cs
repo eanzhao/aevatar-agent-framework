@@ -168,11 +168,11 @@ public class StandardProcessingStrategyTests
         var context = new AevatarAIContext
         {
             Question = "And today?",
-            ConversationHistory = new List<AevatarConversationEntry>
+            ConversationHistory = {new List<AevatarConversationEntry>
             {
                 new() { Role = "user", Content = "What was the weather yesterday?" },
                 new() { Role = "assistant", Content = "Yesterday was rainy." }
-            }
+            }}
         };
 
         var llmResponse = new AevatarLLMResponse

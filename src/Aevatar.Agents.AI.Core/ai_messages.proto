@@ -36,33 +36,12 @@ message ChatResponseEvent {
   int32 tokens_used = 3;
   int32 processing_mode = 4; // Maps to AevatarAIProcessingMode enum
   google.protobuf.Timestamp timestamp = 5;
-  repeated ProcessingStep processing_steps = 6;
+  // For now, using google.protobuf.Any until we can properly import from AI.Abstractions
+  repeated google.protobuf.Any processing_steps = 6;
 }
 
-// =====================================================
-// Processing Steps
-// =====================================================
-
-// Processing step for advanced reasoning
-message ProcessingStep {
-  ProcessingStepType type = 1;
-  string description = 2;
-  google.protobuf.Timestamp timestamp = 3;
-  string result = 4;
-  map<string, string> metadata = 5;
-}
-
-// Processing step type enumeration
-enum ProcessingStepType {
-  PROCESSING_STEP_TYPE_UNSPECIFIED = 0;
-  PROCESSING_STEP_TYPE_PREPARATION = 1;
-  PROCESSING_STEP_TYPE_LLM_GENERATION = 2;
-  PROCESSING_STEP_TYPE_TOOL_EXECUTION = 3;
-  PROCESSING_STEP_TYPE_REASONING = 4;
-  PROCESSING_STEP_TYPE_ACTION = 5;
-  PROCESSING_STEP_TYPE_OBSERVATION = 6;
-  PROCESSING_STEP_TYPE_STRATEGY_SELECTION = 7;
-}
+// Note: ProcessingStep and ProcessingStepType are now defined in 
+// Aevatar.Agents.AI.Abstractions/ai_messages.proto
 
 // =====================================================
 // Tool Execution Events

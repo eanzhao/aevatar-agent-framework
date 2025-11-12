@@ -23,7 +23,7 @@ public class AevatarAIToolManager : IAevatarAIToolManager
     }
 
     /// <inheritdoc/>
-    public void RegisterAevatarAITool(IAevatarAITool tool)
+    public Task RegisterAevatarAIToolAsync(IAevatarAITool tool)
     {
         ArgumentNullException.ThrowIfNull(tool);
 
@@ -34,10 +34,11 @@ public class AevatarAIToolManager : IAevatarAIToolManager
 
         _tools[tool.Name] = tool;
         _logger.LogInformation("Registered AI tool: {ToolName}", tool.Name);
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public void RegisterAevatarAITool(
+    public async Task RegisterAevatarAIToolAsync(
         string name,
         string description,
         Func<AevatarAIToolContext, Dictionary<string, object>, CancellationToken, Task<AevatarAIToolResult>> executeFunc)
@@ -46,7 +47,7 @@ public class AevatarAIToolManager : IAevatarAIToolManager
         ArgumentNullException.ThrowIfNull(executeFunc);
 
         var tool = new AevatarAIToolDelegate(name, description ?? string.Empty, executeFunc);
-        RegisterAevatarAITool(tool);
+        await RegisterAevatarAIToolAsync(tool);
     }
 
     /// <inheritdoc/>
@@ -57,9 +58,9 @@ public class AevatarAIToolManager : IAevatarAIToolManager
     }
 
     /// <inheritdoc/>
-    public List<IAevatarAITool> GetAllAevatarAITools()
+    public IEnumerable<IAevatarAITool> GetAllAevatarAITools()
     {
-        return _tools.Values.ToList();
+        return _tools.Values;
     }
 
     /// <inheritdoc/>
