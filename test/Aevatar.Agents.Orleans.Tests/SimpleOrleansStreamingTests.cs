@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Runtime.Orleans;
 using Google.Protobuf;

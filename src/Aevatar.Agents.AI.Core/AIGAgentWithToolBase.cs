@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.Core.Messages;

@@ -1,19 +1,18 @@
-namespace Aevatar.Agents.Abstractions;
+namespace Aevatar.Agents.Abstractions.Attributes;
 
 /// <summary>
-/// 标记处理所有事件的方法（通常用于转发）
-/// 方法签名必须是：Task HandleAsync(EventEnvelope envelope)
+/// Marking event handler method that can handle all types of events.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method)]
 public class AllEventHandlerAttribute : Attribute
 {
     /// <summary>
-    /// 是否允许处理自己发出的事件
+    /// Whether handle events published by current agent itself.
     /// </summary>
-    public bool AllowSelfHandling { get; set; } = false;
+    public bool AllowSelfHandling { get; set; }
 
     /// <summary>
-    /// 处理器优先级（数字越小优先级越高）
+    /// Handler priority (The smaller the number, the higher the priority)
     /// </summary>
     public int Priority { get; set; } = int.MaxValue; // 默认最低优先级
 }

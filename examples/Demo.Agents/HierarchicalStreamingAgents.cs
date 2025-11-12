@@ -1,5 +1,6 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;

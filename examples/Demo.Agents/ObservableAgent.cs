@@ -1,5 +1,5 @@
 using Aevatar.Agents;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;

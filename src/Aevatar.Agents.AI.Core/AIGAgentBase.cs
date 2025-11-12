@@ -1,12 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Extensions;
 using Aevatar.Agents.AI.Core.Messages;
 // Models are now in Aevatar.Agents.AI namespace from protobuf
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;

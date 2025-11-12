@@ -1,19 +1,11 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Tests.Messages;
 using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Console;
-using Xunit;
-using Google.Protobuf;
 
 namespace Aevatar.Agents.Core.Tests.Streaming;
 

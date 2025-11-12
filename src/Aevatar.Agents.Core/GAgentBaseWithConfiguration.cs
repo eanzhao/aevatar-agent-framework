@@ -1,5 +1,5 @@
 using System.Reflection;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
