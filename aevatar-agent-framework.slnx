@@ -13,6 +13,7 @@
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
+    <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="Classic C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
   </Folder>
   <Folder Name="/src/">
@@ -23,6 +24,7 @@
     <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
   </Folder>
@@ -31,6 +33,7 @@
     <Project Path="test\Aevatar.Agents.AI.Tests\Aevatar.Agents.AI.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />

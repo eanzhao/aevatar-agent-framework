@@ -129,9 +129,9 @@ public class ProtoActorSubscriptionManager : BaseSubscriptionManager
                 try
                 {
                     var response = await _rootContext.RequestAsync<PingResponse>(
-                        parentPid, 
-                        new PingMessage(), 
-                        TimeSpan.FromSeconds(1));
+                        parentPid,
+                        new PingMessage(),
+                        CancellationToken.None);
                     
                     isHealthy = response != null;
                 }

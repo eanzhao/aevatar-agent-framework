@@ -1,14 +1,14 @@
 using Aevatar.Agents.Core.EventSourcing;
-using EventSourcingDemo.Events;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;
 using Google.Protobuf;
+using MongoDBEventStoreDemo.Events;
 
-namespace EventSourcingDemo;
+namespace MongoDBEventStoreDemo;
 
 /// <summary>
-/// 支持 EventSourcing 的银行账户 Agent
-/// 使用新的批量提交和纯函数式状态转换模式
+/// Bank Account Agent with EventSourcing support (MongoDB backend)
+/// Demonstrates EventSourcing V2 API with MongoDB storage
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
@@ -21,19 +21,15 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"Bank Account Agent for {State.AccountHolder}");
+        return Task.FromResult($"MongoDB Bank Account Agent for {State.AccountHolder}");
     }
 
-    /// <summary>
-    /// Get current state (for demo/testing)
-    /// </summary>
-    public BankAccountState GetState() => State;
+    public new BankAccountState GetState() => State;
 
-    // ========== Business Operations (使用新 API) ==========
+    protected override ISnapshotStrategy SnapshotStrategy => new IntervalSnapshotStrategy(10);
 
-    /// <summary>
-    /// 创建账户
-    /// </summary>
+    // ========== Business Operations ==========
+
     public async Task CreateAccountAsync(string accountHolder, decimal initialBalance = 0)
     {
         Logger?.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
@@ -44,23 +40,18 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
             AccountHolder = accountHolder,
             InitialBalance = (double)initialBalance
         };
-        
-        // ✅ 新 API: RaiseEvent (暂存)
+
         RaiseEvent(evt, new Dictionary<string, string>
         {
             ["Operation"] = "CreateAccount",
             ["AccountHolder"] = accountHolder
         });
 
-        // ✅ 新 API: ConfirmEventsAsync (批量提交)
         await ConfirmEventsAsync();
 
         Logger?.LogInformation("Account created successfully. Version: {Version}", GetCurrentVersion());
     }
 
-    /// <summary>
-    /// 存款
-    /// </summary>
     public async Task DepositAsync(decimal amount, string description = "")
     {
         if (amount <= 0)
@@ -76,22 +67,17 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
             Description = description ?? $"Deposit at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"
         };
 
-        // ✅ 新 API: RaiseEvent (暂存)
         RaiseEvent(evt, new Dictionary<string, string>
         {
             ["Operation"] = "Deposit",
             ["Amount"] = amount.ToString("F2")
         });
 
-        // ✅ 新 API: ConfirmEventsAsync (批量提交)
         await ConfirmEventsAsync();
 
         Logger?.LogInformation("Deposit confirmed. New balance: ${Balance}", State.Balance);
     }
 
-    /// <summary>
-    /// 取款
-    /// </summary>
     public async Task WithdrawAsync(decimal amount, string description = "")
     {
         if (amount <= 0)
@@ -113,60 +99,49 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
             Description = description ?? $"Withdrawal at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"
         };
 
-        // ✅ 新 API: RaiseEvent (暂存)
         RaiseEvent(evt, new Dictionary<string, string>
         {
             ["Operation"] = "Withdraw",
             ["Amount"] = amount.ToString("F2")
         });
 
-        // ✅ 新 API: ConfirmEventsAsync (批量提交)
         await ConfirmEventsAsync();
 
         Logger?.LogInformation("Withdrawal confirmed. New balance: ${Balance}", State.Balance);
     }
 
-    /// <summary>
-    /// 批量交易（展示批量提交优势）
-    /// </summary>
-    public async Task BatchTransactionsAsync(
-        IEnumerable<(string type, decimal amount, string description)> transactions)
+    public async Task BatchTransactionsAsync(params (decimal amount, string description)[] transactions)
     {
         Logger?.LogInformation("Starting batch transactions...");
 
-        // ✅ 新 API 优势: 可以先暂存多个事件，然后一次性提交
-        foreach (var (type, amount, description) in transactions)
+        foreach (var (amount, description) in transactions)
         {
-            IMessage evt = type.ToLower() switch
+            if (amount > 0)
             {
-                "deposit" => new MoneyDeposited 
-                { 
-                    Amount = (double)amount, 
-                    Description = description 
-                },
-                "withdraw" => new MoneyWithdrawn 
-                { 
-                    Amount = (double)amount, 
-                    Description = description 
-                },
-                _ => throw new ArgumentException($"Unknown transaction type: {type}")
-            };
-
-            RaiseEvent(evt);  // 暂存，不立即提交
+                var depositEvt = new MoneyDeposited
+                {
+                    Amount = (double)amount,
+                    Description = description
+                };
+                RaiseEvent(depositEvt);
+            }
+            else
+            {
+                var withdrawEvt = new MoneyWithdrawn
+                {
+                    Amount = (double)Math.Abs(amount),
+                    Description = description
+                };
+                RaiseEvent(withdrawEvt);
+            }
         }
 
-        // ✅ 一次性批量提交所有事件
         await ConfirmEventsAsync();
-
         Logger?.LogInformation("Batch transactions completed. New balance: ${Balance}", State.Balance);
     }
 
-    // ========== Pure Functional State Transition (新 API) ==========
+    // ========== Pure Functional State Transition ==========
 
-    /// <summary>
-    /// ✅ 纯函数式状态转换
-    /// 框架已自动Clone状态，开发者只需修改传入的state即可
-    /// </summary>
     protected override void TransitionState(BankAccountState state, IMessage evt)
     {
         Logger?.LogInformation("🔄 TransitionState called with event type: {EventType}", evt.GetType().Name);
@@ -207,3 +182,4 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
     }
 }
+

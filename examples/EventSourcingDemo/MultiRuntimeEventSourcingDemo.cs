@@ -1,58 +1,49 @@
-using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.EventSourcing;
-using Aevatar.Agents.Runtime.ProtoActor;
-using Aevatar.Agents.Runtime.ProtoActor.EventSourcing;
-using EventSourcingDemo;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Proto;
-using Demo.Agents;
 
 namespace EventSourcingDemo;
 
 /// <summary>
-/// 多运行时 EventSourcing 演示
-/// 展示 EventSourcing 在不同运行时下的使用
+/// 多运行时 EventSourcing 演示（V2）
+/// 使用新的 WithEventSourcingAsync 扩展方法
 /// </summary>
 public static class MultiRuntimeEventSourcingDemo
 {
     public static async Task RunAsync()
     {
-        Console.WriteLine("\n\n🌌 ===========================================");
-        Console.WriteLine("   Multi-Runtime EventSourcing Demo");
-        Console.WriteLine("   展示 EventSourcing 在不同运行时下的工作");
-        Console.WriteLine("============================================\n");
-        
-        // 创建共享的 EventStore（所有运行时共享）
-        var sharedEventStore = new InMemoryEventStore();
+        Console.WriteLine("\n\n");
+        Console.WriteLine("🌌 ═══════════════════════════════════════════════════");
+        Console.WriteLine("   Multi-Runtime EventSourcing Demo V2");
+        Console.WriteLine("   展示 EventSourcing 在不同运行时下的统一API");
+        Console.WriteLine("═══════════════════════════════════════════════════\n");
         
         // 配置依赖注入
         var services = ConfigureServices();
         var serviceProvider = services.BuildServiceProvider();
         
+        // 创建共享的 EventStore（所有运行时共享同一个存储）
+        var sharedEventStore = serviceProvider.GetRequiredService<InMemoryEventStore>();
+        
         // 1. Local 运行时演示
         await DemoLocalRuntime(sharedEventStore, serviceProvider);
         
-        // 2. ProtoActor 运行时演示
-        await DemoProtoActorRuntime(sharedEventStore, serviceProvider);
-        
-        // 3. Orleans 运行时说明（需要完整服务器）
+        // 2. Orleans 运行时说明
         ShowOrleansInstructions();
         
-        Console.WriteLine("\n✅ Multi-Runtime EventSourcing Demo 完成！");
-        Console.WriteLine("🌟 所有运行时都成功支持 EventSourcing！");
+        Console.WriteLine("\n✅ Multi-Runtime EventSourcing Demo V2 完成！");
+        Console.WriteLine("🌟 所有运行时都使用统一的 EventSourcing API！");
     }
     
     /// <summary>
-    /// Local 运行时演示
+    /// Local 运行时演示（使用新 API）
     /// </summary>
-    private static async Task DemoLocalRuntime(IEventStore eventStore, IServiceProvider serviceProvider)
+    private static async Task DemoLocalRuntime(InMemoryEventStore eventStore, IServiceProvider serviceProvider)
     {
-        Console.WriteLine("📍 Local Runtime EventSourcing");
-        Console.WriteLine("================================");
+        Console.WriteLine("📍 Local Runtime EventSourcing (V2)");
+        Console.WriteLine("════════════════════════════════════════");
         
         var agentId = Guid.NewGuid();
         Console.WriteLine($"Agent ID: {agentId:N}");
@@ -61,217 +52,157 @@ public static class MultiRuntimeEventSourcingDemo
         var logger = serviceProvider.GetRequiredService<ILogger<LocalGAgentActorFactory>>();
         var factory = new LocalGAgentActorFactory(serviceProvider, logger);
         
-        // 场景1：通过 Actor 创建和管理 Agent
-        Console.WriteLine("\n⚡ 场景1：通过 Actor 创建 Agent 并执行交易");
-        IGAgentActor? actor = null;
+        // ✅ 场景1：使用新的 WithEventSourcingAsync 扩展方法
+        Console.WriteLine("\n⚡ 场景1：使用 WithEventSourcingAsync 扩展方法");
+        Console.WriteLine("───────────────────────────────────────────────");
+        
+        // 创建 Actor 并启用 EventSourcing（一行搞定！）
+        var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)
+            .WithEventSourcingAsync(eventStore, serviceProvider);  // ✅ 新API
+        
+        var agent = actor.GetAgent() as BankAccountAgent;
+        if (agent == null)
         {
-            // 使用工厂创建 Actor（Actor 内部会创建 Agent）
-            actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
-            
-            // 通过 Actor 获取 Agent
-            var agent = actor.GetAgent() as BankAccountAgent;
-            if (agent == null)
-            {
-                Console.WriteLine("  ❌ 无法获取 Agent 实例");
-                return;
-            }
-            
-            // 注入 EventStore（如果 Agent 支持）
-            if (agent is GAgentBaseWithEventSourcing<BankAccountState> esAgent)
-            {
-                // 使用反射注入 EventStore
-                var field = typeof(GAgentBaseWithEventSourcing<BankAccountState>)
-                    .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                field?.SetValue(esAgent, eventStore);
-                Console.WriteLine("  ✓ EventStore 已注入到 Agent");
-            }
-            
-            // 执行交易
-            await agent.CreateAccountAsync("Local User", 1000);
-            await agent.DepositAsync(500, "Salary");
-            await agent.WithdrawAsync(200, "Shopping");
-            
-            Console.WriteLine($"  余额: ${agent.GetState().Balance}");
-            Console.WriteLine($"  版本: {agent.GetCurrentVersion()}");
-            Console.WriteLine($"  交易数: {agent.GetState().TransactionCount}");
+            Console.WriteLine("  ❌ 无法获取 Agent 实例");
+            return;
         }
         
-        // 场景2：模拟崩溃和恢复
-        Console.WriteLine("\n⚡ 场景2：模拟崩溃后恢复（重新创建 Actor）");
+        Console.WriteLine("  ✓ Actor 创建成功");
+        Console.WriteLine("  ✓ EventSourcing 自动启用");
+        
+        // 执行交易
+        await agent.CreateAccountAsync("Local User V2", 1000);
+        await agent.DepositAsync(500, "Salary");
+        await agent.WithdrawAsync(200, "Shopping");
+        
+        Console.WriteLine($"\n  💵 Balance: ${agent.GetState().Balance:F2}");
+        Console.WriteLine($"  📈 Version: v{agent.GetCurrentVersion()}");
+        Console.WriteLine($"  🔢 Transactions: {agent.GetState().TransactionCount}");
+        
+        // ✅ 场景2：批量交易演示
+        Console.WriteLine("\n⚡ 场景2：批量交易（展示批量提交优势）");
+        Console.WriteLine("───────────────────────────────────────────────");
+        
+        var batchTransactions = new[]
         {
-            // 先停止原 Actor
-            if (actor != null)
-            {
-                await actor.DeactivateAsync();
-                Console.WriteLine("  原 Actor 已停止");
-            }
+            ("deposit", 300m, "Bonus"),
+            ("deposit", 100m, "Refund"),
+            ("withdraw", 50m, "Coffee")
+        };
+        
+        await agent.BatchTransactionsAsync(batchTransactions);
+        
+        Console.WriteLine($"  ✓ Batch completed (3 transactions in 1 commit)");
+        Console.WriteLine($"  💵 New Balance: ${agent.GetState().Balance:F2}");
+        Console.WriteLine($"  📈 New Version: v{agent.GetCurrentVersion()}");
+        
+        // ✅ 场景3：崩溃恢复
+        Console.WriteLine("\n⚡ 场景3：崩溃恢复（自动事件重放）");
+        Console.WriteLine("───────────────────────────────────────────────");
+        
+        // 停止原 Actor
+        await actor.DeactivateAsync();
+        Console.WriteLine("  ✓ 原 Actor 已停止");
+        
+        // 检查事件
+        var events = await eventStore.GetEventsAsync(agentId);
+        Console.WriteLine($"  📝 EventStore 中的事件数: {events.Count}");
+        
+        // 创建新 Actor 并自动恢复
+        var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)
+            .WithEventSourcingAsync(eventStore, serviceProvider);  // ✅ 自动重放
+        
+        var recoveredAgent = newActor.GetAgent() as BankAccountAgent;
+        if (recoveredAgent != null)
+        {
+            Console.WriteLine($"\n  ✅ 状态完美恢复:");
+            Console.WriteLine($"     Balance: ${recoveredAgent.GetState().Balance:F2}");
+            Console.WriteLine($"     Version: v{recoveredAgent.GetCurrentVersion()}");
+            Console.WriteLine($"     Holder: {recoveredAgent.GetState().AccountHolder}");
+            Console.WriteLine($"     Transactions: {recoveredAgent.GetState().TransactionCount}");
             
-            // 检查事件是否被保存
-            var events = await eventStore.GetEventsAsync(agentId);
-            Console.WriteLine($"  保存的事件数: {events.Count}");
-            
-            // 创建新的 Actor（模拟系统重启）
-            var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
-
-            if (newActor.GetAgent() is BankAccountAgent recoveredAgent)
+            // 验证
+            if (recoveredAgent.GetState().Balance == 1650.0 && 
+                recoveredAgent.GetCurrentVersion() == 7)  // 1 create + 2 individual + 3 batch + 0 (batch is 1 commit)
             {
-                // 注入 EventStore 并恢复
-                if (recoveredAgent is GAgentBaseWithEventSourcing<BankAccountState> esAgent)
-                {
-                    var field = typeof(GAgentBaseWithEventSourcing<BankAccountState>)
-                        .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    field?.SetValue(esAgent, eventStore);
-                    
-                    // 激活时重放事件
-                    await esAgent.OnActivateAsync();
-                }
-                
-                Console.WriteLine($"  恢复后余额: ${recoveredAgent.GetState().Balance}");
-                Console.WriteLine($"  恢复后版本: {recoveredAgent.GetCurrentVersion()}");
-                Console.WriteLine($"  账户持有人: {recoveredAgent.GetState().AccountHolder}");
-                
-                // 验证
-                if (recoveredAgent.GetState().Balance == 1300.0 && 
-                    recoveredAgent.GetCurrentVersion() == 3)
-                {
-                    Console.WriteLine("  ✅ 状态完美恢复！Actor-Agent 模型验证成功！");
-                }
+                Console.WriteLine($"\n  🎉 Local Runtime EventSourcing V2 验证成功!");
             }
         }
+        
+        // ✅ 场景4：展示事件元数据
+        Console.WriteLine("\n⚡ 场景4：事件元数据（用于审计和调试）");
+        Console.WriteLine("───────────────────────────────────────────────");
+        
+        // 获取最近的几个事件
+        var recentEvents = await eventStore.GetEventsAsync(agentId, fromVersion: 1, maxCount: 5);
+        Console.WriteLine($"  📝 最近 {recentEvents.Count} 个事件:");
+        
+        foreach (var evt in recentEvents)
+        {
+            var eventName = evt.EventType.Split('.').Last();
+            var metadataStr = evt.Metadata.Any() 
+                ? $" | Metadata: {string.Join(", ", evt.Metadata.Select(kv => $"{kv.Key}={kv.Value}"))}"
+                : "";
+            Console.WriteLine($"     v{evt.Version}: {eventName,-20}{metadataStr}");
+        }
+        
+        Console.WriteLine($"\n  ✅ Local Runtime 演示完成!");
     }
     
     /// <summary>
-    /// ProtoActor 运行时演示
-    /// </summary>
-    private static async Task DemoProtoActorRuntime(IEventStore eventStore, IServiceProvider serviceProvider)
-    {
-        Console.WriteLine("\n\n📍 ProtoActor Runtime EventSourcing");
-        Console.WriteLine("=====================================");
-        
-        var agentId = Guid.NewGuid();
-        Console.WriteLine($"Agent ID: {agentId:N}");
-        
-        // 创建 Actor System
-        var system = new ActorSystem();
-        await using (system)
-        {
-            var logger = serviceProvider.GetRequiredService<ILogger<ProtoActorGAgentActorFactory>>();
-            var factory = new ProtoActorGAgentActorFactory(serviceProvider, system, logger);
-            
-            // 场景1：通过 Actor 创建和管理 Agent
-            Console.WriteLine("\n⚡ 场景1：通过 Actor 创建 Agent 并执行交易");
-            IGAgentActor? actor = null;
-            {
-                // 使用工厂创建 Actor（Actor 内部会创建 Agent）
-                actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
-                
-                // 通过 Actor 获取 Agent
-                var agent = actor.GetAgent() as BankAccountAgent;
-                if (agent == null)
-                {
-                    Console.WriteLine("  ❌ 无法获取 Agent 实例");
-                    return;
-                }
-                
-                // 注入 EventStore（如果 Agent 支持）
-                if (agent is GAgentBaseWithEventSourcing<BankAccountState> esAgent)
-                {
-                    // 使用反射注入 EventStore
-                    var field = typeof(GAgentBaseWithEventSourcing<BankAccountState>)
-                        .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    field?.SetValue(esAgent, eventStore);
-                    Console.WriteLine("  ✓ EventStore 已注入到 Agent");
-                }
-                
-                // 执行交易
-                await agent.CreateAccountAsync("ProtoActor User", 2000);
-                await agent.DepositAsync(1000, "Bonus");
-                await agent.WithdrawAsync(500, "Rent");
-                
-                Console.WriteLine($"  余额: ${agent.GetState().Balance}");
-                Console.WriteLine($"  版本: {agent.GetCurrentVersion()}");
-                Console.WriteLine($"  交易数: {agent.GetState().TransactionCount}");
-            }
-            
-            // 场景2：模拟崩溃和恢复
-            Console.WriteLine("\n⚡ 场景2：模拟崩溃后恢复（重新创建 Actor）");
-            {
-                // 先停止原 Actor
-                if (actor != null)
-                {
-                    await actor.DeactivateAsync();
-                    Console.WriteLine("  原 Actor 已停止");
-                }
-                
-                // 检查事件是否被保存
-                var events = await eventStore.GetEventsAsync(agentId);
-                Console.WriteLine($"  事件总数: {events.Count}");
-                
-                // 创建新的 Actor（模拟系统重启）
-                var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
-
-                if (newActor.GetAgent() is BankAccountAgent recoveredAgent)
-                {
-                    // 注入 EventStore 并恢复
-                    if (recoveredAgent is GAgentBaseWithEventSourcing<BankAccountState> esAgent)
-                    {
-                        var field = typeof(GAgentBaseWithEventSourcing<BankAccountState>)
-                            .GetField("_eventStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                        field?.SetValue(esAgent, eventStore);
-                        
-                        // 激活时重放事件
-                        await esAgent.OnActivateAsync();
-                    }
-                    
-                    Console.WriteLine($"  重建后余额: ${recoveredAgent.GetState().Balance}");
-                    Console.WriteLine($"  重建后版本: {recoveredAgent.GetCurrentVersion()}");
-                    
-                    if (recoveredAgent.GetState().Balance == 2500.0)
-                    {
-                        Console.WriteLine("  ✅ ProtoActor EventSourcing 验证成功！Actor-Agent 模型验证成功！");
-                    }
-                }
-            }
-            
-            // 关闭系统
-            await system.ShutdownAsync();
-        }
-    }
-    
-    /// <summary>
-    /// Orleans 运行时说明
+    /// Orleans 运行时说明（V2 更新）
     /// </summary>
     private static void ShowOrleansInstructions()
     {
-        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing");
-        Console.WriteLine("==================================");
-        Console.WriteLine("Orleans 支持两种 EventSourcing 方式：");
-        Console.WriteLine();
-        Console.WriteLine("1️⃣ 使用 JournaledGrain（推荐）");
-        Console.WriteLine("   ```csharp");
-        Console.WriteLine("   [LogConsistencyProvider(\"LogStorage\")]");
-        Console.WriteLine("   public class MyGrain : JournaledGrain<State, Event>");
-        Console.WriteLine("   {");
-        Console.WriteLine("       protected override void TransitionState(State state, Event evt)");
-        Console.WriteLine("       {");
-        Console.WriteLine("           // 状态转换逻辑");
-        Console.WriteLine("       }");
-        Console.WriteLine("   }");
-        Console.WriteLine("   ```");
-        Console.WriteLine();
-        Console.WriteLine("2️⃣ 使用自定义 EventStore");
-        Console.WriteLine("   - OrleansEventSourcingGrain");
-        Console.WriteLine("   - 手动管理事件持久化");
-        Console.WriteLine();
-        Console.WriteLine("📝 注意：Orleans 需要运行完整的 Silo 服务器");
-        Console.WriteLine("   配置示例：");
-        Console.WriteLine("   ```csharp");
-        Console.WriteLine("   siloBuilder.AddJournaledGrainEventSourcing(options =>");
-        Console.WriteLine("   {");
-        Console.WriteLine("       options.UseLogStorage = true;");
-        Console.WriteLine("       options.UseMemoryStorage = true;");
-        Console.WriteLine("   });");
-        Console.WriteLine("   ```");
+        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing (V2)");
+        Console.WriteLine("════════════════════════════════════════════");
+        Console.WriteLine("✅ Orleans 现在使用统一的 IEventStore 接口！\n");
+        
+        Console.WriteLine("🔧 配置方式 (Silo):");
+        Console.WriteLine("───────────────────────────────────────────────");
+        Console.WriteLine("```csharp");
+        Console.WriteLine("siloBuilder.AddAgentEventSourcing(options =>");
+        Console.WriteLine("{");
+        Console.WriteLine("    options.UseInMemoryStore = false;  // 使用 OrleansEventStore");
+        Console.WriteLine("    options.StorageProvider = \"EventStoreStorage\";");
+        Console.WriteLine("});");
+        Console.WriteLine("");
+        Console.WriteLine("// 配置 GrainStorage");
+        Console.WriteLine("siloBuilder.AddMemoryGrainStorage(\"EventStoreStorage\");");
+        Console.WriteLine("// 或使用其他存储:");
+        Console.WriteLine("// siloBuilder.AddAzureTableGrainStorage(\"EventStoreStorage\", ...);");
+        Console.WriteLine("```\n");
+        
+        Console.WriteLine("💡 使用方式 (Client):");
+        Console.WriteLine("───────────────────────────────────────────────");
+        Console.WriteLine("```csharp");
+        Console.WriteLine("// 方式1: 通过工厂创建");
+        Console.WriteLine("var factory = new OrleansGAgentActorFactory(grainFactory, serviceProvider, logger);");
+        Console.WriteLine("var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)");
+        Console.WriteLine("    .WithEventSourcingAsync(eventStore);  // ✅ 统一API");
+        Console.WriteLine("");
+        Console.WriteLine("// 方式2: 直接使用 Grain");
+        Console.WriteLine("var grain = grainFactory.GetGrain<IStandardGAgentGrain>(agentId.ToString());");
+        Console.WriteLine("await grain.ActivateAsync();");
+        Console.WriteLine("```\n");
+        
+        Console.WriteLine("🌟 统一的 EventSourcing 特性:");
+        Console.WriteLine("  ✓ 批量事件提交 (RaiseEvent + ConfirmEventsAsync)");
+        Console.WriteLine("  ✓ 纯函数式状态转换 (TransitionState)");
+        Console.WriteLine("  ✓ 自动事件重放 (OnActivateAsync)");
+        Console.WriteLine("  ✓ 快照支持 (Snapshot Strategy)");
+        Console.WriteLine("  ✓ 乐观并发控制 (Optimistic Concurrency)");
+        Console.WriteLine("  ✓ 元数据支持 (Metadata)");
+        Console.WriteLine("  ✓ GrainStorage 持久化 (支持多种存储提供者)");
+        
+        Console.WriteLine("\n📝 存储提供者支持:");
+        Console.WriteLine("  • MemoryGrainStorage (开发/测试)");
+        Console.WriteLine("  • AzureTableGrainStorage (生产)");
+        Console.WriteLine("  • AdoNetGrainStorage (SQL数据库)");
+        Console.WriteLine("  • 自定义存储提供者");
+        
+        Console.WriteLine("\n💡 提示: Orleans 需要运行完整的 Silo 服务器");
+        Console.WriteLine("        详见: examples/Demo.AppHost/Program.cs");
     }
     
     /// <summary>
@@ -288,17 +219,8 @@ public static class MultiRuntimeEventSourcingDemo
             builder.SetMinimumLevel(LogLevel.Information);
         });
         
-        // EventStore - 注册为单例，所有 Agent 共享
-        services.AddSingleton<IEventStore, InMemoryEventStore>();
-        
-        // 注册 BankAccountAgent 的工厂（用于 DI 创建）
-        services.AddTransient<BankAccountAgent>(sp =>
-        {
-            var eventStore = sp.GetRequiredService<IEventStore>();
-            var logger = sp.GetService<ILogger<BankAccountAgent>>();
-            // 注意：这里的 Guid.Empty 会被工厂传入的实际 ID 替换
-            return new BankAccountAgent(Guid.Empty, eventStore, logger);
-        });
+        // EventStore - 注册为单例（所有运行时共享）
+        services.AddSingleton<InMemoryEventStore>();
         
         return services;
     }

@@ -1,79 +1,82 @@
+using System.Collections.Concurrent;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 
 namespace Aevatar.Agents.Core.EventSourcing;
 
 /// <summary>
-/// 内存事件存储实现（用于测试和 Local 运行时）
+/// In-memory event store implementation (for testing and Local runtime)
+/// Thread-safe with optimistic concurrency control
 /// </summary>
 public class InMemoryEventStore : IEventStore
 {
-    private readonly Dictionary<Guid, List<StateLogEvent>> _events = new();
-    private readonly Lock _lock = new();
+    private readonly ConcurrentDictionary<Guid, List<AgentStateEvent>> _events = new();
+    private readonly ConcurrentDictionary<Guid, AgentSnapshot> _snapshots = new();
+    private readonly object _lock = new();
 
-    public Task SaveEventAsync(Guid agentId, StateLogEvent logEvent, CancellationToken ct = default)
-    {
-        lock (_lock)
-        {
-            if (!_events.ContainsKey(agentId))
-            {
-                _events[agentId] = new List<StateLogEvent>();
-            }
+    // ========== Event Operations ==========
 
-            _events[agentId].Add(logEvent);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task SaveEventsAsync(Guid agentId, IEnumerable<StateLogEvent> logEvents, CancellationToken ct = default)
-    {
-        lock (_lock)
-        {
-            if (!_events.ContainsKey(agentId))
-            {
-                _events[agentId] = new List<StateLogEvent>();
-            }
-
-            _events[agentId].AddRange(logEvents);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(Guid agentId, CancellationToken ct = default)
-    {
-        lock (_lock)
-        {
-            if (_events.TryGetValue(agentId, out var events))
-            {
-                // Return events sorted by version
-                var sortedEvents = events.OrderBy(e => e.Version).ToList();
-                return Task.FromResult<IReadOnlyList<StateLogEvent>>(sortedEvents);
-            }
-
-            return Task.FromResult<IReadOnlyList<StateLogEvent>>(Array.Empty<StateLogEvent>());
-        }
-    }
-
-    public Task<IReadOnlyList<StateLogEvent>> GetEventsAsync(
+    public Task<long> AppendEventsAsync(
         Guid agentId,
-        long fromVersion,
-        long toVersion,
+        IEnumerable<AgentStateEvent> events,
+        long expectedVersion,
         CancellationToken ct = default)
     {
         lock (_lock)
         {
-            if (_events.TryGetValue(agentId, out var events))
-            {
-                var filtered = events
-                    .Where(e => e.Version >= fromVersion && e.Version <= toVersion)
-                    .OrderBy(e => e.Version)
-                    .ToList();
+            var eventList = _events.GetOrAdd(agentId, _ => new List<AgentStateEvent>());
 
-                return Task.FromResult<IReadOnlyList<StateLogEvent>>(filtered);
+            // Optimistic concurrency check
+            var currentVersion = eventList.Any() ? eventList.Max(e => e.Version) : 0;
+            if (currentVersion != expectedVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Concurrency conflict: expected version {expectedVersion}, got {currentVersion}");
             }
 
-            return Task.FromResult<IReadOnlyList<StateLogEvent>>(Array.Empty<StateLogEvent>());
+            // Append events with incremented versions
+            var newVersion = currentVersion;
+            foreach (var evt in events)
+            {
+                evt.Version = ++newVersion;
+                eventList.Add(evt);
+            }
+
+            return Task.FromResult(newVersion);
+        }
+    }
+
+    public Task<IReadOnlyList<AgentStateEvent>> GetEventsAsync(
+        Guid agentId,
+        long? fromVersion = null,
+        long? toVersion = null,
+        int? maxCount = null,
+        CancellationToken ct = default)
+    {
+        lock (_lock)
+        {
+            if (!_events.TryGetValue(agentId, out var eventList))
+            {
+                return Task.FromResult<IReadOnlyList<AgentStateEvent>>(Array.Empty<AgentStateEvent>());
+            }
+
+            var query = eventList.AsEnumerable();
+
+            // Range query
+            if (fromVersion.HasValue)
+                query = query.Where(e => e.Version >= fromVersion.Value);
+
+            if (toVersion.HasValue)
+                query = query.Where(e => e.Version <= toVersion.Value);
+
+            // Order by version
+            query = query.OrderBy(e => e.Version);
+
+            // Pagination
+            if (maxCount.HasValue)
+                query = query.Take(maxCount.Value);
+
+            return Task.FromResult<IReadOnlyList<AgentStateEvent>>(query.ToList());
         }
     }
 
@@ -81,23 +84,26 @@ public class InMemoryEventStore : IEventStore
     {
         lock (_lock)
         {
-            if (_events.TryGetValue(agentId, out var events) && events.Count > 0)
+            if (!_events.TryGetValue(agentId, out var eventList) || !eventList.Any())
             {
-                return Task.FromResult(events.Max(e => e.Version));
+                return Task.FromResult(0L);
             }
 
-            return Task.FromResult(0L);
-        }
+            return Task.FromResult(eventList.Max(e => e.Version));
+            }
     }
 
-    public Task ClearEventsAsync(Guid agentId, CancellationToken ct = default)
-    {
-        lock (_lock)
-        {
-            _events.Remove(agentId);
-        }
+    // ========== Snapshot Operations ==========
 
+    public Task SaveSnapshotAsync(Guid agentId, AgentSnapshot snapshot, CancellationToken ct = default)
+    {
+        _snapshots[agentId] = snapshot;
         return Task.CompletedTask;
     }
-}
 
+    public Task<AgentSnapshot?> GetLatestSnapshotAsync(Guid agentId, CancellationToken ct = default)
+    {
+        _snapshots.TryGetValue(agentId, out var snapshot);
+        return Task.FromResult(snapshot);
+    }
+}

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Hosting;
 using Orleans.TestingHost;
+using Orleans.Serialization;
 
 namespace Aevatar.Agents.TestBase;
 
@@ -49,10 +50,18 @@ public class ClusterFixture : IDisposable
                         logging.AddConsole();
                         logging.SetMinimumLevel(LogLevel.Warning);
                     });
+                    
+                    // Register in-memory EventSourcing for testing
+                    services.AddInMemoryEventSourcing();
+                    
+                    services.AddSerializer(serializerBuilder =>
+                    {
+                        serializerBuilder.AddProtobufSerializer();
+                    });
                 })
-                // Remove UseLocalhostClustering() - TestCluster handles clustering automatically
                 .AddMemoryStreams("StreamProvider")
                 .AddMemoryGrainStorage("PubSubStore")
+                .AddMemoryGrainStorage("EventStoreStorage")
                 .AddMemoryGrainStorageAsDefault()
                 .AddLogStorageBasedLogConsistencyProvider("LogStorage");
         }
@@ -63,7 +72,17 @@ public class ClusterFixture : IDisposable
         public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
         {
             clientBuilder
-                .AddMemoryStreams("StreamProvider");
+                .AddMemoryStreams("StreamProvider")
+                .ConfigureServices(services =>
+                {
+                    // Register in-memory EventSourcing for testing
+                    services.AddInMemoryEventSourcing();
+                    
+                    services.AddSerializer(serializerBuilder =>
+                    {
+                        serializerBuilder.AddProtobufSerializer();
+                    });
+                });
         }
     }
 }

@@ -20,7 +20,15 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
 {
     // ============ 字段 ============
 
-    protected readonly TState State = new();
+    /// <summary>
+    /// Internal state field (mutable for EventSourcing state transitions)
+    /// </summary>
+    private TState _state = new();
+    
+    /// <summary>
+    /// Agent state (readonly reference, but internal field is mutable)
+    /// </summary>
+    protected TState State => _state;
     private ILogger _logger = NullLogger.Instance;
     protected IEventPublisher? EventPublisher;
 
