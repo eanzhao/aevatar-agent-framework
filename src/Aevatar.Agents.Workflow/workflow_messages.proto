@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package Aevatar.Agents.Workflow;
+
+import "google/protobuf/timestamp.proto";
+
+// ========== Agent State ==========
+
+// Input Agent State
+message InputGAgentState {
+    string agent_id = 1;
+    string input = 2;
+    google.protobuf.Timestamp last_updated = 3;
+    int32 update_count = 4;
+}
+
+// Worker Test Agent State - For testing error handling scenarios in workflow
+message WorkerTestGAgentState {
+    string agent_id = 1;
+    string input = 2;
+    google.protobuf.Timestamp last_updated = 3;
+    int32 update_count = 4;
+    string failure_summary = 5;  // Failure summary for error simulation/testing
+    string member_name = 6;  // Member name for workflow
+}
+
+// ========== Event Messages ==========
+
+// Set Input Event - Updates the input value
+message SetInputEvent {
+    string input = 1;
+    string reason = 2;  // Optional reason for the update
+}
+
+// Set Failure Summary Event - Sets failure summary for error simulation/testing
+message SetFailureSummaryEvent {
+    string failure_summary = 1;
+}
+
+// ========== Configuration Messages ==========
+
+// Input Configuration - Configuration for InputGAgent
+message InputConfiguration {
+    string input = 1;
+    string description = 2;  // Optional description
+}
+
+// Worker Test Configuration - Configuration for WorkerTestGAgent
+message WorkerTestConfiguration {
+    string input = 1;
+    string description = 2;  // Optional description
+    string failure_summary = 3;  // Optional failure summary for error simulation/testing
+    string member_name = 4;  // Optional member name
+}
