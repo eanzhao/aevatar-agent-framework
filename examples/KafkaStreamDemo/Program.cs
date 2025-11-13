@@ -1,7 +1,7 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Factory;
-using Aevatar.Agents.Orleans;
+using Aevatar.Agents.Runtime.Orleans;
 using Kafka.Demo;
 using KafkaStreamDemo;
 using Microsoft.Extensions.Configuration;
@@ -243,7 +243,7 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager)
         
         // Get consumer state from Grain (not from local actor instance)
         Console.WriteLine("7. Checking Consumer State...");
-        var consumerOrleansActor = (Aevatar.Agents.Orleans.OrleansGAgentActor)consumerActor;
+        var consumerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)consumerActor;
         var consumerState = await consumerOrleansActor.GetStateFromGrainAsync<KafkaConsumerState>();
         
         if (consumerState != null)

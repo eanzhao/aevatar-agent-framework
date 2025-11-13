@@ -16,17 +16,10 @@ namespace Aevatar.Agents.Orleans.EventSourcing;
 public class OrleansEventStore : IEventStore
 {
     private readonly IGrainFactory _grainFactory;
-    private readonly IEventRepository _eventRepository;
-    private readonly ILogger<OrleansEventStore> _logger;
 
-    public OrleansEventStore(
-        IGrainFactory grainFactory,
-        IEventRepository eventRepository,
-        ILogger<OrleansEventStore> logger)
+    public OrleansEventStore(IGrainFactory grainFactory)
     {
         _grainFactory = grainFactory;
-        _eventRepository = eventRepository;
-        _logger = logger;
     }
 
     // ========== Event Operations ==========
@@ -49,14 +42,17 @@ public class OrleansEventStore : IEventStore
         int? maxCount = null,
         CancellationToken ct = default)
     {
-        // Directly query from repository (no grain needed for reads)
-        return await _eventRepository.GetEventsAsync(agentId, fromVersion, toVersion, maxCount, ct);
+        // Query through Grain to ensure we use the same repository instance as writes
+        // This is important in test scenarios where Silo and Client may have different ServiceProviders
+        var storageGrain = _grainFactory.GetGrain<IEventStorageGrain>(agentId);
+        return await storageGrain.GetEventsAsync(fromVersion, toVersion, maxCount);
     }
 
     public async Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default)
     {
-        // Directly query from repository
-        return await _eventRepository.GetLatestVersionAsync(agentId, ct);
+        // Query through Grain to ensure we use the same repository instance as writes
+        var storageGrain = _grainFactory.GetGrain<IEventStorageGrain>(agentId);
+        return await storageGrain.GetLatestVersionAsync();
     }
 
     // ========== Snapshot Operations ==========
@@ -85,6 +81,8 @@ public class OrleansEventStore : IEventStore
 public interface IEventStorageGrain : IGrainWithGuidKey
 {
     Task<long> AppendEventsAsync(List<AgentStateEvent> events, long expectedVersion);
+    Task<IReadOnlyList<AgentStateEvent>> GetEventsAsync(long? fromVersion = null, long? toVersion = null, int? maxCount = null);
+    Task<long> GetLatestVersionAsync();
     Task SaveSnapshotAsync(AgentSnapshot snapshot);
     Task<AgentSnapshot?> GetLatestSnapshotAsync();
 }
@@ -134,37 +132,81 @@ public class EventStorageGrain : Grain, IEventStorageGrain
 
     public async Task<long> AppendEventsAsync(List<AgentStateEvent> events, long expectedVersion)
     {
+        try
+        {
+            if (events == null)
+            {
+                _logger.LogError("Events list is null!");
+                throw new ArgumentNullException(nameof(events));
+            }
+            
+            if (events.Count == 0)
+            {
+                _logger.LogWarning("Attempted to append empty event list, returning expected version: {ExpectedVersion}", expectedVersion);
+                return expectedVersion;
+            }
+
+            var grainId = this.GetPrimaryKey();
+            
+            _logger.LogDebug(
+                "AppendEventsAsync called for grain {GrainId}, events count: {Count}, expected version: {ExpectedVersion}",
+                grainId, events.Count, expectedVersion);
+            
+            // Get current version from repository
+            var currentVersion = await _eventRepository.GetLatestVersionAsync(grainId);
+            
+            _logger.LogDebug(
+                "Current version for grain {GrainId}: {CurrentVersion}",
+                grainId, currentVersion);
+
+            // Optimistic concurrency check
+            if (currentVersion != expectedVersion)
+            {
+                _logger.LogWarning(
+                    "Concurrency conflict for grain {GrainId}: expected {Expected}, got {Current}",
+                    grainId, expectedVersion, currentVersion);
+
+                throw new InvalidOperationException(
+                    $"Concurrency conflict: expected version {expectedVersion}, got {currentVersion}");
+            }
+
+            // Assign versions to events
+            var newVersion = currentVersion;
+            foreach (var evt in events)
+            {
+                evt.Version = ++newVersion;
+            }
+
+            _logger.LogDebug(
+                "Assigned versions to events, new version will be: {NewVersion}",
+                newVersion);
+
+            // Persist to repository
+            await _eventRepository.AppendEventsAsync(grainId, events);
+
+            _logger.LogDebug(
+                "Appended {Count} events to grain {GrainId}, new version: {Version}",
+                events.Count, grainId, newVersion);
+
+            return newVersion;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in AppendEventsAsync for grain {GrainId}", this.GetPrimaryKey());
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<AgentStateEvent>> GetEventsAsync(long? fromVersion = null, long? toVersion = null, int? maxCount = null)
+    {
         var grainId = this.GetPrimaryKey();
-        
-        // Get current version from repository
-        var currentVersion = await _eventRepository.GetLatestVersionAsync(grainId);
+        return await _eventRepository.GetEventsAsync(grainId, fromVersion, toVersion, maxCount);
+    }
 
-        // Optimistic concurrency check
-        if (currentVersion != expectedVersion)
-        {
-            _logger.LogWarning(
-                "Concurrency conflict for grain {GrainId}: expected {Expected}, got {Current}",
-                grainId, expectedVersion, currentVersion);
-
-            throw new InvalidOperationException(
-                $"Concurrency conflict: expected version {expectedVersion}, got {currentVersion}");
-        }
-
-        // Assign versions to events
-        var newVersion = currentVersion;
-        foreach (var evt in events)
-        {
-            evt.Version = ++newVersion;
-        }
-
-        // Persist to repository
-        await _eventRepository.AppendEventsAsync(grainId, events);
-
-        _logger.LogDebug(
-            "Appended {Count} events to grain {GrainId}, new version: {Version}",
-            events.Count, grainId, newVersion);
-
-        return newVersion;
+    public async Task<long> GetLatestVersionAsync()
+    {
+        var grainId = this.GetPrimaryKey();
+        return await _eventRepository.GetLatestVersionAsync(grainId);
     }
 
     public async Task SaveSnapshotAsync(AgentSnapshot snapshot)
