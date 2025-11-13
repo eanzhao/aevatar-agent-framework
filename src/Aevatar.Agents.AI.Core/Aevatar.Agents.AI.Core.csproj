@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
@@ -21,17 +21,17 @@
 
     <ItemGroup>
         <!-- AI Provider Abstractions -->
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+        <PackageReference Include="Microsoft.Extensions.Options" />
         
         <!-- JSON Processing -->
-        <PackageReference Include="System.Text.Json" Version="9.0.0" />
+        <PackageReference Include="System.Text.Json" />
         
         <!-- Protobuf Dynamic Message Creation -->
-        <PackageReference Include="Google.Protobuf" Version="3.33.0" />
-        <PackageReference Include="Grpc.Tools" Version="2.60.0">
+        <PackageReference Include="Google.Protobuf" />
+        <PackageReference Include="Grpc.Tools">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>

@@ -179,7 +179,7 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
         }
 
         var deploymentName = config.DeploymentName ?? config.Model ?? "gpt-4";
-        return azureClient.AsChatClient(deploymentName);
+        return azureClient.GetChatClient(deploymentName).AsIChatClient();
     }
 
     private static IChatClient CreateOpenAIChatClient(MEAIConfiguration config)
@@ -191,7 +191,7 @@ public abstract class MEAIGAgentBase<TState> : AIGAgentBase<TState>
 
         var openAIClient = new OpenAIClient(config.ApiKey);
         var model = config.Model ?? "gpt-4";
-        return openAIClient.AsChatClient(model);
+        return openAIClient.GetChatClient(model).AsIChatClient();
     }
 
     #endregion

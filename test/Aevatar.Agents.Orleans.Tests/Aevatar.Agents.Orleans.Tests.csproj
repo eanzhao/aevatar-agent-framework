@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -9,25 +9,25 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageReference Include="xunit" Version="2.8.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="coverlet.collector" Version="6.0.2">
+    <PackageReference Include="coverlet.collector">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="Moq" />
     
     <!-- Orleans Testing -->
-    <PackageReference Include="Microsoft.Orleans.TestingHost" Version="9.2.1" />
-    <PackageReference Include="Microsoft.Orleans.Persistence.Memory" Version="9.2.1" />
-    <PackageReference Include="Microsoft.Orleans.Sdk" Version="9.2.1" />
+    <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    <PackageReference Include="Microsoft.Orleans.Persistence.Memory" />
+    <PackageReference Include="Microsoft.Orleans.Sdk" />
     
     <!-- Google Protobuf -->
-    <PackageReference Include="Google.Protobuf" Version="3.33.0" />
+    <PackageReference Include="Google.Protobuf" />
   </ItemGroup>
 
   <ItemGroup>
