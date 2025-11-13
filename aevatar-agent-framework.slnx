@@ -1,25 +1,22 @@
 <Solution>
   <Folder Name="/apps/" />
   <Folder Name="/docs/">
-    <File Path="README.md" />
-    <File Path="ARCHITECTURE.md" />
-    <File Path="docs\Protobuf_Configuration_Guide.md" />
-    <File Path="docs\Serialization_Rules.md" />
-    <File Path="docs\OBSERVABILITY.md" />
-    <File Path="docs\GAGENTACTORMANAGER_ENHANCEMENT.md" />
+    <File Path="docs\CORE_CONCEPTS.md" />
+    <File Path="docs\EVENTSOURCING.md" />
+    <File Path="docs\DEVELOPER_GUIDE.md" />
+    <File Path="docs\AI_INTEGRATION.md" />
+    <File Path="docs\README.md" />
+    <File Path="docs\RUNTIME_GUIDE.md" />
   </Folder>
   <Folder Name="/examples/">
-    <Project Path="examples\ChatRoomDemo\ChatRoomDemo.csproj" Type="Classic C#" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="Classic C#" />
-    <Project Path="examples\RuntimeAbstractionDemo\RuntimeAbstractionDemo.csproj" Type="Classic C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/Aevatar.Agents.Runtime/Aevatar.Agents.Runtime.csproj" />
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />

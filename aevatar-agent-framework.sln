@@ -40,8 +40,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Abstractions
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Runtime.Orleans.MongoDB", "src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj", "{9D49913B-7312-444B-9CC8-F575465A5FC4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.Runtime", "src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj", "{F1234567-89AB-CDEF-0123-456789ABCDEF}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.AI.Abstractions", "src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj", "{A1234567-89AB-CDEF-0123-456789ABCDEF}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aevatar.Agents.AI.Core", "src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj", "{B1234567-89AB-CDEF-0123-456789ABCDEF}"
