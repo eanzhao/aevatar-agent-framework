@@ -48,7 +48,9 @@ public class MEAIGAgentBaseTests
         var aiState = agent.GetTestAIState();
         Assert.NotNull(aiState);
         Assert.NotNull(aiState.ConversationHistory);
-        Assert.Empty(aiState.ConversationHistory);
+        // InitializeConversation() automatically adds system message during construction
+        Assert.Single(aiState.ConversationHistory);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.System, aiState.ConversationHistory[0].Role);
     }
 
     /// <summary>
@@ -67,21 +69,24 @@ public class MEAIGAgentBaseTests
         aiState.AddUserMessage("What's the weather?", 100);
         aiState.AddAssistantMessage("I don't have access to weather data.", 100);
 
-        // Assert
-        Assert.Equal(4, aiState.ConversationHistory.Count);
+        // Assert - Agent automatically adds system message during initialization
+        // So we expect 5 messages: 1 system + 4 added
+        Assert.Equal(5, aiState.ConversationHistory.Count);
         
-        // Test message content and roles
-        Assert.Equal("Hello AI", aiState.ConversationHistory[0].Content);
-        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.User, aiState.ConversationHistory[0].Role);
+        // Test message content and roles (index 0 is system message added during init)
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.System, aiState.ConversationHistory[0].Role);
+        Assert.Equal("Hello AI", aiState.ConversationHistory[1].Content);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.User, aiState.ConversationHistory[1].Role);
         
-        Assert.Equal("Hello! How can I help you?", aiState.ConversationHistory[1].Content);
-        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.Assistant, aiState.ConversationHistory[1].Role);
+        Assert.Equal("Hello! How can I help you?", aiState.ConversationHistory[2].Content);
+        Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.Assistant, aiState.ConversationHistory[2].Role);
         
-        // Test GetChatMessages conversion
+        // Test GetChatMessages conversion (includes system message)
         var chatMessages = agent.GetChatMessages();
-        Assert.Equal(4, chatMessages.Count);
-        Assert.Equal(ChatRole.User, chatMessages[0].Role);
-        Assert.Equal(ChatRole.Assistant, chatMessages[1].Role);
+        Assert.Equal(5, chatMessages.Count); // 1 system + 4 messages
+        Assert.Equal(ChatRole.System, chatMessages[0].Role);
+        Assert.Equal(ChatRole.User, chatMessages[1].Role);
+        Assert.Equal(ChatRole.Assistant, chatMessages[2].Role);
         
         _output.WriteLine($"Conversation history contains {aiState.ConversationHistory.Count} messages");
     }
@@ -96,11 +101,10 @@ public class MEAIGAgentBaseTests
         var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
         var aiState = agent.GetTestAIState();
 
-        // Act - Add system message
-        aiState.AddSystemMessage(agent.SystemPrompt);
+        // Act - Add user message (system message already added during initialization)
         aiState.AddUserMessage("Hello", 100);
 
-        // Assert
+        // Assert - Should have system message from init + user message
         Assert.Equal(2, aiState.ConversationHistory.Count);
         Assert.Equal(Aevatar.Agents.AI.AevatarChatRole.System, aiState.ConversationHistory[0].Role);
         Assert.Equal(agent.SystemPrompt, aiState.ConversationHistory[0].Content);
@@ -149,10 +153,10 @@ public class MEAIGAgentBaseTests
         var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
         var aiState = agent.GetTestAIState();
 
-        // Add some messages
+        // Add some messages (system message was already added during initialization)
         aiState.AddUserMessage("Hello", 100);
         aiState.AddAssistantMessage("Hi there!", 100);
-        Assert.Equal(2, aiState.ConversationHistory.Count);
+        Assert.Equal(3, aiState.ConversationHistory.Count); // 1 system + 2 added
 
         // Act - Clear the conversation history
         aiState.ConversationHistory.Clear();
@@ -200,33 +204,36 @@ public class MEAIGAgentBaseTests
     public async Task Test_ChatClient_Integration()
     {
         // Arrange
-        var expectedResponse = new ChatMessage(ChatRole.Assistant, "This is a test response");
-        var chatCompletion = new TestChatCompletion(expectedResponse);
+        var expectedMessage = new ChatMessage(ChatRole.Assistant, "This is a test response");
+        var messages = new List<ChatMessage> { expectedMessage };
+        var chatResponse = new Microsoft.Extensions.AI.ChatResponse(messages);
         
         _mockChatClient
-            .Setup(x => x.CompleteAsync(
+            .Setup(x => x.GetResponseAsync(
                 It.IsAny<IList<ChatMessage>>(),
                 It.IsAny<ChatOptions>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(chatCompletion);
+            .ReturnsAsync(chatResponse);
 
         var agent = new TestMEAIAgent(_mockChatClient.Object, _mockLogger.Object);
 
         // Act
-        var messages = new List<ChatMessage>
+        var inputMessages = new List<ChatMessage>
         {
             new ChatMessage(ChatRole.User, "Hello")
         };
         
-        var result = await _mockChatClient.Object.CompleteAsync(messages, null, CancellationToken.None);
+        var result = await _mockChatClient.Object.GetResponseAsync(inputMessages, null, CancellationToken.None);
 
         // Assert
         Assert.NotNull(result);
-        Assert.NotNull(result.Message);
-        Assert.Equal("This is a test response", result.Message.Text);
-        Assert.Equal(ChatRole.Assistant, result.Message.Role);
+        Assert.NotNull(result.Messages);
+        Assert.NotEmpty(result.Messages);
+        Assert.Equal("This is a test response", result.Text);
+        var lastMessage = result.Messages.Last();
+        Assert.Equal(ChatRole.Assistant, lastMessage.Role);
         
-        _output.WriteLine($"Chat completion returned: {result.Message.Text}");
+        _output.WriteLine($"Chat response returned: {result.Text}");
     }
 
     /// <summary>
@@ -289,22 +296,3 @@ public class TestMEAIAgent : MEAIGAgentBase<Aevatar.Agents.AI.AevatarAIAgentStat
     }
 }
 
-/// <summary>
-/// 测试用的ChatCompletion实现
-/// </summary>
-public class TestChatCompletion : ChatCompletion
-{
-    public TestChatCompletion(ChatMessage message) : base(message)
-    {
-        CompletionId = Guid.NewGuid().ToString();
-        ModelId = "test-model";
-        CreatedAt = DateTimeOffset.UtcNow;
-        FinishReason = ChatFinishReason.Stop;
-        
-        // Initialize other properties  
-        Choices = new List<ChatMessage> { message };
-        Usage = null;
-        RawRepresentation = null;
-        AdditionalProperties = new AdditionalPropertiesDictionary();
-    }
-}

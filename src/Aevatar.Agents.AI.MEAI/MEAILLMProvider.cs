@@ -78,18 +78,19 @@ internal class MEAILLMProvider : ILLMProvider
         }
         
         // Call the chat client
-        var response = await _chatClient.CompleteAsync(messages, options, default);
+        var response = await _chatClient.GetResponseAsync(messages, options);
         
         // Convert response
         var result = new AevatarLLMResponse
         {
-            Content = response.Message?.Text ?? string.Empty
+            Content = response.Text ?? string.Empty
         };
         
-        // Check for function calls
-        if (response.Message?.Contents?.Any(c => c is FunctionCallContent) == true)
+        // Check for function calls in the messages
+        var lastMessage = response.Messages?.LastOrDefault();
+        if (lastMessage?.Contents?.Any(c => c is FunctionCallContent) == true)
         {
-            var functionCall = response.Message.Contents
+            var functionCall = lastMessage.Contents
                 .OfType<FunctionCallContent>()
                 .FirstOrDefault();
             
@@ -108,9 +109,9 @@ internal class MEAILLMProvider : ILLMProvider
         {
             result.Usage = new AevatarTokenUsage
             {
-                PromptTokens = response.Usage.InputTokenCount ?? 0,
-                CompletionTokens = response.Usage.OutputTokenCount ?? 0,
-                TotalTokens = response.Usage.TotalTokenCount ?? 0
+                PromptTokens = (int)(response.Usage.InputTokenCount ?? 0),
+                CompletionTokens = (int)(response.Usage.OutputTokenCount ?? 0),
+                TotalTokens = (int)(response.Usage.TotalTokenCount ?? 0)
             };
         }
         

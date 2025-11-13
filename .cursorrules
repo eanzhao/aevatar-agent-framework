@@ -576,3 +576,181 @@ Remember:
 - **GAgent is logic, GAgentActor is infrastructure.** 🏗️
 - **Streams are the nervous system of your agent network.** 🌊
 - **Every event is a ripple in the distributed consciousness.** 🌌
+
+## 🔧 Agent Implementation Guidelines
+
+### State Initialization Pattern
+
+#### ❌ WRONG - Attempting to Assign New State
+```csharp
+public override async Task OnActivateAsync(CancellationToken ct = default)
+{
+    await base.OnActivateAsync(ct);
+    
+    // ❌ WRONG - State property is read-only!
+    State = new MyAgentState 
+    {
+        Name = "Agent1",
+        Count = 0
+    };
+}
+```
+
+#### ✅ CORRECT - Modify Existing State Properties
+```csharp
+public override async Task OnActivateAsync(CancellationToken ct = default)
+{
+    await base.OnActivateAsync(ct);
+    
+    // ✅ CORRECT - State object already exists, modify its properties
+    State.Name = "Agent1";
+    State.Count = 0;
+    State.LastUpdate = Timestamp.FromDateTime(DateTime.UtcNow);
+}
+```
+
+### Agent Constructor Pattern
+
+#### ❌ WRONG - Constructor with Parameters
+```csharp
+public class MyAgent : GAgentBase<MyAgentState>
+{
+    // ❌ WRONG - Agents must have parameterless constructors for activation
+    public MyAgent(string name) : base()
+    {
+        State.Name = name; // Also wrong - State modification in constructor
+    }
+}
+```
+
+#### ✅ CORRECT - Parameterless Constructor
+```csharp
+public class MyAgent : GAgentBase<MyAgentState>
+{
+    // ✅ CORRECT - Parameterless constructor required
+    public MyAgent() : base()
+    {
+        // Don't modify State here
+    }
+    
+    public override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct);
+        // Initialize State properties here
+        State.Name = $"Agent_{Id.ToString("N").Substring(0, 8)}";
+    }
+}
+```
+
+### Event Handler Pattern
+
+#### ❌ WRONG - Blocking/Synchronous Handler
+```csharp
+[EventHandler]
+public void HandleMyEvent(MyEvent evt) // Wrong - should return Task
+{
+    Thread.Sleep(1000); // Never block!
+    State.Count++;
+}
+```
+
+#### ✅ CORRECT - Async Handler
+```csharp
+[EventHandler]
+public async Task HandleMyEvent(MyEvent evt)
+{
+    await Task.Delay(1000); // Use async methods
+    State.Count++;
+    await PublishAsync(new ResponseEvent { ... });
+}
+```
+
+### State Type Requirements
+
+#### ❌ WRONG - Non-Protobuf State
+```csharp
+// ❌ WRONG - Manual C# class
+public class MyAgentState 
+{
+    public string Name { get; set; }
+    public int Count { get; set; }
+}
+
+public class MyAgent : GAgentBase<MyAgentState> // Will fail at runtime!
+{
+}
+```
+
+#### ✅ CORRECT - Protobuf State
+```protobuf
+// my_agent.proto
+syntax = "proto3";
+
+message MyAgentState {
+    string name = 1;
+    int32 count = 2;
+    google.protobuf.Timestamp last_update = 3;
+}
+```
+
+```csharp
+// ✅ CORRECT - Using generated Protobuf class
+public class MyAgent : GAgentBase<MyAgentState> // MyAgentState from proto
+{
+    public MyAgent() : base() { }
+}
+```
+
+### Event Publishing Pattern
+
+#### ✅ Event Direction Usage
+```csharp
+// Publish to parent (up the hierarchy)
+await PublishAsync(reportEvent, EventDirection.Up);
+
+// Publish to children (down the hierarchy)
+await PublishAsync(commandEvent, EventDirection.Down);
+
+// Publish in both directions
+await PublishAsync(broadcastEvent, EventDirection.Both);
+```
+
+### Required Method Implementations
+
+Every agent MUST implement:
+
+```csharp
+public override Task<string> GetDescriptionAsync()
+{
+    return Task.FromResult($"Agent: {State.Name} (Count: {State.Count})");
+}
+```
+
+### Lifecycle Methods
+
+```csharp
+public class MyAgent : GAgentBase<MyAgentState>
+{
+    public override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct); // ALWAYS call base first
+        // Initialize state properties here
+    }
+    
+    public override async Task OnDeactivateAsync(CancellationToken ct = default)
+    {
+        // Cleanup logic here
+        await base.OnDeactivateAsync(ct); // ALWAYS call base last
+    }
+}
+```
+
+### Common Mistakes Summary
+
+1. **Never assign new State object** - Modify existing properties
+2. **Always use parameterless constructors** - Required for activation
+3. **Initialize state in OnActivateAsync** - Not in constructor
+4. **Always return Task from handlers** - Never use void or block
+5. **Use Protobuf for all state/events** - Never manual classes
+6. **Call base methods in lifecycle** - OnActivateAsync/OnDeactivateAsync
+7. **Implement GetDescriptionAsync** - Required abstract method
