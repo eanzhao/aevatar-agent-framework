@@ -1,10 +1,8 @@
 using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.Local;
-using Aevatar.Agents.Local.EventSourcing;
-using EventSourcingDemo;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Local.EventSourcing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Demo.Agents;
 
 namespace EventSourcingDemo;
 

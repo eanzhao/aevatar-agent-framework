@@ -1,5 +1,5 @@
 using System.Reflection;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
@@ -116,7 +116,7 @@ public abstract class GAgentBase<TState, TEvent> : GAgentBase<TState>
         }
 
         // 默认处理器：方法名为 HandleAsync 或 Handle，参数是 TEvent 的子类
-        if (method.Name is "HandleAsync" or "Handle")
+        if (method.Name is "HandleAsync" or "HandleEventAsync")
         {
             return typeof(TEvent).IsAssignableFrom(paramType) && !paramType.IsAbstract;
         }

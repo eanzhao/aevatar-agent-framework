@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net9.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
@@ -9,14 +9,14 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
-    <ProjectReference Include="..\..\src\Aevatar.Agents.Local\Aevatar.Agents.Local.csproj" />
-    <ProjectReference Include="..\..\src\Aevatar.Agents.Orleans\Aevatar.Agents.Orleans.csproj" />
-    <ProjectReference Include="..\..\src\Aevatar.Agents.ProtoActor\Aevatar.Agents.ProtoActor.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Protobuf" Version="3.33.0" />
-      <PackageReference Include="Grpc.Tools" Version="2.71.0">
+    <PackageReference Include="Google.Protobuf" />
+      <PackageReference Include="Grpc.Tools">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -28,9 +28,9 @@
   </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-rc.2.25502.107" />
-        <PackageReference Include="Microsoft.Orleans.Client" Version="9.0.0" />
-        <PackageReference Include="Proto.Actor" Version="1.8.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+        <PackageReference Include="Microsoft.Orleans.Client" />
+        <PackageReference Include="Proto.Actor" />
     </ItemGroup>
 
 </Project>

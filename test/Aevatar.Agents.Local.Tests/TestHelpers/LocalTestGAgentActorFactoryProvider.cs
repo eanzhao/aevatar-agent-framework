@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Local.Tests.TestHelpers;

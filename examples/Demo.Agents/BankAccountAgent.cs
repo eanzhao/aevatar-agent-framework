@@ -1,7 +1,7 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Microsoft.Extensions.Logging;
 using Google.Protobuf;

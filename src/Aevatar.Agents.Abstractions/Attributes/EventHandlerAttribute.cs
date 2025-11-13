@@ -1,19 +1,18 @@
-namespace Aevatar.Agents.Abstractions;
+namespace Aevatar.Agents.Abstractions.Attributes;
 
 /// <summary>
-/// 标记事件处理方法
-/// 被标记的方法会自动注册为事件处理器
+/// Marking event handler method.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method)]
 public class EventHandlerAttribute : Attribute
 {
     /// <summary>
-    /// 处理器优先级（数字越小优先级越高）
+    /// Whether handle events published by current agent itself.
     /// </summary>
-    public int Priority { get; set; } = 0;
+    public bool AllowSelfHandling { get; set; }
 
     /// <summary>
-    /// 是否允许处理自己发出的事件
+    /// Handler priority (The smaller the number, the higher the priority)
     /// </summary>
-    public bool AllowSelfHandling { get; set; } = false;
+    public int Priority { get; set; } = 0;
 }

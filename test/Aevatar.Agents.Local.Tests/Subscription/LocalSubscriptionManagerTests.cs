@@ -2,12 +2,13 @@ using Xunit;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Local.Subscription;
+using Aevatar.Agents.Runtime.Local.Subscription;
 using Aevatar.Agents.Core.Subscription;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using Aevatar.Agents.Runtime.Local;
 using Google.Protobuf.WellKnownTypes;
 using Google.Protobuf;
 

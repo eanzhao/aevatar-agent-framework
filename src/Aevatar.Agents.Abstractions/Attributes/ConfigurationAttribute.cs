@@ -1,9 +1,8 @@
-namespace Aevatar.Agents.Abstractions;
+namespace Aevatar.Agents.Abstractions.Attributes;
 
 /// <summary>
-/// 标记配置处理方法
-/// 方法签名必须是：Task HandleConfigAsync(TConfiguration config)
+/// Marking configuration method.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method)]
 public class ConfigurationAttribute : Attribute;
 

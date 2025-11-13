@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
-using Aevatar.Agents.Local;
+using Aevatar.Agents.Runtime.Local;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Tests.TestHelpers;

@@ -1,10 +1,11 @@
 using System;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Factory;
-using Aevatar.Agents.Orleans;
+using Aevatar.Agents.Runtime.Orleans;
 using Aevatar.Agents.TestBase;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;

@@ -1,8 +1,8 @@
 using Aevatar.Agents.Core.EventSourcing;
-using MongoDBEventStoreDemo.Events;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;
 using Google.Protobuf;
+using MongoDBEventStoreDemo.Events;
 
 namespace MongoDBEventStoreDemo;
 
