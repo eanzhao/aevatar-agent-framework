@@ -146,18 +146,8 @@ public class OrleansGAgentActor : IGAgentActor
     /// <summary>
     /// 从 Grain 获取状态（适用于需要读取最新状态的场景）
     /// </summary>
-    public async Task<TState?> GetStateFromGrainAsync<TState>() where TState : Google.Protobuf.IMessage, new()
+    public Task<TState?> GetStateFromGrainAsync<TState>() where TState : Google.Protobuf.IMessage, new()
     {
-        var stateBytes = await _grain.GetStateAsync();
-        if (stateBytes == null || stateBytes.Length == 0)
-        {
-            return default;
-        }
-        
-        var state = new TState();
-        using var stream = new MemoryStream(stateBytes);
-        using var input = new Google.Protobuf.CodedInputStream(stream);
-        state.MergeFrom(input);
-        return state;
+        return _grain.GetStateAsync<TState>();
     }
 }

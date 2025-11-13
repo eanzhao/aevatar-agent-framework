@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Google.Protobuf;
 using Orleans;
 
 namespace Aevatar.Agents.Runtime.Orleans;
@@ -66,7 +67,7 @@ public interface IGAgentGrain : IGrainWithStringKey
     Task DeactivateAsync();
     
     /// <summary>
-    /// 获取 Agent 状态（序列化为 byte[]）
+    /// 获取 Agent 状态（类型安全）
     /// </summary>
-    Task<byte[]> GetStateAsync();
+    Task<TState?> GetStateAsync<TState>() where TState : Google.Protobuf.IMessage, new();
 }

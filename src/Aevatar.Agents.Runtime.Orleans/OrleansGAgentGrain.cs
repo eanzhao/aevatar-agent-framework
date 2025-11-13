@@ -671,27 +671,23 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         }
     }
     
-    public Task<byte[]> GetStateAsync()
+    public Task<TState?> GetStateAsync<TState>() where TState : Google.Protobuf.IMessage, new()
     {
         if (_agent == null)
         {
-            return Task.FromResult(Array.Empty<byte>());
+            return Task.FromResult<TState?>(default);
         }
         
         // Get state from agent
         var state = _agent.GetState();
         
-        // Serialize state to bytes using Protobuf
-        if (state is Google.Protobuf.IMessage message)
+        // Return typed state if it matches the requested type
+        if (state is TState typedState)
         {
-            using var stream = new MemoryStream();
-            using var output = new Google.Protobuf.CodedOutputStream(stream);
-            message.WriteTo(output);
-            output.Flush();
-            return Task.FromResult(stream.ToArray());
+            return Task.FromResult<TState?>(typedState);
         }
         
-        return Task.FromResult(Array.Empty<byte>());
+        return Task.FromResult<TState?>(default);
     }
     
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)

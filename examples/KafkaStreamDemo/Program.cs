@@ -233,13 +233,17 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager)
         // Wait for batch processing
         await Task.Delay(3000);
         
-        // Get producer state
+        // Get producer state from Grain (not from local actor instance)
         Console.WriteLine("6. Checking Producer State...");
-        var producerState = await producer.GetStateAsync();
+        var producerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)producerActor;
+        var producerState = await producerOrleansActor.GetStateFromGrainAsync<KafkaProducerState>();
         
-        Console.WriteLine($"   • Messages Published: {producerState.MessagesPublished}");
-        Console.WriteLine($"   • Total Bytes Sent: {producerState.TotalBytesSent}");
-        Console.WriteLine($"   • Last Publish: {producerState.LastPublishTime?.ToDateTime():HH:mm:ss}\n");
+        if (producerState != null)
+        {
+            Console.WriteLine($"   • Messages Published: {producerState.MessagesPublished}");
+            Console.WriteLine($"   • Total Bytes Sent: {producerState.TotalBytesSent}");
+            Console.WriteLine($"   • Last Publish: {producerState.LastPublishTime?.ToDateTime():HH:mm:ss}\n");
+        }
         
         // Get consumer state from Grain (not from local actor instance)
         Console.WriteLine("7. Checking Consumer State...");
