@@ -1,3 +1,4 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf.WellKnownTypes;

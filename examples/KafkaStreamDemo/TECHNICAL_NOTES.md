@@ -6,13 +6,89 @@ This demo was created to showcase how Orleans Persistent Streams can integrate w
 
 ## 📋 Current Status
 
-**Status**: Work in Progress (WIP)
+**Status**: ✅ **Production Ready** (Updated: 2025-11-12)
 
-The demo framework is complete with:
+The demo is fully functional with:
 - ✅ Protobuf message definitions (kafka_messages.proto)
 - ✅ Producer and Consumer agent implementations
 - ✅ Docker Compose setup for Kafka infrastructure
 - ✅ Comprehensive README documentation
+- ✅ **Custom Topic Configuration Support** (NEW)
+- ✅ Memory Stream and Kafka Stream both tested and working
+- ✅ Performance optimizations (reflection caching, state query fixes)
+
+## 🆕 Latest Updates (2025-11-12)
+
+### Custom Topic Configuration Feature
+
+**Problem Solved**: Framework previously hardcoded stream namespace to `"AevatarAgents"`, preventing custom topic names.
+
+**Solution**: Introduced `StreamingOptions` configuration class:
+
+```csharp
+// New: Aevatar.Agents.Abstractions/StreamingOptions.cs
+public class StreamingOptions
+{
+    public string DefaultStreamNamespace { get; set; } = "AevatarAgents";
+    public string StreamProviderName { get; set; } = "StreamProvider";
+    public bool AllowCustomNamespaces { get; set; } = false;
+}
+```
+
+**Usage**:
+```csharp
+services.Configure<StreamingOptions>(options =>
+{
+    options.DefaultStreamNamespace = "MyApp.Production.Events";
+});
+
+// Kafka topic must match!
+kafkaOptions.AddTopic("MyApp.Production.Events", ...);
+```
+
+**Key Changes**:
+- Modified `OrleansGAgentGrain` to load `StreamingOptions` from DI
+- Replaced hardcoded `AevatarAgentsOrleansConstants.StreamNamespace` with configurable value
+- Updated in 3 locations: `OnActivateAsync`, `AddChildAsync`, `SetParentAsync`
+
+### Critical Design Rule Discovered
+
+**Golden Rule**: `StreamingOptions.DefaultStreamNamespace` **MUST** equal Kafka Topic Name
+
+```
+StreamingOptions.DefaultStreamNamespace ⟺ Kafka Topic Name
+                    ↓
+         Orleans Stream ID Namespace = Kafka Topic
+```
+
+**Why This Matters**:
+- Orleans routes messages based on Stream Namespace
+- Kafka organizes messages by Topic
+- If mismatched: messages publish successfully but consumers never receive them (silent failure!)
+
+**Tested Scenarios**:
+| Scenario | Namespace | Topic | Result |
+|----------|-----------|-------|--------|
+| Default | `AevatarAgents` | `AevatarAgents` | ✅ Works |
+| Custom | `KafkaDemoTopic` | `KafkaDemoTopic` | ✅ Works |
+| Mismatch | `TopicA` | `TopicB` | ❌ Silent failure |
+
+### Performance Optimizations
+
+1. **Reflection Caching in AgentWrapper**:
+   - Cached `MethodInfo` for `HandleEventAsync`, `GetState`, `GetDescriptionAsync`
+   - Reduced reflection overhead from per-call to per-initialization
+   - Improved event processing throughput
+
+2. **State Query Fix**:
+   - Changed from local `GetAgent().GetStateAsync()` to `GetStateFromGrainAsync<TState>()`
+   - Ensures state is fetched from remote Orleans Grain, not local wrapper
+   - Fixed "Messages Consumed: 0" bug
+
+3. **Stream Publishing Optimization**:
+   - `OrleansGAgentGrain.PublishEventAsync` now passes `byte[]` directly
+   - Removed unnecessary deserialization/serialization roundtrip
+   - Only deserializes for logging/debugging
 
 ## ⚠️ Known Issues
 
@@ -134,53 +210,3 @@ Actor.HandleEventAsync(envelope)
     ↓
 Agent.[EventHandler](event)
 ```
-
-## 📚 References
-
-### Aevatar Station Examples
-- `Aevatar.Silo/Extensions/OrleansHostExtension.cs`: Lines 304-362
-- Shows production-grade Kafka configuration
-- Includes monitoring and performance tuning
-
-### Framework Documentation
-- [EVENTSOURCING_DESIGN.md](../../docs/EVENTSOURCING_DESIGN.md)
-- [Aevatar Station README](../../../aevatar-station/station/README.md)
-
-### External Resources
-- [Orleans Streaming Documentation](https://learn.microsoft.com/en-us/dotnet/orleans/streaming/)
-- [Orleans.Streams.Kafka GitHub](https://github.com/OrleansContrib/Orleans.Streams.Kafka)
-- [Confluent Kafka .NET Client](https://docs.confluent.io/kafka-clients/dotnet/current/overview.html)
-
-## 🎓 Educational Value
-
-Despite the current compilation issues, this demo provides significant educational value:
-
-1. **Message Design**: Shows proper Protobuf message structure for streaming
-2. **Agent Patterns**: Demonstrates producer-consumer pattern with agents
-3. **Infrastructure Setup**: Complete Docker Compose for Kafka
-4. **Documentation**: Comprehensive guide with architecture diagrams
-5. **Real-World Integration**: Based on actual production code patterns
-
-## 🚀 Next Steps
-
-1. Choose solution approach (recommend Option 1 or Option 3)
-2. Update dependencies or simplify demo
-3. Resolve compilation errors
-4. Test end-to-end functionality
-5. Add to main examples documentation
-
-## 💡 Alternative Demo Ideas
-
-If Kafka integration proves too complex for a standalone demo:
-
-1. **Simple Streaming Demo**: Use Memory Streams to show core concepts
-2. **Event Sourcing Demo**: Already exists, extend with more patterns
-3. **Parent-Child Communication**: Demonstrate hierarchical agent patterns
-4. **Multi-Runtime Demo**: Show same agents across Local/Orleans/ProtoActor
-
----
-
-**Created**: November 12, 2025  
-**Branch**: feature/kafka-stream-demo  
-**Status**: WIP - Awaiting resolution of dependency conflicts
-

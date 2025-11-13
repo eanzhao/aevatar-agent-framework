@@ -1,9 +1,13 @@
 using System.Linq;
+using System.Reflection;
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans;
 using Orleans.Runtime;
 using Orleans.Streams;
@@ -17,13 +21,31 @@ internal class AgentWrapper : GAgentBase<object>
 {
     private readonly object _innerAgent;
     
+    // 缓存反射 MethodInfo 以提升性能
+    private readonly MethodInfo? _handleEventAsyncMethod;
+    private readonly MethodInfo? _getStateMethod;
+    private readonly MethodInfo? _getDescriptionAsyncMethod;
+    
     public AgentWrapper(object innerAgent) : base(GetAgentId(innerAgent))
     {
-        _innerAgent = innerAgent;
+        _innerAgent = innerAgent ?? throw new ArgumentNullException(nameof(innerAgent));
+        
+        var innerType = _innerAgent.GetType();
+        
+        // 预先缓存所有需要的 MethodInfo
+        _handleEventAsyncMethod = innerType.GetMethod(
+            nameof(HandleEventAsync), 
+            new[] { typeof(EventEnvelope), typeof(CancellationToken) });
+            
+        _getStateMethod = innerType.GetMethod(nameof(GetState), System.Type.EmptyTypes);
+        _getDescriptionAsyncMethod = innerType.GetMethod(nameof(GetDescriptionAsync), System.Type.EmptyTypes);
     }
     
     private static Guid GetAgentId(object agent)
     {
+        if (agent == null)
+            throw new ArgumentNullException(nameof(agent));
+            
         var idProperty = agent.GetType().GetProperty("Id");
         if (idProperty != null && idProperty.CanRead)
         {
@@ -38,16 +60,75 @@ internal class AgentWrapper : GAgentBase<object>
     
     public override Task<string> GetDescriptionAsync()
     {
-        var method = _innerAgent.GetType().GetMethod("GetDescriptionAsync");
-        if (method != null)
+        if (_getDescriptionAsyncMethod != null)
         {
-            var result = method.Invoke(_innerAgent, null);
-            if (result is Task<string> task)
+            try
             {
-                return task;
+                var result = _getDescriptionAsyncMethod.Invoke(_innerAgent, null);
+                if (result is Task<string> task)
+                {
+                    return task;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "Error invoking GetDescriptionAsync on wrapped agent");
             }
         }
         return Task.FromResult($"Wrapped {_innerAgent.GetType().Name}");
+    }
+    
+    /// <summary>
+    /// 覆盖 GetState 以返回内部 agent 的 state
+    /// </summary>
+    public override object GetState()
+    {
+        if (_getStateMethod != null)
+        {
+            try
+            {
+                return _getStateMethod.Invoke(_innerAgent, null) ?? new object();
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError(ex, "Error invoking GetState on wrapped agent");
+            }
+        }
+        return base.GetState();
+    }
+    
+    /// <summary>
+    /// 覆盖 HandleEventAsync 以转发到内部 agent
+    /// 这样内部 agent 的 event handlers 才能被正确调用
+    /// </summary>
+    public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        // Early return pattern for better readability
+        if (_handleEventAsyncMethod == null)
+        {
+            Logger?.LogWarning(
+                "HandleEventAsync method not found on wrapped agent {AgentType}. Event {EventId} will not be processed.",
+                _innerAgent.GetType().Name,
+                envelope.Id);
+            return;
+        }
+        
+        try
+        {
+            // Invoke with validation
+            var task = _handleEventAsyncMethod.Invoke(_innerAgent, new object[] { envelope, ct }) as Task
+                ?? throw new InvalidOperationException(
+                    $"HandleEventAsync on {_innerAgent.GetType().Name} must return Task");
+            
+            await task;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException != null)
+        {
+            // Unwrap and preserve original stack trace
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(ex.InnerException)
+                .Throw();
+        }
     }
 }
 
@@ -59,6 +140,8 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
 {
     private GAgentBase<object>? _agent;
     private IGrainFactory? _grainFactory;
+    private ILogger<OrleansGAgentGrain>? _logger;
+    private StreamingOptions? _streamingOptions;
     
     // Orleans Streaming
     private IStreamProvider? _streamProvider;
@@ -86,15 +169,20 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
         _grainFactory = GrainFactory;
+        _logger = ServiceProvider?.GetService<ILogger<OrleansGAgentGrain>>();
+        
+        // Load streaming options from configuration or use defaults
+        var optionsSnapshot = ServiceProvider?.GetService<IOptionsSnapshot<StreamingOptions>>();
+        _streamingOptions = optionsSnapshot?.Value ?? new StreamingOptions();
         
         // 初始化Orleans Streaming
         try
         {
-            _streamProvider = this.GetStreamProvider("StreamProvider");
+            _streamProvider = this.GetStreamProvider(_streamingOptions.StreamProviderName);
             var agentId = await GetIdAsync();
             
-            // 创建自己的Stream
-            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, agentId.ToString());
+            // 创建自己的Stream - 使用配置的 namespace
+            var streamId = StreamId.Create(_streamingOptions.DefaultStreamNamespace, agentId.ToString());
             _myStream = _streamProvider.GetStream<byte[]>(streamId);
             
             // 订阅自己的Stream来接收事件
@@ -137,9 +225,9 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         _childrenIds.Add(childId);
         
         // 如果使用Streaming，获取子节点的Stream
-        if (_streamProvider != null)
+        if (_streamProvider != null && _streamingOptions != null)
         {
-            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, childId.ToString());
+            var streamId = StreamId.Create(_streamingOptions.DefaultStreamNamespace, childId.ToString());
             var childStream = _streamProvider.GetStream<byte[]>(streamId);
             _childStreams[childId] = childStream;
         }
@@ -165,9 +253,9 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         _parentId = parentId;
         
         // 如果使用Streaming，订阅父节点的Stream
-        if (_streamProvider != null)
+        if (_streamProvider != null && _streamingOptions != null)
         {
-            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, parentId.ToString());
+            var streamId = StreamId.Create(_streamingOptions.DefaultStreamNamespace, parentId.ToString());
             _parentStream = _streamProvider.GetStream<byte[]>(streamId);
             
             // 创建Orleans MessageStream包装器并订阅
@@ -193,8 +281,10 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
                         {
                             if (envelope.Payload == null) return false;
                             // 检查TypeUrl是否包含事件类型名
-                            return envelope.Payload.TypeUrl.Contains(eventType.Name) ||
-                                   envelope.Payload.TypeUrl.Contains(eventType.FullName);
+                            var eventTypeName = eventType.Name ?? string.Empty;
+                            var eventTypeFullName = eventType.FullName ?? string.Empty;
+                            return envelope.Payload.TypeUrl.Contains(eventTypeName) ||
+                                   envelope.Payload.TypeUrl.Contains(eventTypeFullName);
                         };
                         break;
                     }
@@ -225,18 +315,9 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
                 _parentStreamSubscription = await messageStream.SubscribeAsync<EventEnvelope>(
                     async envelope =>
                     {
-                        // 从父stream接收到的事件，只需要处理，不需要继续传播
-                        // 因为这个事件已经在父stream中广播了
-                        // 直接调用Agent的处理器，跳过传播逻辑
-                        var handleMethod = _agent.GetType().GetMethod("HandleEventAsync");
-                        if (handleMethod != null)
-                        {
-                            var task = handleMethod.Invoke(_agent, new object[] { envelope }) as Task;
-                            if (task != null)
-                            {
-                                await task;
-                            }
-                        }
+                        // 从父stream接收到的事件，直接调用Agent的HandleEventAsync
+                        // AgentWrapper 会自动转发到内部 agent，触发其 event handlers
+                        await _agent.HandleEventAsync(envelope, CancellationToken.None);
                     },
                     combinedFilter);
             }
@@ -412,15 +493,60 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
             }
             catch (Exception ex)
             {
-                var logger =
-                    ServiceProvider?.GetService(typeof(ILogger<OrleansGAgentGrain>)) as ILogger<OrleansGAgentGrain>;
-                logger?.LogError(ex, "Error handling event {EventId} in agent {AgentId}",
+                _logger?.LogError(ex, "Error handling event {EventId} in agent {AgentId}",
                     envelope.Id, this.GetPrimaryKeyString());
             }
         }
 
         // 继续路由事件
         await ContinuePropagationAsync(envelope);
+    }
+    
+    /// <summary>
+    /// 发布事件到 Orleans Stream
+    /// </summary>
+    public async Task PublishEventAsync(byte[] envelopeBytes)
+    {
+        // Publish to own stream - all subscribers will receive it
+        if (_myStream != null)
+        {
+            try
+            {
+                // 直接发送原始字节，避免不必要的序列化往返
+                await _myStream.OnNextAsync(envelopeBytes);
+                
+                // 仅在需要记录日志时才反序列化
+                if (_logger != null && _logger.IsEnabled(LogLevel.Debug))
+                {
+                    var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+                    _logger.LogDebug(
+                        "Published event {EventId} to Orleans Stream from agent {AgentId}",
+                        envelope.Id, this.GetPrimaryKeyString());
+                }
+            }
+            catch (Exception ex)
+            {
+                // 仅在发生错误时才反序列化以获取事件 ID
+                string? eventId = null;
+                try
+                {
+                    var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+                    eventId = envelope.Id;
+                }
+                catch { /* 忽略解析错误 */ }
+                
+                _logger?.LogError(ex, 
+                    "Failed to publish event {EventId} to Orleans Stream from agent {AgentId}",
+                    eventId ?? "unknown", this.GetPrimaryKeyString());
+                throw;
+            }
+        }
+        else
+        {
+            _logger?.LogWarning(
+                "Stream provider not configured, cannot publish event from agent {AgentId}. Ensure Orleans Streaming is configured.",
+                this.GetPrimaryKeyString());
+        }
     }
 
     /// <summary>
@@ -543,6 +669,29 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain, IEventPublisher
         {
             await _agent.OnDeactivateAsync();
         }
+    }
+    
+    public Task<byte[]> GetStateAsync()
+    {
+        if (_agent == null)
+        {
+            return Task.FromResult(Array.Empty<byte>());
+        }
+        
+        // Get state from agent
+        var state = _agent.GetState();
+        
+        // Serialize state to bytes using Protobuf
+        if (state is Google.Protobuf.IMessage message)
+        {
+            using var stream = new MemoryStream();
+            using var output = new Google.Protobuf.CodedOutputStream(stream);
+            message.WriteTo(output);
+            output.Flush();
+            return Task.FromResult(stream.ToArray());
+        }
+        
+        return Task.FromResult(Array.Empty<byte>());
     }
     
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)

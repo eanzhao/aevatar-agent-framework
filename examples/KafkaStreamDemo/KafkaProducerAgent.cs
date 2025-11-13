@@ -38,9 +38,9 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
     }
 
     /// <summary>
-    /// Publish a message to Kafka through Orleans Stream
+    /// Create a Kafka message event (to be published by Actor layer)
     /// </summary>
-    public async Task PublishMessageAsync(string content)
+    public KafkaMessageEvent CreateMessage(string content)
     {
         var messageId = Guid.NewGuid().ToString();
         
@@ -50,15 +50,12 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
             Topic = _topic,
             Content = content,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            SenderId = AgentId
+            SenderId = Id.ToString()
         };
         
         // Add custom headers
-        kafkaMessage.Headers.Add("producer", AgentId);
+        kafkaMessage.Headers.Add("producer", Id.ToString());
         kafkaMessage.Headers.Add("version", "1.0");
-        
-        // Publish to stream (Orleans Stream will route to Kafka)
-        await PublishAsync(kafkaMessage);
         
         // Update state
         State.MessagesPublished++;
@@ -67,47 +64,52 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
         State.TotalBytesSent += content.Length;
         
         Logger.LogInformation(
-            "[KafkaProducer] Published message {MessageId} to topic {Topic}, total: {Total}",
+            "[KafkaProducer] Created message {MessageId} for topic {Topic}, total: {Total}",
             messageId, _topic, State.MessagesPublished);
+        
+        return kafkaMessage;
     }
 
     /// <summary>
-    /// Publish a batch of messages
+    /// Create a batch of messages
     /// </summary>
-    public async Task PublishBatchAsync(IEnumerable<string> contents)
+    public List<KafkaMessageEvent> CreateBatch(IEnumerable<string> contents)
     {
+        var messages = new List<KafkaMessageEvent>();
         foreach (var content in contents)
         {
-            await PublishMessageAsync(content);
+            messages.Add(CreateMessage(content));
         }
         
         Logger.LogInformation(
-            "[KafkaProducer] Batch published, total messages: {Total}",
+            "[KafkaProducer] Batch created, total messages: {Total}",
             State.MessagesPublished);
+        
+        return messages;
     }
 
     /// <summary>
-    /// Publish metrics event
+    /// Create metrics event
     /// </summary>
-    public async Task PublishMetricsAsync()
+    public MetricsEvent CreateMetrics()
     {
         var throughput = State.MessagesPublished / 
             (DateTime.UtcNow - State.LastPublishTime.ToDateTime()).TotalSeconds;
         
         var metrics = new MetricsEvent
         {
-            AgentId = AgentId,
+            AgentId = Id.ToString(),
             MessageCount = State.MessagesPublished,
             ByteCount = State.TotalBytesSent,
             ThroughputMsgsPerSec = throughput,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
         };
         
-        await PublishAsync(metrics);
-        
         Logger.LogInformation(
-            "[KafkaProducer] Metrics published - Messages: {Count}, Bytes: {Bytes}, Throughput: {Throughput:F2} msg/s",
+            "[KafkaProducer] Metrics created - Messages: {Count}, Bytes: {Bytes}, Throughput: {Throughput:F2} msg/s",
             metrics.MessageCount, metrics.ByteCount, metrics.ThroughputMsgsPerSec);
+        
+        return metrics;
     }
 
     /// <summary>

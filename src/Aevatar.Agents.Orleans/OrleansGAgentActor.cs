@@ -86,19 +86,28 @@ public class OrleansGAgentActor : IGAgentActor
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
                 Direction = direction,
-                PublisherId = _agent.Id.ToString()
+                PublisherId = _agent.Id.ToString(),
+                Version = 1,
+                CorrelationId = Guid.NewGuid().ToString(),
+                ShouldStopPropagation = false,
+                MaxHopCount = -1,
+                CurrentHopCount = 0,
+                MinHopCount = -1
             };
+            envelope.Publishers.Add(_agent.Id.ToString());
         }
         
-        // 暂时跳过Grain处理，直接返回事件ID
-        // TODO: 需要重新设计Orleans环境下的事件处理架构
-        // 可选方案：
-        // 1. 让Actor本地处理事件，不通过Grain
-        // 2. 让Grain只负责事件路由，不持有Agent实例
-        // 3. 使用Orleans Streams进行事件传播
+        // Use Orleans Streams (Kafka) for event propagation
+        // Serialize the envelope to bytes
+        using var stream = new MemoryStream();
+        using var output = new Google.Protobuf.CodedOutputStream(stream);
+        envelope.WriteTo(output);
+        output.Flush();
+        var envelopeBytes = stream.ToArray();
         
-        // 对于当前测试，只需要返回有效的事件ID
-        await Task.CompletedTask; // 模拟异步操作
+        // Publish through Grain to Orleans Stream (Kafka)
+        // This sends the event to the agent's own stream, which all subscribers will receive
+        await _grain.PublishEventAsync(envelopeBytes);
         
         return envelope.Id;
     }
@@ -133,4 +142,22 @@ public class OrleansGAgentActor : IGAgentActor
     /// 获取内部 Grain 引用
     /// </summary>
     public IGAgentGrain GetGrain() => _grain;
+    
+    /// <summary>
+    /// 从 Grain 获取状态（适用于需要读取最新状态的场景）
+    /// </summary>
+    public async Task<TState?> GetStateFromGrainAsync<TState>() where TState : Google.Protobuf.IMessage, new()
+    {
+        var stateBytes = await _grain.GetStateAsync();
+        if (stateBytes == null || stateBytes.Length == 0)
+        {
+            return default;
+        }
+        
+        var state = new TState();
+        using var stream = new MemoryStream(stateBytes);
+        using var input = new Google.Protobuf.CodedInputStream(stream);
+        state.MergeFrom(input);
+        return state;
+    }
 }
