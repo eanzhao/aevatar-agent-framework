@@ -2,6 +2,7 @@
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -11,31 +12,32 @@ using System.Diagnostics;
 namespace Aevatar.Agents.Core;
 
 /// <summary>
-/// Agent 基类（基础版本）
-/// 提供事件处理器自动发现和调用机制
+/// Agent base class
+/// Provides event handler auto-discovery and invocation, automatic state persistence
 /// </summary>
-/// <typeparam name="TState">Agent 状态类型</typeparam>
+/// <typeparam name="TState">Agent state type</typeparam>
 public abstract class GAgentBase<TState> : IStateGAgent<TState>
     where TState : class, new()
 {
-    // ============ 字段 ============
+    // ============ Fields ============
 
     /// <summary>
-    /// Internal state field (mutable for EventSourcing state transitions)
+    /// State object (writable, automatically persisted to StateStore)
     /// </summary>
-    private TState _state = new();
-    
+    protected TState State { get; set; } = new TState();
+
     /// <summary>
-    /// Agent state (readonly reference, but internal field is mutable)
+    /// StateStore (injected by Actor layer)
     /// </summary>
-    protected TState State => _state;
+    public IStateStore<TState>? StateStore { get; set; }
+
     private ILogger _logger = NullLogger.Instance;
     protected IEventPublisher? EventPublisher;
 
     /// <summary>
-    /// Logger 属性 - 支持自动注入
+    /// Logger property - supports automatic injection
     /// </summary>
-    protected ILogger Logger 
+    protected ILogger Logger
     {
         get => _logger;
         set => _logger = value ?? NullLogger.Instance;
@@ -56,7 +58,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     {
         Id = id;
     }
-    
+
     protected GAgentBase(ILogger? logger)
     {
         Logger = logger;  // 使用属性 setter，会自动处理 null
@@ -69,11 +71,14 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         Logger = logger;  // 使用属性 setter，会自动处理 null
     }
 
-    // ============ IGAgent 实现 ============
+    // ============ IStateGAgent 实现 ============
+
+    public TState GetState()
+    {
+        return State;
+    }
 
     public Guid Id { get; }
-
-    public virtual TState GetState() => State;
 
     public abstract Task<string> GetDescriptionAsync();
 
@@ -189,23 +194,30 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
 
     /// <summary>
     /// 处理事件（由 Actor 层调用，可被子类重写）
+    /// 自动加载/保存 State
     /// </summary>
     public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // 创建事件处理的日志作用域
+        // 1. 加载 State（如果配置了 StateStore）
+        if (StateStore != null)
+        {
+            State = await StateStore.LoadAsync(Id, ct) ?? new TState();
+        }
+
+        // 2. 创建事件处理的日志作用域
         var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
         Console.WriteLine($"GAgentBase.HandleEventAsync called for agent {Id} with event type {eventType}");
-        
+
         using var scope = LoggingScope.CreateEventHandlingScope(
-            Logger, 
-            Id, 
-            envelope.Id, 
+            Logger,
+            Id,
+            envelope.Id,
             eventType,
             envelope.CorrelationId);
-        
+
         var stopwatch = Stopwatch.StartNew();
         var handled = false;
-        
+
         var handlers = GetEventHandlers();
         Console.WriteLine($"GAgentBase.HandleEventAsync found {handlers.Count()} handlers");
 
@@ -215,7 +227,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             {
                 var paramType = handler.GetParameters()[0].ParameterType;
                 Console.WriteLine($"GAgentBase: Processing handler {handler.Name} with parameter type {paramType.Name}");
-                
+
                 // 检查是否允许处理自己发出的事件
                 if (!ShouldHandleEvent(handler, envelope))
                 {
@@ -244,14 +256,14 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                         if (unpackMethod != null)
                         {
                             var message = unpackMethod.Invoke(envelope.Payload, null);
-                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}", 
+                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}",
                                 message?.GetType().Name ?? "null", handler.Name);
-                        
+
                             // 检查类型是否匹配
                             if (message != null && paramType.IsInstanceOfType(message))
                             {
                                 Console.WriteLine($"GAgentBase: Invoking handler {handler.Name} with message type {message.GetType().Name}");
-                                Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", 
+                                Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}",
                                     handler.Name, message.GetType().Name);
                                 await InvokeHandler(handler, message, ct);
                                 handled = true;
@@ -275,7 +287,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
-                
+
                 // 记录异常指标
                 AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Name}");
 
@@ -285,7 +297,13 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                 // 继续处理其他 handler
             }
         }
-        
+
+        // 3. 保存 State（如果配置了 StateStore）
+        if (StateStore != null)
+        {
+            await StateStore.SaveAsync(Id, State, ct);
+        }
+
         // 记录事件处理指标
         stopwatch.Stop();
         if (handled)
@@ -295,7 +313,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         else
         {
             // 没有处理器处理这个事件
-            AgentMetrics.EventsDropped.Add(1, 
+            AgentMetrics.EventsDropped.Add(1,
                 new KeyValuePair<string, object?>("event.type", eventType),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()));
         }

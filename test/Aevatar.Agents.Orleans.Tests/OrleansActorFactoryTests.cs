@@ -286,7 +286,7 @@ public class OrleansTestAgent : GAgentBase<OrleansTestState>
         return Task.FromResult($"Processed by Orleans agent {Id}");
     }
     
-    public override OrleansTestState GetState()
+    public OrleansTestState GetState()
     {
         return base.GetState();
     }

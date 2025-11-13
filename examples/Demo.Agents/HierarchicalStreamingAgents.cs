@@ -66,19 +66,8 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
 /// 团队成员Agent - 子节点
 /// 使用类型约束，只处理特定的事件类型
 /// </summary>
-public class TeamMemberAgent : GAgentBase<TeamMemberState, IMessage>
+public class TeamMemberAgent : GAgentBase<TeamMemberState>
 {
-    // 通过默认构造函数创建，名字后面设置
-    public TeamMemberAgent(ILogger<TeamMemberAgent>? logger = null) 
-        : base(logger)
-    {
-    }
-    
-    public TeamMemberAgent(Guid id, ILogger<TeamMemberAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
-    
     public void SetName(string name)
     {
         State.Name = name;

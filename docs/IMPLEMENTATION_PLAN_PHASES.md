@@ -1433,40 +1433,16 @@ dotnet run -c Release
 
 **选项 A**（推荐）：完全迁移到新架构
 ```csharp
-// 旧的（如果还在使用 StatefulGAgentBase）
-public class BankAccountAgent : StatefulGAgentBase<AccountState>
-{
-    // ...
-}
-
-// 新的
 public class BankAccountAgent : GAgentBase<AccountState>
 {
     // ... 相同代码，可能只需要删除一些冗余代码 ...
 }
 
-// Program.cs 旧的:
-services.AddStatefulGAgent<BankAccountAgent, AccountState>(options =>
-{
-    options.StateStore = ...;
-});
-
-// Program.cs 新的:
 services.ConfigGAgentStateStore(options =>
 {
     options.StateStore = sp => new MongoDBStateStore<AccountState>(...);
 });
 services.ConfigGAgent<BankAccountAgent, AccountState>();
-```
-
-**选项 B**: 保持向后兼容
-```csharp
-// 保留旧的 StatefulGAgentBase（标记为 Obsolete）
-[Obsolete("Use GAgentBase<TState> instead")]
-public class StatefulGAgentBase<TState> : GAgentBase<TState>
-{
-    // 包装现有代码
-}
 ```
 
 **验证**:
@@ -2075,7 +2051,6 @@ public class BankAccountAgent : GAgentBase<AccountState>
 
 - [ ] **平滑升级**
   - [ ] 现有代码可以逐步迁移
-  - [ ] 旧的 StatefulGAgentBase 标记为 Obsolete
 
 - [ ] **无破坏性变更**
   - [ ] 现有事件处理器无需修改

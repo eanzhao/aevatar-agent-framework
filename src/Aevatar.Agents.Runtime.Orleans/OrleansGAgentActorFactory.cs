@@ -43,7 +43,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
 
         var agentType = typeof(TAgent);
         var factory = _factoryProvider.GetFactory(agentType);
-        
+
         if (factory == null)
         {
             throw new InvalidOperationException(
@@ -52,24 +52,30 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
 
         _logger.LogDebug("Creating agent actor using factory for type {AgentType} with id {Id}",
             agentType.Name, id);
-        
+
         return await factory(this, id, ct);
     }
-    
+
     /// <summary>
     /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
     /// </summary>
     public async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default)
     {
-        _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}", 
+        _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
-        
+
         // 自动注入 Logger
         AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
 
+        // 自动注入 StateStore
+        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+
+        // 自动注入 ConfigurationStore
+        AgentConfigurationInjector.InjectConfigurationStore(agent, _serviceProvider);
+
         // 根据配置获取适当的 Grain
         IGAgentGrain grain;
-        
+
         // 根据配置决定是否使用事件溯源
         if (_options.UseEventSourcing)
         {
@@ -92,17 +98,16 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
             grain = _grainFactory.GetGrain<IStandardGAgentGrain>(id.ToString());
             _logger.LogDebug("Using Standard Grain for agent {Id}", id);
         }
-        
+
         // 创建 Actor 包装器（持有本地 Agent 和远程 Grain）
         var actor = new OrleansGAgentActor(grain, agent);
 
         // 激活
         await actor.ActivateAsync(ct);
 
-        _logger.LogInformation("Created and activated Orleans agent actor {Id} with grain type {GrainType}", 
+        _logger.LogInformation("Created and activated Orleans agent actor {Id} with grain type {GrainType}",
             id, grain.GetType().Name);
 
         return actor;
     }
 }
-

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package StateStoreDemo;
+
+message CounterState {
+  int32 count = 1;
+  string last_event = 2;
+}
+
+message IncrementEvent {
+  int32 amount = 1;
+}
+
+message GetCountQuery {
+  string request_id = 1;
+}
