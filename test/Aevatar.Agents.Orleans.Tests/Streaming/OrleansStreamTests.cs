@@ -196,6 +196,8 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
                 .ConfigureLogging(logging => logging.AddConsole())
                 .AddMemoryStreams("StreamProvider")
                 .AddMemoryGrainStorage("PubSubStore")
+                .AddMemoryGrainStorage("agentState")  // For OrleansGAgentGrain persistent state
+                .AddMemoryGrainStorageAsDefault()
                 .Configure<ClusterOptions>(options =>
                 {
                     options.ClusterId = "test-cluster";

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -15,19 +16,42 @@ namespace Aevatar.Agents.TestBase;
 public class ClusterFixture : IDisposable
 {
     public TestCluster Cluster { get; }
+    
+    // Shared IEventRepository instance for both Silo and Client
+    // This ensures EventStorageGrain (in Silo) and tests (using Client) use the same repository
+    private readonly Aevatar.Agents.Runtime.Orleans.EventSourcing.InMemoryEventRepository _sharedEventRepository;
+    
+    // Static dictionary to share repository with configurators (thread-safe)
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, Aevatar.Agents.Runtime.Orleans.EventSourcing.InMemoryEventRepository> 
+        _sharedRepositories = new();
+    private readonly int _fixtureId;
 
     public ClusterFixture()
     {
+        // Create a shared InMemoryEventRepository instance BEFORE building the cluster
+        _sharedEventRepository = new Aevatar.Agents.Runtime.Orleans.EventSourcing.InMemoryEventRepository();
+        _fixtureId = this.GetHashCode();
+        _sharedRepositories[_fixtureId] = _sharedEventRepository;
+        
         var builder = new TestClusterBuilder();
         builder.AddSiloBuilderConfigurator<TestSiloConfigurations>();
         builder.AddClientBuilderConfigurator<TestClientBuilderConfigurator>();
         Cluster = builder.Build();
         Cluster.Deploy();
     }
+    
+    /// <summary>
+    /// Get the shared IEventRepository instance used by both Silo and Client
+    /// </summary>
+    public Aevatar.Agents.Runtime.Orleans.EventSourcing.InMemoryEventRepository GetSharedEventRepository()
+    {
+        return _sharedEventRepository;
+    }
 
     public void Dispose()
     {
         Cluster?.StopAllSilos();
+        _sharedRepositories.TryRemove(_fixtureId, out _);
     }
 
     private class TestSiloConfigurations : ISiloConfigurator
@@ -51,19 +75,29 @@ public class ClusterFixture : IDisposable
                         logging.SetMinimumLevel(LogLevel.Warning);
                     });
                     
-                    // Register in-memory EventSourcing for testing
-                    services.AddInMemoryEventSourcing();
+                    // Register shared IEventRepository instance (use most recent)
+                    var sharedRepo = _sharedRepositories.Values.LastOrDefault();
+                    if (sharedRepo != null)
+                    {
+                        services.AddSingleton<Aevatar.Agents.Runtime.Orleans.EventSourcing.IEventRepository>(sharedRepo);
+                    }
+                    
+                    // Register OrleansEventStore
+                    services.AddSingleton<Aevatar.Agents.Abstractions.EventSourcing.IEventStore, 
+                        Aevatar.Agents.Runtime.Orleans.EventSourcing.OrleansEventStore>();
                     
                     services.AddSerializer(serializerBuilder =>
                     {
                         serializerBuilder.AddProtobufSerializer();
                     });
                 })
-                .AddMemoryStreams("StreamProvider")
-                .AddMemoryGrainStorage("PubSubStore")
-                .AddMemoryGrainStorage("EventStoreStorage")
-                .AddMemoryGrainStorageAsDefault()
-                .AddLogStorageBasedLogConsistencyProvider("LogStorage");
+                // Stream Providers
+                .AddMemoryStreams("AevatarAgents")  // Used by OrleansGAgentActorFactory and OrleansGAgentGrain
+                // Grain Storage Providers
+                .AddMemoryGrainStorage("PubSubStore")  // Required by Orleans Streams for PubSub
+                .AddMemoryGrainStorage("EventStoreStorage")  // Used by EventStorageGrain for snapshots
+                .AddMemoryGrainStorage("agentState")  // Used by OrleansGAgentGrain for persistent state
+                .AddMemoryGrainStorageAsDefault();  // Default storage for grains without explicit provider name
         }
     }
 
@@ -72,11 +106,19 @@ public class ClusterFixture : IDisposable
         public void Configure(IConfiguration configuration, IClientBuilder clientBuilder)
         {
             clientBuilder
-                .AddMemoryStreams("StreamProvider")
+                .AddMemoryStreams("AevatarAgents")  // Used by OrleansGAgentActorFactory
                 .ConfigureServices(services =>
                 {
-                    // Register in-memory EventSourcing for testing
-                    services.AddInMemoryEventSourcing();
+                    // Register shared IEventRepository instance (use most recent)
+                    var sharedRepo = _sharedRepositories.Values.LastOrDefault();
+                    if (sharedRepo != null)
+                    {
+                        services.AddSingleton<Aevatar.Agents.Runtime.Orleans.EventSourcing.IEventRepository>(sharedRepo);
+                    }
+                    
+                    // Register OrleansEventStore
+                    services.AddSingleton<Aevatar.Agents.Abstractions.EventSourcing.IEventStore, 
+                        Aevatar.Agents.Runtime.Orleans.EventSourcing.OrleansEventStore>();
                     
                     services.AddSerializer(serializerBuilder =>
                     {

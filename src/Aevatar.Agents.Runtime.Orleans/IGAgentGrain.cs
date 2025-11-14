@@ -20,11 +20,6 @@ public interface IGAgentGrain : IGrainWithStringKey
     Task HandleEventAsync(byte[] envelopeBytes);
     
     /// <summary>
-    /// 发布事件到 Orleans Stream (Kafka)（使用 byte[] 以避免 Orleans 序列化问题）
-    /// </summary>
-    Task PublishEventAsync(byte[] envelopeBytes);
-    
-    /// <summary>
     /// 添加子 Agent
     /// </summary>
     Task AddChildAsync(Guid childId);
@@ -65,9 +60,4 @@ public interface IGAgentGrain : IGrainWithStringKey
     /// 停用
     /// </summary>
     Task DeactivateAsync();
-    
-    /// <summary>
-    /// 获取 Agent 状态（类型安全）
-    /// </summary>
-    Task<TState?> GetStateAsync<TState>() where TState : Google.Protobuf.IMessage, new();
 }
