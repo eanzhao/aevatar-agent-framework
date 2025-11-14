@@ -11,7 +11,7 @@ public static class DependencyInjectionExtensions
     /// <summary>
     /// 添加 Orleans Agent 支持
     /// </summary>
-    public static IServiceCollection AddOrleansAgents(this IServiceCollection services)
+    public static IServiceCollection AddOrleansActorFactory(this IServiceCollection services)
     {
         services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
         return services;

@@ -59,11 +59,17 @@ public class ProtoActorGAgentActorFactory : IGAgentActorFactory
     /// </summary>
     public async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default)
     {
-        _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}", 
+        _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
-        
+
         // 自动注入 Logger
         AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+
+        // 自动注入 StateStore
+        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+
+        // 自动注入 ConfigurationStore
+        AgentConfigurationInjector.InjectConfigurationStore(agent, _serviceProvider);
 
         // 创建 ProtoActor Actor
         var props = Props.FromProducer(() => new AgentActor());

@@ -1,7 +1,6 @@
-using Aevatar.Agents.Abstractions;
 using System.Collections.Concurrent;
 
-namespace Aevatar.Agents.Orleans.EventSourcing;
+namespace Aevatar.Agents.Runtime.Orleans.EventSourcing;
 
 /// <summary>
 /// In-memory implementation of IEventRepository for development and testing.

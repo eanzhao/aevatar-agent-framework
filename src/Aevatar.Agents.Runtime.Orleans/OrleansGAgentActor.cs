@@ -1,153 +1,210 @@
-using System;
-using System.IO;
-using System.Linq;
-using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
-using Orleans;
+using Aevatar.Agents.Core;
+using Microsoft.Extensions.Logging;
+using Orleans.Streams;
 
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans Agent Actor 包装器
-/// 包装 IGAgentGrain 以实现 IGAgentActor 接口
-/// 同时持有本地 Agent 实例以支持 GetAgent()
+/// Orleans Agent Actor
+/// 继承自 GAgentActorBase,使用 Orleans Streams 进行事件传输
 /// </summary>
-public class OrleansGAgentActor : IGAgentActor
+public class OrleansGAgentActor : GAgentActorBase
 {
-    private readonly IGAgentGrain _grain;
-    private readonly IGAgent _agent;
+    private readonly IGrainFactory _grainFactory;
+    private readonly IStreamProvider _streamProvider;
+    private readonly Dictionary<Guid, IAsyncStream<EventEnvelope>> _actorStreams = new();
+    private IAsyncStream<EventEnvelope>? _myStream;
+    private StreamSubscriptionHandle<EventEnvelope>? _streamSubscription;
 
-    public OrleansGAgentActor(IGAgentGrain grain, IGAgent agent)
+    // ============ 构造函数 ============
+
+    /// <summary>
+    /// 主构造函数 - 用于新的实现
+    /// </summary>
+    public OrleansGAgentActor(
+        IGAgent agent,
+        IGrainFactory grainFactory,
+        IStreamProvider streamProvider,
+        ILogger? logger = null)
+        : base(agent, logger)
     {
-        _grain = grain;
-        _agent = agent;
-    }
+        _grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));
+        _streamProvider = streamProvider;
 
-    public Guid Id => _agent.Id;
-
-    public IGAgent GetAgent()
-    {
-        // 返回本地 Agent 实例
-        return _agent;
-    }
-
-    // ============ 层级关系管理 ============
-
-    public Task AddChildAsync(Guid childId, CancellationToken ct = default)
-    {
-        return _grain.AddChildAsync(childId);
-    }
-
-    public Task RemoveChildAsync(Guid childId, CancellationToken ct = default)
-    {
-        return _grain.RemoveChildAsync(childId);
-    }
-
-    public Task SetParentAsync(Guid parentId, CancellationToken ct = default)
-    {
-        return _grain.SetParentAsync(parentId);
-    }
-
-    public Task ClearParentAsync(CancellationToken ct = default)
-    {
-        return _grain.ClearParentAsync();
-    }
-
-    public Task<IReadOnlyList<Guid>> GetChildrenAsync()
-    {
-        return _grain.GetChildrenAsync();
-    }
-
-    public Task<Guid?> GetParentAsync()
-    {
-        return _grain.GetParentAsync();
-    }
-
-    // ============ 事件发布和路由 ============
-
-    public async Task<string> PublishEventAsync<TEvent>(
-        TEvent evt,
-        EventDirection direction = EventDirection.Down,
-        CancellationToken ct = default)
-        where TEvent : Google.Protobuf.IMessage
-    {
-        // 如果事件已经是 EventEnvelope，直接使用
-        EventEnvelope envelope;
-        if (evt is EventEnvelope env)
+        // 创建自己的 Stream
+        try
         {
-            envelope = env;
+            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, Id.ToString());
+            _myStream = _streamProvider.GetStream<EventEnvelope>(streamId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to create Orleans stream for Agent {AgentId}", Id);
+            _myStream = null;
+        }
+    }
+
+    /// <summary>
+    /// 获取内部的 Grain 引用（兼容性支持）
+    /// </summary>
+    public IGAgentGrain? GetGrain() => null;
+
+    // ============ 抽象方法实现 ============
+
+    /// <summary>
+    /// 发送事件给自己 - 通过 Orleans Stream
+    /// </summary>
+    protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
+    {
+        if (_myStream != null)
+        {
+            await _myStream.OnNextAsync(envelope);
         }
         else
         {
-            // 否则包装成 EventEnvelope
-            envelope = new EventEnvelope
-            {
-                Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
-                Direction = direction,
-                PublisherId = _agent.Id.ToString(),
-                Version = 1,
-                CorrelationId = Guid.NewGuid().ToString(),
-                ShouldStopPropagation = false,
-                MaxHopCount = -1,
-                CurrentHopCount = 0,
-                MinHopCount = -1
-            };
-            envelope.Publishers.Add(_agent.Id.ToString());
+            // Fallback: 直接调用处理
+            await HandleEventAsync(envelope, ct);
         }
-        
-        // Use Orleans Streams (Kafka) for event propagation
-        // Serialize the envelope to bytes
-        using var stream = new MemoryStream();
-        using var output = new Google.Protobuf.CodedOutputStream(stream);
-        envelope.WriteTo(output);
-        output.Flush();
-        var envelopeBytes = stream.ToArray();
-        
-        // Publish through Grain to Orleans Stream (Kafka)
-        // This sends the event to the agent's own stream, which all subscribers will receive
-        await _grain.PublishEventAsync(envelopeBytes);
-        
-        return envelope.Id;
-    }
-
-    public Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
-    {
-        // 使用 Protobuf 的序列化方法
-        using var stream = new MemoryStream();
-        using var output = new Google.Protobuf.CodedOutputStream(stream);
-        envelope.WriteTo(output);
-        output.Flush();
-        return _grain.HandleEventAsync(stream.ToArray());
-    }
-
-    // ============ 生命周期 ============
-
-    public Task ActivateAsync(CancellationToken ct = default)
-    {
-        // 获取Agent的类型信息
-        var agentType = _agent.GetType();
-        var stateType = _agent.GetType().BaseType?.GetGenericArguments().FirstOrDefault() ?? typeof(object);
-        
-        return _grain.ActivateAsync(agentType.AssemblyQualifiedName, stateType.AssemblyQualifiedName);
-    }
-
-    public Task DeactivateAsync(CancellationToken ct = default)
-    {
-        return _grain.DeactivateAsync();
     }
 
     /// <summary>
-    /// 获取内部 Grain 引用
+    /// 发送事件到指定 Actor - 通过 Orleans Streams
     /// </summary>
-    public IGAgentGrain GetGrain() => _grain;
-    
-    /// <summary>
-    /// 从 Grain 获取状态（适用于需要读取最新状态的场景）
-    /// </summary>
-    public Task<TState?> GetStateFromGrainAsync<TState>() where TState : Google.Protobuf.IMessage, new()
+    protected override async Task SendEventToActorAsync(Guid actorId, EventEnvelope envelope, CancellationToken ct)
     {
-        return _grain.GetStateAsync<TState>();
+        try
+        {
+            // 获取或创建目标 Actor 的 Stream
+            if (!_actorStreams.TryGetValue(actorId, out var stream))
+            {
+                var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, actorId.ToString());
+                stream = _streamProvider.GetStream<EventEnvelope>(streamId);
+                _actorStreams[actorId] = stream;
+            }
+
+            await stream.OnNextAsync(envelope);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to send event {EventId} to Actor {ActorId}", envelope.Id, actorId);
+
+            // Fallback: 直接通过 Grain 调用
+            try
+            {
+                var grain = _grainFactory.GetGrain<IGAgentGrain>(actorId.ToString());
+                using var stream = new MemoryStream();
+                using var codedOutput = new Google.Protobuf.CodedOutputStream(stream);
+                envelope.WriteTo(codedOutput);
+                codedOutput.Flush();
+                await grain.HandleEventAsync(stream.ToArray());
+            }
+            catch (Exception fallbackEx)
+            {
+                Logger.LogError(fallbackEx, "Fallback to Grain call also failed for Actor {ActorId}", actorId);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 激活 Actor - 订阅 Orleans Stream
+    /// </summary>
+    public override async Task ActivateAsync(CancellationToken ct = default)
+    {
+        Logger.LogInformation("Activating Orleans Actor {ActorId}", Id);
+
+        // 订阅自己的 Stream
+        if (_myStream != null)
+        {
+            try
+            {
+                _streamSubscription = await _myStream.SubscribeAsync(OnStreamEventReceived);
+                Logger.LogDebug("Successfully subscribed to Orleans stream for Agent {AgentId}", Id);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to subscribe to stream for Agent {AgentId}", Id);
+            }
+        }
+
+        // 如果 Agent 支持事件溯源,触发事件回放 (在 Actor 层触发,而不是 Agent 层)
+        // Check if Agent inherits from GAgentBaseWithEventSourcing<TState>
+        var agentType = Agent.GetType();
+        var baseType = agentType.BaseType;
+        while (baseType != null && baseType != typeof(object))
+        {
+            if (baseType.IsGenericType &&
+                baseType.GetGenericTypeDefinition().Name == "GAgentBaseWithEventSourcing`1")
+            {
+                // Found GAgentBaseWithEventSourcing<TState>
+                // Use reflection to get and call ReplayEventsAsync
+                var replayMethod = baseType.GetMethod("ReplayEventsAsync", new[] { typeof(CancellationToken) });
+                if (replayMethod != null)
+                {
+                    Logger.LogInformation("Agent {AgentId} supports event sourcing, triggering replay", Id);
+                    try
+                    {
+                        var task = (Task)replayMethod.Invoke(Agent, new object[] { ct })!;
+                        await task;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex, "Error replaying events for Agent {AgentId}", Id);
+                    }
+                }
+                break;
+            }
+            baseType = baseType.BaseType;
+        }
+
+        Logger.LogInformation("Orleans Actor {ActorId} activated successfully", Id);
+    }
+
+    /// <summary>
+    /// 停用 Actor - 取消订阅并清理资源
+    /// </summary>
+    public override async Task DeactivateAsync(CancellationToken ct = default)
+    {
+        Logger.LogInformation("Deactivating Orleans Actor {ActorId}", Id);
+
+        // 取消 Stream 订阅
+        if (_streamSubscription != null)
+        {
+            try
+            {
+                await _streamSubscription.UnsubscribeAsync();
+                Logger.LogDebug("Successfully unsubscribed from Orleans stream for Agent {AgentId}", Id);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to unsubscribe from stream for Agent {AgentId}", Id);
+            }
+        }
+
+        // 清空 Stream 缓存
+        _actorStreams.Clear();
+
+        Logger.LogInformation("Orleans Actor {ActorId} deactivated", Id);
+    }
+
+    // ============ Stream 事件处理 ============
+
+    /// <summary>
+    /// 处理从 Orleans Stream 接收到的事件
+    /// </summary>
+    private async Task OnStreamEventReceived(EventEnvelope envelope, StreamSequenceToken? token)
+    {
+        Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
+
+        try
+        {
+            // 直接调用基类的 HandleEventAsync (会走完整的处理流程)
+            await HandleEventAsync(envelope, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling stream event {EventId} for Agent {AgentId}", envelope.Id, Id);
+        }
     }
 }

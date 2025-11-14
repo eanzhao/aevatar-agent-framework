@@ -24,21 +24,21 @@
 public interface IGAgentActorManager
 {
     // 生命周期
-    Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(Guid id, CancellationToken ct = default) 
+    Task<IGAgentActor> CreateAndRegisterAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent;
-    Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(IEnumerable<Guid> ids, CancellationToken ct = default) 
+    Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(IEnumerable<Guid> ids, CancellationToken ct = default)
         where TAgent : IGAgent;
     Task DeactivateAndUnregisterAsync(Guid id, CancellationToken ct = default);
     Task DeactivateBatchAsync(IEnumerable<Guid> ids, CancellationToken ct = default);
     Task DeactivateAllAsync(CancellationToken ct = default);
-    
+
     // 查询
     Task<IGAgentActor?> GetActorAsync(Guid id);
     Task<IReadOnlyList<IGAgentActor>> GetAllActorsAsync();
     Task<IReadOnlyList<IGAgentActor>> GetActorsByTypeAsync<TAgent>() where TAgent : IGAgent;
     Task<bool> ExistsAsync(Guid id);
     Task<int> GetCountAsync();
-    
+
     // 监控
     Task<ActorHealthStatus> GetHealthStatusAsync(Guid id);
     Task<ActorManagerStatistics> GetStatisticsAsync();
@@ -52,6 +52,76 @@ public interface IGAgentActorManager
 | `LocalGAgentActorManager` | ConcurrentDictionary | 进程内，最快 |
 | `OrleansGAgentActorManager` | GrainFactory | 分布式，位置透明 |
 | `ProtoActorGAgentActorManager` | ActorSystem.Root | 轻量级，高性能 |
+
+---
+
+## 🏭 IGAgentActorFactory - Actor工厂
+
+### 职责
+
+负责创建特定Runtime的Actor实例。
+
+```csharp
+public interface IGAgentActorFactory
+{
+    Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
+        where TAgent : IGAgent;
+    string GetRuntimeName();
+}
+```
+
+### 运行时特定的工厂
+
+#### LocalGAgentActorFactory
+```csharp
+public class LocalGAgentActorFactory : IGAgentActorFactory
+{
+    private readonly IServiceProvider _serviceProvider;
+
+    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
+        where TAgent : IGAgent
+    {
+        // 创建 Local Actor (使用 Channel)
+        var agent = ActivatorUtilities.CreateInstance<TAgent>(_serviceProvider, id);
+        var actor = new LocalGAgentActor(agent, _serviceProvider);
+        await actor.ActivateAsync(ct);
+        return actor;
+    }
+}
+```
+
+#### OrleansGAgentActorFactory
+```csharp
+public class OrleansGAgentActorFactory : IGAgentActorFactory
+{
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IGrainFactory _grainFactory;
+    private readonly ILogger<OrleansGAgentActorFactory> _logger;
+
+    public async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default)
+    {
+        // 注入依赖
+        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+        AgentConfigurationInjector.InjectConfigurationStore(agent, _serviceProvider);
+        AgentEventStoreInjector.InjectEventStore(agent, _serviceProvider); // 事件溯源
+
+        // 创建 Grain 和 Actor
+        var grain = _grainFactory.GetGrain<IStandardGAgentGrain>(id.ToString());
+        var actor = new OrleansGAgentActor(agent, _grainFactory, _streamProvider, _logger);
+
+        // 激活（触发事件回放）
+        await actor.ActivateAsync(ct);
+
+        return actor;
+    }
+}
+```
+
+** 关键设计 **:
+- 统一使用 `IStandardGAgentGrain` (所有 Agent 使用相同的 Grain)
+- 事件溯源通过依赖注入自动启用 (不需要配置选项)
+- 事件回放在 Actor 激活时触发 (Actor 层,不是 Agent 层)
 
 ---
 

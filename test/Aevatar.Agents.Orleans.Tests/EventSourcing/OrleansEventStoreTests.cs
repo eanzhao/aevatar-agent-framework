@@ -1,6 +1,4 @@
-using Aevatar.Agents;
-using Aevatar.Agents.Abstractions.EventSourcing;
-using Aevatar.Agents.Orleans.EventSourcing;
+using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.TestBase;
 using Google.Protobuf.WellKnownTypes;
 using Xunit;
