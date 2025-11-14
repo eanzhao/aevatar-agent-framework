@@ -483,8 +483,6 @@ public class TestSpecificChildAgent : GAgentBase<Messages.TestState, Messages.Te
 {
     public List<string> ReceivedEvents { get; } = new();
     
-    public TestSpecificChildAgent(Guid id) : base(id) { }
-    
     public override Task<string> GetDescriptionAsync() => 
         Task.FromResult("Test Specific Child Agent");
     

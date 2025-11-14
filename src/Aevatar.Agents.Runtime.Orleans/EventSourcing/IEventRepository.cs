@@ -1,6 +1,4 @@
-using Aevatar.Agents.Abstractions;
-
-namespace Aevatar.Agents.Orleans.EventSourcing;
+namespace Aevatar.Agents.Runtime.Orleans.EventSourcing;
 
 /// <summary>
 /// Repository interface for event storage
