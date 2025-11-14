@@ -342,13 +342,13 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
         var evt = new TaskAssignedEvent { TaskId = taskId, AssignedTo = memberId };
         await PublishAsync(evt, EventDirection.Down);  // 向下广播
     }
-    
+
     // 接收子节点的完成报告
     [EventHandler]
     public async Task HandleTaskCompleted(TaskCompletedEvent evt)
     {
         State.CompletedTasks.Add(evt.TaskId);
-        Logger.LogInformation("Task {TaskId} completed by {Member}", 
+        Logger.LogInformation("Task {TaskId} completed by {Member}",
             evt.TaskId, evt.CompletedBy);
     }
 }
@@ -368,13 +368,13 @@ public class TeamMemberAgent : GAgentBase<TeamMemberState>
             await CompleteTask(evt.TaskId);
         }
     }
-    
+
     // 完成任务并报告
     private async Task CompleteTask(string taskId)
     {
-        var evt = new TaskCompletedEvent { 
-            TaskId = taskId, 
-            CompletedBy = State.MemberId 
+        var evt = new TaskCompletedEvent {
+            TaskId = taskId,
+            CompletedBy = State.MemberId
         };
         await PublishAsync(evt, EventDirection.Up);  // 向上报告
     }
@@ -394,6 +394,116 @@ await leader.AddChildAsync(member2Id);
 // 分配任务
 await ((TeamLeaderAgent)leader.GetAgent()).AssignTask("task-1", "member1");
 // 流程：leader → leader.stream → member1收到 → 完成后 → leader.stream(UP) → 所有人收到
+```
+
+### 示例2：使用 EventSourcing 的银行账户
+
+```csharp
+// 定义事件
+message AccountCreated {
+    string account_holder = 1;
+    double initial_balance = 2;
+}
+
+message MoneyDeposited {
+    double amount = 1;
+    string description = 2;
+}
+
+message MoneyWithdrawn {
+    double amount = 1;
+    string description = 2;
+}
+
+// 状态
+message BankAccountState {
+    string account_holder = 1;
+    double balance = 2;
+    repeated string transaction_history = 3;
+}
+
+// Agent - 使用事件溯源
+public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
+{
+    // 创建账户
+    public async Task CreateAccountAsync(string holder, double initialBalance)
+    {
+        var evt = new AccountCreated {
+            AccountHolder = holder,
+            InitialBalance = initialBalance
+        };
+        RaiseEvent(evt, new Dictionary<string, string> {
+            ["Operation"] = "CreateAccount",
+            ["Holder"] = holder
+        });
+        await ConfirmEventsAsync();
+    }
+
+    // 存款
+    public async Task DepositAsync(double amount, string description = "")
+    {
+        var evt = new MoneyDeposited {
+            Amount = amount,
+            Description = description
+        };
+        RaiseEvent(evt);
+        await ConfirmEventsAsync();
+    }
+
+    // 取款
+    public async Task WithdrawAsync(double amount, string description = "")
+    {
+        if (GetState().Balance < amount)
+            throw new InvalidOperationException("Insufficient balance");
+
+        var evt = new MoneyWithdrawn {
+            Amount = amount,
+            Description = description
+        };
+        RaiseEvent(evt);
+        await ConfirmEventsAsync();
+    }
+
+    // 实现状态转换（纯函数）
+    protected override void TransitionState(BankAccountState state, IMessage evt)
+    {
+        switch (evt)
+        {
+            case AccountCreated created:
+                state.AccountHolder = created.AccountHolder;
+                state.Balance = created.InitialBalance;
+                state.TransactionHistory.Add($"[{GetCurrentVersion()}] Account created for {created.AccountHolder}");
+                break;
+
+            case MoneyDeposited deposited:
+                state.Balance += deposited.Amount;
+                state.TransactionHistory.Add($"[{GetCurrentVersion()}] Deposited ${deposited.Amount:F2} - {deposited.Description}");
+                break;
+
+            case MoneyWithdrawn withdrawn:
+                state.Balance -= withdrawn.Amount;
+                state.TransactionHistory.Add($"[{GetCurrentVersion()}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
+                break;
+        }
+    }
+}
+
+// 使用
+var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(accountId);
+var agent = actor.GetAgent() as BankAccountAgent;
+
+// 在组合根配置事件存储（自动启用事件溯源）
+services.AddSingleton<IEventStore, OrleansEventStore>();
+services.AddSingleton<IEventRepository>(sp => new MongoEventRepository(...));
+
+// 执行业务操作
+await agent.CreateAccountAsync("Alice Smith", 1000.0);
+await agent.DepositAsync(500.0, "Salary");
+await agent.WithdrawAsync(200.0, "Rent");
+
+// 状态自动持久化到 MongoDB
+// 事件自动存储并可回放
+// Deactivate/Reactivate 时自动恢复状态
 ```
 
 ### 示例2：类型过滤优化

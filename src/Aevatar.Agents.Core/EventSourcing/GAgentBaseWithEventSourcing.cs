@@ -36,12 +36,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// Performance: 5-7x faster event application
     /// </summary>
     private static readonly ConcurrentDictionary<string, TypeParserCache> _typeCache = new();
-    
-    /// <summary>
-    /// Cached FieldInfo for State field to avoid repeated reflection
-    /// </summary>
-    private static FieldInfo? _stateFieldCache;
-    
+
     /// <summary>
     /// Internal class to cache type and parser information
     /// Reduces reflection overhead from ~5ms to ~0.5ms per event
@@ -331,11 +326,9 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// </summary>
     private void SetStateInternalOptimized(TState newState)
     {
-        // Use cached FieldInfo to avoid repeated reflection
-        _stateFieldCache ??= typeof(GAgentBase<TState>).GetField("_state", 
-            BindingFlags.NonPublic | BindingFlags.Instance);
-        
-        _stateFieldCache?.SetValue(this, newState);
+        // GAgentBase<TState> uses a Property, not a Field
+        // So we need to set the State property directly
+        State = newState;
     }
 
     /// <summary>
@@ -360,7 +353,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             return;
         }
 
-        Logger?.LogInformation("Replaying events for agent {AgentId}", Id);
+        Logger?.LogInformation("Replaying events for agent {AgentId}, starting from version {CurrentVersion}", Id, _currentVersion);
 
         // Step 1: Load latest snapshot
         var snapshot = await _eventStore.GetLatestSnapshotAsync(Id, ct);
@@ -373,13 +366,23 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             var snapshotState = snapshot.StateData.Unpack<TState>();
             SetStateInternal(snapshotState);
             _currentVersion = snapshot.Version;
+            Logger?.LogInformation("Snapshot loaded, current version: {Version}", _currentVersion);
+        }
+        else
+        {
+            Logger?.LogInformation("No snapshot found for agent {AgentId}", Id);
         }
 
         // Step 2: Replay events after snapshot
+        var fromVersion = _currentVersion + 1;
+        Logger?.LogInformation("Loading events from version {FromVersion} for agent {AgentId}", fromVersion, Id);
+
         var events = await _eventStore.GetEventsAsync(
             Id,
-            fromVersion: _currentVersion + 1,
+            fromVersion: fromVersion,
             ct: ct);
+
+        Logger?.LogInformation("Found {Count} events to replay for agent {AgentId}", events.Count(), Id);
 
         if (!events.Any())
         {
@@ -406,7 +409,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// </summary>
     protected virtual ISnapshotStrategy SnapshotStrategy =>
         new IntervalSnapshotStrategy(100);
-    
+
     // ========== Performance Monitoring ==========
     
     /// <summary>
@@ -433,7 +436,6 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     public static void ClearTypeCache()
     {
         _typeCache.Clear();
-        _stateFieldCache = null;
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
-using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Orleans.MongoDB;
+using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;

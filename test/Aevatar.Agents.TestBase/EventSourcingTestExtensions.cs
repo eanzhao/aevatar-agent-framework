@@ -1,7 +1,6 @@
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Aevatar.Agents.Orleans.EventSourcing;
+using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.TestBase;
 

@@ -126,6 +126,26 @@ var state = ((CalculatorAgent)actor.GetAgent()).GetState();
 
 ---
 
+## 📊 Runtime 能力矩阵
+
+| 特性 | Local | Orleans | ProtoActor | 说明 |
+|--------|---------|---------|--------------|--------|
+| **事件传输** | Channel | Orleans Streams | EventStream | 都是抽象的 IMessageStream |
+| **状态存储** | ✅ IStateStore | ✅ IStateStore (GrainStorage) | ✅ IStateStore | 统一接口 |
+| **事件溯源** | ✅ 自动 | ✅ 自动 | ✅ 自动 | 注册 IEventStore 即可启用 |
+| **Parent/Child** | ✅ | ✅ | ✅ | 统一接口 |
+| **订阅管理** | ✅ | ✅ | ✅ | 统一接口 |
+| **生命周期管理** | Task | Grain | Actor | 不同实现 |
+
+**统一架构**：
+- ✅ 所有 Runtime 使用相同的 Agent 基类
+- ✅ 相同的 Stream 抽象 (IMessageStream)
+- ✅ 相同的存储抽象 (IStateStore, IEventStore)
+- ✅ 相同的 Actor 基类 (GAgentActorBase)
+- ✅ 事件溯源自动启用（通过依赖注入）
+
+---
+
 ## 🎭 Runtime选择指南
 
 ### Local Runtime
@@ -150,12 +170,20 @@ var state = ((CalculatorAgent)actor.GetAgent()).GetState();
 - ✅ 需要虚拟Actor（自动激活/休眠）
 - ✅ 需要内置集群和故障转移
 - ✅ 需要位置透明性
+- ✅ 需要弹性扩展
 
 **特点**:
 - 成熟的分布式Actor框架
 - 自动负载均衡
-- Rich流支持
-- 多种持久化选项
+- Rich流支持 (Orleans Streams)
+- 多种持久化选项 (MongoDB, SQL Server, Azure Storage)
+- **所有 Agent 使用同一个 Grain 类型** (`IStandardGAgentGrain`)
+- **事件溯源自动启用**（配置 IEventStore 即可）
+
+**配置要点**:
+```csharp
+services.AddSingleton<IEventStore, OrleansEventStore>();
+```
 
 **示例**: `examples/MongoDBEventStoreDemo/`
 

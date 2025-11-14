@@ -72,7 +72,7 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
         return async (factory, id, ct) =>
         {
             // 创建 Agent 实例
-            IGAgent agent;
+            IGAgent? agent;
 
             try
             {
@@ -167,13 +167,13 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
             // 使用工厂的 CreateActorForAgentAsync 方法（如果存在）
             var factoryType = factory.GetType();
             var createActorMethod = factoryType.GetMethod("CreateActorForAgentAsync",
-                new[] { typeof(IGAgent), typeof(Guid), typeof(CancellationToken) });
+                [typeof(IGAgent), typeof(Guid), typeof(CancellationToken)]);
 
             if (createActorMethod != null)
             {
                 _logger?.LogDebug("Using CreateActorForAgentAsync for type {AgentType}", agentType.Name);
 
-                var task = createActorMethod.Invoke(factory, new object[] { agent, id, ct }) as Task<IGAgentActor>;
+                var task = createActorMethod.Invoke(factory, [agent, id, ct]) as Task<IGAgentActor>;
                 if (task != null)
                 {
                     return await task;

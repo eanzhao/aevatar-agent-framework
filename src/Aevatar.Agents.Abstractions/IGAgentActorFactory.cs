@@ -15,4 +15,6 @@ public interface IGAgentActorFactory
     /// <returns>Actor 实例</returns>
     Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent;
+
+    // internal Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
 }
