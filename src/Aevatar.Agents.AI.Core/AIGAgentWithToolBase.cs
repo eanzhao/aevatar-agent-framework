@@ -16,7 +16,7 @@ namespace Aevatar.Agents.AI.Core;
 /// </summary>
 /// <typeparam name="TState">The agent state type (must be Protobuf)</typeparam>
 public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
-    where TState : class, IMessage, new()
+    where TState : class, IMessage<TState>, new()
 {
     #region Fields
     
@@ -101,10 +101,10 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     #region Chat with Function Calling
     
     /// <summary>
-    /// Override chat to include function calling support.
-    /// 重写聊天以包含函数调用支持
+    /// Process chat with function calling support.
+    /// 处理包含函数调用支持的聊天
     /// </summary>
-    protected override async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
+    protected async Task<Aevatar.Agents.AI.ChatResponse> ProcessChatWithToolsAsync(Aevatar.Agents.AI.ChatRequest request)
     {
         try
         {

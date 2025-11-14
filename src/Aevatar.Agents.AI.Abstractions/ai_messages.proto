@@ -28,10 +28,42 @@ enum AevatarChatRole {
 }
 
 // =====================================================
-// Configuration Messages
+// AI Agent Configuration (Framework Level)
 // =====================================================
 
-// AI配置
+// AI Agent框架配置（包含AI行为相关的配置）
+message AevatarAIAgentConfiguration {
+    string model = 1;                      // 模型名称
+    double temperature = 2;                // 温度参数
+    int32 max_tokens = 3;                  // 最大token数
+    int32 max_history = 4;                 // 对话历史最大长度
+
+    // 扩展设置
+    double top_p = 5;                      // top_p采样
+    double frequency_penalty = 6;          // 频率惩罚
+    double presence_penalty = 7;           // 存在惩罚
+}
+
+// =====================================================
+// Default AI Agent Config
+// =====================================================
+
+// 默认的AI Agent配置（用于AIGAgentBase<TState>）
+// 包含框架AI配置和扩展的配置选项
+message AIAgentConfig {
+    // 框架AI配置（由框架管理）
+    AevatarAIAgentConfiguration ai_configuration = 1;
+
+    // 扩展的配置选项
+    map<string, string> settings = 2;
+    map<string, google.protobuf.Any> complex_settings = 3;
+}
+
+// =====================================================
+// Legacy Configuration (Will be removed in future refactoring)
+// =====================================================
+
+// AI配置（遗留，将在后续重构中移除）
 message AevatarAIConfiguration {
     string provider = 1;
     string model = 2;
@@ -40,7 +72,7 @@ message AevatarAIConfiguration {
     string system_prompt = 5;
     repeated string enabled_tools = 6;
     map<string, string> provider_settings = 7;
-    
+
     // Extended settings
     double top_p = 8;
     double frequency_penalty = 9;
@@ -50,7 +82,7 @@ message AevatarAIConfiguration {
 }
 
 // =====================================================
-// State Messages
+// AI Agent State (Framework Managed)
 // =====================================================
 
 // AI Agent状态
@@ -58,26 +90,26 @@ message AevatarAIAgentState {
     // 基础状态
     string agent_id = 1;
     int64 version = 2;
-    
+
     // 对话历史
     repeated AevatarChatMessage conversation_history = 3;
-    
+
     // 工作记忆
     WorkingMemory working_memory = 4;
-    
+
     // 工具执行历史
     ToolExecutionHistory tool_history = 5;
-    
+
     // AI配置
     AevatarAIConfiguration ai_config = 6;
-    
+
     // 上下文
     map<string, string> context = 7;
-    
+
     // 活动跟踪
     google.protobuf.Timestamp last_activity = 8;
     int32 total_tokens_used = 9;
-    
+
     // 扩展状态
     google.protobuf.Any custom_state = 10;
 }
@@ -117,14 +149,14 @@ message AevatarChatMessage {
     AevatarChatRole role = 2;
     string content = 3;
     google.protobuf.Timestamp timestamp = 4;
-    
+
     // 函数相关字段
     string function_name = 5;
     string function_arguments = 6;
-    
+
     // Token计数
     int32 token_count = 7;
-    
+
     // 元数据
     map<string, string> metadata = 8;
 }
@@ -340,11 +372,3 @@ message AevatarConversationEntry {
     string role = 1;
     string content = 2;
 }
-
-// =====================================================
-// Tool Events (Will be imported from AI.Core)
-// =====================================================
-
-// Note: Tool execution events like AevatarToolExecutedEvent 
-// are defined in AI.Core/ai_messages.proto since they're 
-// core event types

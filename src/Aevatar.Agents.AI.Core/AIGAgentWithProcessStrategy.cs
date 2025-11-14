@@ -15,7 +15,7 @@ namespace Aevatar.Agents.AI.Core;
 /// </summary>
 /// <typeparam name="TState">The agent state type (must be Protobuf)</typeparam>
 public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase<TState>
-    where TState : class, IMessage, new()
+    where TState : class, IMessage<TState>, new()
 {
     #region Fields
 
@@ -132,7 +132,7 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Override chat to use processing strategies.
     /// 重写聊天以使用处理策略
     /// </summary>
-    protected override async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
+    protected async Task<Aevatar.Agents.AI.ChatResponse> ProcessChatWithStrategyAsync(Aevatar.Agents.AI.ChatRequest request)
     {
         try
         {
@@ -226,9 +226,9 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// Convert strategy result to chat response.
     /// 将策略结果转换为聊天响应
     /// </summary>
-    private Aevatar.Agents.AI.ChatResponse ConvertStrategyResult(
+    private ChatResponse ConvertStrategyResult(
         string result,
-        Aevatar.Agents.AI.ChatRequest request,
+        ChatRequest request,
         string strategyName)
     {
         // Add result to conversation history
