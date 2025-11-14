@@ -9,14 +9,20 @@ namespace Aevatar.Agents.Workflow;
 /// Input Agent - Returns configured input text as response
 /// InputGAgent - 返回配置的输入文本作为响应
 /// </summary>
-public class InputGAgent : GAgentBase<InputGAgentState, SetInputEvent, InputConfiguration>
+public class InputGAgent : GAgentBase<InputGAgentState, InputConfiguration>
 {
     public InputGAgent() : base()
     {
     }
 
-    public InputGAgent(Guid id, ILogger<InputGAgent>? logger = null) : base(id, logger)
+    public InputGAgent(Guid id, ILogger<InputGAgent>? logger = null) : base()
     {
+        // Note: GAgentBase<TState, TConfig> only supports parameterless constructor
+        // Logger can be set via property, but Id is readonly and set in base constructor
+        if (logger != null)
+        {
+            Logger = logger;
+        }
     }
 
     public override Task<string> GetDescriptionAsync()
@@ -34,6 +40,12 @@ public class InputGAgent : GAgentBase<InputGAgentState, SetInputEvent, InputConf
             State.AgentId = Id.ToString();
             State.LastUpdated = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
         }
+
+        // Apply configuration to state if config is set
+        if (Config != null && !string.IsNullOrEmpty(Config.Input))
+        {
+            State.Input = Config.Input;
+        }
     }
 
     /// <summary>
@@ -49,6 +61,13 @@ public class InputGAgent : GAgentBase<InputGAgentState, SetInputEvent, InputConf
         State.UpdateCount++;
         State.LastUpdated = Timestamp.FromDateTimeOffset(DateTimeOffset.UtcNow);
 
+        // Update config if needed
+        if (Config != null)
+        {
+            Config.Input = evt.Input;
+            Config.Description = evt.Reason;
+        }
+
         // Publish event to notify others (optional)
         await PublishAsync(evt, EventDirection.Down, ct: default);
 
@@ -56,11 +75,16 @@ public class InputGAgent : GAgentBase<InputGAgentState, SetInputEvent, InputConf
     }
 
     /// <summary>
-    /// Configuration handler - Called when agent is configured
+    /// Handle InputConfiguration - Configuration event
     /// </summary>
-    protected override async Task OnConfigureAsync(InputConfiguration configuration, CancellationToken ct = default)
+    [EventHandler]
+    public async Task HandleInputConfiguration(InputConfiguration configuration)
     {
         Logger.LogInformation("InputGAgent {Id} configuring with input: {Input}", Id, configuration.Input);
+
+        // Update config
+        Config.Input = configuration.Input;
+        Config.Description = configuration.Description;
 
         // Create and handle SetInputEvent
         var setInputEvent = new SetInputEvent
@@ -70,6 +94,14 @@ public class InputGAgent : GAgentBase<InputGAgentState, SetInputEvent, InputConf
         };
 
         await HandleSetInputEvent(setInputEvent);
+    }
+
+    /// <summary>
+    /// Configure the agent
+    /// </summary>
+    public async Task ConfigureAsync(InputConfiguration configuration, CancellationToken ct = default)
+    {
+        await HandleInputConfiguration(configuration);
     }
 
     /// <summary>
