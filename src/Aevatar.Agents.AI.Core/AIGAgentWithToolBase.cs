@@ -40,7 +40,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Initializes a new instance of the AIGAgentWithToolBase class.
     /// 初始化AIGAgentWithToolBase类的新实例
     /// </summary>
-    protected AIGAgentWithToolBase() : base()
+    protected AIGAgentWithToolBase()
     {
         _toolManager = CreateToolManager();
         RegisterTools();
@@ -51,7 +51,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// 使用依赖注入初始化新实例
     /// </summary>
     protected AIGAgentWithToolBase(
-        ILLMProvider llmProvider,
+        IAevatarLLMProvider llmProvider,
         IAevatarToolManager toolManager,
         ILogger? logger = null) : base(llmProvider, logger)
     {

@@ -33,10 +33,10 @@ public class TestAIAgent : AIGAgentBase<TestAIAgentState>
         return _aiState;
     }
     
-    protected override ILLMProvider CreateLLMProvider()
+    protected override IAevatarLLMProvider CreateLLMProvider()
     {
-        var mockProvider = new Mock<ILLMProvider>();
-        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        var mockProvider = new Mock<IAevatarLLMProvider>();
+        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .ReturnsAsync(new AevatarLLMResponse { Content = "Test response" });
         return mockProvider.Object;
     }
@@ -176,9 +176,9 @@ public class AIGAgentBaseTests : IDisposable
     public async Task ChatAsync_Should_Use_SystemPrompt_From_Agent_When_Not_Provided_In_Request()
     {
         // Arrange
-        var mockProvider = new Mock<ILLMProvider>();
+        var mockProvider = new Mock<IAevatarLLMProvider>();
         AevatarLLMRequest? capturedRequest = null;
-        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .Callback<AevatarLLMRequest>(req => capturedRequest = req)
             .ReturnsAsync(new AevatarLLMResponse { Content = "Response" });
 
@@ -204,9 +204,9 @@ public class AIGAgentBaseTests : IDisposable
     public async Task ChatAsync_Should_Include_Conversation_History_In_LLM_Request()
     {
         // Arrange
-        var mockProvider = new Mock<ILLMProvider>();
+        var mockProvider = new Mock<IAevatarLLMProvider>();
         AevatarLLMRequest? capturedRequest = null;
-        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .Callback<AevatarLLMRequest>(req => capturedRequest = req)
             .ReturnsAsync(new AevatarLLMResponse { Content = "Response" });
 
@@ -252,10 +252,10 @@ public class AIGAgentBaseTests : IDisposable
     // Helper test class with custom mock provider
     private class TestAIAgentWithMockProvider : AIGAgentBase<TestAIAgentState>
     {
-        private readonly ILLMProvider _mockProvider;
+        private readonly IAevatarLLMProvider _mockProvider;
         private readonly AevatarAIAgentState _aiState = new AevatarAIAgentState();
 
-        public TestAIAgentWithMockProvider(ILLMProvider mockProvider) : base()
+        public TestAIAgentWithMockProvider(IAevatarLLMProvider mockProvider) : base()
         {
             _mockProvider = mockProvider;
             _aiState.AgentId = Id.ToString();
@@ -273,7 +273,7 @@ public class AIGAgentBaseTests : IDisposable
             return _aiState;
         }
 
-        protected override ILLMProvider CreateLLMProvider() => _mockProvider;
+        protected override IAevatarLLMProvider CreateLLMProvider() => _mockProvider;
 
         public Task<ChatResponse> TestChatAsync(ChatRequest request, CancellationToken ct = default)
             => ChatAsync(request);

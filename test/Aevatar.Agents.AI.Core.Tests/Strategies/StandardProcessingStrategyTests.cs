@@ -1,15 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Tools;
-using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.Core.Strategies;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Xunit;
 
 namespace Aevatar.Agents.AI.Core.Tests.Strategies;
 

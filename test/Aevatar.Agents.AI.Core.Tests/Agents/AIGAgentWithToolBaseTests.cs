@@ -66,10 +66,10 @@ public class TestAIAgentWithTools : AIGAgentWithToolBase<TestAIAgentState>
         return mockManager.Object;
     }
 
-    protected override ILLMProvider CreateLLMProvider()
+    protected override IAevatarLLMProvider CreateLLMProvider()
     {
-        var mockProvider = new Mock<ILLMProvider>();
-        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        var mockProvider = new Mock<IAevatarLLMProvider>();
+        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .ReturnsAsync(new AevatarLLMResponse { Content = "Test response" });
         return mockProvider.Object;
     }
@@ -146,9 +146,9 @@ public class AIGAgentWithToolBaseTests
     public async Task ChatAsync_Should_Include_Tool_Definitions_In_LLM_Request()
     {
         // Arrange
-        var mockProvider = new Mock<ILLMProvider>();
+        var mockProvider = new Mock<IAevatarLLMProvider>();
         AevatarLLMRequest? capturedRequest = null;
-        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        mockProvider.Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .Callback<AevatarLLMRequest>(req => capturedRequest = req)
             .ReturnsAsync(new AevatarLLMResponse { Content = "Response" });
 
@@ -173,8 +173,8 @@ public class AIGAgentWithToolBaseTests
     public async Task ChatAsync_Should_Execute_Tool_When_LLM_Returns_FunctionCall()
     {
         // Arrange
-        var mockProvider = new Mock<ILLMProvider>();
-        mockProvider.SetupSequence(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>()))
+        var mockProvider = new Mock<IAevatarLLMProvider>();
+        mockProvider.SetupSequence(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), CancellationToken.None))
             .ReturnsAsync(new AevatarLLMResponse 
             { 
                 AevatarFunctionCall = new AevatarFunctionCall
@@ -285,10 +285,10 @@ public class AIGAgentWithToolBaseTests
     // Helper test classes
     private class TestAIAgentWithToolsAndMockProvider : AIGAgentWithToolBase<TestAIAgentState>
     {
-        private readonly ILLMProvider _mockProvider;
+        private readonly IAevatarLLMProvider _mockProvider;
         private readonly AevatarAIAgentState _aiState = new AevatarAIAgentState();
 
-        public TestAIAgentWithToolsAndMockProvider(ILLMProvider mockProvider) : base()
+        public TestAIAgentWithToolsAndMockProvider(IAevatarLLMProvider mockProvider) : base()
         {
             _mockProvider = mockProvider;
             _aiState.AgentId = Id.ToString();
@@ -311,7 +311,7 @@ public class AIGAgentWithToolBaseTests
             // Register a test tool
         }
 
-        protected override ILLMProvider CreateLLMProvider() => _mockProvider;
+        protected override IAevatarLLMProvider CreateLLMProvider() => _mockProvider;
 
         protected override IAevatarToolManager CreateToolManager()
         {

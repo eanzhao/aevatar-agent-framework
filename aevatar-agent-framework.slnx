@@ -7,6 +7,8 @@
     <File Path="docs\AI_INTEGRATION.md" />
     <File Path="docs\README.md" />
     <File Path="docs\RUNTIME_GUIDE.md" />
+    <File Path="docs\ACTOR_ARCHITECTURE.md" />
+    <File Path="docs\AGENT_ARCHITECTURE.md" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />

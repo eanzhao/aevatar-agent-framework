@@ -18,31 +18,31 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     where TState : class, IMessage, new()
 {
     #region Fields
-    
-    private readonly ILLMProvider _llmProvider;
+
+    private readonly IAevatarLLMProvider _llmProvider;
     private AevatarAIAgentState? _aiState;
-    
+
     #endregion
-    
+
     #region Properties
-    
+
     /// <summary>
     /// System prompt for the AI agent.
     /// AI代理的系统提示词
     /// </summary>
     public virtual string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
-    
+
     /// <summary>
     /// AI configuration.
     /// AI配置
     /// </summary>
     public AIAgentConfiguration Configuration { get; }
-    
+
     /// <summary>
     /// Gets the LLM provider.
     /// 获取LLM提供商
     /// </summary>
-    public ILLMProvider LLMProvider => _llmProvider;
+    public IAevatarLLMProvider LLMProvider => _llmProvider;
     
     /// <summary>
     /// Gets the AI state. Must be overridden to provide state access.
@@ -84,7 +84,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// Initializes a new instance of the AIGAgentBase class.
     /// 初始化AIGAgentBase类的新实例
     /// </summary>
-    protected AIGAgentBase() : base()
+    protected AIGAgentBase()
     {
         Configuration = new AIAgentConfiguration();
         ConfigureAI(Configuration);
@@ -99,11 +99,11 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// 使用依赖注入初始化新实例
     /// </summary>
     protected AIGAgentBase(
-        ILLMProvider llmProvider,
+        IAevatarLLMProvider llmProvider,
         ILogger? logger = null) : base(logger)
     {
         _llmProvider = llmProvider ?? throw new ArgumentNullException(nameof(llmProvider));
-        
+
         Configuration = new AIAgentConfiguration();
         ConfigureAI(Configuration);
         InitializeAIState();
@@ -130,7 +130,7 @@ public abstract class AIGAgentBase<TState> : GAgentBase<TState>
     /// Creates the LLM provider. Override to customize.
     /// 创建LLM提供商。重写以自定义
     /// </summary>
-    protected virtual ILLMProvider CreateLLMProvider()
+    protected virtual IAevatarLLMProvider CreateLLMProvider()
     {
         // In production, this would be injected or created from configuration
         throw new NotImplementedException(
@@ -372,48 +372,35 @@ public class AIAgentConfiguration
     /// LLM provider instance.
     /// LLM提供商实例
     /// </summary>
-    public ILLMProvider? LLMProvider { get; set; }
-    
+    public IAevatarLLMProvider? LLMProvider { get; set; }
+
     /// <summary>
     /// Model to use.
     /// 要使用的模型
     /// </summary>
     public string Model { get; set; } = "gpt-4";
-    
+
     /// <summary>
     /// System prompt.
     /// 系统提示词
     /// </summary>
     public string? SystemPrompt { get; set; }
-    
+
     /// <summary>
     /// Maximum conversation history.
     /// 最大对话历史
     /// </summary>
     public int MaxHistory { get; set; } = 20;
-    
+
     /// <summary>
     /// Default temperature.
     /// 默认温度
     /// </summary>
     public double Temperature { get; set; } = 0.7;
-    
+
     /// <summary>
     /// Default max tokens.
     /// 默认最大令牌数
     /// </summary>
     public int MaxTokens { get; set; } = 2000;
-}
-
-/// <summary>
-/// Interface for LLM providers.
-/// LLM提供商接口
-/// </summary>
-public interface ILLMProvider
-{
-    /// <summary>
-    /// Generate a response from the LLM.
-    /// 从LLM生成响应
-    /// </summary>
-    Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request);
 }
