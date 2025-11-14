@@ -1,7 +1,9 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans.Streams;
 
 namespace Aevatar.Agents.Runtime.Orleans;
@@ -16,6 +18,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
     private readonly ILogger<OrleansGAgentActorFactory> _logger;
     private readonly IGAgentActorFactoryProvider? _factoryProvider;
     private readonly IStreamProvider? _streamProvider;
+    private readonly StreamingOptions _streamingOptions;
 
     public OrleansGAgentActorFactory(
         IServiceProvider serviceProvider,
@@ -25,7 +28,14 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         _factoryProvider = serviceProvider.GetService<IGAgentActorFactoryProvider>();
         _serviceProvider = serviceProvider;
         _clusterClient = clusterClient;
-        _streamProvider = clusterClient.GetStreamProvider(AevatarAgentsOrleansConstants.StreamProviderName);
+        
+        // Get StreamingOptions from configuration (with fallback to default)
+        _streamingOptions = serviceProvider.GetService<IOptions<StreamingOptions>>()?.Value 
+            ?? new StreamingOptions();
+        
+        var streamProviderName = _streamingOptions.StreamProviderName ?? AevatarAgentsOrleansConstants.StreamProviderName;
+        _streamProvider = clusterClient.GetStreamProvider(streamProviderName) 
+            ?? throw new InvalidOperationException($"Stream provider '{streamProviderName}' not found");
         _logger = logger;
     }
 
@@ -75,7 +85,7 @@ public class OrleansGAgentActorFactory : IGAgentActorFactory
         _logger.LogDebug("Using Standard Grain for agent {Id}", id);
     
         // 创建 Orleans Actor (继承自 GAgentActorBase!)
-        var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider, _logger);
+        var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider, _streamingOptions, _logger);
     
         // 激活
         await actor.ActivateAsync(ct);

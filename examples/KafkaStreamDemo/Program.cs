@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Hosting;
 using Orleans.Streams;
@@ -34,8 +35,12 @@ await Task.Delay(3000);
 // Get the actor manager
 var actorManager = host.Services.GetRequiredService<IGAgentActorManager>();
 
+// Get configuration for display
+var streamingOptions = host.Services.GetRequiredService<IOptions<StreamingOptions>>().Value;
+var kafkaConfig = host.Services.GetRequiredService<IOptions<KafkaConfiguration>>().Value;
+
 // Demo scenario
-await RunDemoAsync(actorManager);
+await RunDemoAsync(actorManager, streamingOptions, kafkaConfig);
 
 Console.WriteLine("\n=== Demo execution completed ===");
 Console.WriteLine("Shutting down...");
@@ -68,8 +73,8 @@ static IHostBuilder CreateHostBuilder(string[] args)
             services.Configure<KafkaConfiguration>(
                 context.Configuration.GetSection("Kafka"));
             
-            // Register Orleans Agents support
-            services.AddOrleansAgents();
+            // Register Orleans Actor Factory
+            services.AddOrleansActorFactory();
             
             // Register Actor Manager
             services.AddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
@@ -87,7 +92,10 @@ static IHostBuilder CreateHostBuilder(string[] args)
 
 static void ConfigureOrleans(ISiloBuilder siloBuilder, IConfiguration configuration)
 {
-    // Load Kafka configuration from appsettings.json
+    // Load configurations from appsettings.json
+    var orleansConfig = configuration.GetSection("Orleans").Get<OrleansConfiguration>() 
+        ?? new OrleansConfiguration();
+    
     var kafkaConfig = configuration.GetSection("Kafka").Get<KafkaConfiguration>() 
         ?? new KafkaConfiguration();
     
@@ -102,15 +110,15 @@ static void ConfigureOrleans(ISiloBuilder siloBuilder, IConfiguration configurat
         // Use localhost clustering for demo
         .UseLocalhostClustering()
         
-        // Configure cluster
+        // Configure cluster (from configuration)
         .Configure<ClusterOptions>(options =>
         {
-            options.ClusterId = "kafka-stream-demo";
-            options.ServiceId = "KafkaStreamService";
+            options.ClusterId = orleansConfig.ClusterId;
+            options.ServiceId = orleansConfig.ServiceId;
         })
         
-        // Configure endpoints
-        .ConfigureEndpoints(siloPort: 11111, gatewayPort: 30000)
+        // Configure endpoints (from configuration)
+        .ConfigureEndpoints(siloPort: orleansConfig.SiloPort, gatewayPort: orleansConfig.GatewayPort)
         
         // Add Memory Grain Storage (for state persistence)
         .AddMemoryGrainStorage("Default")
@@ -171,7 +179,7 @@ static void ConfigureOrleans(ISiloBuilder siloBuilder, IConfiguration configurat
                    Console.WriteLine("✓ Orleans configured with Kafka Stream support");
 }
 
-static async Task RunDemoAsync(IGAgentActorManager actorManager)
+static async Task RunDemoAsync(IGAgentActorManager actorManager, StreamingOptions streamingOptions, KafkaConfiguration kafkaConfig)
 {
     Console.WriteLine("\n=== Starting Kafka Stream Demo ===\n");
     
@@ -233,25 +241,29 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager)
         // Wait for batch processing
         await Task.Delay(3000);
         
-        // Get producer state from Grain (not from local actor instance)
+        // Get producer state from Agent
         Console.WriteLine("6. Checking Producer State...");
-        var producerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)producerActor;
-        var producerState = await producerOrleansActor.GetStateFromGrainAsync<KafkaProducerState>();
+        var producerAgent = producerActor.GetAgent() as KafkaProducerAgent;
         
-        if (producerState != null)
+        if (producerAgent != null)
         {
+            var producerState = await producerAgent.GetStateAsync();
             Console.WriteLine($"   • Messages Published: {producerState.MessagesPublished}");
             Console.WriteLine($"   • Total Bytes Sent: {producerState.TotalBytesSent}");
             Console.WriteLine($"   • Last Publish: {producerState.LastPublishTime?.ToDateTime():HH:mm:ss}\n");
         }
-        
-        // Get consumer state from Grain (not from local actor instance)
-        Console.WriteLine("7. Checking Consumer State...");
-        var consumerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)consumerActor;
-        var consumerState = await consumerOrleansActor.GetStateFromGrainAsync<KafkaConsumerState>();
-        
-        if (consumerState != null)
+        else
         {
+            Console.WriteLine("   ⚠️ Unable to retrieve producer agent\n");
+        }
+        
+        // Get consumer state from Agent
+        Console.WriteLine("7. Checking Consumer State...");
+        var consumerAgent = consumerActor.GetAgent() as KafkaConsumerAgent;
+        
+        if (consumerAgent != null)
+        {
+            var consumerState = await consumerAgent.GetStateAsync();
             Console.WriteLine($"   • Messages Consumed: {consumerState.MessagesConsumed}");
             Console.WriteLine($"   • Total Bytes Received: {consumerState.TotalBytesReceived}");
             Console.WriteLine($"   • Subscription Status: {consumerState.SubscriptionStatus}");
@@ -259,7 +271,7 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager)
         }
         else
         {
-            Console.WriteLine("   ⚠️ Unable to retrieve consumer state\n");
+            Console.WriteLine("   ⚠️ Unable to retrieve consumer agent\n");
         }
         
         // Publish metrics
@@ -277,8 +289,8 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager)
                Console.WriteLine("✓ Stream subscription enables automatic message routing");
                Console.WriteLine("✓ State is maintained across message processing");
                Console.WriteLine("✓ Supports batch publishing and metrics tracking");
-               Console.WriteLine("\n📝 Kafka topic: aevatar-agents-events");
-               Console.WriteLine("📝 Consumer group: aevatar-consumer-group");
+               Console.WriteLine($"\n📝 Kafka topic: {streamingOptions.DefaultStreamNamespace}");
+               Console.WriteLine($"📝 Consumer group: {kafkaConfig.ConsumerGroupId}");
     }
     catch (Exception ex)
     {

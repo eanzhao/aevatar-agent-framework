@@ -1,7 +1,9 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Core;
 using Google.Protobuf.WellKnownTypes;
 using Kafka.Demo;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace KafkaStreamDemo;
 
@@ -15,7 +17,8 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
     
     public KafkaProducerAgent()
     {
-        _topic = "demo-topic";
+        // Topic will be set from StreamingOptions in OnActivateAsync
+        _topic = "demo-topic"; // Fallback default
         InitializeState();
     }
     
@@ -23,6 +26,16 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
     {
         _topic = topic;
         InitializeState();
+    }
+    
+    public override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct);
+        
+        // Get topic from StreamingOptions configuration if available
+        // Note: This requires StreamingOptions to be registered in DI
+        // For now, we'll use the default from constructor
+        // In production, you might want to inject IOptions<StreamingOptions> via a custom factory
     }
     
     private void InitializeState()

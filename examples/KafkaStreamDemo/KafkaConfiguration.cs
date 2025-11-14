@@ -1,6 +1,17 @@
 namespace KafkaStreamDemo;
 
 /// <summary>
+/// Orleans configuration options loaded from appsettings.json
+/// </summary>
+public class OrleansConfiguration
+{
+    public string ClusterId { get; set; } = "kafka-stream-demo";
+    public string ServiceId { get; set; } = "KafkaStreamService";
+    public int SiloPort { get; set; } = 11111;
+    public int GatewayPort { get; set; } = 30000;
+}
+
+/// <summary>
 /// Kafka configuration options loaded from appsettings.json
 /// </summary>
 public class KafkaConfiguration

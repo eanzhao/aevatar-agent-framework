@@ -1,7 +1,9 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans;
 using Orleans.Runtime;
 using Orleans.Streams;
@@ -45,8 +47,8 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain
 
     // Orleans 依赖
     private IStreamProvider? _streamProvider;
-    private IAsyncStream<EventEnvelope>? _myStream;
-    private StreamSubscriptionHandle<EventEnvelope>? _streamSubscription;
+    private IAsyncStream<byte[]>? _myStream;  // 使用 byte[] 以避免 JSON 序列化问题，支持 Protobuf ByteString
+    private StreamSubscriptionHandle<byte[]>? _streamSubscription;
 
     // 日志
     private ILogger<OrleansGAgentGrain>? _logger;
@@ -65,14 +67,20 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain
 
         _logger?.LogInformation("Activating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
-        // 初始化 Stream Provider
+        // 获取 StreamingOptions 配置 (with fallback to default)
+        var streamingOptions = ServiceProvider?.GetService(typeof(IOptions<StreamingOptions>)) as IOptions<StreamingOptions>;
+        var streamNamespace = streamingOptions?.Value?.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
+        var streamProviderName = streamingOptions?.Value?.StreamProviderName ?? AevatarAgentsOrleansConstants.StreamProviderName;
+
+        // 初始化 Stream Provider (使用配置的 StreamProviderName)
         try
         {
-            _streamProvider = this.GetStreamProvider(AevatarAgentsOrleansConstants.StreamProviderName);
+            _streamProvider = this.GetStreamProvider(streamProviderName);
 
-            // 创建自己的 Stream
-            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, this.GetPrimaryKeyString());
-            _myStream = _streamProvider.GetStream<EventEnvelope>(streamId);
+            // 创建自己的 Stream (使用配置的 StreamNamespace)
+            // 使用 byte[] 类型以避免 JSON 序列化问题，支持 Protobuf ByteString
+            var streamId = StreamId.Create(streamNamespace, this.GetPrimaryKeyString());
+            _myStream = _streamProvider.GetStream<byte[]>(streamId);
 
             // 订阅自己的 Stream
             _streamSubscription = await _myStream.SubscribeAsync(OnStreamEventReceived);
@@ -147,9 +155,14 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain
             _logger?.LogDebug("Grain {GrainId} received event {EventId}, forwarding to stream", this.GetGrainId(), envelope.Id);
 
             // 通过 Stream 转发到本地的 OrleansGAgentActor
+            // 序列化为 byte[] 以避免 JSON 序列化问题
             if (_myStream != null)
             {
-                await _myStream.OnNextAsync(envelope);
+                using var stream = new MemoryStream();
+                using var codedOutput = new CodedOutputStream(stream);
+                envelope.WriteTo(codedOutput);
+                codedOutput.Flush();
+                await _myStream.OnNextAsync(stream.ToArray());
             }
             else
             {
@@ -166,13 +179,24 @@ public class OrleansGAgentGrain : Grain, IStandardGAgentGrain
     /// <summary>
     /// 处理从 Stream 接收到的事件
     /// 这个方法被 Orleans Streams 调用
+    /// 反序列化 byte[] 为 EventEnvelope
     /// </summary>
-    private async Task OnStreamEventReceived(EventEnvelope envelope, StreamSequenceToken? token)
+    private async Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
     {
-        _logger?.LogDebug("Grain {GrainId} received event {EventId} from stream", this.GetGrainId(), envelope.Id);
+        try
+        {
+            // 反序列化 byte[] 为 EventEnvelope
+            var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+            _logger?.LogDebug("Grain {GrainId} received event {EventId} from stream", this.GetGrainId(), envelope.Id);
 
-        // NOTE: 事件会通过 Stream 自动发送到订阅的 OrleansGAgentActor
-        // 这里不需要做额外的处理,因为 OrleansGAgentActor 已经订阅了这个 Stream
+            // NOTE: 事件会通过 Stream 自动发送到订阅的 OrleansGAgentActor
+            // 这里不需要做额外的处理,因为 OrleansGAgentActor 已经订阅了这个 Stream
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error deserializing stream event for Grain {GrainId}", this.GetGrainId());
+        }
+        
         await Task.CompletedTask;
     }
 
