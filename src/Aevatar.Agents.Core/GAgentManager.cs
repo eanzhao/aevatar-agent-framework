@@ -262,7 +262,7 @@ public class GAgentManager : IGAgentManager
         var stateType = ExtractStateType(agentType);
         var supportedEvents = AnalyzeSupportedEventTypes(agentType);
         var supportsEventSourcing = typeof(GAgentBaseWithEventSourcing<>).IsAssignableFrom(agentType);
-        var supportsConfiguration = typeof(GAgentBase<,,>).IsAssignableFrom(agentType);
+        var supportsConfiguration = IsConfigurationAgent(agentType);
 
         return new AgentTypeMetadata
         {
@@ -285,6 +285,23 @@ public class GAgentManager : IGAgentManager
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IStateGAgent<>));
 
         return stateInterface?.GetGenericArguments().FirstOrDefault();
+    }
+
+    private bool IsConfigurationAgent(Type agentType)
+    {
+        // Check if inherits from GAgentBase<TState, TConfig> (2 generic parameters)
+        var baseType = agentType.BaseType;
+        while (baseType != null && baseType != typeof(object))
+        {
+            if (baseType.IsGenericType &&
+                baseType.GetGenericTypeDefinition() == typeof(GAgentBase<,>) &&
+                baseType.GetGenericArguments().Length == 2)
+            {
+                return true;
+            }
+            baseType = baseType.BaseType;
+        }
+        return false;
     }
 
     private List<Type> AnalyzeSupportedEventTypes(Type agentType)

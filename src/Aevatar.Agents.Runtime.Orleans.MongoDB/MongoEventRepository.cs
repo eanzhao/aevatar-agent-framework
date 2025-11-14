@@ -1,12 +1,12 @@
-using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Orleans.EventSourcing;
+using Aevatar.Agents.Orleans.MongoDB;
+using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
-namespace Aevatar.Agents.Orleans.MongoDB;
+namespace Aevatar.Agents.Runtime.Orleans.MongoDB;
 
 /// <summary>
 /// MongoDB document for storing a SINGLE event

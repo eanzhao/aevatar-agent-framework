@@ -1,16 +1,16 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Factory;
-using Aevatar.Agents.Orleans.EventSourcing;
+using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Runtime.Orleans;
-using Aevatar.Agents.Runtime.Orleans.EventSourcing;
+using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using MongoDBEventStoreDemo;
-using Orleans.Hosting;
 using Orleans.Serialization;
 
 Console.WriteLine("🌌 Aevatar Agent Framework - OrleansEventStore + MongoDB Demo");
@@ -55,7 +55,7 @@ var host = Host.CreateDefaultBuilder(args)
         siloBuilder
             // Localhost clustering for demo
             .UseLocalhostClustering()
-            
+
             // ✅ Configure MongoDB Client (REQUIRED before AddMongoDBGrainStorage)
             .UseMongoDBClient(provider =>
             {
@@ -64,7 +64,7 @@ var host = Host.CreateDefaultBuilder(args)
                 settings.MinConnectionPoolSize = 10;
                 return settings;
             })
-            
+
             // ✅ Protobuf serialization (REQUIRED for AgentStateEvent!)
             .ConfigureServices(services =>
             {
@@ -74,15 +74,23 @@ var host = Host.CreateDefaultBuilder(args)
                 });
             })
             
+            .AddMemoryStreams(AevatarAgentsOrleansConstants.StreamProviderName)
+
             // ✅ MongoDB GrainStorage for EventStore
             .AddMongoDBGrainStorage("EventStoreStorage", options =>
             {
                 options.DatabaseName = mongoDatabase;
                 options.CollectionPrefix = collectionPrefix;
                 options.CreateShardKeyForCosmos = false;
+            })
+
+            // ✅ MongoDB GrainStorage for PubSub storage (required for streams)
+            .AddMongoDBGrainStorage("PubSubStore", options =>
+            {
+                options.DatabaseName = mongoDatabase;
+                options.CollectionPrefix = collectionPrefix;
+                options.CreateShardKeyForCosmos = false;
             });
-            
-            // Orleans 9.x 自动发现 Grains，无需手动注册
     })
     .ConfigureServices(services =>
     {
@@ -106,10 +114,10 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IEventStore, OrleansEventStore>();
         
         // ✅ Register Orleans Agent Factory
-        services.AddSingleton<OrleansGAgentActorFactory>();
+        services.AddOrleansActorFactory();
         
         // ✅ Register Auto-Discovery Factory Provider
-        services.AddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+        services.AddGAgentActorFactoryProvider();
     })
     .Build();
 
@@ -119,8 +127,7 @@ await host.StartAsync();
 
 try
 {
-    var eventStore = host.Services.GetRequiredService<IEventStore>();
-    var factory = host.Services.GetRequiredService<OrleansGAgentActorFactory>();
+    var factory = host.Services.GetRequiredService<IGAgentActorFactory>();
 
     Console.WriteLine("✅ Orleans Silo started successfully!\n");
 
@@ -133,9 +140,8 @@ try
     var accountId = Guid.NewGuid();
     Console.WriteLine($"📊 Agent ID: {accountId:N}\n");
 
-    // ✅ Create Actor with EventSourcing enabled (using extension method)
-    var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(accountId)
-        .WithEventSourcingAsync(eventStore, host.Services);
+    // ✅ Create Actor (EventSourcing is automatically enabled via IEventStore registration)
+    var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(accountId);
 
     var agent = actor.GetAgent() as BankAccountAgent;
     if (agent == null)
@@ -226,8 +232,8 @@ try
     Console.WriteLine("   (Creating new actor instance with same ID)\n");
 
     // Create new actor instance (simulating grain reactivation)
-    var actor2 = await factory.CreateGAgentActorAsync<BankAccountAgent>(accountId)
-        .WithEventSourcingAsync(eventStore, host.Services);  // ← Auto replays events from storage!
+    // Event sourcing automatically replays events from storage when the Agent handles events
+    var actor2 = await factory.CreateGAgentActorAsync<BankAccountAgent>(accountId);
 
     var agent2 = actor2.GetAgent() as BankAccountAgent;
     if (agent2 == null)

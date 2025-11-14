@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans;
+using Orleans.Streams;
 using Xunit;
 
 namespace Aevatar.Agents.Orleans.Tests;
@@ -25,12 +26,14 @@ namespace Aevatar.Agents.Orleans.Tests;
 public class OrleansActorFactoryTests : AevatarAgentsTestBase
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IGrainFactory _grainFactory;
-    
+    private readonly IClusterClient _clusterClient;
+    private readonly IStreamProvider _streamProvider;
+
     public OrleansActorFactoryTests(ClusterFixture fixture) : base(fixture)
     {
         _serviceProvider = ServiceProvider;
-        _grainFactory = GrainFactory;
+        _clusterClient = ClusterClient;
+        _streamProvider = ServiceProvider.GetService<IStreamProvider>()!;
     }
     
     [Fact]
@@ -43,13 +46,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         var agentId = Guid.NewGuid();
         
@@ -73,13 +74,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         var agentId = Guid.NewGuid();
         
@@ -107,13 +106,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         var parentId = Guid.NewGuid();
         var childId = Guid.NewGuid();
@@ -143,13 +140,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         var agentId = Guid.NewGuid();
         var actor = await factory.CreateGAgentActorAsync<OrleansTestAgent>(agentId);
@@ -179,13 +174,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         var agentId1 = Guid.NewGuid();
         var agentId2 = Guid.NewGuid();
@@ -225,13 +218,11 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         
         var serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
-        var options = serviceProvider.GetService<IOptions<OrleansGAgentActorFactoryOptions>>();
         
         var factory = new OrleansGAgentActorFactory(
             serviceProvider,
-            _grainFactory,
-            logger,
-            options);
+            _clusterClient,
+            logger);
         
         // Act - Create multiple actors concurrently
         var tasks = new Task<IGAgentActor>[5];
@@ -286,7 +277,7 @@ public class OrleansTestAgent : GAgentBase<OrleansTestState>
         return Task.FromResult($"Processed by Orleans agent {Id}");
     }
     
-    public override OrleansTestState GetState()
+    public OrleansTestState GetState()
     {
         return base.GetState();
     }

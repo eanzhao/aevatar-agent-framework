@@ -65,13 +65,8 @@ public static class AgentRuntimeExtensions
 
             case AgentRuntimeType.Orleans:
                 // Orleans 运行时（需要通过 Orleans Host 配置 Silo）
-                // 配置 Orleans 工厂选项
-                services.Configure<Aevatar.Agents.Runtime.Orleans.OrleansGAgentActorFactoryOptions>(options =>
-                {
-                    options.UseEventSourcing = false; // 默认使用标准 Grain
-                    options.DefaultGrainType = Aevatar.Agents.Runtime.Orleans.GrainType.Standard;
-                });
-                services.AddSingleton<IGAgentActorFactory, Aevatar.Agents.Runtime.Orleans.OrleansGAgentActorFactory>();
+
+                services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
                 
                 // Orleans的SubscriptionManager需要IStreamProvider
                 // 注意：Orleans的流提供者需要在Silo配置中设置，这里只是注册Manager
