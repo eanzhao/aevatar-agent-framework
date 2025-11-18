@@ -70,40 +70,39 @@
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageVersion Include="Serilog.Sinks.Async" Version="2.0.0" />
-    <!-- ABP Framework - Using version 8.x for compatibility -->
-    <PackageVersion Include="Volo.Abp.Core" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Ddd.Domain" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AutoMapper" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Autofac" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Data" Version="8.2.1" />
+    <!-- ABP Framework - Using version 9.3.1 -->
+    <PackageVersion Include="Volo.Abp.Core" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Ddd.Domain" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AutoMapper" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Autofac" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Data" Version="9.3.1" />
     <!-- ABP Framework - Admin UI Packages -->
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Account.Web" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Account.Application" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Account.HttpApi" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Identity.Application" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Identity.Web" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Localization" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.UI.Navigation" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Auditing" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Caching" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.OpenIddict.AspNetCore" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.OpenIddict.Domain" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.OpenIddict.MongoDB" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.OpenIddict.ExtensionGrantTypes" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.Identity.MongoDB" Version="8.2.1" />
-    <PackageVersion Include="Volo.Abp.PermissionManagement.MongoDB" Version="8.2.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="4.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Account.Web" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Account.Application" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Account.HttpApi" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Identity.Application" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Identity.Web" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Localization" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.UI.Navigation" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Auditing" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Caching" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.OpenIddict.AspNetCore" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.OpenIddict.Domain" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.OpenIddict.MongoDB" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.Identity.MongoDB" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.PermissionManagement.MongoDB" Version="9.3.1" />
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.16" />
     <!-- AElf SDK -->

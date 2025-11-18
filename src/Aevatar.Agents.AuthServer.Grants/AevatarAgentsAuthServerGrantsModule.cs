@@ -1,10 +1,9 @@
 using Volo.Abp.Modularity;
-using Volo.Abp.OpenIddict.ExtensionGrantTypes;
 
 namespace Aevatar.Agents.AuthServer.Grants;
 
 [DependsOn(
-    typeof(AbpOpenIddictExtensionGrantTypesModule)
+    typeof(AbpOpenIddictDomainModule)
 )]
 public class AevatarAgentsAuthServerGrantsModule : AbpModule
 {

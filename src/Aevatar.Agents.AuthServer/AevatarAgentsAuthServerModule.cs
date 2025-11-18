@@ -17,7 +17,6 @@ using Volo.Abp.Localization;
 using Volo.Abp.Modularity;
 using Volo.Abp.OpenIddict;
 using Volo.Abp.OpenIddict.MongoDB;
-using Volo.Abp.OpenIddict.ExtensionGrantTypes;
 using Volo.Abp.PermissionManagement;
 using Volo.Abp.PermissionManagement.MongoDB;
 using Volo.Abp.UI.Navigation.Urls;
