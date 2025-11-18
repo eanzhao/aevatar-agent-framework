@@ -5,6 +5,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OpenAI;
 
 namespace Aevatar.Agents.AI.MEAI;
@@ -17,7 +18,7 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 {
     private readonly IServiceProvider _serviceProvider;
 
-    public MEAILLMProviderFactory(LLMProvidersConfig configuration, ILogger<MEAILLMProviderFactory> logger,
+    public MEAILLMProviderFactory(IOptions<LLMProvidersConfig> configuration, ILogger<MEAILLMProviderFactory> logger,
         IServiceProvider serviceProvider)
         : base(configuration, logger)
     {
@@ -25,21 +26,11 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
         RegisterProviders();
     }
 
-    protected override void RegisterProviders()
+    public override IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig, CancellationToken cancellationToken = default)
     {
-        foreach (var config in ProviderConfigs)
-        {
-            Providers[config.Key] = new Lazy<IAevatarLLMProvider>(() =>
-            {
-                Logger.LogInformation("Creating MEAI LLM provider: {ProviderName} (Type: {ProviderType})", config.Key,
-                    config.Value.ProviderType);
-
-                var chatClient = CreateChatClient(config.Value);
-                var logger = _serviceProvider.GetRequiredService<ILogger<MEAILLMProvider>>();
-
-                return new MEAILLMProvider(chatClient, config.Value, logger);
-            });
-        }
+        var chatClient = CreateChatClient(providerConfig);
+        var logger = _serviceProvider.GetRequiredService<ILogger<MEAILLMProvider>>();
+        return new MEAILLMProvider(chatClient, providerConfig, logger);
     }
 
     private IChatClient CreateChatClient(LLMProviderConfig config)

@@ -25,9 +25,8 @@ public class OrleansGAgentActor : GAgentActorBase
     public OrleansGAgentActor(
         IGAgent agent,
         IGrainFactory grainFactory,
-        IStreamProvider streamProvider,
-        ILogger? logger = null)
-        : base(agent, logger)
+        IStreamProvider streamProvider)
+        : base(agent)
     {
         _grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));
         _streamProvider = streamProvider;

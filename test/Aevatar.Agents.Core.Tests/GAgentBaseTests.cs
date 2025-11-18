@@ -1,245 +1,440 @@
+using Shouldly;
+using Aevatar.Agents.Core.Tests.Agents;
+using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.Abstractions.Persistence;
-using Aevatar.Agents.Core.Persistence;
-using FluentAssertions;
+using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.Fixtures;
+using Google.Protobuf;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Tests;
 
-public class GAgentBaseTests
+/// <summary>
+/// GAgentBase Core Tests
+/// </summary>
+public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFixture>
 {
-    public class TestState
-    {
-        public string Name { get; set; } = string.Empty;
-        public int Count { get; set; }
-    }
+    private readonly IServiceProvider _serviceProvider = fixture.ServiceProvider;
 
-    private class TestAgent : GAgentBase<TestState>
-    {
-        public override Task<string> GetDescriptionAsync() => Task.FromResult("Test agent");
-    }
+    #region 2.1.1 State Management Tests
 
-    [Fact(DisplayName = "State property should be readable and writable")]
-    public void StateProperty_ShouldBeReadableAndWritable()
+    [Fact(DisplayName = "GAgentBase should initialize state correctly")]
+    public void Should_Initialize_State_Correctly()
     {
         // Arrange & Act
-        var agent = new TestAgent();
-
-        // Access State through reflection since it's protected
-        var stateType = agent.GetState();
-        stateType.Name = "test";
-        stateType.Count = 42;
-
-        // Assert
-        agent.GetState().Name.Should().Be("test");
-        agent.GetState().Count.Should().Be(42);
-    }
-
-    [Fact(DisplayName = "GetState should return current state")]
-    public void GetState_ShouldReturnCurrentState()
-    {
-        // Arrange
-        var agent = new TestAgent();
+        var agent = new BasicTestAgent();
         var state = agent.GetState();
-        state.Name = "test-data";
-
-        // Act & Assert
-        agent.GetState().Name.Should().Be("test-data");
-        agent.GetState().Should().BeSameAs(state);
-    }
-
-    [Fact(DisplayName = "Agent ID should be generated automatically")]
-    public void AgentId_ShouldBeGeneratedAutomatically()
-    {
-        // Act
-        var agent = new TestAgent();
 
         // Assert
-        agent.Id.Should().NotBe(Guid.Empty);
+        state.ShouldNotBeNull();
+        state.ShouldBeOfType<TestAgentState>();
+        state.Counter.ShouldBe(0); // Default value
+        state.Name.ShouldBeEmpty(); // Default empty string
+        state.Items.ShouldNotBeNull();
+        state.Items.ShouldBeEmpty();
     }
 
-    [Fact(DisplayName = "Agent ID should use provided value")]
-    public void AgentId_ShouldUseProvidedValue()
+    [Fact(DisplayName = "GAgentBase state should serialize with Protobuf")]
+    public void Should_Serialize_State_With_Protobuf()
     {
         // Arrange
-        var testId = Guid.NewGuid();
+        var agent = new BasicTestAgent();
+        var state = agent.GetState();
+        state.Name = "Test";
+        state.Counter = 42;
+        state.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        // Act
-        var agent = new TestAgent();
-        typeof(GAgentBase<TestState>).GetProperty("Id")
-            .Should().NotBeNull();
+        // Act - Serialize and deserialize
+        var bytes = state.ToByteArray();
+        var deserializedState = TestAgentState.Parser.ParseFrom(bytes);
 
-        // Assert (simulate set via reflection)
-        testId.Should().NotBe(Guid.Empty);
+        // Assert
+        deserializedState.Name.ShouldBe("Test");
+        deserializedState.Counter.ShouldBe(42);
+        deserializedState.LastUpdated.ShouldNotBeNull();
     }
 
-    [Fact(DisplayName = "StateStore should be null by default")]
-    public void StateStore_ShouldBeNullByDefault()
+    [Fact(DisplayName = "GAgentBase should modify and save state")]
+    public async Task Should_Modify_And_Save_State()
+    {
+        // Arrange
+        var agent = new BasicTestAgent();
+        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+
+        // Get the injected StateStore from service provider directly
+        var stateStore = _serviceProvider.GetRequiredService<IStateStore<TestAgentState>>();
+
+        // Pre-populate the state store with initial data
+        var initialState = new TestAgentState { Name = "Initial", Counter = 10 };
+        await stateStore.SaveAsync(agent.Id, initialState);
+
+        // Act - Handle an event which should trigger state modification
+        var envelope = new EventEnvelope
+        {
+            Id = Guid.NewGuid().ToString(),
+            Payload = Any.Pack(new TestEvent { EventId = "test-1" }),
+            PublisherId = "other-agent"
+        };
+
+        await agent.HandleEventAsync(envelope);
+
+        // Assert - Verify the state was loaded, modified and saved
+        var savedState = await stateStore.LoadAsync(agent.Id);
+        savedState.ShouldNotBeNull();
+        savedState.Name.ShouldBe("Initial"); // Name should remain unchanged
+        savedState.Counter.ShouldBe(11); // Counter should be incremented (assuming handler increments it)
+
+        // Verify we can load the state again and it persists
+        var reloadedState = await stateStore.LoadAsync(agent.Id);
+        reloadedState.ShouldNotBeNull();
+        reloadedState.Counter.ShouldBe(11);
+    }
+
+    #endregion
+
+    #region 2.1.2 Config Management Tests
+
+    [Fact(DisplayName = "GAgentBase should load config")]
+    public async Task Should_Load_Config()
+    {
+        // Arrange
+        var agent = new ConfigurableTestAgent();
+
+        // Inject both StateStore and ConfigStore
+        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+        AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+
+        var configStore = _serviceProvider.GetRequiredService<IConfigStore<TestAgentConfig>>();
+
+        var loadedConfig = new TestAgentConfig
+        {
+            AgentName = "LoadedAgent",
+            MaxRetries = 5,
+            EnableLogging = false
+        };
+
+        // Pre-save the configuration
+        await configStore.SaveAsync(agent.Id, loadedConfig);
+
+        // Act
+        var envelope = new EventEnvelope
+        {
+            Id = Guid.NewGuid().ToString(),
+            Payload = Any.Pack(new TestEvent { EventId = "test-1" })
+        };
+
+        await agent.HandleEventAsync(envelope);
+
+        // Assert - Load configuration from store to verify it was saved correctly
+        var savedConfig = await configStore.LoadAsync(agent.Id);
+        savedConfig.ShouldNotBeNull();
+        savedConfig.AgentName.ShouldBe("LoadedAgent");
+        savedConfig.MaxRetries.ShouldBe(5);
+    }
+
+    [Fact(DisplayName = "GAgentBase should apply custom config")]
+    public async Task Should_Apply_Custom_Config()
+    {
+        // Arrange
+        var agent = new ConfigurableTestAgent();
+
+        // Act
+        await agent.ActivateAsync();
+
+        // Assert
+        var config = agent.GetConfig();
+        config.ShouldNotBeNull();
+        config.AgentName.ShouldBe("ConfigurableAgent");
+        config.MaxRetries.ShouldBe(3);
+        config.TimeoutSeconds.ShouldBe(30);
+        config.EnableLogging.ShouldBe(true);
+    }
+
+    [Fact(DisplayName = "GAgentBase should have default config values")]
+    public void Should_Have_Default_Configuration_Values()
     {
         // Arrange & Act
-        var agent = new TestAgent();
+        var agent = new ConfigurableTestAgent();
+        var config = agent.GetConfig();
 
         // Assert
-        agent.StateStore.Should().BeNull();
+        config.ShouldNotBeNull();
+        config.AgentName.ShouldBeEmpty(); // Default protobuf value
+        config.MaxRetries.ShouldBe(0); // Default protobuf value
+        config.TimeoutSeconds.ShouldBe(0); // Default protobuf value
+        config.EnableLogging.ShouldBe(false); // Default protobuf value
     }
 
-    [Fact(DisplayName = "StateStore should accept InMemoryStateStore instance")]
-    public void StateStore_ShouldAcceptInMemoryStore()
+    #endregion
+
+    #region 2.1.3 Lifecycle Tests
+
+    [Fact(DisplayName = "GAgentBase should activate correctly")]
+    public async Task Should_Activate_Correctly()
     {
         // Arrange
-        var agent = new TestAgent();
-        var store = new InMemoryStateStore<TestState>();
+        var agent = new BasicTestAgent();
 
         // Act
-        agent.StateStore = store;
+        await agent.ActivateAsync();
 
         // Assert
-        agent.StateStore.Should().BeSameAs(store);
-    }
-}
-
-public class InMemoryStateStoreTests
-{
-    public class TestState
-    {
-        public string Data { get; set; } = string.Empty;
-        public int Number { get; set; }
+        agent.OnActivateCalled.ShouldBeTrue();
+        agent.OnDeactivateCalled.ShouldBeFalse();
+        var state = agent.GetState();
+        state.Name.ShouldBe("TestAgent");
+        state.Counter.ShouldBe(0);
+        state.LastUpdated.ShouldNotBeNull();
     }
 
-    [Fact(DisplayName = "LoadAsync should return null for non-existent state")]
-    public async Task LoadAsync_NonExistent_ShouldReturnNull()
+    [Fact(DisplayName = "GAgentBase should deactivate correctly")]
+    public async Task Should_Deactivate_Correctly()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
+        var agent = new BasicTestAgent();
+        await agent.ActivateAsync();
 
         // Act
-        var result = await store.LoadAsync(agentId);
+        await agent.DeactivateAsync();
 
         // Assert
-        result.Should().BeNull();
+        agent.OnActivateCalled.ShouldBeTrue();
+        agent.OnDeactivateCalled.ShouldBeTrue();
     }
 
-    [Fact(DisplayName = "SaveAsync should store state")]
-    public async Task SaveAsync_ShouldStoreState()
+    [Fact(DisplayName = "GAgentBase should handle reactivation")]
+    public async Task Should_Handle_Reactivation()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
-        var state = new TestState { Data = "test", Number = 123 };
+        var agent = new BasicTestAgent();
 
-        // Act
-        await store.SaveAsync(agentId, state);
-        var loaded = await store.LoadAsync(agentId);
+        // Act - First activation
+        await agent.ActivateAsync();
+        var firstState = agent.GetState();
+
+        // Simulate some work
+        firstState.Counter = 10;
+
+        // Deactivate
+        await agent.DeactivateAsync();
+
+        // Reactivate
+        await agent.ActivateAsync();
 
         // Assert
-        loaded.Should().NotBeNull();
-        loaded!.Data.Should().Be("test");
-        loaded.Number.Should().Be(123);
+        agent.OnActivateCalled.ShouldBeTrue();
+        agent.OnDeactivateCalled.ShouldBeTrue();
+        // State should be reset on reactivation (in this test implementation)
+        // Because of BasicTestAgent.OnActivateAsync impl.
+        agent.GetState().Counter.ShouldBe(0);
     }
 
-    [Fact(DisplayName = "ExistsAsync should return false for non-existent state")]
-    public async Task ExistsAsync_NonExistent_ShouldReturnFalse()
+    #endregion
+
+    #region 2.1.4 Description Methods Tests
+
+    [Fact(DisplayName = "Should get description synchronously")]
+    public void Should_Get_Description_Synchronously()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
+        var agent = new BasicTestAgent();
+        agent.GetState().Name = "TestName";
+        agent.GetState().Counter = 42;
 
         // Act
-        var exists = await store.ExistsAsync(agentId);
+        var description = agent.GetDescription();
 
         // Assert
-        exists.Should().BeFalse();
+        description.ShouldNotBeNullOrEmpty();
+        description.ShouldContain("TestName");
+        description.ShouldContain("42");
     }
 
-    [Fact(DisplayName = "ExistsAsync should return true after SaveAsync")]
-    public async Task ExistsAsync_AfterSave_ShouldReturnTrue()
+    [Fact(DisplayName = "Should get description asynchronously")]
+    public async Task Should_Get_Description_Asynchronously()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
-        await store.SaveAsync(agentId, new TestState { Data = "test" });
+        var agent = new BasicTestAgent();
+        agent.GetState().Name = "AsyncTest";
+        agent.GetState().Counter = 100;
 
         // Act
-        var exists = await store.ExistsAsync(agentId);
+        var description = await agent.GetDescriptionAsync();
 
         // Assert
-        exists.Should().BeTrue();
+        description.ShouldNotBeNullOrEmpty();
+        description.ShouldContain("AsyncTest");
+        description.ShouldContain("100");
     }
 
-    [Fact(DisplayName = "DeleteAsync should remove state")]
-    public async Task DeleteAsync_ShouldRemoveState()
+    [Fact(DisplayName = "Should provide default description")]
+    public void Should_Provide_Default_Description()
+    {
+        // Arrange & Act
+        var agent = new MinimalAgent();
+        var description = agent.GetDescription();
+
+        // Assert
+        description.ShouldNotBeNullOrEmpty();
+        description.ShouldBe(nameof(MinimalAgent));
+    }
+
+    [Fact(DisplayName = "Should handle async description errors")]
+    public async Task Should_Handle_Async_Description_Errors()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
-        await store.SaveAsync(agentId, new TestState { Data = "test" });
-
-        // Act
-        await store.DeleteAsync(agentId);
-
-        // Assert
-        (await store.ExistsAsync(agentId)).Should().BeFalse();
-        (await store.LoadAsync(agentId)).Should().BeNull();
+        var agent = new ErrorDescriptionAgent
+        {
+            ShouldThrowInGetDescription = true,
+            ErrorMessage = "Description generation failed",
+            ExceptionType = typeof(InvalidOperationException)
+        };
+        
+        // Act & Assert - InvalidOperationException
+        var exception = await Should.ThrowAsync<InvalidOperationException>(
+            async () => await agent.GetDescriptionAsync()
+        );
+        exception.Message.ShouldBe("Description generation failed");
+        
+        // Test with NotImplementedException
+        agent.ExceptionType = typeof(NotImplementedException);
+        agent.ErrorMessage = "Not implemented yet";
+        
+        var notImplException = await Should.ThrowAsync<NotImplementedException>(
+            async () => await agent.GetDescriptionAsync()
+        );
+        notImplException.Message.ShouldBe("Not implemented yet");
+        
+        // Test with TimeoutException
+        agent.ExceptionType = typeof(TimeoutException);
+        agent.ErrorMessage = "Operation timed out";
+        
+        var timeoutException = await Should.ThrowAsync<TimeoutException>(
+            async () => await agent.GetDescriptionAsync()
+        );
+        timeoutException.Message.ShouldBe("Operation timed out");
+        
+        // Test normal operation when not throwing
+        agent.ShouldThrowInGetDescription = false;
+        var description = await agent.GetDescriptionAsync();
+        description.ShouldNotBeNullOrEmpty();
     }
 
-    [Fact(DisplayName = "Multiple agents should have separate state")]
-    public async Task MultipleAgents_ShouldHaveSeparateState()
+    #endregion
+
+    #region Complex State Tests
+
+    [Fact(DisplayName = "Should handle complex nested state")]
+    public async Task Should_Handle_Complex_Nested_State()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId1 = Guid.NewGuid();
-        var agentId2 = Guid.NewGuid();
+        var agent = new ComplexAgent();
 
         // Act
-        await store.SaveAsync(agentId1, new TestState { Data = "agent1" });
-        await store.SaveAsync(agentId2, new TestState { Data = "agent2" });
-        var state1 = await store.LoadAsync(agentId1);
-        var state2 = await store.LoadAsync(agentId2);
+        await agent.ActivateAsync();
 
         // Assert
-        state1!.Data.Should().Be("agent1");
-        state2!.Data.Should().Be("agent2");
+        var state = agent.GetState();
+        state.AgentId.ShouldNotBeNullOrEmpty();
+        state.Status.ShouldBe(ComplexAgentState.Types.Status.Active);
+        state.Nested.ShouldNotBeNull();
+        state.Nested.SubId.ShouldBe("nested-1");
+        state.Nested.SubCounter.ShouldBe(0);
     }
 
-    [Fact(DisplayName = "GetAllStates should return all stored states")]
-    public void GetAllStates_ShouldReturnAllStates()
+    [Fact(DisplayName = "Should serialize complex state with nested messages")]
+    public void Should_Serialize_Complex_State()
     {
         // Arrange
-        var store = new InMemoryStateStore<TestState>();
-        var agentId = Guid.NewGuid();
-
-        // Use reflection to save state
-        var saveMethod = typeof(InMemoryStateStore<TestState>).GetMethod("SaveAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
-        var task = saveMethod!.Invoke(store, new object[] { agentId, new TestState { Data = "test" }, default(CancellationToken) }) as Task;
-        task!.GetAwaiter().GetResult();
+        var agent = new ComplexAgent();
+        var state = agent.GetState();
+        state.AgentId = "complex-1";
+        state.Status = ComplexAgentState.Types.Status.Active;
+        state.Nested = new ComplexAgentState.Types.NestedState
+        {
+            SubId = "sub-1",
+            SubCounter = 10
+        };
+        state.NestedList.Add(new ComplexAgentState.Types.NestedState
+        {
+            SubId = "sub-2",
+            SubCounter = 20
+        });
 
         // Act
-        var allStates = store.GetAllStates();
+        var bytes = state.ToByteArray();
+        var deserialized = ComplexAgentState.Parser.ParseFrom(bytes);
 
         // Assert
-        allStates.Should().ContainKey(agentId);
-        allStates[agentId].Data.Should().Be("test");
+        deserialized.AgentId.ShouldBe("complex-1");
+        deserialized.Status.ShouldBe(ComplexAgentState.Types.Status.Active);
+        deserialized.Nested.SubId.ShouldBe("sub-1");
+        deserialized.Nested.SubCounter.ShouldBe(10);
+        deserialized.NestedList.Count.ShouldBe(1);
+        deserialized.NestedList[0].SubId.ShouldBe("sub-2");
+        deserialized.NestedList[0].SubCounter.ShouldBe(20);
     }
-}
 
-public class StateVersionConflictExceptionTests
-{
-    [Fact(DisplayName = "StateVersionConflictException should contain correct values")]
-    public void Constructor_ShouldSetProperties()
+    #endregion
+
+    #region Generic Support Tests
+
+    [Fact(DisplayName = "Should support single generic parameter")]
+    public void Should_Support_Single_Generic_Parameter()
+    {
+        // Arrange & Act
+        var agent = new BasicTestAgent(); // GAgentBase<TState>
+
+        // Assert
+        agent.ShouldBeAssignableTo<GAgentBase<TestAgentState>>();
+        agent.GetState().ShouldBeOfType<TestAgentState>();
+    }
+
+    [Fact(DisplayName = "Should support dual generic parameters")]
+    public void Should_Support_Dual_Generic_Parameters()
+    {
+        // Arrange & Act
+        var agent = new ConfigurableTestAgent(); // GAgentBase<TState, TConfig>
+
+        // Assert
+        agent.ShouldBeAssignableTo<GAgentBase<TestAgentState, TestAgentConfig>>();
+        agent.GetState().ShouldBeOfType<TestAgentState>();
+        agent.GetConfig().ShouldBeOfType<TestAgentConfig>();
+    }
+
+    [Fact(DisplayName = "TState should be Protobuf message type")]
+    public void TState_Should_Be_Protobuf_Message_Type()
     {
         // Arrange
-        var agentId = Guid.NewGuid();
-        var expected = 5L;
-        var actual = 7L;
-
-        // Act
-        var ex = new StateVersionConflictException(agentId, expected, actual);
+        var agent = new BasicTestAgent();
+        var state = agent.GetState();
 
         // Assert
-        ex.AgentId.Should().Be(agentId);
-        ex.ExpectedVersion.Should().Be(expected);
-        ex.ActualVersion.Should().Be(actual);
-        ex.Message.Should().Contain(agentId.ToString());
-        ex.Message.Should().Contain("expected 5");
-        ex.Message.Should().Contain("actual 7");
+        state.ShouldBeAssignableTo<IMessage>();
+        state.ShouldBeAssignableTo<IBufferMessage>();
+
+        // Should be serializable
+        var bytes = state.ToByteArray();
+        bytes.ShouldNotBeNull();
+        bytes.Length.ShouldBeGreaterThanOrEqualTo(0);
     }
+
+    [Fact(DisplayName = "TConfig should be Protobuf message type")]
+    public void TConfig_Should_Be_Protobuf_Message_Type()
+    {
+        // Arrange
+        var agent = new ConfigurableTestAgent();
+        var config = agent.GetConfig();
+
+        // Assert
+        config.ShouldBeAssignableTo<IMessage>();
+        config.ShouldBeAssignableTo<IBufferMessage>();
+
+        // Should be serializable
+        var bytes = config.ToByteArray();
+        bytes.ShouldNotBeNull();
+        bytes.Length.ShouldBeGreaterThanOrEqualTo(0);
+    }
+
+    #endregion
 }

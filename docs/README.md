@@ -40,13 +40,21 @@
 **AI 能力集成指南**
 
 涵盖内容：
-- AI Agent 架构（MEAIGAgentBase）
+- **AI Agent 3级架构**（AIGAgentBase → AIGAgentWithToolBase → AIGAgentWithProcessStrategy）
 - Microsoft.Extensions.AI 集成
-- LLM Provider 配置（Azure OpenAI、OpenAI）
-- AI 工具系统开发
-- 对话历史管理
+- **LLMProviderFactory** 配置（Azure OpenAI、OpenAI、Ollama）
+- **IAevatarTool** 工具系统开发
+- **LLM元推理**策略选择（Chain-of-Thought、ReAct、Tree-of-Thoughts）
+- 对话历史管理和流式响应
 
 **适合**: 需要构建AI智能体的开发者
+
+**架构**：
+```
+Level 1: AIGAgentBase                    ← 基础聊天能力
+Level 2: AIGAgentWithToolBase            ← 增加工具调用
+Level 3: AIGAgentWithProcessStrategy     ← 增加策略选择
+```
 
 ---
 
@@ -149,6 +157,6 @@
 
 ---
 
-**Last Updated**: 2025-11-13  
-**Document Version**: 2.0 (Post-consolidation)
+**Last Updated**: 2025-11-17
+**Document Version**: 3.0 (3-Level AI Agent Architecture)
 

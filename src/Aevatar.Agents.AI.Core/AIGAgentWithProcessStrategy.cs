@@ -1,26 +1,69 @@
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Strategies;
-using Aevatar.Agents.AI.Core.Extensions;
-using Aevatar.Agents.AI.Core.Messages;
-// Models are now in Aevatar.Agents.AI namespace from protobuf
 using Aevatar.Agents.AI.Core.Strategies;
-using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Aevatar.Agents.AI.Core;
 
 /// <summary>
+/// Strategy decision from LLM meta-reasoning
+/// LLM元推理的策略决策
+/// </summary>
+public class StrategyDecision
+{
+    public string Strategy { get; set; } = string.Empty;
+    public double Confidence { get; set; }
+    public string Reasoning { get; set; } = string.Empty;
+    public Dictionary<string, object> Parameters { get; set; } = new();
+}
+
+/// <summary>
 /// Level 3: AI Agent with advanced processing strategies.
 /// 第三级：具有高级处理策略的AI代理
+/// 在AIGAgentWithToolBase基础上增加了让LLM进行策略性回答的功能
+/// 支持多种处理策略（如Chain-of-Thought、ReAct、Tree-of-Thoughts等）
 /// </summary>
 /// <typeparam name="TState">The agent state type (must be Protobuf)</typeparam>
 public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase<TState>
-    where TState : class, IMessage<TState>, new()
+    where TState : class, Google.Protobuf.IMessage<TState>, new()
 {
     #region Fields
 
     private readonly Dictionary<string, IAevatarAIProcessingStrategy> _strategies;
-    private readonly IAevatarAIProcessingStrategyFactory _strategyFactory;
+    private IAevatarAIProcessingStrategyFactory? _strategyFactory;
+
+    /// <summary>
+    /// Meta-reasoning prompt template for strategy selection
+    /// 用于策略选择的元推理提示词模板
+    /// </summary>
+    private const string _metaReasoningPromptTemplate = @"
+You are an AI strategy selector. Your task is to analyze the user's request and select the most appropriate processing strategy.
+
+Available Strategies:
+standard: Use for simple, direct questions that don't require deep reasoning or tools
+chain_of_thought: Use when the user asks for step-by-step reasoning, explanations, or the problem requires logical deduction
+react: Use when the request requires using tools, executing functions, or accessing external data
+tree_of_thoughts: Use for complex problems that require exploring multiple approaches or when creative problem-solving is needed
+
+Guidelines:
+1. If the user wants a simple answer without explanation → standard
+2. If the user asks 'how', 'why', 'explain', or 'step by step' → chain_of_thought
+3. If the task involves calculation, searching, querying data, or executing operations → react
+4. If the problem is complex, has multiple solutions, or requires analysis → tree_of_thoughts
+
+Available Tools: {{TOOLS}}
+
+Analyze this user request and return a JSON object with the following structure:
+{
+  ""strategy"": ""standard|chain_of_thought|react|tree_of_thoughts"",
+  ""confidence"": 0.0-1.0,
+  ""reasoning"": ""Brief explanation of why this strategy was chosen""
+}
+
+User Request: {{USER_REQUEST}}
+
+Strategy Decision:";
 
     #endregion
 
@@ -32,6 +75,19 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// </summary>
     protected IReadOnlyDictionary<string, IAevatarAIProcessingStrategy> Strategies => _strategies;
 
+    /// <summary>
+    /// Gets the strategy factory used to create strategies.
+    /// 获取用于创建策略的策略工厂
+    /// </summary>
+    protected IAevatarAIProcessingStrategyFactory StrategyFactory
+    {
+        get
+        {
+            EnsureStrategyFactoryInitialized();
+            return _strategyFactory!;
+        }
+    }
+
     #endregion
 
     #region Constructors
@@ -42,8 +98,7 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// </summary>
     protected AIGAgentWithProcessStrategy() : base()
     {
-        _strategyFactory = CreateStrategyFactory();
-        _strategies = InitializeStrategies();
+        _strategies = new Dictionary<string, IAevatarAIProcessingStrategy>();
     }
 
     /// <summary>
@@ -54,8 +109,7 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
         IAevatarLLMProvider llmProvider,
         IAevatarToolManager toolManager,
         IAevatarAIProcessingStrategyFactory strategyFactory,
-        ILogger? logger = null)
-        : base(llmProvider, toolManager, logger)
+        ILogger? logger = null) : base(llmProvider, toolManager, logger)
     {
         _strategyFactory = strategyFactory ?? throw new ArgumentNullException(nameof(strategyFactory));
         _strategies = InitializeStrategies();
@@ -71,13 +125,33 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     /// </summary>
     protected virtual Dictionary<string, IAevatarAIProcessingStrategy> InitializeStrategies()
     {
+        EnsureStrategyFactoryInitialized();
+
         return new Dictionary<string, IAevatarAIProcessingStrategy>
         {
-            ["standard"] = _strategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.Standard),
-            ["chain-of-thought"] = _strategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.ChainOfThought),
-            ["react"] = _strategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.ReAct),
-            ["tree-of-thoughts"] = _strategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.TreeOfThoughts)
+            ["standard"] = StrategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.Standard),
+            ["chain_of_thought"] = StrategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.ChainOfThought),
+            ["react"] = StrategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.ReAct),
+            ["tree_of_thoughts"] = StrategyFactory.GetOrCreateStrategy(AevatarAIProcessingMode.TreeOfThoughts)
         };
+    }
+
+    /// <summary>
+    /// Ensure strategy factory is initialized.
+    /// 确保策略工厂已初始化
+    /// </summary>
+    private void EnsureStrategyFactoryInitialized()
+    {
+        if (_strategyFactory != null)
+            return;
+
+        _strategyFactory = CreateStrategyFactory();
+
+        var strategies = InitializeStrategies();
+        foreach (var strategy in strategies)
+        {
+            _strategies[strategy.Key] = strategy.Value;
+        }
     }
 
     /// <summary>
@@ -90,404 +164,89 @@ public abstract class AIGAgentWithProcessStrategy<TState> : AIGAgentWithToolBase
     }
 
     /// <summary>
-    /// Select the appropriate strategy for a request.
-    /// 为请求选择适当的策略
+    /// Select the appropriate strategy for a request using LLM meta-reasoning.
+    /// 使用LLM元推理为请求选择适当的策略
     /// </summary>
-    protected virtual string SelectStrategy(Aevatar.Agents.AI.ChatRequest request)
+    protected virtual async Task<string> SelectStrategyAsync(Aevatar.Agents.AI.ChatRequest request)
     {
-        // Check if strategy is specified in context
         if (request.Context?.ContainsKey("strategy") == true)
         {
             var requestedStrategy = request.Context["strategy"]?.ToString();
             if (!string.IsNullOrEmpty(requestedStrategy) && _strategies.ContainsKey(requestedStrategy))
             {
+                Logger?.LogDebug("Strategy specified in context: {Strategy}", requestedStrategy);
                 return requestedStrategy;
             }
         }
 
-        // Auto-detect based on message characteristics
-        if (RequiresDeepReasoning(request.Message))
-        {
-            return "tree-of-thoughts";
-        }
-
-        if (RequiresStepByStepThinking(request.Message))
-        {
-            return "chain-of-thought";
-        }
-
-        if (RequiresToolInteraction(request.Message))
-        {
-            return "react";
-        }
-
-        return "standard";
-    }
-
-    #endregion
-
-    #region Chat with Strategy Processing
-
-    /// <summary>
-    /// Override chat to use processing strategies.
-    /// 重写聊天以使用处理策略
-    /// </summary>
-    protected async Task<Aevatar.Agents.AI.ChatResponse> ProcessChatWithStrategyAsync(Aevatar.Agents.AI.ChatRequest request)
-    {
         try
         {
-            var strategyName = SelectStrategy(request);
-            Logger?.LogDebug("Selected strategy: {Strategy} for request: {RequestId}",
-                strategyName, request.RequestId);
+            var availableTools = HasTools ? GetRegisteredTools() : new List<ToolDefinition>();
+            var toolNames = availableTools.Any() ? string.Join(", ", availableTools.Select(t => t.Name)) : "none";
 
-            if (!_strategies.TryGetValue(strategyName, out var strategy))
+            var metaPrompt = _metaReasoningPromptTemplate
+                .Replace("{{TOOLS}}", toolNames)
+                .Replace("{{USER_REQUEST}}", request.Message);
+
+            Logger?.LogDebug("Requesting LLM for strategy selection...");
+
+            var metaRequest = new AevatarLLMRequest
             {
-                // Fallback to base implementation if strategy not found
-                Logger?.LogWarning("Strategy {Strategy} not found, falling back to standard",
-                    strategyName);
-                return await base.ChatAsync(request);
-            }
+                SystemPrompt = "You are a strategy selection assistant. Always respond with valid JSON only.",
+                Messages = new List<AevatarChatMessage>
+                {
+                    new()
+                    {
+                        Role = AevatarChatRole.User,
+                        Content = metaPrompt
+                    }
+                },
+                Settings = new AevatarLLMSettings
+                {
+                    Temperature = 0.1,
+                    MaxTokens = 500
+                }
+            };
 
-            // Create AI context for strategy
-            var aiContext = CreateAIContext(request);
+            var metaResponse = await LLMProvider.GenerateAsync(metaRequest, CancellationToken.None);
 
-            // Create strategy dependencies
-            var dependencies = CreateStrategyDependencies();
+            var decision = ParseStrategyDecision(metaResponse.Content);
 
-            // Validate strategy requirements
-            if (!strategy.ValidateRequirements(dependencies))
-            {
-                Logger?.LogWarning("Strategy {Strategy} requirements not met, falling back",
-                    strategyName);
-                return await base.ChatAsync(request);
-            }
+            Logger?.LogInformation("LLM selected strategy: {Strategy} (confidence: {Confidence:F2}, reasoning: {Reasoning})",
+                decision.Strategy, decision.Confidence, decision.Reasoning);
 
-            // Process with strategy
-            var result = await strategy.ProcessAsync(
-                aiContext,
-                null, // Event handler config if needed
-                dependencies);
-
-            // Convert strategy result to chat response
-            return ConvertStrategyResult(result, request, strategyName);
+            return decision.Strategy;
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "Error processing chat with strategy");
-            throw;
+            Logger?.LogWarning(ex, "Failed to use meta-reasoning for strategy selection, using default strategy");
+            return "standard";
         }
     }
 
-    /// <summary>
-    /// Create AI context from chat request.
-    /// 从聊天请求创建AI上下文
-    /// </summary>
-    private Aevatar.Agents.AI.AevatarAIContext CreateAIContext(Aevatar.Agents.AI.ChatRequest request)
-    {
-        var context = new Aevatar.Agents.AI.AevatarAIContext
-        {
-            AgentId = Id.ToString(),
-            Question = request.Message,
-            SystemPrompt = SystemPrompt
-        };
-
-        // Add conversation history
-        context.ConversationHistory.AddRange(ConvertToConversationEntries());
-
-        // Add metadata
-        foreach (var item in request.Context)
-        {
-            context.Metadata[item.Key] = item.Value;
-        }
-
-        return context;
-    }
 
     /// <summary>
-    /// Create strategy dependencies.
-    /// 创建策略依赖项
+    /// Parse strategy decision from LLM JSON response.
+    /// 从LLM JSON响应中解析策略决策
     /// </summary>
-    private AevatarAIStrategyDependencies CreateStrategyDependencies()
+    private StrategyDecision ParseStrategyDecision(string jsonResponse)
     {
-        return new AevatarAIStrategyDependencies
+        var jsonStart = jsonResponse.IndexOf('{');
+        var jsonEnd = jsonResponse.LastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart)
         {
-            LLMProvider = ConvertToAevatarLLMProvider(),
-            PromptManager = new BasicPromptManager(),
-            ToolManager = ToolManager,
-            Memory = CreateMemoryManager(),
-            Configuration = ConvertToAevatarConfiguration(),
-            Logger = Logger,
-            AgentId = Id.ToString(),
-            PublishEventCallback = async (message) => await PublishAsync(message)
-        };
-    }
-
-    /// <summary>
-    /// Convert strategy result to chat response.
-    /// 将策略结果转换为聊天响应
-    /// </summary>
-    private ChatResponse ConvertStrategyResult(
-        string result,
-        ChatRequest request,
-        string strategyName)
-    {
-        // Add result to conversation history
-        var aiState = GetAIState();
-        aiState.AddAssistantMessage(result, Configuration.MaxHistory);
-
-        // Create response
-        var response = new Aevatar.Agents.AI.ChatResponse
-        {
-            Content = result,
-            RequestId = request.RequestId
-        };
-
-        // Add processing steps
-        response.ProcessingSteps.Add(new Aevatar.Agents.AI.ProcessingStep
-        {
-            Type = Aevatar.Agents.AI.ProcessingStepType.StrategySelection,
-            Description = $"Selected {strategyName} strategy",
-            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        return response;
-    }
-
-    #endregion
-
-    #region Strategy Detection Helpers
-
-    /// <summary>
-    /// Check if request requires deep reasoning.
-    /// 检查请求是否需要深度推理
-    /// </summary>
-    protected virtual bool RequiresDeepReasoning(string message)
-    {
-        var keywords = new[]
-        {
-            "analyze", "compare", "evaluate", "assess", "explore",
-            "分析", "比较", "评估", "探索"
-        };
-        return keywords.Any(k => message.ToLower().Contains(k));
-    }
-
-    /// <summary>
-    /// Check if request requires step-by-step thinking.
-    /// 检查请求是否需要逐步思考
-    /// </summary>
-    protected virtual bool RequiresStepByStepThinking(string message)
-    {
-        var keywords = new[]
-        {
-            "step by step", "explain", "how", "why", "reasoning",
-            "步骤", "解释", "为什么", "怎么", "推理"
-        };
-        return keywords.Any(k => message.ToLower().Contains(k));
-    }
-
-    /// <summary>
-    /// Check if request requires tool interaction.
-    /// 检查请求是否需要工具交互
-    /// </summary>
-    protected virtual bool RequiresToolInteraction(string message)
-    {
-        var keywords = new[]
-        {
-            "calculate", "search", "query", "fetch", "execute",
-            "计算", "搜索", "查询", "获取", "执行"
-        };
-        return keywords.Any(k => message.ToLower().Contains(k));
-    }
-
-    #endregion
-
-    #region Conversion Helpers
-
-    /// <summary>
-    /// Convert conversation history to entries.
-    /// 转换对话历史为条目
-    /// </summary>
-    private List<Aevatar.Agents.AI.AevatarConversationEntry> ConvertToConversationEntries()
-    {
-        var entries = new List<Aevatar.Agents.AI.AevatarConversationEntry>();
-        var aiState = GetAIState();
-        var history = aiState.ConversationHistory;
-
-        foreach (var msg in history)
-        {
-            entries.Add(new AevatarConversationEntry
-            {
-                Role = msg.Role.ToString().ToLower(),
-                Content = msg.Content
-            });
+            jsonResponse = jsonResponse.Substring(jsonStart, jsonEnd - jsonStart + 1);
         }
 
-        return entries;
-    }
-
-    /// <summary>
-    /// Convert to Aevatar LLM provider.
-    /// 转换为Aevatar LLM提供商
-    /// </summary>
-    private IAevatarLLMProvider ConvertToAevatarLLMProvider()
-    {
-        // This would be a wrapper or adapter in production
-        return new LLMProviderAdapter(LLMProvider);
-    }
-
-    /// <summary>
-    /// Create memory manager.
-    /// 创建内存管理器
-    /// </summary>
-    private IAevatarAIMemory CreateMemoryManager()
-    {
-        // Return null for now, can be overridden
-        return null;
-    }
-
-    /// <summary>
-    /// Convert to Aevatar configuration.
-    /// 转换为Aevatar配置
-    /// </summary>
-    private AevatarAIAgentConfiguration ConvertToAevatarConfiguration()
-    {
-        return new AevatarAIAgentConfiguration
+        try
         {
-            Model = Configuration.Model,
-            Temperature = Configuration.Temperature,
-            MaxTokens = Configuration.MaxTokens,
-            SystemPrompt = SystemPrompt
-        };
-    }
-
-    #endregion
-
-    #region Inner Classes
-
-    /// <summary>
-    /// Basic prompt manager implementation.
-    /// 基本提示管理器实现
-    /// </summary>
-    private class BasicPromptManager : IAevatarPromptManager
-    {
-        public Task<AevatarPromptTemplate?> GetPromptTemplateAsync(
-            string templateName,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<AevatarPromptTemplate?>(null);
+            return JsonSerializer.Deserialize<StrategyDecision>(jsonResponse) ??
+                new StrategyDecision { Strategy = "standard", Confidence = 0.5, Reasoning = "Failed to parse JSON, using default" };
         }
-
-        public Task<string> RenderPromptAsync(
-            string templateName,
-            Dictionary<string, object> variables,
-            CancellationToken cancellationToken = default)
+        catch (JsonException ex)
         {
-            return Task.FromResult(string.Empty);
-        }
-
-        public Task<IReadOnlyList<AevatarPromptTemplate>> GetAllTemplatesAsync(
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<AevatarPromptTemplate>>(
-                new List<AevatarPromptTemplate>());
-        }
-
-        public Task RegisterPromptTemplateAsync(
-            AevatarPromptTemplate template,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.CompletedTask;
-        }
-
-        public Task<string> GetSystemPromptAsync(
-            string? promptName = null,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult("You are a helpful AI assistant.");
-        }
-
-        public Task<string> FormatPromptAsync(
-            string template,
-            Dictionary<string, object>? variables = null,
-            CancellationToken cancellationToken = default)
-        {
-            // Simple variable replacement
-            var result = template;
-            if (variables != null)
-            {
-                foreach (var kvp in variables)
-                {
-                    result = result.Replace($"{{{kvp.Key}}}", kvp.Value?.ToString() ?? string.Empty);
-                }
-            }
-
-            return Task.FromResult(result);
-        }
-    }
-
-    /// <summary>
-    /// Adapter for LLM provider.
-    /// LLM提供商适配器
-    /// </summary>
-    private class LLMProviderAdapter : IAevatarLLMProvider
-    {
-        private readonly IAevatarLLMProvider _innerProvider;
-
-        public LLMProviderAdapter(IAevatarLLMProvider innerProvider)
-        {
-            _innerProvider = innerProvider;
-        }
-
-        public async Task<AevatarLLMResponse> GenerateAsync(
-            AevatarLLMRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            var response = await _innerProvider.GenerateAsync(request);
-            return response;
-        }
-
-        public Task<AevatarLLMResponse> GenerateChatResponseAsync(
-            IList<AevatarChatMessage> messages,
-            IList<AevatarFunctionDefinition>? functions = null,
-            double temperature = 0.7,
-            double topP = 1.0,
-            int maxTokens = 500,
-            IList<string>? stopSequences = null,
-            CancellationToken cancellationToken = default)
-        {
-            var request = new AevatarLLMRequest
-            {
-                Messages = messages.ToList(),
-                Functions = functions?.ToList(),
-                Settings = new AevatarLLMSettings
-                {
-                    Temperature = temperature,
-                    MaxTokens = maxTokens
-                }
-            };
-
-            return GenerateAsync(request, cancellationToken);
-        }
-
-        public async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(
-            AevatarLLMRequest request,
-            [System.Runtime.CompilerServices.EnumeratorCancellation]
-            CancellationToken cancellationToken = default)
-        {
-            // For now, just return the full response as a single token
-            var response = await GenerateAsync(request, cancellationToken);
-            yield return new AevatarLLMToken
-            {
-                Content = response.Content,
-                IsComplete = true
-            };
-        }
-
-        public Task<IList<double>> GenerateEmbeddingsAsync(
-            string text,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException();
+            Logger?.LogWarning(ex, "Failed to parse strategy decision JSON: {Json}", jsonResponse);
+            return new StrategyDecision { Strategy = "standard", Confidence = 0.5, Reasoning = "Invalid JSON, using default" };
         }
     }
 

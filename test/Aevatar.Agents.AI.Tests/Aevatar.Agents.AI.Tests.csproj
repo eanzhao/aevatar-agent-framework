@@ -24,6 +24,7 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
         <PackageReference Include="Microsoft.Extensions.AI" />
+        <PackageReference Include="Shouldly" />
         <PackageReference Include="Google.Protobuf" />
         <PackageReference Include="Grpc.Tools">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -39,6 +40,10 @@
 
     <ItemGroup>
         <Protobuf Include="*.proto" GrpcServices="None" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Agents\" />
     </ItemGroup>
 
 </Project>

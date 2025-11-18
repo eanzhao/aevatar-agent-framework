@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions.Helpers;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
@@ -49,12 +50,12 @@ public static class MessageExtensions
     /// <summary>
     /// 创建带有指定负载的事件信封
     /// </summary>
-    public static EventEnvelope CreateEventEnvelope<T>(this T payload, long version) where T : IMessage
+    public static EventEnvelope CreateEventEnvelope<T>(this T payload, long version = 1) where T : IMessage
     {
         return new EventEnvelope
         {
             Id = Guid.NewGuid().ToString(),
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Timestamp = TimestampHelper.GetUtcNow(),
             Version = version,
             Payload = Any.Pack(payload)
         };

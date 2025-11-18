@@ -54,7 +54,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
 
         var result = new AevatarLLMResponse
         {
-            Content = response.Text ?? string.Empty,
+            Content = response.Text,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete
         };
@@ -82,7 +82,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         if (!string.IsNullOrEmpty(request.SystemPrompt))
             messages.Add(new ChatMessage(ChatRole.System, request.SystemPrompt));
 
-        if (request.Messages?.Count > 0)
+        if (request.Messages.Count > 0)
         {
             foreach (var msg in request.Messages)
             {

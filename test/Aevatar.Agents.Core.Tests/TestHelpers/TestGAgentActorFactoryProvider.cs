@@ -60,8 +60,7 @@ public class TestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
             // 创建LocalGAgentActor（用于测试）
             var actor = new LocalGAgentActor(
                 agent,
-                _streamRegistry,
-                _serviceProvider.GetService<Microsoft.Extensions.Logging.ILogger<LocalGAgentActor>>()
+                _streamRegistry
             );
             
             // 自动注入Actor的Logger

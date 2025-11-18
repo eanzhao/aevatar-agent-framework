@@ -20,7 +20,7 @@ public static class MongoDBConfigurationStoreFactory
         {
             var mongoClient = new MongoClient(connectionString ?? "mongodb://localhost:27017");
             var database = mongoClient.GetDatabase(databaseName ?? "aevatar");
-            return new MongoDBConfigurationStore<TConfig>(database);
+            return new MongoDbConfigStore<TConfig>(database);
         };
     }
 }

@@ -23,4 +23,16 @@ public interface IGAgent
     /// <param name="includeAllEventHandler">Whether to include AllEventHandler subscribed events</param>
     /// <returns>List of event types this agent can handle</returns>
     Task<List<Type>> GetAllSubscribedEventsAsync(bool includeAllEventHandler = false);
+
+    /// <summary>
+    /// Active current GAgent.
+    /// </summary>
+    /// <returns></returns>
+    Task ActivateAsync();
+
+    /// <summary>
+    /// Deactive current GAgent.
+    /// </summary>
+    /// <returns></returns>
+    Task DeactivateAsync();
 }

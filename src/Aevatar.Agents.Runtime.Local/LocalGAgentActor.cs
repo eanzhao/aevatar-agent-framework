@@ -19,9 +19,8 @@ public class LocalGAgentActor : GAgentActorBase
 
     public LocalGAgentActor(
         IGAgent agent,
-        LocalMessageStreamRegistry streamRegistry,
-        ILogger? logger = null)
-        : base(agent, logger)
+        LocalMessageStreamRegistry streamRegistry)
+        : base(agent)
     {
         _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
 
@@ -46,32 +45,11 @@ public class LocalGAgentActor : GAgentActorBase
         var parentStream = _streamRegistry.GetStream(parentId);
         if (parentStream != null)
         {
-            // 创建类型过滤器（如果Agent有特定的事件类型约束）
-            Func<EventEnvelope, bool>? filter = null;
+            // 注意：事件类型过滤功能已废弃
+            // 因为Protobuf不支持继承，无法在类型层面进行有效过滤
+            // 所有事件过滤应在Agent的事件处理器内部基于事件内容进行
             
-            // 检查Agent是否继承自GAgentBase<TState, TEvent>，获取TEvent类型
-            var agentType = Agent.GetType();
-            var baseType = agentType.BaseType;
-            while (baseType != null)
-            {
-                if (baseType.IsGenericType && 
-                    baseType.GetGenericTypeDefinition() == typeof(GAgentBase<,>))
-                {
-                    var eventType = baseType.GetGenericArguments()[1];
-                    // 创建类型过滤器
-                    filter = envelope =>
-                    {
-                        if (envelope.Payload == null) return false;
-                        // 检查TypeUrl是否包含事件类型名
-                        return envelope.Payload.TypeUrl.Contains(eventType.Name) ||
-                               envelope.Payload.TypeUrl.Contains(eventType.FullName);
-                    };
-                    break;
-                }
-                baseType = baseType.BaseType;
-            }
-            
-            // 创建组合过滤器：应用类型过滤、Publishers列表检查和方向过滤
+            // 创建过滤器：检查Publishers列表和方向
             // - DOWN事件：不应该通过父stream广播，过滤掉
             // - UP事件：检查Publishers列表，避免重复处理
             // - BOTH事件：允许通过
@@ -97,15 +75,6 @@ public class LocalGAgentActor : GAgentActorBase
                     return false;  // 过滤掉已经处理过的UP事件
                 }
                     
-                // 应用类型过滤
-                if (filter != null)
-                {
-                    var result = filter(envelope);
-                    Logger.LogDebug("[FILTER] Type filter result for Agent {AgentId}: {Result}", Id, result);
-                    return result;
-                }
-                
-                Logger.LogDebug("[FILTER] No type filter for Agent {AgentId}, allowing event", Id);
                 return true;
             };
             

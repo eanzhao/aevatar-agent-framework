@@ -14,49 +14,8 @@ namespace Aevatar.Agents.AI.Tests;
 /// AIGAgentBase 使用示例
 /// 展示如何正确地从 AIGAgentBase 继承创建 AI Agent
 /// </summary>
-public class AIGAgentBaseExamples
+public partial class AIGAgentBaseExamples
 {
-    /// <summary>
-    /// 示例 1：从 AIGAgentBase 继承的真实 AI Agent（Level 1）
-    /// </summary>
-    public class CustomerServiceAgent : AIGAgentBase<AevatarAIAgentState>
-    {
-        // 在编码时定义 System Prompt
-        public override string SystemPrompt =>
-            "You are Emma, a friendly customer service representative. " +
-            "You work for Aevatar Inc. and help customers with their questions. " +
-            "Always be helpful, patient, and professional.";
-
-        public CustomerServiceAgent(
-            IAevatarLLMProvider llmProvider,
-            ILogger<CustomerServiceAgent> logger)
-            : base(llmProvider, logger)
-        {
-        }
-
-        // 必须重写：提供状态访问
-        protected override AevatarAIAgentState GetAIState()
-        {
-            // 从 Orleans 状态中获取或创建 AI 状态
-            return State;
-        }
-
-        // 必须重写：提供代理描述
-        public override Task<string> GetDescriptionAsync()
-        {
-            return Task.FromResult("Customer service agent for Aevatar Inc.");
-        }
-
-        // 可选：配置 AI 参数
-        protected override void ConfigureAI(AIAgentConfiguration config)
-        {
-            config.Model = "gpt-4";
-            config.Temperature = 0.7;
-            config.MaxTokens = 2000;
-            config.MaxHistory = 50; // 保存 50 条对话历史
-        }
-    }
-
     /// <summary>
     /// 示例 2：带工具的数据分析 Agent（Level 2）
     /// </summary>
@@ -69,13 +28,7 @@ public class AIGAgentBaseExamples
         public DataAnalysisAgent(
             IAevatarLLMProvider llmProvider,
             ILogger<DataAnalysisAgent> logger)
-            : base(llmProvider, logger)
         {
-        }
-
-        protected override AevatarAIAgentState GetAIState()
-        {
-            return State;
         }
 
         public override Task<string> GetDescriptionAsync()
@@ -83,21 +36,11 @@ public class AIGAgentBaseExamples
             return Task.FromResult("Data analysis agent with visualization tools");
         }
 
-        protected override void ConfigureAI(AIAgentConfiguration config)
+        protected override void ConfigureAI(AevatarAIAgentConfiguration config)
         {
             config.Model = "gpt-4";
             config.Temperature = 0.3;  // Lower temperature for more deterministic analysis
             config.MaxTokens = 4000;
-        }
-
-        // 重写 OnActivateAsync 来注册工具
-        public override async Task OnActivateAsync(CancellationToken cancellationToken)
-        {
-            await base.OnActivateAsync(cancellationToken);
-
-            // 注册自定义工具（需要继承 AIGAgentWithToolBase）
-            // RegisterTool<DataVisualizationTool>();
-            // RegisterTool<DataQueryTool>();
         }
     }
 
@@ -158,8 +101,7 @@ public class AIGAgentBaseExamples
         var analysisAgentProvider = factory.GetProvider("azure-gpt35");
 
         // 2. 直接创建 Agent（适用于单元测试或独立使用）
-        var logger1 = loggerFactory.CreateLogger<CustomerServiceAgent>();
-        var customerAgent = new CustomerServiceAgent(customerAgentProvider, logger1);
+        var customerAgent = new CustomerServiceAgent();
 
         var logger2 = loggerFactory.CreateLogger<DataAnalysisAgent>();
         var analysisAgent = new DataAnalysisAgent(analysisAgentProvider, logger2);
@@ -186,9 +128,7 @@ public class AIGAgentBaseExamples
         services.AddTransient<CustomerServiceAgent>(sp =>
         {
             var factory = sp.GetRequiredService<ILLMProviderFactory>();
-            var llmProvider = factory.GetProvider("openai-gpt4");
-            var logger = sp.GetRequiredService<ILogger<CustomerServiceAgent>>();
-            return new CustomerServiceAgent(llmProvider, logger);
+            return new CustomerServiceAgent();
         });
 
         // 或使用扩展方法（如果创建）

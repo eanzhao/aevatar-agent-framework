@@ -1,5 +1,6 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Aevatar.Agents.AI.Abstractions.Providers;
 
@@ -13,11 +14,14 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
     protected readonly Dictionary<string, Lazy<IAevatarLLMProvider>> Providers = new();
     protected readonly Dictionary<string, LLMProviderConfig> ProviderConfigs;
 
-    protected LLMProviderFactoryBase(LLMProvidersConfig config, ILogger logger)
+    protected LLMProviderFactoryBase(IOptions<LLMProvidersConfig> config, ILogger logger)
     {
-        Config = config ?? throw new ArgumentNullException(nameof(config));
+        if (config?.Value == null)
+            throw new ArgumentNullException(nameof(config));
+
+        Config = config.Value;
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        ProviderConfigs = new Dictionary<string, LLMProviderConfig>(config.Providers);
+        ProviderConfigs = new Dictionary<string, LLMProviderConfig>(Config.Providers);
         RegisterProviders();
     }
 
@@ -51,6 +55,9 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
         return Providers.ContainsKey(providerName);
     }
 
+    public abstract IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig,
+        CancellationToken cancellationToken = default);
+
     public async Task<IAevatarLLMProvider> GetProviderAsync(string providerName,
         CancellationToken cancellationToken = default)
     {
@@ -63,10 +70,11 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
         return await GetProviderAsync(Config.Default, cancellationToken);
     }
 
-    protected abstract void RegisterProviders();
-
-    protected void RegisterProvider(string name, Func<IAevatarLLMProvider> providerFactory)
+    protected virtual void RegisterProviders()
     {
-        Providers[name] = new Lazy<IAevatarLLMProvider>(providerFactory);
+        foreach (var config in ProviderConfigs)
+        {
+            Providers[config.Key] = new Lazy<IAevatarLLMProvider>(() => CreateProvider(config.Value));
+        }
     }
 }

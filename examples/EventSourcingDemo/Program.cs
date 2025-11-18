@@ -28,7 +28,7 @@ Console.WriteLine("📍 Part 1: Creating Account and Transactions");
 Console.WriteLine("══════════════════════════════════════════════\n");
 
 var agentId = Guid.NewGuid();
-var agent = new BankAccountAgent(agentId, logger);
+var agent = new BankAccountAgent(agentId);
 
 // ✅ 注入 EventStore（直接调用public方法）
 agent.SetEventStore(eventStore);
@@ -118,7 +118,7 @@ Console.WriteLine("💥 Simulating system crash...");
 Console.WriteLine("────────────────────────────────────────────");
 
 // 创建新的 Agent 实例（模拟重启）
-var recoveredAgent = new BankAccountAgent(agentId, logger);
+var recoveredAgent = new BankAccountAgent();
 recoveredAgent.SetEventStore(eventStore);
 
 Console.WriteLine($"   Initial state:");
@@ -129,7 +129,7 @@ Console.WriteLine($"   - Transactions: {recoveredAgent.GetState().TransactionCou
 Console.WriteLine($"\n🔄 Replaying events from EventStore...");
 
 // 激活 Agent（自动重放事件）
-await recoveredAgent.OnActivateAsync();
+await recoveredAgent.ActivateAsync();
 
 Console.WriteLine($"\n✅ State recovered successfully!");
 Console.WriteLine($"   - Balance: ${recoveredAgent.GetState().Balance:F2}");

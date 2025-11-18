@@ -46,7 +46,7 @@ public static class LocalEventSourcingExtensions
         var actor = await factory.CreateGAgentActorAsync<TAgent>(agent.Id);
         
         // 激活并重放事件
-        await agent.OnActivateAsync();
+        await agent.ActivateAsync();
         
         return actor;
     }

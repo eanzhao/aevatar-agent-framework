@@ -36,7 +36,7 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
         
         Exception? lastException = null;
         
-        for (int attempt = 1; attempt <= retryPolicy.MaxRetries + 1; attempt++)
+        for (var attempt = 1; attempt <= retryPolicy.MaxRetries + 1; attempt++)
         {
             try
             {
@@ -56,19 +56,27 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
                 
                 return handle;
             }
-            catch (Exception ex) when (attempt <= retryPolicy.MaxRetries && 
-                                       retryPolicy.ShouldRetry(ex, attempt))
+            catch (Exception ex)
             {
                 lastException = ex;
                 handle.RetryCount = attempt;
                 
-                var delay = retryPolicy.GetDelay(attempt);
-                
-                Logger.LogWarning(ex,
-                    "Failed to create subscription on attempt {Attempt}/{MaxRetries}. Retrying after {Delay}ms",
-                    attempt, retryPolicy.MaxRetries + 1, delay.TotalMilliseconds);
-                
-                await Task.Delay(delay, cancellationToken);
+                // 检查是否应该重试
+                if (attempt <= retryPolicy.MaxRetries && retryPolicy.ShouldRetry(ex, attempt))
+                {
+                    var delay = retryPolicy.GetDelay(attempt);
+                    
+                    Logger.LogWarning(ex,
+                        "Failed to create subscription on attempt {Attempt}/{MaxRetries}. Retrying after {Delay}ms",
+                        attempt, retryPolicy.MaxRetries + 1, delay.TotalMilliseconds);
+                    
+                    await Task.Delay(delay, cancellationToken);
+                }
+                else
+                {
+                    // 不应该重试，跳出循环
+                    break;
+                }
             }
         }
         
@@ -257,14 +265,14 @@ public static class SubscriptionManagerExtensions
     {
         var subscription = await manager.SubscribeWithRetryAsync(
             parentId, childId, eventHandler, cancellationToken: cancellationToken);
-        
+
         // 启动健康检查任务
         _ = Task.Run(async () =>
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(healthCheckInterval, cancellationToken);
-                
+
                 if (!await manager.IsSubscriptionHealthyAsync(subscription))
                 {
                     try
@@ -278,7 +286,7 @@ public static class SubscriptionManagerExtensions
                 }
             }
         }, cancellationToken);
-        
+
         return subscription;
     }
 
@@ -290,10 +298,9 @@ public static class SubscriptionManagerExtensions
         CancellationToken cancellationToken = default)
     {
         var subscriptions = await manager.GetActiveSubscriptionsAsync();
-        
+
         await Task.WhenAll(
             subscriptions.Select(s => manager.UnsubscribeAsync(s, cancellationToken))
         );
     }
 }
-

@@ -161,9 +161,6 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                 throw new InvalidOperationException($"Failed to create agent instance of type {agentType.Name}", ex);
             }
 
-            // 注入 Logger
-            AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
-
             // 使用工厂的 CreateActorForAgentAsync 方法（如果存在）
             var factoryType = factory.GetType();
             var createActorMethod = factoryType.GetMethod("CreateActorForAgentAsync",

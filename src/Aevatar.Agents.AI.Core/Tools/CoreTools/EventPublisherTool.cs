@@ -148,7 +148,7 @@ public class EventPublisherTool : AevatarToolBase
                 Id = eventId,
                 Message = eventType ?? "GenericEvent",
                 Payload = Any.Pack(new StringValue { Value = jsonPayload }),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = Aevatar.Agents.Abstractions.Helpers.TimestampHelper.GetUtcNow(),
                 Version = 1,
                 PublisherId = publisherId,
                 CorrelationId = Guid.NewGuid().ToString(),

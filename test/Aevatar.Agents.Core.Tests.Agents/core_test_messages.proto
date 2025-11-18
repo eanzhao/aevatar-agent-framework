@@ -1,0 +1,168 @@
+syntax = "proto3";
+
+package Aevatar.Agents.Core.Tests;
+
+import "google/protobuf/timestamp.proto";
+
+// 测试用的状态消息
+message TestAgentState {
+    string id = 1;
+    int32 counter = 2;
+    string name = 3;
+    repeated string items = 4;
+    google.protobuf.Timestamp last_updated = 5;
+    map<string, string> metadata = 6;
+}
+
+// 测试用的配置消息
+message TestAgentConfig {
+    string agent_name = 1;
+    int32 max_retries = 2;
+    int32 timeout_seconds = 3;
+    bool enable_logging = 4;
+    repeated string allowed_operations = 5;
+    map<string, string> settings = 6;
+}
+
+// 测试用的简单事件消息
+message TestEvent {
+    string event_id = 1;
+    string event_type = 2;
+    string payload = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+// 测试用的命令消息
+message TestCommand {
+    string command_id = 1;
+    string command_type = 2;
+    map<string, string> parameters = 3;
+}
+
+// 测试用的复杂状态消息
+message ComplexAgentState {
+    string agent_id = 1;
+    
+    message NestedState {
+        string sub_id = 1;
+        int32 sub_counter = 2;
+        google.protobuf.Timestamp sub_timestamp = 3;
+    }
+    
+    NestedState nested = 2;
+    repeated NestedState nested_list = 3;
+    
+    enum Status {
+        UNKNOWN = 0;
+        ACTIVE = 1;
+        INACTIVE = 2;
+        ERROR = 3;
+    }
+    
+    Status status = 4;
+    bytes binary_data = 5;
+    map<string, string> data_map = 6;
+    int32 event_count = 7;
+    google.protobuf.Timestamp created_at = 8;
+    google.protobuf.Timestamp last_updated = 9;
+    string last_event_id = 10;
+}
+
+// 测试用的最小状态消息
+message MinimalState {
+    int32 value = 1;
+}
+
+// 测试用的最小配置消息
+message MinimalConfig {
+    bool enabled = 1;
+}
+
+message TestMetadata {
+  map<string, string> value = 1;
+}
+
+// 测试用的复杂事件消息（性能测试）
+message ComplexTestEvent {
+    string id = 1;
+    map<string, string> data = 2;
+    
+    message NestedEvent {
+        string nested_id = 1;
+        int32 nested_value = 2;
+    }
+    
+    repeated NestedEvent nested_events = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+// 测试用的批量事件消息（性能测试）
+message BatchTestEvent {
+    message Item {
+        string key = 1;
+        string value = 2;
+    }
+    
+    repeated Item items = 1;
+    int32 batch_size = 2;
+    google.protobuf.Timestamp created_at = 3;
+}
+
+// ========== 集成测试消息 ==========
+
+// 生命周期测试状态
+message LifecycleAgentState {
+    string status = 1;
+    google.protobuf.Timestamp activated_at = 2;
+    google.protobuf.Timestamp deactivated_at = 3;
+    repeated string event_history = 4;
+    google.protobuf.Timestamp last_processed_time = 5;
+}
+
+// 协作测试消息
+message TaskAssignedEvent {
+    string task_id = 1;
+    string assigned_to = 2;
+    string description = 3;
+}
+
+message TaskCompletedEvent {
+    string task_id = 1;
+    string worker_id = 2;
+    string result = 3;
+}
+
+message CoordinatorState {
+    string coordinator_id = 1;
+    bool is_active = 2;
+    repeated string assigned_tasks = 3;
+}
+
+message WorkerState {
+    string worker_id = 1;
+    bool is_available = 2;
+    repeated string received_tasks = 3;
+    repeated string completed_tasks = 4;
+}
+
+message AggregatorState {
+    string aggregator_id = 1;
+    repeated string collected_results = 2;
+    google.protobuf.Timestamp last_updated = 3;
+}
+
+// 树形结构测试消息
+message TreeBroadcastEvent {
+    string message = 1;
+    string origin_node = 2;
+    string direction = 3; // "up" or "down"
+}
+
+message TreeNodeState {
+    string node_name = 1;
+    string parent_node = 2;
+    repeated string child_nodes = 3;
+    int32 level = 4;
+    repeated string received_broadcasts = 5;
+    repeated string sent_broadcasts = 6;
+}

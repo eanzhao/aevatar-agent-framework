@@ -1,15 +1,9 @@
-using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Aevatar.Agents.Core.EventSourcing;
 
@@ -23,11 +17,11 @@ namespace Aevatar.Agents.Core.EventSourcing;
 /// - Snapshot optimization
 /// - Metadata support
 /// </summary>
-public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
+public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<TState>
     where TState : class, IMessage<TState>, new()
 {
     // ========== Performance Optimization: Type Cache ==========
-    
+
     /// <summary>
     /// Cache for Protobuf type parsers to avoid reflection on every event
     /// Key: Simple type name (e.g., "MoneyDeposited")
@@ -45,28 +39,23 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         public required System.Type Type { get; init; }
         public required MessageParser Parser { get; init; }
-        
+
         /// <summary>
         /// Estimated memory usage for monitoring
         /// </summary>
         public static int EstimatedSizeBytes => 150;
     }
-    
+
     // ========== Instance Fields ==========
-    
+
     private IEventStore? _eventStore;
-    private long _currentVersion = 0;
+    private long _currentVersion;
 
     // Batch event management (borrowed from JournaledGrain)
-    private readonly List<AgentStateEvent> _pendingEvents = new();
-
-    protected GAgentBaseWithEventSourcing(
-        Guid id,
-        IEventStore? eventStore = null,
-        ILogger? logger = null)
-        : base(id, logger)
+    private readonly List<AgentStateEvent> _pendingEvents = [];
+    
+    public GAgentBaseWithEventSourcing() : this(Guid.NewGuid())
     {
-        _eventStore = eventStore;
     }
 
     // ========== Event Operations (Borrowed from JournaledGrain) ==========
@@ -185,7 +174,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         {
             // Extract simple type name from TypeUrl
             var simpleTypeName = ExtractSimpleTypeName(evt.EventData.TypeUrl);
-            
+
             // ✅ Get or build type cache (first call uses reflection, subsequent calls use cache)
             var cache = GetOrBuildTypeCache(simpleTypeName);
             if (cache == null)
@@ -195,17 +184,17 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
                     simpleTypeName, evt.EventData.TypeUrl);
                 return Task.CompletedTask;
             }
-            
+
             // ✅ Parse message using cached parser (avoid reflection)
             // Use ByteString directly instead of ToByteArray() to avoid array copy
             var message = cache.Parser.ParseFrom(evt.EventData.Value);
-            
+
             if (message == null)
             {
                 Logger?.LogWarning("Failed to parse event {TypeName}", simpleTypeName);
                 return Task.CompletedTask;
             }
-            
+
             Logger?.LogDebug(
                 "Applying event {TypeName} version {Version} to agent {AgentId}",
                 simpleTypeName, evt.Version, Id);
@@ -237,11 +226,11 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     private static string ExtractSimpleTypeName(string typeUrl)
     {
         var fullTypeName = typeUrl.Substring(typeUrl.LastIndexOf('/') + 1);
-        return fullTypeName.Contains('.') 
+        return fullTypeName.Contains('.')
             ? fullTypeName.Substring(fullTypeName.LastIndexOf('.') + 1)
             : fullTypeName;
     }
-    
+
     /// <summary>
     /// Get type cache or build it on first access
     /// Thread-safe and optimized for concurrent access
@@ -253,20 +242,20 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         {
             return cache;
         }
-        
+
         // Slow path: cache miss, build and cache (rare, only on first event of each type)
         cache = BuildTypeCache(simpleTypeName);
         if (cache != null)
         {
             _typeCache[simpleTypeName] = cache;
-            
+
             Logger?.LogInformation(
                 "Type {TypeName} cached. Total cached types: {Count}, Est. memory: {Memory:F2}KB",
                 simpleTypeName,
                 _typeCache.Count,
                 _typeCache.Count * TypeParserCache.EstimatedSizeBytes / 1024.0);
         }
-        
+
         return cache;
     }
 
@@ -281,7 +270,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             var assembly = this.GetType().Assembly;
             var matchingType = assembly.GetTypes()
                 .FirstOrDefault(t => t.Name == simpleTypeName && typeof(IMessage).IsAssignableFrom(t));
-            
+
             if (matchingType == null)
             {
                 Logger?.LogWarning(
@@ -289,12 +278,12 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
                     simpleTypeName, assembly.FullName);
                 return null;
             }
-            
+
             // Get Parser property
             var parser = matchingType
                 .GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)
                 ?.GetValue(null) as MessageParser;
-            
+
             if (parser == null)
             {
                 Logger?.LogWarning(
@@ -302,11 +291,11 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
                     matchingType.FullName);
                 return null;
             }
-            
+
             Logger?.LogDebug(
                 "Built type cache for {TypeName} (type: {FullName})",
                 simpleTypeName, matchingType.FullName);
-            
+
             return new TypeParserCache
             {
                 Type = matchingType,
@@ -353,40 +342,41 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             return;
         }
 
-        Logger?.LogInformation("Replaying events for agent {AgentId}, starting from version {CurrentVersion}", Id, _currentVersion);
+        Logger.LogInformation("Replaying events for agent {AgentId}, starting from version {CurrentVersion}", Id,
+            _currentVersion);
 
         // Step 1: Load latest snapshot
         var snapshot = await _eventStore.GetLatestSnapshotAsync(Id, ct);
         if (snapshot != null)
         {
-            Logger?.LogInformation(
+            Logger.LogInformation(
                 "Loading snapshot at version {Version} for agent {AgentId}",
                 snapshot.Version, Id);
 
             var snapshotState = snapshot.StateData.Unpack<TState>();
             SetStateInternal(snapshotState);
             _currentVersion = snapshot.Version;
-            Logger?.LogInformation("Snapshot loaded, current version: {Version}", _currentVersion);
+            Logger.LogInformation("Snapshot loaded, current version: {Version}", _currentVersion);
         }
         else
         {
-            Logger?.LogInformation("No snapshot found for agent {AgentId}", Id);
+            Logger.LogInformation("No snapshot found for agent {AgentId}", Id);
         }
 
         // Step 2: Replay events after snapshot
         var fromVersion = _currentVersion + 1;
-        Logger?.LogInformation("Loading events from version {FromVersion} for agent {AgentId}", fromVersion, Id);
+        Logger.LogInformation("Loading events from version {FromVersion} for agent {AgentId}", fromVersion, Id);
 
         var events = await _eventStore.GetEventsAsync(
             Id,
             fromVersion: fromVersion,
             ct: ct);
 
-        Logger?.LogInformation("Found {Count} events to replay for agent {AgentId}", events.Count(), Id);
+        Logger.LogInformation("Found {Count} events to replay for agent {AgentId}", events.Count(), Id);
 
         if (!events.Any())
         {
-            Logger?.LogInformation("No new events to replay for agent {AgentId}", Id);
+            Logger.LogInformation("No new events to replay for agent {AgentId}", Id);
             return;
         }
 
@@ -397,10 +387,10 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
             _currentVersion = evt.Version;
         }
 
-        Logger?.LogInformation(
+        Logger.LogInformation(
             "Replayed {Count} events for agent {AgentId}, current version: {Version}",
             events.Count, Id, _currentVersion);
-                }
+    }
 
     // ========== Snapshot Operations ==========
 
@@ -411,24 +401,24 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         new IntervalSnapshotStrategy(100);
 
     // ========== Performance Monitoring ==========
-    
+
     /// <summary>
     /// Get number of cached event types (for monitoring)
     /// </summary>
     public static int CachedTypeCount => _typeCache.Count;
-    
+
     /// <summary>
     /// Get estimated cache memory usage in bytes (for monitoring)
     /// </summary>
-    public static long EstimatedCacheMemoryBytes => 
+    public static long EstimatedCacheMemoryBytes =>
         _typeCache.Count * TypeParserCache.EstimatedSizeBytes;
-    
+
     /// <summary>
     /// Get estimated cache memory usage in KB (for monitoring)
     /// </summary>
-    public static double EstimatedCacheMemoryKB => 
+    public static double EstimatedCacheMemoryKB =>
         EstimatedCacheMemoryBytes / 1024.0;
-    
+
     /// <summary>
     /// Clear type cache (for testing or memory management)
     /// Warning: Will cause performance degradation until cache is rebuilt
@@ -479,11 +469,11 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         // Use Protobuf serialization for deep copy
         var bytes = state.ToByteArray();
-        
+
         // Get parser using reflection
-        var parserProperty = typeof(TState).GetProperty("Parser", 
+        var parserProperty = typeof(TState).GetProperty("Parser",
             System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-        
+
         if (parserProperty == null)
         {
             throw new InvalidOperationException($"Cannot find Parser property for type {typeof(TState).Name}");
@@ -516,73 +506,14 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     /// <summary>
     /// Override activation to auto-replay events
     /// </summary>
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
 
         // Auto-replay events
         if (_eventStore != null)
         {
-        await ReplayEventsAsync(ct);
-    }
-    }
-}
-
-// ========== Snapshot Strategies ==========
-
-/// <summary>
-/// Snapshot strategy interface
-/// </summary>
-public interface ISnapshotStrategy
-{
-    bool ShouldCreateSnapshot(long version);
-}
-
-/// <summary>
-/// Interval-based snapshot strategy
-/// </summary>
-public class IntervalSnapshotStrategy : ISnapshotStrategy
-{
-    private readonly long _interval;
-
-    public IntervalSnapshotStrategy(long interval)
-    {
-        _interval = interval;
-    }
-
-    public bool ShouldCreateSnapshot(long version)
-    {
-        return version % _interval == 0;
-    }
-}
-
-/// <summary>
-/// Hybrid snapshot strategy (interval + time)
-/// </summary>
-public class HybridSnapshotStrategy : ISnapshotStrategy
-{
-    private readonly long _interval;
-    private readonly TimeSpan _timeSpan;
-    private DateTime _lastSnapshotTime = DateTime.UtcNow;
-
-    public HybridSnapshotStrategy(long interval, TimeSpan timeSpan)
-    {
-        _interval = interval;
-        _timeSpan = timeSpan;
-    }
-
-    public bool ShouldCreateSnapshot(long version)
-    {
-        // Strategy 1: Every N events
-        if (version % _interval == 0) return true;
-
-        // Strategy 2: Time-based
-        if ((DateTime.UtcNow - _lastSnapshotTime) > _timeSpan)
-        {
-            _lastSnapshotTime = DateTime.UtcNow;
-            return true;
+            await ReplayEventsAsync(ct);
         }
-
-        return false;
     }
 }

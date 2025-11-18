@@ -19,13 +19,13 @@ namespace Aevatar.Agents.AI.Tests;
 public class AIGAgentBaseExampleTests
 {
     private readonly Mock<IChatClient> _mockChatClient;
-    private readonly Mock<ILogger<AIGAgentBaseExamples.CustomerServiceAgent>> _mockLogger1;
+    private readonly Mock<ILogger<CustomerServiceAgent>> _mockLogger1;
     private readonly Mock<ILogger<AIGAgentBaseExamples.DataAnalysisAgent>> _mockLogger2;
 
     public AIGAgentBaseExampleTests()
     {
         _mockChatClient = new Mock<IChatClient>();
-        _mockLogger1 = new Mock<ILogger<AIGAgentBaseExamples.CustomerServiceAgent>>();
+        _mockLogger1 = new Mock<ILogger<CustomerServiceAgent>>();
         _mockLogger2 = new Mock<ILogger<AIGAgentBaseExamples.DataAnalysisAgent>>();
     }
 
@@ -55,7 +55,7 @@ public class AIGAgentBaseExampleTests
         var llmProvider = new MEAILLMProvider(_mockChatClient.Object, providerConfig, Mock.Of<ILogger<MEAILLMProvider>>());
 
         // 创建 Agent
-        var agent = new AIGAgentBaseExamples.CustomerServiceAgent(llmProvider, _mockLogger1.Object);
+        var agent = new CustomerServiceAgent();
 
         // Act
         var request = new AevatarLLMRequest
@@ -116,7 +116,7 @@ public class AIGAgentBaseExampleTests
             Model = "gpt-4"
         };
         var llmProvider = new MEAILLMProvider(_mockChatClient.Object, providerConfig, Mock.Of<ILogger<MEAILLMProvider>>());
-        var agent = new AIGAgentBaseExamples.CustomerServiceAgent(llmProvider, _mockLogger1.Object);
+        var agent = new CustomerServiceAgent();
 
         // Act
         var description = await agent.GetDescriptionAsync();
@@ -164,7 +164,7 @@ public class AIGAgentBaseExampleTests
         var llmProvider = new MEAILLMProvider(_mockChatClient.Object, providerConfig, Mock.Of<ILogger<MEAILLMProvider>>());
 
         // Act
-        var agent = new AIGAgentBaseExamples.CustomerServiceAgent(llmProvider, _mockLogger1.Object);
+        var agent = new CustomerServiceAgent();
 
         // Assert
         Assert.NotNull(agent.Configuration);
@@ -189,7 +189,7 @@ public class AIGAgentBaseExampleTests
         };
         var llmProvider = new MEAILLMProvider(_mockChatClient.Object, providerConfig, Mock.Of<ILogger<MEAILLMProvider>>());
 
-        var customerAgent = new AIGAgentBaseExamples.CustomerServiceAgent(llmProvider, _mockLogger1.Object);
+        var customerAgent = new CustomerServiceAgent();
         var analysisAgent = new AIGAgentBaseExamples.DataAnalysisAgent(llmProvider, _mockLogger2.Object);
 
         // Assert - SystemPrompt 应该是公共可访问的
@@ -266,7 +266,7 @@ public class AIGAgentBaseExampleTests
             Model = "gpt-4"
         };
         var llmProvider = new MEAILLMProvider(_mockChatClient.Object, providerConfig, Mock.Of<ILogger<MEAILLMProvider>>());
-        var agent = new AIGAgentBaseExamples.CustomerServiceAgent(llmProvider, _mockLogger1.Object);
+        var agent = new CustomerServiceAgent();
 
         // Assert
         Assert.NotNull(agent.LLMProvider);

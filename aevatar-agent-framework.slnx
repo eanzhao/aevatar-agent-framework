@@ -30,10 +30,13 @@
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
+    <Project Path="src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" Type="Classic C#" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Abstractions.Tests\Aevatar.Agents.Abstractions.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.AI.Tests\Aevatar.Agents.AI.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" Type="Classic C#" />

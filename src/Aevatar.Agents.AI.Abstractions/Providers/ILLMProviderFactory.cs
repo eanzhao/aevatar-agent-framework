@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 
 namespace Aevatar.Agents.AI.Abstractions.Providers;
 
@@ -14,6 +11,7 @@ public interface ILLMProviderFactory
     IAevatarLLMProvider GetDefaultProvider();
     IReadOnlyList<string> GetAvailableProviderNames();
     bool HasProvider(string providerName);
+    IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig, CancellationToken cancellationToken = default);
     Task<IAevatarLLMProvider> GetProviderAsync(string providerName, CancellationToken cancellationToken = default);
     Task<IAevatarLLMProvider> GetDefaultProviderAsync(CancellationToken cancellationToken = default);
 }

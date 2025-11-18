@@ -143,7 +143,10 @@ public class AIGAgentTests
         providersConfig.Providers["openai-gpt4"] = providerConfig;
 
         // 创建工厂
-        var factory = new MEAILLMProviderFactory(providersConfig, Mock.Of<ILogger<MEAILLMProviderFactory>>(), serviceProvider.Object);
+        var factory = new MEAILLMProviderFactory(
+            Microsoft.Extensions.Options.Options.Create(providersConfig),
+            Mock.Of<ILogger<MEAILLMProviderFactory>>(),
+            serviceProvider.Object);
 
         // 获取不同的 provider
         var gpt4Provider = await factory.GetProviderAsync("openai-gpt4");

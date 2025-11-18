@@ -16,7 +16,7 @@
     </ItemGroup>
     
     <ItemGroup>
-        <Protobuf Include="messages.proto" GrpcServices="None" />
+        <Protobuf Include="*.proto" GrpcServices="None" />
     </ItemGroup>
 
 </Project>

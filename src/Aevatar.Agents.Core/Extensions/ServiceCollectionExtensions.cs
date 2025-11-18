@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.Persistence;
+using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Extensions;
@@ -36,7 +37,7 @@ public static class ServiceCollectionExtensions
                 "Example: options.StateStore = _ => new InMemoryStateStore()");
         }
 
-        if (options.EnableEventSourcing && options.EventStore == null)
+        if (options is { EnableEventSourcing: true, EventStore: null })
         {
             throw new InvalidOperationException(
                 "EnableEventSourcing is true but EventStore is not configured. " +
@@ -55,7 +56,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<GAgentOptions>? configureOptions = null)
         where TAgent : GAgentBase<TState>
-        where TState : class, new()
+        where TState : class, IMessage, new()
     {
         // Use provided config or fall back to default
         var options = configureOptions != null ? new GAgentOptions() : _defaultOptions ?? new GAgentOptions();

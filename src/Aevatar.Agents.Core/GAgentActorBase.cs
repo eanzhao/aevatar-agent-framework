@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.EventDeduplication;
+using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -52,10 +53,9 @@ public abstract class GAgentActorBase : IGAgentActor
     /// <summary>
     /// 完整构造函数 - Agent 和 Logger
     /// </summary>
-    protected GAgentActorBase(IGAgent agent, ILogger? logger = null)
+    protected GAgentActorBase(IGAgent agent)
     {
         Agent = agent ?? throw new ArgumentNullException(nameof(agent));
-        Logger = logger;  // 使用属性 setter，会自动处理 null
 
         // 创建事件路由器
         EventRouter = new EventRouter(
@@ -72,21 +72,11 @@ public abstract class GAgentActorBase : IGAgentActor
                 EventExpiration = TimeSpan.FromMinutes(5),
                 MaxCachedEvents = 50_000,
                 EnableAutoCleanup = true
-            },
-            logger as ILogger<MemoryCacheEventDeduplicator>
+            }
         );
 
-        // 设置 Agent 的 EventPublisher
-        var setPublisherMethod = agent.GetType().GetMethod("SetEventPublisher");
-        setPublisherMethod?.Invoke(agent, new object[] { this });
-    }
-
-    /// <summary>
-    /// 只有 Agent 的构造函数 - 支持自动注入
-    /// </summary>
-    protected GAgentActorBase(IGAgent agent)
-        : this(agent, null)
-    {
+        // 使用 AgentEventPublisherInjector 注入 EventPublisher
+        AgentEventPublisherInjector.InjectEventPublisher(agent, this);
     }
 
     // ============ IGAgentActor 实现 ============
@@ -190,8 +180,6 @@ public abstract class GAgentActorBase : IGAgentActor
             throw;
         }
     }
-
-
 
     /// <summary>
     /// 处理接收到的事件（标准流程）
@@ -316,10 +304,16 @@ public abstract class GAgentActorBase : IGAgentActor
     /// <summary>
     /// 激活 Actor
     /// </summary>
-    public abstract Task ActivateAsync(CancellationToken ct = default);
+    public virtual async Task ActivateAsync(CancellationToken ct = default)
+    {
+        await Agent.ActivateAsync();
+    }
 
     /// <summary>
     /// 停用 Actor
     /// </summary>
-    public abstract Task DeactivateAsync(CancellationToken ct = default);
+    public virtual async Task DeactivateAsync(CancellationToken ct = default)
+    {
+        await Agent.DeactivateAsync();
+    }
 }
