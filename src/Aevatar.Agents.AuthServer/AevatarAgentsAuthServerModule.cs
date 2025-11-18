@@ -18,6 +18,7 @@ using Volo.Abp.OpenIddict;
 using Volo.Abp.OpenIddict.MongoDB;
 using Volo.Abp.PermissionManagement;
 using Volo.Abp.PermissionManagement.MongoDB;
+using Volo.Abp.BackgroundJobs.MongoDB;
 using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.MongoDB;
 using Microsoft.AspNetCore.DataProtection;
@@ -39,6 +40,7 @@ namespace Aevatar.Agents.AuthServer;
     typeof(AbpOpenIddictMongoDbModule),
     typeof(AbpIdentityMongoDbModule),
     typeof(AbpPermissionManagementMongoDbModule),
+    typeof(AbpBackgroundJobsMongoDbModule),
     typeof(AbpAuthorizationModule),
     typeof(AbpOpenIddictDomainModule),
     typeof(AbpMongoDbModule),
@@ -138,9 +140,10 @@ public class AevatarAgentsAuthServerModule : AbpModule
         });
         
         // Background job configuration
+        // Note: OpenIddict requires background jobs to be enabled for token cleanup
         Configure<AbpBackgroundJobOptions>(options => 
         { 
-            options.IsJobExecutionEnabled = false; 
+            options.IsJobExecutionEnabled = true; 
         });
         
         // Distributed cache configuration

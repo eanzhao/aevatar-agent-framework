@@ -99,6 +99,7 @@
     <PackageVersion Include="Volo.Abp.UI.Navigation" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.Auditing" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="9.3.1" />
+    <PackageVersion Include="Volo.Abp.BackgroundJobs.MongoDB" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.Caching" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.OpenIddict.AspNetCore" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.OpenIddict.Domain" Version="9.3.1" />
