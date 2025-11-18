@@ -1,6 +1,5 @@
 using Serilog;
 using Serilog.Events;
-using Serilog.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;

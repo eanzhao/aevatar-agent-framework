@@ -19,10 +19,12 @@ using Volo.Abp.OpenIddict.MongoDB;
 using Volo.Abp.PermissionManagement;
 using Volo.Abp.PermissionManagement.MongoDB;
 using Volo.Abp.UI.Navigation.Urls;
+using Volo.Abp.MongoDB;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using StackExchange.Redis;
 using Aevatar.Agents.AuthServer.Grants;
+using Aevatar.Agents.AuthServer.MongoDB;
 
 namespace Aevatar.Agents.AuthServer;
 
@@ -39,6 +41,7 @@ namespace Aevatar.Agents.AuthServer;
     typeof(AbpPermissionManagementMongoDbModule),
     typeof(AbpAuthorizationModule),
     typeof(AbpOpenIddictDomainModule),
+    typeof(AbpMongoDbModule),
     typeof(AevatarAgentsAuthServerGrantsModule)
 )]
 public class AevatarAgentsAuthServerModule : AbpModule
@@ -168,6 +171,12 @@ public class AevatarAgentsAuthServerModule : AbpModule
         
         // Health checks
         context.Services.AddHealthChecks();
+        
+        // MongoDB configuration for custom entities
+        context.Services.AddMongoDbContext<AevatarAgentsAuthServerMongoDbContext>(options =>
+        {
+            options.AddDefaultRepositories();
+        });
         
         // MVC options configuration
         Configure<MvcOptions>(options =>
