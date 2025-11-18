@@ -1,8 +1,5 @@
-using System;
-using System.Threading.Tasks;
-using Aevatar.Agents.Abstractions;
+using System.Reflection;
 using Aevatar.Agents.Abstractions.Attributes;
-using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
 namespace Aevatar.Agents.Core.Tests.Agents;
@@ -150,6 +147,7 @@ public class AggregatorAgent : GAgentBase<AggregatorState>
 
 /// <summary>
 /// Tree node agent for hierarchical event propagation
+/// Demonstrates proper event-driven state management
 /// </summary>
 public class TreeNodeAgent : GAgentBase<TreeNodeState>
 {
@@ -157,34 +155,71 @@ public class TreeNodeAgent : GAgentBase<TreeNodeState>
     
     protected override Task OnActivateAsync(CancellationToken ct = default)
     {
+        // State initialization is allowed in OnActivateAsync
+        // because ActivateAsync wraps it in InitializationScope
         State.NodeName = NodeName;
         State.Level = 0; // Will be set based on tree position
         return base.OnActivateAsync(ct);
     }
     
-    public void SetParent(string parentName)
+    // Test helper method to setup tree structure
+    // This uses reflection to invoke the handler with proper context
+    public async Task SetupTreeNodeForTesting(string? parentName = null, params string[] childNames)
     {
-        State.ParentNode = parentName;
-    }
-    
-    public void AddChild(string childName)
-    {
-        State.ChildNodes.Add(childName);
+        if (parentName != null)
+        {
+            var parentEvt = new SetParentEvent { ParentName = parentName };
+            var parentHandler = GetType().GetMethod(nameof(HandleSetParent), BindingFlags.Public | BindingFlags.Instance);
+            if (parentHandler == null)
+            {
+                throw new InvalidOperationException($"Could not find method {nameof(HandleSetParent)}");
+            }
+            await InvokeHandler(parentHandler, parentEvt, CancellationToken.None);
+        }
+        
+        foreach (var childName in childNames)
+        {
+            var childEvt = new AddChildEvent { ChildName = childName };
+            var childHandler = GetType().GetMethod(nameof(HandleAddChild), BindingFlags.Public | BindingFlags.Instance);
+            if (childHandler == null)
+            {
+                throw new InvalidOperationException($"Could not find method {nameof(HandleAddChild)}");
+            }
+            await InvokeHandler(childHandler, childEvt, CancellationToken.None);
+        }
     }
     
     public async Task BroadcastDown(TreeBroadcastEvent evt)
     {
-        State.SentBroadcasts.Add($"{evt.OriginNode}:{evt.Message}");
+        // Only publish the broadcast - no direct state modification
         await PublishAsync(evt, EventDirection.Down);
     }
     
     public async Task BroadcastUp(TreeBroadcastEvent evt)
     {
-        State.SentBroadcasts.Add($"{evt.OriginNode}:{evt.Message}");
+        // Only publish the broadcast - no direct state modification
         await PublishAsync(evt, EventDirection.Up);
     }
     
-    [EventHandler]
+    // Event handlers that modify State - proper way to change state
+    [EventHandler(AllowSelfHandling = true)] // Allow handling our own events
+    public async Task HandleSetParent(SetParentEvent evt)
+    {
+        State.ParentNode = evt.ParentName;
+        await Task.CompletedTask;
+    }
+    
+    [EventHandler(AllowSelfHandling = true)] // Allow handling our own events
+    public async Task HandleAddChild(AddChildEvent evt)
+    {
+        if (!State.ChildNodes.Contains(evt.ChildName))
+        {
+            State.ChildNodes.Add(evt.ChildName);
+        }
+        await Task.CompletedTask;
+    }
+    
+    [EventHandler(AllowSelfHandling = true)] // Track our own broadcasts too
     public async Task HandleBroadcast(TreeBroadcastEvent evt)
     {
         State.ReceivedBroadcasts.Add($"{evt.OriginNode}:{evt.Message}");
@@ -219,17 +254,6 @@ public class TreeNodeAgent : GAgentBase<TreeNodeState>
 /// </summary>
 public class StatefulAgent(Guid agentId) : GAgentBase<TestAgentState>(agentId)
 {
-    protected override Task OnActivateAsync(CancellationToken ct = default)
-    {
-        if (string.IsNullOrEmpty(State.Name))
-        {
-            State.Name = "NewStatefulAgent";
-            State.Counter = 0;
-            State.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
-        }
-        return base.OnActivateAsync(ct);
-    }
-    
     [EventHandler]
     public async Task HandleTestEvent(TestEvent evt)
     {
@@ -238,26 +262,73 @@ public class StatefulAgent(Guid agentId) : GAgentBase<TestAgentState>(agentId)
         await Task.CompletedTask;
     }
     
+    // Test helper method to setup state (invokes during OnActivateAsync for proper context)
+    public void SetupStateForTesting(string name, int counter, 
+        IEnumerable<string>? items = null, 
+        Dictionary<string, string>? metadata = null)
+    {
+        _setupName = name;
+        _setupCounter = counter;
+        _setupItems = items?.ToList();
+        _setupMetadata = metadata;
+    }
+    
+    private string? _setupName;
+    private int? _setupCounter;
+    private List<string>? _setupItems;
+    private Dictionary<string, string>? _setupMetadata;
+    private TestAgentState? _restoreState;
+    
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        // Apply setup values if provided (for testing)
+        if (_setupName != null)
+        {
+            State.Name = _setupName;
+            State.Counter = _setupCounter ?? 0;
+            if (_setupItems != null)
+            {
+                State.Items.AddRange(_setupItems);
+            }
+            if (_setupMetadata != null)
+            {
+                foreach (var kvp in _setupMetadata)
+                {
+                    State.Metadata[kvp.Key] = kvp.Value;
+                }
+            }
+            State.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
+        }
+        // Or restore from saved state (for state recovery test)
+        else if (_restoreState != null)
+        {
+            State.Name = _restoreState.Name;
+            State.Counter = _restoreState.Counter;
+            State.Items.Clear();
+            State.Items.AddRange(_restoreState.Items);
+            State.Metadata.Clear();
+            foreach (var kvp in _restoreState.Metadata)
+            {
+                State.Metadata[kvp.Key] = kvp.Value;
+            }
+            State.LastUpdated = _restoreState.LastUpdated;
+        }
+        else if (string.IsNullOrEmpty(State.Name))
+        {
+            State.Name = "NewStatefulAgent";
+            State.Counter = 0;
+            State.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
+        }
+        
+        await base.OnActivateAsync(ct);
+    }
+    
     public void RestoreState(TestAgentState savedState)
     {
-        // Manually restore state (in real scenario, this would be handled by persistence)
-        State.Name = savedState.Name;
-        State.Counter = savedState.Counter;
-        State.Items.Clear();
-        State.Items.AddRange(savedState.Items);
-        State.Metadata.Clear();
-        foreach (var kvp in savedState.Metadata)
-        {
-            State.Metadata[kvp.Key] = kvp.Value;
-        }
-        State.LastUpdated = savedState.LastUpdated;
+        // Save the state to be restored during OnActivateAsync
+        _restoreState = savedState;
     }
-    
-    public async Task DeactivateAsync()
-    {
-        await OnDeactivateAsync();
-    }
-    
+
     public override string GetDescription()
     {
         return $"StatefulAgent: {State.Name} (Counter: {State.Counter})";

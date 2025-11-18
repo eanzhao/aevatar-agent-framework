@@ -1,6 +1,7 @@
 ﻿using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.StateProtection;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Helpers;
@@ -18,10 +19,65 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
 {
     // ============ Fields ============
 
+    private TState _state = new();
+    
     /// <summary>
-    /// State object (writable, automatically persisted to StateStore)
+    /// State object - should only be modified within event handlers.
+    /// Direct State assignment is protected, but individual property modifications cannot be intercepted
+    /// for Protobuf-generated classes. Follow best practices:
+    /// - Only modify State within [EventHandler] methods
+    /// - Use events to trigger state changes
+    /// - Direct modifications outside event handlers break the Actor model consistency
     /// </summary>
-    protected TState State { get; set; } = new();
+    protected TState State
+    {
+        get 
+        {
+            // For development/debug builds, we can add a warning when accessing State outside handlers
+            #if DEBUG
+            if (!StateProtectionContext.IsInEventHandler)
+            {
+                var callerMethod = new StackFrame(1)?.GetMethod()?.Name ?? "Unknown";
+                if (!IsAllowedMethod(callerMethod))
+                {
+                    Debug.WriteLine(
+                        $"WARNING: State accessed from '{callerMethod}' outside event handler context. " +
+                        "State should only be modified within event handlers.");
+                }
+            }
+            #endif
+            return _state;
+        }
+        set
+        {
+            StateProtectionContext.EnsureInEventHandler("Direct State assignment");
+            _state = value;
+        }
+    }
+    
+    /// <summary>
+    /// Validates if the current context allows State modification.
+    /// Throws an exception if not in a valid context.
+    /// </summary>
+    protected void ValidateStateModificationContext(string operationName = "State modification")
+    {
+        StateProtectionContext.EnsureInEventHandler(operationName);
+    }
+    
+    #if DEBUG
+    private static bool IsAllowedMethod(string methodName)
+    {
+        // Allow certain methods to access State without warning
+        return methodName switch
+        {
+            "GetState" => true,
+            "GetDescription" => true,
+            "GetDescriptionAsync" => true,
+            "ToString" => true,
+            _ => false
+        };
+    }
+    #endif
 
     /// <summary>
     /// StateStore (injected by Actor layer)
@@ -37,12 +93,15 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     protected GAgentBase(Guid id) : base(id)
     {
     }
+    
+    // OnActivateAsync is no longer overridden here
+    // The InitializationScope is now managed in GAgentBase.ActivateAsync
 
     // ============ IStateGAgent Implementation ============
 
     public TState GetState()
     {
-        return State;
+        return _state; // Return internal state for read-only access
     }
 
     // ============ Event Handling with State Persistence ============
@@ -56,7 +115,11 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         // 1. Load State (if StateStore is configured)
         if (StateStore != null)
         {
-            State = await StateStore.LoadAsync(Id, ct) ?? new TState();
+            // Allow state loading without protection during event handling setup
+            using (StateProtectionContext.BeginEventHandlerScope())
+            {
+                _state = await StateStore.LoadAsync(Id, ct) ?? new TState();
+            }
         }
         
         // 2. Call core event handling implementation
@@ -65,7 +128,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         // 3. Save State (if StateStore is configured)
         if (StateStore != null)
         {
-            await StateStore.SaveAsync(Id, State, ct);
+            await StateStore.SaveAsync(Id, _state, ct);
         }
     }
 }

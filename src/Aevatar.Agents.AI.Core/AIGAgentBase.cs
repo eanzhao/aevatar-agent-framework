@@ -83,7 +83,8 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
 
         if (ConfigStore != null)
         {
-            var savedConfig = await ConfigStore.LoadAsync(Id, cancellationToken);
+            var agentType = GetType();
+            var savedConfig = await ConfigStore.LoadAsync(agentType, Id, cancellationToken);
             if (savedConfig != null)
             {
                 Config = savedConfig;
@@ -133,7 +134,8 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
 
         if (ConfigStore != null)
         {
-            var savedConfig = await ConfigStore.LoadAsync(Id, cancellationToken);
+            var agentType = GetType();
+            var savedConfig = await ConfigStore.LoadAsync(agentType, Id, cancellationToken);
             if (savedConfig != null)
             {
                 Config = savedConfig;

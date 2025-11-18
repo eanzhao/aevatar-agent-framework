@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Abstractions.Persistence;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 
 namespace Aevatar.Agents.Core;
@@ -15,10 +16,55 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     where TState : class, IMessage, new()
     where TConfig : class, IMessage, new()
 {
+    private TConfig _config = new TConfig();
+    
     /// <summary>
-    /// Configuration object (writable, automatically persisted to ConfigStore)
+    /// Configuration object - should only be modified within OnActivateAsync or event handlers.
+    /// Direct Config assignment is protected, but individual property modifications cannot be intercepted
+    /// for Protobuf-generated classes. Follow best practices:
+    /// - Only modify Config within OnActivateAsync or [EventHandler] methods
+    /// - Use events to trigger configuration changes
+    /// - Direct modifications outside these contexts break the Actor model consistency
     /// </summary>
-    protected TConfig Config { get; set; } = new TConfig();
+    protected TConfig Config
+    {
+        get
+        {
+            #if DEBUG
+            if (!StateProtectionContext.IsInEventHandler)
+            {
+                var callerMethod = new System.Diagnostics.StackFrame(1)?.GetMethod()?.Name ?? "Unknown";
+                if (!IsAllowedConfigAccessMethod(callerMethod))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"WARNING: Config accessed from '{callerMethod}' outside protected context. " +
+                        "Config should only be modified within OnActivateAsync or event handlers.");
+                }
+            }
+            #endif
+            return _config;
+        }
+        set
+        {
+            StateProtectionContext.EnsureInEventHandler("Direct Config assignment");
+            _config = value;
+        }
+    }
+    
+    #if DEBUG
+    private static bool IsAllowedConfigAccessMethod(string methodName)
+    {
+        // Allow certain methods to access Config without warning
+        return methodName switch
+        {
+            "GetConfig" => true,
+            "GetDescription" => true,
+            "GetDescriptionAsync" => true,
+            "ToString" => true,
+            _ => false
+        };
+    }
+    #endif
 
     /// <summary>
     /// Configuration store (injected by Actor layer)
@@ -31,16 +77,27 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     /// </summary>
     public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
+        // Get the actual agent type for configuration isolation
+        var agentType = GetType();
+
         // 1. Load Configuration (if ConfigStore is configured)
         if (ConfigStore != null)
         {
-            Config = await ConfigStore.LoadAsync(Id, ct) ?? new TConfig();
+            // Use EventHandlerScope to allow config loading during event handling setup
+            using (StateProtectionContext.BeginEventHandlerScope())
+            {
+                Config = await ConfigStore.LoadAsync(agentType, Id, ct) ?? new TConfig();
+            }
         }
 
         // 2. Load State (if StateStore is configured)
         if (StateStore != null)
         {
-            State = await StateStore.LoadAsync(Id, ct) ?? new TState();
+            // Use EventHandlerScope to allow state loading during event handling setup
+            using (StateProtectionContext.BeginEventHandlerScope())
+            {
+                State = await StateStore.LoadAsync(Id, ct) ?? new TState();
+            }
         }
 
         // 3. Call core event handling implementation
@@ -49,7 +106,7 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
         // 4. Save Configuration (if ConfigStore is configured)
         if (ConfigStore != null)
         {
-            await ConfigStore.SaveAsync(Id, Config, ct);
+            await ConfigStore.SaveAsync(agentType, Id, Config, ct);
         }
 
         // 5. Save State (if StateStore is configured)

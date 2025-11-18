@@ -3,6 +3,7 @@ using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -98,7 +99,12 @@ public abstract class GAgentBase(Guid id) : IGAgent
 
     public async Task ActivateAsync()
     {
-        await OnActivateAsync();
+        // Allow State modification during agent activation
+        // This is necessary for initializing agent state before event processing begins
+        using (StateProtectionContext.BeginInitializationScope())
+        {
+            await OnActivateAsync();
+        }
     }
 
     public async Task DeactivateAsync()
@@ -360,6 +366,9 @@ public abstract class GAgentBase(Guid id) : IGAgent
         Logger.LogDebug("Invoking handler method {HandlerName} on {AgentType} with parameter type {ParameterType}",
             handler.Name, GetType().Name, parameter.GetType().Name);
 
+        // Create event handler scope to allow State modifications
+        using var scope = StateProtectionContext.BeginEventHandlerScope();
+        
         try
         {
             var result = handler.Invoke(this, new[] { parameter });

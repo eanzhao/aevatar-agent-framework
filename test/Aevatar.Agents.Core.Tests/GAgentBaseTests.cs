@@ -92,44 +92,43 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
 
     #endregion
 
-    #region 2.1.2 Config Management Tests
+    #region Config Management Tests
 
-    [Fact(DisplayName = "GAgentBase should load config")]
-    public async Task Should_Load_Config()
+    [Fact(DisplayName = "GAgentBase should load existing config")]
+    public async Task Should_Load_Existing_Config()
     {
         // Arrange
         var agent = new ConfigurableTestAgent();
-
+        
         // Inject both StateStore and ConfigStore
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-
+        
         var configStore = _serviceProvider.GetRequiredService<IConfigStore<TestAgentConfig>>();
-
-        var loadedConfig = new TestAgentConfig
+    
+        var existingConfig = new TestAgentConfig
         {
-            AgentName = "LoadedAgent",
+            AgentName = "PreExistingAgent",
             MaxRetries = 5,
             EnableLogging = false
         };
-
+    
         // Pre-save the configuration
-        await configStore.SaveAsync(agent.Id, loadedConfig);
-
-        // Act
+        await configStore.SaveAsync(agent.GetType(), agent.Id, existingConfig);
+    
+        // Act - Trigger HandleEventAsync which loads config
         var envelope = new EventEnvelope
         {
             Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(new TestEvent { EventId = "test-1" })
+            Payload = Any.Pack(new TestEvent { EventId = "test-config-load" })
         };
-
+        
         await agent.HandleEventAsync(envelope);
-
-        // Assert - Load configuration from store to verify it was saved correctly
-        var savedConfig = await configStore.LoadAsync(agent.Id);
-        savedConfig.ShouldNotBeNull();
-        savedConfig.AgentName.ShouldBe("LoadedAgent");
-        savedConfig.MaxRetries.ShouldBe(5);
+    
+        // Assert - Config should be loaded from store
+        agent.GetConfig().AgentName.ShouldBe("PreExistingAgent");
+        agent.GetConfig().MaxRetries.ShouldBe(5);
+        agent.GetConfig().EnableLogging.ShouldBe(false);
     }
 
     [Fact(DisplayName = "GAgentBase should apply custom config")]
