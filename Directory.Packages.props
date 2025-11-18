@@ -90,11 +90,9 @@
     <PackageVersion Include="Volo.Abp.Identity.Application" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.Identity.Web" Version="9.3.1" />
-    <PackageVersion Include="Volo.Abp.Identity.Web.OpenIddict" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="9.3.1" />
-    <PackageVersion Include="Volo.Abp.PermissionManagement.Web.OpenIddict" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.Localization" Version="9.3.1" />
     <PackageVersion Include="Volo.Abp.UI.Navigation" Version="9.3.1" />
