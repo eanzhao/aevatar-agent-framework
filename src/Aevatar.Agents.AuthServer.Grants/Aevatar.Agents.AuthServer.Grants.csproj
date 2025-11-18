@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Volo.Abp.Core" />
+    <PackageReference Include="Volo.Abp.OpenIddict.Domain" />
     <PackageReference Include="AElf.Types" />
     <PackageReference Include="AElf.Client" />
     <PackageReference Include="AElf.Cryptography" />
@@ -17,6 +18,7 @@
     <PackageReference Include="GraphQL.Client.Serializer.Newtonsoft" />
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
+
 
 </Project>
 

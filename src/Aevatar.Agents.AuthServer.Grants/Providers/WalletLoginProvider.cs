@@ -6,7 +6,7 @@ using AElf.Client;
 using AElf.Cryptography;
 using AElf.Types;
 using Aevatar.Agents.AuthServer.Grants.Options;
-using Aevatar.Agents.AuthServer.User;
+using Aevatar.Agents.AuthServer.Grants.User;
 using Google.Protobuf;
 using GraphQL;
 using GraphQL.Client.Http;
