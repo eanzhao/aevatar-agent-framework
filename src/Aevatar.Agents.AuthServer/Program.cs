@@ -3,6 +3,7 @@ using Serilog.Events;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
+using Volo.Abp;
 using Aevatar.Agents.AuthServer;
 
 namespace Aevatar.Agents.AuthServer;
@@ -15,7 +16,7 @@ public class Program
             .MinimumLevel.Debug()
             .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
             .Enrich.FromLogContext()
-            .WriteTo.Async(c => c.Console())
+            .WriteTo.Console()
             .CreateLogger();
         
         try
@@ -26,7 +27,6 @@ public class Program
             
             builder.Host
                 .AddAppSettingsSecretsJson()
-                .UseAutofac()
                 .UseSerilog();
             
             await builder.AddApplicationAsync<AevatarAgentsAuthServerModule>();

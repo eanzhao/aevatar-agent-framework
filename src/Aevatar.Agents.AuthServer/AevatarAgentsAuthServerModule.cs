@@ -8,7 +8,6 @@ using Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared;
 using Volo.Abp.AspNetCore.Serilog;
 using Volo.Abp.Auditing;
 using Volo.Abp.Authorization;
-using Volo.Abp.Autofac;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.Caching;
 using Volo.Abp.Identity;
@@ -28,7 +27,6 @@ using Aevatar.Agents.AuthServer.Grants;
 namespace Aevatar.Agents.AuthServer;
 
 [DependsOn(
-    typeof(AbpAutofacModule),
     typeof(AbpAccountWebOpenIddictModule),
     typeof(AbpAccountApplicationModule),
     typeof(AbpAccountHttpApiModule),
@@ -36,9 +34,6 @@ namespace Aevatar.Agents.AuthServer;
     typeof(AbpAspNetCoreSerilogModule),
     typeof(AbpIdentityApplicationModule),
     typeof(AbpIdentityHttpApiModule),
-    typeof(AbpIdentityWebModule),
-    typeof(AbpPermissionManagementApplicationModule),
-    typeof(AbpPermissionManagementWebModule),
     typeof(AbpOpenIddictMongoDbModule),
     typeof(AbpIdentityMongoDbModule),
     typeof(AbpPermissionManagementMongoDbModule),
@@ -155,11 +150,20 @@ public class AevatarAgentsAuthServerModule : AbpModule
         var redisConnectionString = configuration["Redis:Configuration"];
         if (!string.IsNullOrEmpty(redisConnectionString))
         {
-            var redis = ConnectionMultiplexer.Connect(redisConnectionString);
-            context.Services
-                .AddDataProtection()
-                .PersistKeysToStackExchangeRedis(redis, "Aevatar-DataProtection-Keys")
-                .SetApplicationName("AevatarAuthServer");
+            try
+            {
+                var redis = ConnectionMultiplexer.Connect(redisConnectionString);
+                context.Services
+                    .AddDataProtection()
+                    .PersistKeysToStackExchangeRedis(redis, "Aevatar-DataProtection-Keys")
+                    .SetApplicationName("AevatarAuthServer");
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't fail startup if Redis is unavailable
+                // Logger will be available after service provider is built
+                System.Diagnostics.Debug.WriteLine($"Failed to connect to Redis for data protection: {ex.Message}");
+            }
         }
         
         // Health checks
