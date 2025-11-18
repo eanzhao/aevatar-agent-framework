@@ -217,5 +217,10 @@ public class AevatarAgentsAuthServerModule : AbpModule
         app.UseAbpSerilogEnrichers();
         app.UseConfiguredEndpoints();
     }
+    
+    public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+    {
+        await base.OnApplicationInitializationAsync(context);
+    }
 }
 

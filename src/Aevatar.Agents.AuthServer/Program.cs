@@ -29,6 +29,10 @@ public class Program
                 .AddAppSettingsSecretsJson()
                 .UseSerilog();
             
+            // Configure logging before adding ABP application
+            builder.Logging.ClearProviders();
+            builder.Logging.AddSerilog();
+            
             await builder.AddApplicationAsync<AevatarAgentsAuthServerModule>();
             
             var app = builder.Build();
