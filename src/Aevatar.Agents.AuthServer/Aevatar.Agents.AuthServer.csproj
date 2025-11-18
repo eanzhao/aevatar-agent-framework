@@ -42,9 +42,6 @@
     <PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="wwwroot\**\*" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.AuthServer.Grants\Aevatar.Agents.AuthServer.Grants.csproj" />
