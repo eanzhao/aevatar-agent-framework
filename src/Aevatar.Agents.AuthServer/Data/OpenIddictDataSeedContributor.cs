@@ -92,6 +92,7 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
         var adminUser = await _identityUserManager.FindByNameAsync("admin");
         if (adminUser != null)
         {
+            // Admin user exists, reset password to configured value
             var adminPassword = _usersOptions.AdminPassword;
             var token = await _identityUserManager.GeneratePasswordResetTokenAsync(adminUser);
             var result = await _identityUserManager.ResetPasswordAsync(adminUser, token, adminPassword);
@@ -100,8 +101,11 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 throw new Exception("Failed to set admin password: " +
                     string.Join(", ", result.Errors.Select(e => e.Description)));
             }
-            await SeedPermissionsFromConfigurationAsync();
         }
+        // If admin user doesn't exist, it will be created by ABP's IdentityDataSeedContributor
+        // with the password set in DataSeedContext properties
+        
+        await SeedPermissionsFromConfigurationAsync();
     }
 
     private async Task SeedPermissionsFromConfigurationAsync()
