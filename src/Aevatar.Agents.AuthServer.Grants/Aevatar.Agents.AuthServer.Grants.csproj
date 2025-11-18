@@ -10,16 +10,13 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Volo.Abp.Core" />
+    <PackageReference Include="Volo.Abp.OpenIddict.ExtensionGrantTypes" />
     <PackageReference Include="AElf.Types" />
     <PackageReference Include="AElf.Client" />
     <PackageReference Include="AElf.Cryptography" />
     <PackageReference Include="GraphQL.Client" />
     <PackageReference Include="GraphQL.Client.Serializer.Newtonsoft" />
     <PackageReference Include="Newtonsoft.Json" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Aevatar.Agents.AuthServer\Aevatar.Agents.AuthServer.csproj" />
   </ItemGroup>
 
 </Project>

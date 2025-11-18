@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -11,6 +11,44 @@
     <PackageReference Include="Volo.Abp.Core" />
     <PackageReference Include="Volo.Abp.Ddd.Domain" />
     <PackageReference Include="Volo.Abp.AutoMapper" />
+    <!-- ABP Admin UI packages -->
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" />
+    <PackageReference Include="Volo.Abp.Account.Web" />
+    <PackageReference Include="Volo.Abp.Account.Application" />
+    <PackageReference Include="Volo.Abp.Account.HttpApi" />
+    <PackageReference Include="Volo.Abp.Identity.Application" />
+    <PackageReference Include="Volo.Abp.Identity.HttpApi" />
+    <PackageReference Include="Volo.Abp.Identity.Web" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.Application" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.HttpApi" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.Web" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Serilog" />
+    <PackageReference Include="Volo.Abp.Localization" />
+    <PackageReference Include="Volo.Abp.UI.Navigation" />
+    <PackageReference Include="Volo.Abp.Auditing" />
+    <PackageReference Include="Volo.Abp.BackgroundJobs" />
+    <PackageReference Include="Volo.Abp.Caching" />
+    <PackageReference Include="Volo.Abp.OpenIddict.AspNetCore" />
+    <PackageReference Include="Volo.Abp.OpenIddict.Domain" />
+    <PackageReference Include="Volo.Abp.OpenIddict.MongoDB" />
+    <PackageReference Include="Volo.Abp.OpenIddict.ExtensionGrantTypes" />
+    <PackageReference Include="Volo.Abp.Identity.MongoDB" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.MongoDB" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.Agents.AuthServer.Grants\Aevatar.Agents.AuthServer.Grants.csproj" />
   </ItemGroup>
 
 </Project>
