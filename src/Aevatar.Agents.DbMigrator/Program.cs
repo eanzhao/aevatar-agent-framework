@@ -17,8 +17,8 @@ class Program
             .MinimumLevel.Override("Volo.Abp", LogEventLevel.Warning)
             .MinimumLevel.Override("Aevatar", LogEventLevel.Information)
             .Enrich.FromLogContext()
-            .WriteTo.Async(c => c.File("Logs/logs.txt"))
-            .WriteTo.Async(c => c.Console())
+            .WriteTo.File("Logs/logs.txt")
+            .WriteTo.Console()
             .CreateLogger();
 
         await CreateHostBuilder(args).RunConsoleAsync();
