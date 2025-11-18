@@ -371,4 +371,5 @@ message AevatarAIContext {
 message AevatarConversationEntry {
     string role = 1;
     string content = 2;
+    google.protobuf.Timestamp timestamp = 3;
 }
