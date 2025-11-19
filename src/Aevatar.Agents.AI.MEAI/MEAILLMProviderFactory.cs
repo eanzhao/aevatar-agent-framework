@@ -1,3 +1,4 @@
+using System.ClientModel;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
@@ -48,8 +49,10 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
         if (string.IsNullOrEmpty(config.ApiKey))
             throw new InvalidOperationException("OpenAI API key is required");
 
-        var openAIClient = new OpenAIClient(config.ApiKey);
-        return openAIClient.GetChatClient(config.Model).AsIChatClient();
+        if (config.Endpoint != null)
+            return new OpenAI.Chat.ChatClient(config.Model, new ApiKeyCredential(config.ApiKey),
+                new OpenAIClientOptions { Endpoint = new Uri(config.Endpoint) }).AsIChatClient();
+        return new OpenAI.Chat.ChatClient(config.Model, new ApiKeyCredential(config.ApiKey)).AsIChatClient();
     }
 
     private IChatClient CreateAzureOpenAIChatClient(LLMProviderConfig config)

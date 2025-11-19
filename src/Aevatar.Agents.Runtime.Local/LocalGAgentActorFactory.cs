@@ -25,9 +25,11 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
     protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
+        // 如果Stream已存在，先清理它（支持Actor重建场景）
         if (_streamRegistry.StreamExists(id))
         {
-            throw new InvalidOperationException($"Agent with id {id} already exists");
+            _logger.LogWarning("[Factory] Stream already exists for Agent {Id}. Removing old stream to allow recreation.", id);
+            _streamRegistry.RemoveStream(id);
         }
 
         _logger.LogDebug("[Factory] Creating Actor for Agent - Type: {AgentType}, Id: {Id}",

@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+option csharp_namespace = "AIEventSourcingDemo";
+
+import "google/protobuf/timestamp.proto";
+
+// AI Assistant State
+message AIAssistantState {
+    string assistant_id = 1;
+    string name = 2;
+    int32 total_interactions = 3;
+    double average_satisfaction = 4;
+    repeated ConversationSummary conversation_history = 5;
+    google.protobuf.Timestamp created_at = 6;
+    google.protobuf.Timestamp last_interaction = 7;
+}
+
+// Conversation Summary
+message ConversationSummary {
+    string conversation_id = 1;
+    string user_id = 2;
+    string topic = 3;
+    int32 message_count = 4;
+    int32 tokens_used = 5;
+    double satisfaction_score = 6;
+    google.protobuf.Timestamp timestamp = 7;
+}
+
+// AI Assistant Configuration
+message AIAssistantConfig {
+    string personality = 1;
+    repeated string capabilities = 2;
+    double creativity_level = 3;
+    bool enable_learning = 4;
+}
+
+// Events
+message AssistantInitializedEvent {
+    string assistant_id = 1;
+    string name = 2;
+    google.protobuf.Timestamp created_at = 3;
+}
+
+message UserMessageReceived {
+    string user_id = 1;
+    string message = 2;
+    string conversation_id = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message AssistantResponseGenerated {
+    string response = 1;
+    int32 tokens_used = 2;
+    double confidence_score = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message FeedbackReceived {
+    string conversation_id = 1;
+    double satisfaction_score = 2;
+    string feedback_text = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message ConversationCompleted {
+    string conversation_id = 1;
+    int32 total_messages = 2;
+    int32 total_tokens = 3;
+    double final_satisfaction = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
