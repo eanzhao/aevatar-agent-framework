@@ -4,26 +4,13 @@ using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
-/// <summary>
-/// 计算器Agent状态
-/// </summary>
-public class CalculatorAgentState
-{
-    public double LastResult { get; set; }
-    public int OperationCount { get; set; }
-    public List<string> History { get; set; } = new();
-}
+// CalculatorAgentState 已在 demo_messages.proto 中定义
 
 /// <summary>
 /// 示例：计算器Agent
 /// </summary>
 public class CalculatorAgent : GAgentBase<CalculatorAgentState>
 {
-    public CalculatorAgent(Guid id, ILogger<CalculatorAgent>? logger = null)
-        : base(id, logger)
-    {
-    }
-    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult("Calculator Agent - Performs basic arithmetic operations");
@@ -75,7 +62,7 @@ public class CalculatorAgent : GAgentBase<CalculatorAgentState>
     /// <summary>
     /// 获取计算历史
     /// </summary>
-    public List<string> GetHistory() => State.History;
+    public Google.Protobuf.Collections.RepeatedField<string> GetHistory() => State.History;
 
     /// <summary>
     /// 获取上次结果

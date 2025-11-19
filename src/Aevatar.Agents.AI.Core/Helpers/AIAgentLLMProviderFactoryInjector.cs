@@ -26,7 +26,7 @@ public static class AIAgentLLMProviderFactoryInjector
         while (baseType != null && baseType != typeof(object))
         {
             if (baseType.IsGenericType &&
-                baseType.Name == "AIGAgentBase`1")
+                (baseType.Name == "AIGAgentBase`1" || baseType.Name == "AIGAgentBase`2"))
             {
                 // Get ILLMProviderFactory from DI
                 var factory = serviceProvider.GetService(typeof(ILLMProviderFactory));

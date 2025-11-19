@@ -1,5 +1,6 @@
 using System;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.ProtoActor.Subscription;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,6 +56,7 @@ public static class ServiceCollectionExtensions
         
         // Register the factory provider for auto-discovery
         services.TryAddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;
     }

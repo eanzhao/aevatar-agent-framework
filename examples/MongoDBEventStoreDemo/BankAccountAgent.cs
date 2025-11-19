@@ -12,13 +12,6 @@ namespace MongoDBEventStoreDemo;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    public BankAccountAgent(
-        Guid id,
-        ILogger<BankAccountAgent>? logger = null)
-        : base(id, null, logger)
-    {
-    }
-
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"MongoDB Bank Account Agent for {State.AccountHolder}");

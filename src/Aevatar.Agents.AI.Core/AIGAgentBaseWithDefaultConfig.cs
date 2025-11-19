@@ -13,10 +13,13 @@ public abstract class AIGAgentBase<TState> : AIGAgentBase<TState, AIAgentConfig>
 {
     #region Constructors
 
-    /// <summary>
-    /// Initializes a new instance of the AIGAgentBase class.
-    /// </summary>
-    protected AIGAgentBase() { }
+    public AIGAgentBase()
+    {
+    }
+
+    public AIGAgentBase(Guid id) : base(id)
+    {
+    }
 
     #endregion
 }

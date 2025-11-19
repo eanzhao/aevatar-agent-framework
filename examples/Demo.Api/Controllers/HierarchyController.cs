@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
 
@@ -132,7 +133,7 @@ public class HierarchyController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(message),
                 Direction = eventDirection,
                 MaxHopCount = 5 // 限制传播深度

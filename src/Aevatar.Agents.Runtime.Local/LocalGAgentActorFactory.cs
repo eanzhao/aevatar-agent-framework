@@ -34,18 +34,30 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("[Factory] Creating Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
-        // 自动注入 Logger
-        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
-
-        // 自动注入 StateStore
-        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
-
-        // 自动注入 ConfigurationStore
-        AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-
-        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
+        // Agent 应该已经通过 IGAgentFactory 完成了所有依赖注入
+        // 如果 Agent 不是通过 IGAgentFactory 创建的（旧代码路径），才需要手动注入
+        // 检查是否已有依赖（通过检查其中一个属性）
+        var loggerProperty = agent.GetType().GetProperty("Logger", 
+            System.Reflection.BindingFlags.Instance | 
+            System.Reflection.BindingFlags.NonPublic | 
+            System.Reflection.BindingFlags.Public);
+        
+        if (loggerProperty != null)
         {
-            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
+            var currentLogger = loggerProperty.GetValue(agent);
+            if (currentLogger == null)
+            {
+                // 仅在依赖未注入时才手动注入（向后兼容旧代码）
+                _logger.LogDebug("Agent dependencies not injected, injecting manually");
+                AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+                AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+                AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+                
+                if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
+                {
+                    AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
+                }
+            }
         }
 
         // 创建 Actor（使用 Stream）

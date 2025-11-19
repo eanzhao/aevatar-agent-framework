@@ -17,7 +17,7 @@ public static class AgentLoggerInjector
     /// </summary>
     /// <param name="agent">Agent 实例</param>
     /// <param name="serviceProvider">服务提供者</param>
-    public static void InjectLogger(IGAgent agent, IServiceProvider serviceProvider)
+    public static void InjectLogger(IGAgent? agent, IServiceProvider serviceProvider)
     {
         if (agent == null)
             return;

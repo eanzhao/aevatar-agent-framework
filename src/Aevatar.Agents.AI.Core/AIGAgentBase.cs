@@ -4,6 +4,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,14 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
     protected ILLMProviderFactory LLMProviderFactory { get; set; }
 
     #endregion
+
+    public AIGAgentBase()
+    {
+    }
+
+    public AIGAgentBase(Guid id) : base(id)
+    {
+    }
 
     #region Properties
 
@@ -76,6 +85,9 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
         if (_isInitialized)
             return;
 
+        // Use InitializationScope to allow State and Config modifications during initialization
+        using var initScope = StateProtectionContext.BeginInitializationScope();
+        
         // 1. Load state and config if stores are available
         if (StateStore != null)
         {
@@ -127,6 +139,9 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
         if (_isInitialized)
             return;
 
+        // Use InitializationScope to allow State and Config modifications during initialization
+        using var initScope = StateProtectionContext.BeginInitializationScope();
+        
         // 1. Load state and config if stores are available
         if (StateStore != null)
         {

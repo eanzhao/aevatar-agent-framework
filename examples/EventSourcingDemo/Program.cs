@@ -27,8 +27,8 @@ var logger = loggerFactory.CreateLogger<BankAccountAgent>();
 Console.WriteLine("📍 Part 1: Creating Account and Transactions");
 Console.WriteLine("══════════════════════════════════════════════\n");
 
-var agentId = Guid.NewGuid();
-var agent = new BankAccountAgent(agentId);
+var agent = new BankAccountAgent();
+var agentId = agent.Id;
 
 // ✅ 注入 EventStore（直接调用public方法）
 agent.SetEventStore(eventStore);

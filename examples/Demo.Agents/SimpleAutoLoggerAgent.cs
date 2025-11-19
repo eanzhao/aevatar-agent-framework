@@ -13,21 +13,6 @@ public class SimpleAutoLoggerAgent : GAgentBase<SimpleAgentState>
 {
     private int _processedCount = 0;
     
-    // 无参构造函数 - Logger 会被框架自动注入
-    public SimpleAutoLoggerAgent()
-    {
-        // 不需要处理 Logger，框架会自动注入
-        State.Name = "SimpleAutoLoggerAgent";
-        State.IsActive = true;
-    }
-    
-    // 带 ID 的构造函数 - 仍可选择性地传入 Logger
-    public SimpleAutoLoggerAgent(Guid id) : base(id)
-    {
-        State.Name = $"SimpleAutoLoggerAgent-{id}";
-        State.IsActive = true;
-    }
-    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"Simple Agent with auto-injected logger. Processed: {_processedCount} events");
@@ -75,14 +60,19 @@ public class SimpleAutoLoggerAgent : GAgentBase<SimpleAgentState>
         }
     }
     
-    public override Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
+        await base.OnActivateAsync(ct);
+        
+        // 初始化状态
+        State.Name = $"SimpleAutoLoggerAgent-{Id}";
+        State.IsActive = true;
+        
         // Logger 在这里已经可用
         Logger.LogInformation("SimpleAutoLoggerAgent {Id} activated", Id);
-        return base.OnActivateAsync(ct);
     }
     
-    public override Task OnDeactivateAsync(CancellationToken ct = default)
+    protected override Task OnDeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("SimpleAutoLoggerAgent {Id} deactivated after processing {Count} events", 
             Id, _processedCount);

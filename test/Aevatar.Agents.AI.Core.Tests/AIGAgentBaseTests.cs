@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
@@ -19,6 +20,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 {
     private readonly IServiceProvider _serviceProvider = fixture.ServiceProvider;
     private readonly ILLMProviderFactory _factory = fixture.LLMProviderFactory;
+    private readonly IGAgentFactory _agentFactory = fixture.GAgentFactory;
     private MockLLMProvider _mockProvider => GetMockProvider();
 
     private MockLLMProvider GetMockProvider()
@@ -33,8 +35,9 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task Initialize_WithProviderName_ShouldWork()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agentId = Guid.NewGuid();
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>(agentId);
+        agent.Id.ShouldBe(agentId);
 
         // Act
         await agent.InitializeAsync("test-provider");
@@ -56,8 +59,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task Initialize_WithCustomConfig_ShouldOverride()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
 
         var customConfig = new LLMProviderConfig
         {
@@ -88,8 +90,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task Initialize_CalledTwice_ShouldBeIdempotent()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
 
         // Act
         await agent.InitializeAsync("test-provider");
@@ -106,8 +107,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public void UninitializedAgent_AccessingProvider_ShouldThrow()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
 
         // Act & Assert
         var action = () => agent.LLMProvider;
@@ -124,9 +124,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task ChatAsync_ShouldReturnResponse()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         await agent.InitializeAsync("test-provider");
 
         var request = ChatRequest.Create("Hello, AI!");
@@ -145,9 +143,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task ChatStreamAsync_ShouldStream()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         await agent.InitializeAsync("test-provider");
 
         var request = ChatRequest.Create("Stream test");
@@ -170,9 +166,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task GenerateResponseAsync_ShouldWork()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         await agent.InitializeAsync("test-provider");
 
         // Act
@@ -188,8 +182,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task ChatAsync_WithoutInit_ShouldThrow()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         var request = ChatRequest.Create("Test");
 
         // Act & Assert
@@ -207,8 +200,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task CustomConfig_ShouldBeSet()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
 
         // Act
         await agent.InitializeAsync("test-provider");
@@ -231,9 +223,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     {
         // Arrange
         _mockProvider.Clear();
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         agent.TestSystemPrompt = "Custom system prompt";
 
         await agent.InitializeAsync("test-provider");
@@ -254,9 +244,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     {
         // Arrange
         _mockProvider.Clear();
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         await agent.InitializeAsync("test-provider");
 
         var request = new ChatRequest
@@ -288,9 +276,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     public async Task SupportsStreamingAsync_ShouldReflect()
     {
         // Arrange
-        var agent = new TestAIGAgent();
-        AgentEventPublisherInjector.InjectEventPublisher(agent, fixture.EventPublisher);
-        AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, fixture.LLMProviderFactory);
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
         await agent.InitializeAsync("test-provider");
 
         // Act

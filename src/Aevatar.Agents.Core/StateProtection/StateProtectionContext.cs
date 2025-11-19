@@ -3,6 +3,7 @@ using System.Threading;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("Aevatar.Agents.Core.Tests")]
+[assembly: InternalsVisibleTo("Aevatar.Agents.AI.Core")]
 
 namespace Aevatar.Agents.Core.StateProtection;
 

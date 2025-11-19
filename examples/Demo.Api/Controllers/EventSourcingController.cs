@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
 using Google.Protobuf;
@@ -56,7 +57,7 @@ public class EventSourcingController : ControllerBase
             var depositEnvelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(deposit1),
                 Direction = EventDirection.Down
             };
@@ -75,7 +76,7 @@ public class EventSourcingController : ControllerBase
             var withdrawEnvelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(withdraw1),
                 Direction = EventDirection.Down
             };
@@ -94,7 +95,7 @@ public class EventSourcingController : ControllerBase
             var deposit2Envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(deposit2),
                 Direction = EventDirection.Down
             };
@@ -145,7 +146,7 @@ public class EventSourcingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(replayTrigger),
                 Direction = EventDirection.Down
             };
@@ -229,7 +230,7 @@ public class EventSourcingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(snapshotTrigger),
                 Direction = EventDirection.Down
             };

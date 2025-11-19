@@ -1,5 +1,4 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Tests.Messages;
 
 namespace Aevatar.Agents.AI.Core.Tests.TestAgents;
@@ -7,7 +6,7 @@ namespace Aevatar.Agents.AI.Core.Tests.TestAgents;
 /// <summary>
 /// Simplified test implementation of AIGAgentBase for unit testing
 /// </summary>
-public class TestAIGAgent : AIGAgentBase<TestAIGAgentState, TestAIGAgentConfig>
+public class TestAIGAgent(Guid? id = null) : AIGAgentBase<TestAIGAgentState, TestAIGAgentConfig>(id ?? Guid.NewGuid())
 {
     /// <summary>
     /// Track initialization calls for testing

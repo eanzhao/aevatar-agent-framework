@@ -1,5 +1,6 @@
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Helpers;
 

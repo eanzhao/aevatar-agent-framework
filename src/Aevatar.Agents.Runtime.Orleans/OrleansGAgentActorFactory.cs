@@ -30,12 +30,6 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
-        // 先执行通用依赖注入
-        InjectCommonDependencies(agent);
-
-        // Orleans 特有的 EventStore 注入
-        AgentEventStoreInjector.InjectEventStore(agent, _serviceProvider);
-
         // 使用标准 Grain (所有 Agent 都使用相同的 Grain)
         var grain = _clusterClient.GetGrain<IStandardGAgentGrain>(id.ToString());
         _logger.LogDebug("Using Standard Grain for agent {Id}", id);

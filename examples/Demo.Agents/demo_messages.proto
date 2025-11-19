@@ -106,6 +106,13 @@ message SimpleAgentState {
     map<string, string> attributes = 5;
 }
 
+// Calculator Agent State
+message CalculatorAgentState {
+    double last_result = 1;
+    int32 operation_count = 2;
+    repeated string history = 3;
+}
+
 // Broadcast State
 message BroadcastState {
     string broadcaster_id = 1;

@@ -12,8 +12,9 @@ namespace Demo.Agents;
 /// </summary>
 public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
 {
-    public TeamLeaderAgent(Guid id, ILogger<TeamLeaderAgent>? logger = null) : base(id, logger)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
+        await base.OnActivateAsync(ct);
         State.Name = "Team Leader";
     }
     
@@ -68,6 +69,12 @@ public class TeamLeaderAgent : GAgentBase<TeamLeaderState>
 /// </summary>
 public class TeamMemberAgent : GAgentBase<TeamMemberState>
 {
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct);
+        // Name will be set later via SetName
+    }
+    
     public void SetName(string name)
     {
         State.Name = name;

@@ -86,11 +86,11 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
 
     // ============ Constructors ============
 
-    protected GAgentBase()
+    public GAgentBase()
     {
     }
 
-    protected GAgentBase(Guid id) : base(id)
+    public GAgentBase(Guid id) : base(id)
     {
     }
     

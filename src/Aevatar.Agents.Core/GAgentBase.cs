@@ -19,14 +19,14 @@ namespace Aevatar.Agents.Core;
 /// Provides event handler auto-discovery and invocation infrastructure.
 /// This class focuses solely on event processing without state management concerns.
 /// </summary>
-public abstract class GAgentBase(Guid id) : IGAgent
+public abstract class GAgentBase : IGAgent
 {
     // ============ Fields ============
 
     /// <summary>
     /// Agent unique identifier
     /// </summary>
-    public Guid Id { get; } = id;
+    public Guid Id { get; }
 
     /// <summary>
     /// Event publisher for sending events
@@ -43,13 +43,23 @@ public abstract class GAgentBase(Guid id) : IGAgent
 
     // ============ Constructors ============
 
-    public GAgentBase() : this(Guid.NewGuid())
+    /// <summary>
+    /// Default constructor - generates a new ID
+    /// </summary>
+    public GAgentBase()
     {
+        Id = Guid.NewGuid();
+    }
+
+    /// <summary>
+    /// Constructor with specific ID
+    /// </summary>
+    public GAgentBase(Guid id)
+    {
+        Id = id;
     }
 
     // ============ IGAgent Implementation ============
-
-
 
     /// <summary>
     /// Get agent description

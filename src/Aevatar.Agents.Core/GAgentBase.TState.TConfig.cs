@@ -16,8 +16,16 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     where TState : class, IMessage, new()
     where TConfig : class, IMessage, new()
 {
-    private TConfig _config = new TConfig();
+    private TConfig _config = new();
     
+    public GAgentBase()
+    {
+    }
+
+    public GAgentBase(Guid id) : base(id)
+    {
+    }
+
     /// <summary>
     /// Configuration object - should only be modified within OnActivateAsync or event handlers.
     /// Direct Config assignment is protected, but individual property modifications cannot be intercepted

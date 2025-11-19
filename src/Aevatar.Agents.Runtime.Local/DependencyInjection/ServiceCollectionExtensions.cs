@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Local.Subscription;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,14 +23,18 @@ public static class ServiceCollectionExtensions
     {
         // Register the Local runtime dependencies
         services.AddSingleton<LocalGAgentActorFactory>();
-        services.AddSingleton<IGAgentActorFactory>(provider => 
+        services.AddSingleton<IGAgentActorFactory>(provider =>
             provider.GetRequiredService<LocalGAgentActorFactory>());
         services.AddSingleton<LocalGAgentActorManager>();
         services.AddSingleton<LocalMessageStreamRegistry>();
         services.AddSingleton<LocalSubscriptionManager>();
-        
+
         // Register the factory provider for auto-discovery
         services.TryAddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+
+        // Register the default IGAgentFactory if not already registered
+        // This will be used by AutoDiscoveryGAgentActorFactoryProvider
+        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;
     }

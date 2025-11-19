@@ -1,4 +1,5 @@
 using System.IO;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -6,6 +7,7 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Abstractions.Tests.Memory;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Tests.Fixtures;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +29,7 @@ public class AITestFixture : CoreTestFixture
     public MockLLMProvider MockLLMProvider => (MockLLMProvider)LLMProviderFactory.GetProvider("test-provider");
     public IAevatarAIMemory AIMemory => ServiceProvider.GetRequiredService<IAevatarAIMemory>();
     public IAevatarToolManager ToolManager => ServiceProvider.GetRequiredService<IAevatarToolManager>();
+    public IGAgentFactory GAgentFactory => ServiceProvider.GetRequiredService<IGAgentFactory>();
 
     /// <summary>
     /// Override to add AI-specific services on top of core services
@@ -60,6 +63,8 @@ public class AITestFixture : CoreTestFixture
 
         // Register test implementations
         services.AddSingleton<ILLMProviderFactory, MockLLMProviderFactory>();
+
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         // Add Options
         services.AddOptions();

@@ -19,6 +19,7 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AutoDiscoveryGAgentActorFactoryProvider>? _logger;
+    private readonly IGAgentFactory? _agentFactory;
 
     private readonly ConcurrentDictionary<Type, Func<IGAgentActorFactory, Guid, CancellationToken, Task<IGAgentActor>>>
         _factories;
@@ -27,6 +28,7 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
     {
         _serviceProvider = serviceProvider;
         _logger = serviceProvider.GetService<ILogger<AutoDiscoveryGAgentActorFactoryProvider>>();
+        _agentFactory = serviceProvider.GetService<IGAgentFactory>();
         _factories =
             new ConcurrentDictionary<Type, Func<IGAgentActorFactory, Guid, CancellationToken, Task<IGAgentActor>>>();
     }
@@ -76,17 +78,35 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
 
             try
             {
-                // 首先尝试使用DI容器创建（能处理依赖注入）
-                try
+                // 优先使用 IGAgentFactory 创建 Agent
+                if (_agentFactory != null)
                 {
-                    agent = ActivatorUtilities.CreateInstance(_serviceProvider, agentType, id) as IGAgent;
+                    _logger?.LogDebug("Creating agent using IGAgentFactory for type {AgentType}", agentType.Name);
+                    agent = _agentFactory.CreateGAgent(id, agentType, ct);
                 }
-                catch
+                else
                 {
-                    // 如果使用DI失败，回退到直接使用构造函数
+                    // 如果没有 IGAgentFactory，尝试旧的创建方式
+                    _logger?.LogWarning(
+                        "IGAgentFactory not found, falling back to direct creation for type {AgentType}",
+                        agentType.Name);
                     agent = null;
                 }
-                
+
+                // 如果 IGAgentFactory 创建失败，尝试传统方式
+                if (agent == null)
+                {
+                    try
+                    {
+                        agent = ActivatorUtilities.CreateInstance(_serviceProvider, agentType, id) as IGAgent;
+                    }
+                    catch
+                    {
+                        // 如果使用DI失败，回退到直接使用构造函数
+                        agent = null;
+                    }
+                }
+
                 if (agent == null)
                 {
                     // 查找所有带Guid参数的构造函数
@@ -94,15 +114,15 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                         .Where(c => c.GetParameters().Any(p => p.ParameterType == typeof(Guid)))
                         .OrderBy(c => c.GetParameters().Length)
                         .ToList();
-                    
+
                     foreach (var ctor in constructors)
                     {
                         try
                         {
                             var parameters = ctor.GetParameters();
                             var args = new object[parameters.Length];
-                            
-                            for (int i = 0; i < parameters.Length; i++)
+
+                            for (var i = 0; i < parameters.Length; i++)
                             {
                                 if (parameters[i].ParameterType == typeof(Guid))
                                 {
@@ -118,7 +138,7 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                                     args[i] = _serviceProvider.GetService(parameters[i].ParameterType)!;
                                 }
                             }
-                            
+
                             agent = ctor.Invoke(args) as IGAgent;
                             if (agent != null) break;
                         }
@@ -128,10 +148,10 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                         }
                     }
                 }
-                
+
                 if (agent == null)
                 {
-                    // 最后尝试使用默认构造函数并设置ID
+                    // 最后尝试使用默认构造函数并设置ID（保留作为最后的后备方案）
                     try
                     {
                         agent = Activator.CreateInstance(agentType) as IGAgent;
@@ -142,6 +162,11 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                             {
                                 idProperty.SetValue(agent, id);
                             }
+
+                            // 手动注入依赖（仅在没有使用 IGAgentFactory 时才需要）
+                            AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+                            AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
+                            AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
                         }
                     }
                     catch

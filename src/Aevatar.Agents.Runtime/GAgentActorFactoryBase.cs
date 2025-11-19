@@ -14,6 +14,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
     protected readonly IServiceProvider _serviceProvider;
     protected readonly ILogger _logger;
     protected readonly IGAgentActorFactoryProvider? _factoryProvider;
+    protected readonly IGAgentFactory? _agentFactory;
 
     protected GAgentActorFactoryBase(
         IServiceProvider serviceProvider,
@@ -22,6 +23,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         _serviceProvider = serviceProvider;
         _logger = logger;
         _factoryProvider = serviceProvider.GetService<IGAgentActorFactoryProvider>();
+        _agentFactory = serviceProvider.GetService<IGAgentFactory>();
     }
 
     public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
@@ -49,25 +51,4 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
     }
 
     public abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
-
-    /// <summary>
-    /// 通用依赖注入逻辑，注入到所有 agent
-    /// </summary>
-    protected void InjectCommonDependencies(IGAgent agent)
-    {
-        // 自动注入 Logger
-        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
-
-        // 自动注入 StateStore
-        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
-
-        // 自动注入 ConfigurationStore
-        AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-
-        // 如果有 LLM 相关，注入 LLMProviderFactory
-        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
-        {
-            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
-        }
-    }
 }

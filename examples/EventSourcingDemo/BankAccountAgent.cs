@@ -10,8 +10,10 @@ namespace EventSourcingDemo;
 /// 支持 EventSourcing 的银行账户 Agent
 /// 使用新的批量提交和纯函数式状态转换模式
 /// </summary>
-public class BankAccountAgent(Guid id) : GAgentBaseWithEventSourcing<BankAccountState>(id)
+public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
+    // No constructor needed - uses base class default constructor
+    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"Bank Account Agent for {State.AccountHolder}");
@@ -21,11 +23,6 @@ public class BankAccountAgent(Guid id) : GAgentBaseWithEventSourcing<BankAccount
     /// Get current state (for demo/testing)
     /// </summary>
     public BankAccountState GetState() => State;
-
-    public BankAccountAgent() : this(Guid.NewGuid())
-    {
-        
-    }
 
     // ========== Business Operations (使用新 API) ==========
 
