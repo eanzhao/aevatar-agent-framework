@@ -51,7 +51,7 @@ public class LocalTestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
             }
 
             // 自动注入Logger
-            AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+            LoggerInjector.InjectLogger(agent, _serviceProvider);
 
             // 创建LocalGAgentActor（用于测试）
             var actor = new LocalGAgentActor(
@@ -60,7 +60,7 @@ public class LocalTestGAgentActorFactoryProvider : IGAgentActorFactoryProvider
             );
 
             // 自动注入Actor的Logger
-            AgentLoggerInjector.InjectLogger(actor, _serviceProvider);
+            LoggerInjector.InjectLogger(actor, _serviceProvider);
 
             // 激活
             await actor.ActivateAsync(ct);

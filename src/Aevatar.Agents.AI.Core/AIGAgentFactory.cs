@@ -51,18 +51,15 @@ public class AIGAgentFactory : IGAgentFactory
             agent = (IGAgent)Activator.CreateInstance(agentType)!;
         }
 
-        // 注入所有依赖
-        AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
+        LoggerInjector.InjectLogger(agent, _serviceProvider);
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-        
-        // 注入 LLMProviderFactory (如果需要)
+
         if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
         {
             AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
         }
-        
-        // 注入 EventStore (如果需要)
+
         if (AgentEventStoreInjector.HasEventStore(agent))
         {
             AgentEventStoreInjector.InjectEventStore(agent, _serviceProvider);

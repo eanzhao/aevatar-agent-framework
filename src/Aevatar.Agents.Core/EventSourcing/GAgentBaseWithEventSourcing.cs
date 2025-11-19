@@ -18,7 +18,7 @@ namespace Aevatar.Agents.Core.EventSourcing;
 /// - Snapshot optimization
 /// - Metadata support
 /// </summary>
-public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<TState>
+public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     where TState : class, IMessage<TState>, new()
 {
     // ========== Performance Optimization: Type Cache ==========
@@ -59,6 +59,18 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     // Batch event management (borrowed from JournaledGrain)
     private readonly List<AgentStateEvent> _pendingEvents = [];
 
+    // ========== Constructors ==========
+    
+    /// <summary>
+    /// Constructor with specific ID
+    /// </summary>
+    public GAgentBaseWithEventSourcing(Guid id) : base(id)
+    {
+    }
+    
+    /// <summary>
+    /// Default constructor - generates new ID
+    /// </summary>
     public GAgentBaseWithEventSourcing() : this(Guid.NewGuid())
     {
     }

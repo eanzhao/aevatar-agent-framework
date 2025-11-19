@@ -22,15 +22,18 @@ using var loggerFactory = LoggerFactory.Create(builder =>
     builder.SetMinimumLevel(LogLevel.Information);
 });
 
-// 创建 EventStore
-var eventStore = new InMemoryEventStore();
-var logger = loggerFactory.CreateLogger<BankAccountAgent>();
-
-// 创建 ServiceProvider 用于依赖注入
+// 配置服务
 var services = new ServiceCollection();
-services.AddSingleton<IEventStore>(eventStore);
+services.AddSingleton<InMemoryEventStore>();  // 注册为具体类型
+services.AddSingleton<IEventStore>(provider => provider.GetRequiredService<InMemoryEventStore>());  // 同时注册为接口
+services.AddSingleton<Aevatar.Agents.Abstractions.EventSourcing.IEventStore>(provider => provider.GetRequiredService<InMemoryEventStore>());  // 确保注册为框架接口
 services.AddSingleton(loggerFactory);
+services.AddSingleton<Aevatar.Agents.Abstractions.IGAgentFactory, Aevatar.Agents.AI.Core.AIGAgentFactory>();  // 注册工厂
 var serviceProvider = services.BuildServiceProvider();
+
+// 获取共享的 EventStore
+var eventStore = serviceProvider.GetRequiredService<InMemoryEventStore>();
+var logger = loggerFactory.CreateLogger<BankAccountAgent>();
 
 // ============================================================
 // Part 1: 创建账户并执行交易
@@ -38,15 +41,18 @@ var serviceProvider = services.BuildServiceProvider();
 Console.WriteLine("📍 Part 1: Creating Account and Transactions");
 Console.WriteLine("══════════════════════════════════════════════\n");
 
-var agent = new BankAccountAgent();
-var agentId = agent.Id;
+// 使用 AIGAgentFactory 创建 Agent（自动注入 EventStore）
+var factory = serviceProvider.GetRequiredService<Aevatar.Agents.Abstractions.IGAgentFactory>();
+var agentId = Guid.NewGuid();
+var agent = factory.CreateGAgent<BankAccountAgent>(agentId) as BankAccountAgent;
 
-// ✅ 注入 EventStore（通过反射注入，因为是 protected 属性）
-var eventStoreProperty = agent.GetType().GetProperty("EventStore", 
-    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-eventStoreProperty?.SetValue(agent, eventStore);
+if (agent == null)
+{
+    Console.WriteLine("❌ Failed to create BankAccountAgent");
+    return;
+}
 
-Console.WriteLine($"📊 Agent Created");
+Console.WriteLine($"📊 Agent Created (with auto-injected EventStore)");
 Console.WriteLine($"   ID: {agentId:N}\n");
 
 // 创建账户
@@ -130,15 +136,24 @@ Console.WriteLine("════════════════════�
 Console.WriteLine("💥 Simulating system crash...");
 Console.WriteLine("────────────────────────────────────────────");
 
-// 创建新的 Agent 实例（模拟重启）
-var recoveredAgent = new BankAccountAgent();
+// 使用同样的工厂和相同的ID创建新 Agent（模拟重启恢复）
+// EventStore会自动注入，OnActivateAsync会自动重放事件
+var recoveredAgent = factory.CreateGAgent<BankAccountAgent>(agentId) as BankAccountAgent;
 
-Console.WriteLine($"   Initial state:");
+if (recoveredAgent == null)
+{
+    Console.WriteLine("❌ Failed to create recovered BankAccountAgent");
+    return;
+}
+
+Console.WriteLine($"   Initial state (before recovery):");
 Console.WriteLine($"   - Balance: ${recoveredAgent.GetState().Balance:F2}");
 Console.WriteLine($"   - Version: v{recoveredAgent.GetCurrentVersion()}");
 Console.WriteLine($"   - Transactions: {recoveredAgent.GetState().TransactionCount}");
 
 Console.WriteLine($"\n🔄 Replaying events from EventStore...");
+Console.WriteLine($"   Agent ID: {recoveredAgent.Id:N}");
+Console.WriteLine($"   EventStore has events: {(await eventStore.GetEventsAsync(agentId)).Count}");
 
 // 激活 Agent（自动重放事件）
 await recoveredAgent.ActivateAsync();

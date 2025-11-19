@@ -10,7 +10,7 @@ namespace Aevatar.Agents.Core.Helpers;
 /// Agent 和 Actor Logger 自动注入器
 /// 在创建 Agent 或 Actor 实例后自动注入 Logger
 /// </summary>
-public static class AgentLoggerInjector
+public static class LoggerInjector
 {
     /// <summary>
     /// 为 Agent 注入 Logger

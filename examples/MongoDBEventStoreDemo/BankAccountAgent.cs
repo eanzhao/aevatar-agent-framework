@@ -23,7 +23,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 
     public async Task CreateAccountAsync(string accountHolder, decimal initialBalance = 0)
     {
-        Logger?.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
+        Logger.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
             accountHolder, initialBalance);
 
         var evt = new AccountCreated

@@ -37,6 +37,8 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         // 创建 Orleans Actor (继承自 GAgentActorBase!)
         var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider);
 
+        LoggerInjector.InjectLogger(actor, _serviceProvider);
+
         // 激活
         await actor.ActivateAsync(ct);
 
