@@ -16,7 +16,7 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
 {
     private readonly IServiceProvider _serviceProvider = fixture.ServiceProvider;
 
-    #region 2.1.1 State Management Tests
+    #region State Management Tests
 
     [Fact(DisplayName = "GAgentBase should initialize state correctly")]
     public void Should_Initialize_State_Correctly()
@@ -166,7 +166,7 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
 
     #endregion
 
-    #region 2.1.3 Lifecycle Tests
+    #region Lifecycle Tests
 
     [Fact(DisplayName = "GAgentBase should activate correctly")]
     public async Task Should_Activate_Correctly()
@@ -230,7 +230,7 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
 
     #endregion
 
-    #region 2.1.4 Description Methods Tests
+    #region Description Methods Tests
 
     [Fact(DisplayName = "Should get description synchronously")]
     public void Should_Get_Description_Synchronously()

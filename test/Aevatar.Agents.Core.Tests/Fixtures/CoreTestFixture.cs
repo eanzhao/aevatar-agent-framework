@@ -11,27 +11,54 @@ namespace Aevatar.Agents.Core.Tests.Fixtures;
 /// </summary>
 public class CoreTestFixture : IDisposable
 {
-    public IServiceProvider ServiceProvider { get; }
+    private IServiceProvider _serviceProvider;
+    public IServiceProvider ServiceProvider => _serviceProvider;
     public TestEventPublisher EventPublisher { get; }
 
     public CoreTestFixture()
     {
         var services = new ServiceCollection();
-
-        // Register state stores
-        services.AddSingleton(typeof(IStateStore<>), typeof(InMemoryStateStore<>));
-        services.AddSingleton(typeof(IConfigStore<>), typeof(InMemoryConfigStore<>));
+        ConfigureCoreServices(services);
 
         // Register TestEventPublisher as singleton so we can access it for assertions
         var eventPublisher = new TestEventPublisher();
         EventPublisher = eventPublisher;
         services.AddSingleton<IEventPublisher>(eventPublisher);
 
+        // Allow derived classes to add their services
+        ConfigureAdditionalServices(services);
+
         // Build service provider
-        ServiceProvider = services.BuildServiceProvider();
+        _serviceProvider = services.BuildServiceProvider();
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Configure core services required by GAgentBase
+    /// </summary>
+    protected virtual void ConfigureCoreServices(IServiceCollection services)
+    {
+        // Register state stores
+        services.AddSingleton(typeof(IStateStore<>), typeof(InMemoryStateStore<>));
+        services.AddSingleton(typeof(IConfigStore<>), typeof(InMemoryConfigStore<>));
+    }
+
+    /// <summary>
+    /// Override in derived classes to add additional services
+    /// </summary>
+    protected virtual void ConfigureAdditionalServices(IServiceCollection services)
+    {
+        // Override in derived classes
+    }
+
+    /// <summary>
+    /// Update the service provider (for use by derived classes)
+    /// </summary>
+    protected void UpdateServiceProvider(IServiceProvider serviceProvider)
+    {
+        _serviceProvider = serviceProvider;
+    }
+
+    public virtual void Dispose()
     {
         // Clear event publisher state
         EventPublisher?.Clear();

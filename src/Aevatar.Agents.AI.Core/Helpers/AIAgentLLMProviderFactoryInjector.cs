@@ -8,7 +8,7 @@ namespace Aevatar.Agents.AI.Core.Helpers;
 /// Agent LLM Provider Factory automatic injector
 /// Injects ILLMProviderFactory into Agent instances after creation
 /// </summary>
-public static class LLMProviderFactoryInjector
+public static class AIAgentLLMProviderFactoryInjector
 {
     /// <summary>
     /// Inject ILLMProviderFactory into Agent

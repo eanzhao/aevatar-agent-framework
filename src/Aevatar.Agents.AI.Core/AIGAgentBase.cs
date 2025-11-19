@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -265,7 +266,7 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
             // Add token usage if available
             if (llmResponse.Usage != null)
             {
-                response.Usage = new Aevatar.Agents.AI.AevatarTokenUsage
+                response.Usage = new AevatarTokenUsage
                 {
                     PromptTokens = llmResponse.Usage.PromptTokens,
                     CompletionTokens = llmResponse.Usage.CompletionTokens,
@@ -274,19 +275,19 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
             }
 
             // Publish chat response event
-            await PublishAsync(new Messages.ChatResponseEvent
+            await PublishAsync(new ChatResponseEvent
             {
                 RequestId = request.RequestId,
                 Content = response.Content,
                 TokensUsed = response.Usage?.TotalTokens ?? 0,
                 Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
-            });
+            }, ct: cancellationToken);
 
             return response;
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "Error processing chat request {RequestId}", request.RequestId);
+            Logger.LogError(ex, "Error processing chat request {RequestId}", request.RequestId);
             throw;
         }
     }
@@ -319,8 +320,10 @@ public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig
     /// </summary>
     protected virtual AevatarLLMSettings GetLLMSettings(Aevatar.Agents.AI.ChatRequest request)
     {
-        // Use request values if provided, otherwise use configuration
-        double temperature = request.Temperature > 0 ? request.Temperature : Configuration.Temperature;
+        // Use request values if provided (considering 0 as a valid temperature), otherwise use configuration
+        // For temperature: accept any value >= 0 as valid override
+        // For maxTokens: only positive values are valid overrides
+        double temperature = request.Temperature >= 0 ? request.Temperature : Configuration.Temperature;
         int maxTokens = request.MaxTokens > 0 ? request.MaxTokens : Configuration.MaxTokens;
 
         return new AevatarLLMSettings

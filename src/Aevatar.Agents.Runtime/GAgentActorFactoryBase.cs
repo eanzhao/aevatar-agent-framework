@@ -65,9 +65,9 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
 
         // 如果有 LLM 相关，注入 LLMProviderFactory
-        if (LLMProviderFactoryInjector.HasLLMProviderFactory(agent))
+        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
         {
-            LLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
+            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
         }
     }
 }

@@ -43,9 +43,9 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         // 自动注入 ConfigurationStore
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
 
-        if (LLMProviderFactoryInjector.HasLLMProviderFactory(agent))
+        if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
         {
-            LLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
+            AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
         }
 
         // 创建 Actor（使用 Stream）

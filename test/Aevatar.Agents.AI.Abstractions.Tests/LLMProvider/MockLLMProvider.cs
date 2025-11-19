@@ -39,6 +39,14 @@ public class MockLLMProvider : IAevatarLLMProvider
         _exceptionToThrow = exception;
     }
     
+    public void Clear()
+    {
+        _responses.Clear();
+        _capturedRequests.Clear();
+        _throwOnGenerate = false;
+        _exceptionToThrow = null;
+    }
+    
     public Task<AevatarLLMResponse> GenerateAsync(
         AevatarLLMRequest request,
         CancellationToken cancellationToken = default)
@@ -88,7 +96,7 @@ public class MockLLMProvider : IAevatarLLMProvider
         
         // Simulate streaming by splitting the content into tokens
         var words = response.Content.Split(' ');
-        for (int i = 0; i < words.Length; i++)
+        for (var i = 0; i < words.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             
