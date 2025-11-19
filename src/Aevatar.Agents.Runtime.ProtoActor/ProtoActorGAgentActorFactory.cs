@@ -30,7 +30,7 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
     /// <summary>
     /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
     /// </summary>
-    public override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
         _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}",

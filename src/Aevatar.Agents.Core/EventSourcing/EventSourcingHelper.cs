@@ -110,7 +110,7 @@ public static class EventSourcingHelper
                     BindingFlags.Public | BindingFlags.Instance);
                 
                 var onActivateAsync = baseType.GetMethod("OnActivateAsync", 
-                    BindingFlags.Public | BindingFlags.Instance);
+                    BindingFlags.NonPublic | BindingFlags.Instance);
                 
                 if (eventStoreProperty == null || getCurrentVersion == null || onActivateAsync == null)
                 {

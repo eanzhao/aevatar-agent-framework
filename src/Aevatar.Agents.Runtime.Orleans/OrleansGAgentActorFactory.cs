@@ -24,7 +24,7 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         _streamProvider = clusterClient.GetStreamProvider(AevatarAgentsOrleansConstants.StreamProviderName);
     }
 
-    public override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
         _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}",

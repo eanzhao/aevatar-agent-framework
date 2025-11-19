@@ -29,26 +29,40 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
     public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent
     {
-        if (_factoryProvider == null)
-        {
-            throw new InvalidOperationException(
-                $"No IGAgentActorFactoryProvider registered. Please register an agent factory for type {typeof(TAgent).Name}");
-        }
-
         var agentType = typeof(TAgent);
-        var factory = _factoryProvider.GetFactory(agentType);
-
-        if (factory == null)
+        
+        // 尝试获取自定义工厂（如果有 provider）
+        if (_factoryProvider != null)
+        {
+            var customFactory = _factoryProvider.GetFactory(agentType);
+            if (customFactory != null)
+            {
+                _logger.LogDebug("Using custom factory for type {AgentType} with id {Id}",
+                    agentType.Name, id);
+                return await customFactory(this, id, ct);
+            }
+        }
+        
+        // 默认流程：创建 Agent + 包装成 Actor
+        _logger.LogDebug("Using default creation process for type {AgentType} with id {Id}",
+            agentType.Name, id);
+            
+        if (_agentFactory == null)
         {
             throw new InvalidOperationException(
-                $"No factory found for agent type {agentType.Name}. Please ensure the agent is properly registered.");
+                $"No IGAgentFactory registered. Cannot create agent of type {agentType.Name}");
         }
-
-        _logger.LogDebug("Creating agent actor using factory for type {AgentType} with id {Id}",
-            agentType.Name, id);
-
-        return await factory(this, id, ct);
+        
+        // 1. 创建 Agent 实例（由 IGAgentFactory 负责）
+        var agent = _agentFactory.CreateGAgent(id, agentType, ct);
+        
+        // 2. 包装成 Actor（由子类实现具体逻辑）
+        return await CreateActorForAgentAsync(agent, id, ct);
     }
 
-    public abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
+    /// <summary>
+    /// 为已存在的 Agent 实例创建 Actor 包装器
+    /// 由子类实现具体的包装逻辑
+    /// </summary>
+    protected abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
 }

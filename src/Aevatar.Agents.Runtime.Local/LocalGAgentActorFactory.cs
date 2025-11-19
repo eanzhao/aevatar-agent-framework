@@ -22,7 +22,7 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         _streamRegistry = new LocalMessageStreamRegistry();
     }
 
-    public override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
         // 检查是否已存在

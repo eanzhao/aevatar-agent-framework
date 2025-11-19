@@ -1,3 +1,5 @@
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.EventSourcing;
@@ -221,6 +223,8 @@ public static class MultiRuntimeEventSourcingDemo
         
         // EventStore - 注册为单例（所有运行时共享）
         services.AddSingleton<InMemoryEventStore>();
+
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
         
         return services;
     }

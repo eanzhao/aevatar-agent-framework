@@ -55,7 +55,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         
         // Register the factory provider for auto-discovery
-        services.TryAddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;

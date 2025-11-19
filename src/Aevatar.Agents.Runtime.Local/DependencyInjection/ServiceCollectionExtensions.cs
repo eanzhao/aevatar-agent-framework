@@ -30,10 +30,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<LocalSubscriptionManager>();
 
         // Register the factory provider for auto-discovery
-        services.TryAddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
 
         // Register the default IGAgentFactory if not already registered
-        // This will be used by AutoDiscoveryGAgentActorFactoryProvider
+        // This will be used by DefaultGAgentActorFactoryProvider
         services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;

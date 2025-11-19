@@ -1,4 +1,6 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.Helpers;
 using EventSourcingDemo;

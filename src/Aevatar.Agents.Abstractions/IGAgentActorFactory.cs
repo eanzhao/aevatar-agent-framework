@@ -15,13 +15,4 @@ public interface IGAgentActorFactory
     /// <returns>Actor 实例</returns>
     Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
         where TAgent : IGAgent;
-
-    /// <summary>
-    /// 为已存在的 Agent 实例创建 Actor 包装器
-    /// </summary>
-    /// <param name="agent">Agent 实例</param>
-    /// <param name="id">Agent ID</param>
-    /// <param name="ct">取消令牌</param>
-    /// <returns>Actor 实例</returns>
-    Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
 }
