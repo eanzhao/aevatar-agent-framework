@@ -6,7 +6,7 @@
 
 ### 1. AuthServer (认证中心)
 ```bash
-cd ../Aevatar.AuthServer.New/src/Aevatar.AuthServer.New.Web
+cd ../Aevatar.AuthServer/src/Aevatar.AuthServer.Web
 dotnet run
 ```
 访问: https://localhost:44320

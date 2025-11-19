@@ -1,0 +1,105 @@
+{
+  "template": "app",
+  "imports": {
+    "Volo.Abp.LeptonXLiteTheme": {
+      "version": "4.0.5",
+      "isInstalled": true
+    },
+    "Volo.Abp.Account": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.OpenIddict": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.Identity": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.TenantManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.SettingManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.PermissionManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.FeatureManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    }
+  },
+  "folders": {
+    "items": {
+      "src": {},
+      "test": {}
+    }
+  },
+  "packages": {
+    "Aevatar.AuthServer.Application": {
+      "path": "src/Aevatar.AuthServer.Application/Aevatar.AuthServer.Application.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.Application.Tests": {
+      "path": "test/Aevatar.AuthServer.Application.Tests/Aevatar.AuthServer.Application.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.MongoDB": {
+      "path": "src/Aevatar.AuthServer.MongoDB/Aevatar.AuthServer.MongoDB.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.MongoDB.Tests": {
+      "path": "test/Aevatar.AuthServer.MongoDB.Tests/Aevatar.AuthServer.MongoDB.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.Domain.Shared": {
+      "path": "src/Aevatar.AuthServer.Domain.Shared/Aevatar.AuthServer.Domain.Shared.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.Application.Contracts": {
+      "path": "src/Aevatar.AuthServer.Application.Contracts/Aevatar.AuthServer.Application.Contracts.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.HttpApi": {
+      "path": "src/Aevatar.AuthServer.HttpApi/Aevatar.AuthServer.HttpApi.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.HttpApi.Client": {
+      "path": "src/Aevatar.AuthServer.HttpApi.Client/Aevatar.AuthServer.HttpApi.Client.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.Web": {
+      "path": "src/Aevatar.AuthServer.Web/Aevatar.AuthServer.Web.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.Web.Tests": {
+      "path": "test/Aevatar.AuthServer.Web.Tests/Aevatar.AuthServer.Web.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.TestBase": {
+      "path": "test/Aevatar.AuthServer.TestBase/Aevatar.AuthServer.TestBase.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.Domain.Tests": {
+      "path": "test/Aevatar.AuthServer.Domain.Tests/Aevatar.AuthServer.Domain.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.HttpApi.Client.ConsoleTestApp": {
+      "path": "test/Aevatar.AuthServer.HttpApi.Client.ConsoleTestApp/Aevatar.AuthServer.HttpApi.Client.ConsoleTestApp.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.AuthServer.DbMigrator": {
+      "path": "src/Aevatar.AuthServer.DbMigrator/Aevatar.AuthServer.DbMigrator.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.AuthServer.Domain": {
+      "path": "src/Aevatar.AuthServer.Domain/Aevatar.AuthServer.Domain.abppkg",
+      "folder": "src"
+    }
+  }
+}
