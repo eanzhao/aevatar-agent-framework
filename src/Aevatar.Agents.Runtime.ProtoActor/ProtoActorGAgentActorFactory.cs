@@ -59,6 +59,12 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
                 {
                     AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
                 }
+                
+                // EventStore 注入（向后兼容）
+                if (AgentEventStoreInjector.HasEventStore(agent))
+                {
+                    AgentEventStoreInjector.InjectEventStore(agent, _serviceProvider);
+                }
             }
         }
 

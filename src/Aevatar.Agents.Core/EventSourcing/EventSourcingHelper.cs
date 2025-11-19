@@ -102,9 +102,9 @@ public static class EventSourcingHelper
             if (baseType.IsGenericType && 
                 baseType.GetGenericTypeDefinition() == typeof(GAgentBaseWithEventSourcing<>))
             {
-                // Found EventSourcing base class, get methods
-                var setEventStore = baseType.GetMethod("SetEventStore", 
-                    BindingFlags.Public | BindingFlags.Instance);
+                // Found EventSourcing base class, get property and methods
+                var eventStoreProperty = baseType.GetProperty("EventStore", 
+                    BindingFlags.NonPublic | BindingFlags.Instance);
                 
                 var getCurrentVersion = baseType.GetMethod("GetCurrentVersion", 
                     BindingFlags.Public | BindingFlags.Instance);
@@ -112,10 +112,19 @@ public static class EventSourcingHelper
                 var onActivateAsync = baseType.GetMethod("OnActivateAsync", 
                     BindingFlags.Public | BindingFlags.Instance);
                 
-                if (setEventStore == null || getCurrentVersion == null || onActivateAsync == null)
+                if (eventStoreProperty == null || getCurrentVersion == null || onActivateAsync == null)
                 {
                     throw new InvalidOperationException(
-                        $"Failed to find required EventSourcing methods on type {baseType.FullName}");
+                        $"Failed to find required EventSourcing properties/methods on type {baseType.FullName}");
+                }
+                
+                // Get property setter method (including non-public)
+                var setEventStore = eventStoreProperty.GetSetMethod(true);
+                    
+                if (setEventStore == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Failed to find EventStore setter on type {baseType.FullName}");
                 }
                 
                 return new EventSourcingMethods

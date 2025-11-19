@@ -1,5 +1,8 @@
+using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Helpers;
 using EventSourcingDemo;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 Console.WriteLine("🌌 Aevatar Agent Framework - EventSourcing Demo V2");
@@ -21,6 +24,12 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 var eventStore = new InMemoryEventStore();
 var logger = loggerFactory.CreateLogger<BankAccountAgent>();
 
+// 创建 ServiceProvider 用于依赖注入
+var services = new ServiceCollection();
+services.AddSingleton<IEventStore>(eventStore);
+services.AddSingleton(loggerFactory);
+var serviceProvider = services.BuildServiceProvider();
+
 // ============================================================
 // Part 1: 创建账户并执行交易
 // ============================================================
@@ -30,8 +39,10 @@ Console.WriteLine("════════════════════�
 var agent = new BankAccountAgent();
 var agentId = agent.Id;
 
-// ✅ 注入 EventStore（直接调用public方法）
-agent.SetEventStore(eventStore);
+// ✅ 注入 EventStore（通过反射注入，因为是 protected 属性）
+var eventStoreProperty = agent.GetType().GetProperty("EventStore", 
+    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+eventStoreProperty?.SetValue(agent, eventStore);
 
 Console.WriteLine($"📊 Agent Created");
 Console.WriteLine($"   ID: {agentId:N}\n");
@@ -119,7 +130,6 @@ Console.WriteLine("────────────────────�
 
 // 创建新的 Agent 实例（模拟重启）
 var recoveredAgent = new BankAccountAgent();
-recoveredAgent.SetEventStore(eventStore);
 
 Console.WriteLine($"   Initial state:");
 Console.WriteLine($"   - Balance: ${recoveredAgent.GetState().Balance:F2}");

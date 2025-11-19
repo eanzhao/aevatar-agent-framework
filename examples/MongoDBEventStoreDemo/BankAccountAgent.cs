@@ -17,8 +17,6 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         return Task.FromResult($"MongoDB Bank Account Agent for {State.AccountHolder}");
     }
 
-    public new BankAccountState GetState() => State;
-
     protected override ISnapshotStrategy SnapshotStrategy => new IntervalSnapshotStrategy(10);
 
     // ========== Business Operations ==========

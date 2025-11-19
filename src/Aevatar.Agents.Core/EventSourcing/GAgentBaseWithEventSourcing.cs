@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -48,12 +49,16 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
 
     // ========== Instance Fields ==========
 
-    private IEventStore? _eventStore;
+    /// <summary>
+    /// EventStore for persistence (supports injection)
+    /// </summary>
+    protected IEventStore? EventStore { get; set; }
+
     private long _currentVersion;
 
     // Batch event management (borrowed from JournaledGrain)
     private readonly List<AgentStateEvent> _pendingEvents = [];
-    
+
     public GAgentBaseWithEventSourcing() : this(Guid.NewGuid())
     {
     }
@@ -107,7 +112,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     {
         if (_pendingEvents.Count == 0) return;
 
-        if (_eventStore == null)
+        if (EventStore == null)
         {
             Logger?.LogWarning("EventStore not configured, events will not be persisted");
             _pendingEvents.Clear();
@@ -117,7 +122,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
         try
         {
             // Batch persist
-            _currentVersion = await _eventStore.AppendEventsAsync(
+            _currentVersion = await EventStore.AppendEventsAsync(
                 Id,
                 _pendingEvents,
                 _currentVersion,
@@ -317,6 +322,8 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     {
         // GAgentBase<TState> uses a Property, not a Field
         // So we need to set the State property directly
+        // Use InitializationScope for event replay and state transitions
+        using var _ = StateProtectionContext.BeginInitializationScope();
         State = newState;
     }
 
@@ -336,7 +343,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     /// </summary>
     public async Task ReplayEventsAsync(CancellationToken ct = default)
     {
-        if (_eventStore == null)
+        if (EventStore == null)
         {
             Logger?.LogWarning("EventStore not configured, cannot replay events");
             return;
@@ -346,7 +353,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
             _currentVersion);
 
         // Step 1: Load latest snapshot
-        var snapshot = await _eventStore.GetLatestSnapshotAsync(Id, ct);
+        var snapshot = await EventStore.GetLatestSnapshotAsync(Id, ct);
         if (snapshot != null)
         {
             Logger.LogInformation(
@@ -367,7 +374,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
         var fromVersion = _currentVersion + 1;
         Logger.LogInformation("Loading events from version {FromVersion} for agent {AgentId}", fromVersion, Id);
 
-        var events = await _eventStore.GetEventsAsync(
+        var events = await EventStore.GetEventsAsync(
             Id,
             fromVersion: fromVersion,
             ct: ct);
@@ -433,7 +440,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     /// </summary>
     private async Task CreateSnapshotInternalAsync(CancellationToken ct)
     {
-        if (_eventStore == null) return;
+        if (EventStore == null) return;
 
         var snapshot = new AgentSnapshot
         {
@@ -442,7 +449,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
             StateData = Any.Pack(State)
         };
 
-        await _eventStore.SaveSnapshotAsync(Id, snapshot, ct);
+        await EventStore.SaveSnapshotAsync(Id, snapshot, ct);
 
         Logger?.LogInformation(
             "Snapshot created for agent {AgentId} at version {Version}",
@@ -493,14 +500,6 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
     /// </summary>
     public long GetCurrentVersion() => _currentVersion;
 
-    /// <summary>
-    /// Set event store (for DI scenarios)
-    /// </summary>
-    public void SetEventStore(IEventStore eventStore)
-    {
-        _eventStore = eventStore;
-    }
-
     // ========== Lifecycle ==========
 
     /// <summary>
@@ -511,7 +510,7 @@ public abstract class GAgentBaseWithEventSourcing<TState>(Guid id) : GAgentBase<
         await base.OnActivateAsync(ct);
 
         // Auto-replay events
-        if (_eventStore != null)
+        if (EventStore != null)
         {
             await ReplayEventsAsync(ct);
         }

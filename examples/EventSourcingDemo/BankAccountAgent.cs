@@ -22,7 +22,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     /// <summary>
     /// Get current state (for demo/testing)
     /// </summary>
-    public BankAccountState GetState() => State;
+    public new BankAccountState GetState() => State;
 
     // ========== Business Operations (使用新 API) ==========
 

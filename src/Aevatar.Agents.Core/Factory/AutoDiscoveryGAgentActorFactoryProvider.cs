@@ -1,11 +1,5 @@
-using System;
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -90,93 +84,6 @@ public class AutoDiscoveryGAgentActorFactoryProvider : IGAgentActorFactoryProvid
                     _logger?.LogWarning(
                         "IGAgentFactory not found, falling back to direct creation for type {AgentType}",
                         agentType.Name);
-                    agent = null;
-                }
-
-                // 如果 IGAgentFactory 创建失败，尝试传统方式
-                if (agent == null)
-                {
-                    try
-                    {
-                        agent = ActivatorUtilities.CreateInstance(_serviceProvider, agentType, id) as IGAgent;
-                    }
-                    catch
-                    {
-                        // 如果使用DI失败，回退到直接使用构造函数
-                        agent = null;
-                    }
-                }
-
-                if (agent == null)
-                {
-                    // 查找所有带Guid参数的构造函数
-                    var constructors = agentType.GetConstructors()
-                        .Where(c => c.GetParameters().Any(p => p.ParameterType == typeof(Guid)))
-                        .OrderBy(c => c.GetParameters().Length)
-                        .ToList();
-
-                    foreach (var ctor in constructors)
-                    {
-                        try
-                        {
-                            var parameters = ctor.GetParameters();
-                            var args = new object[parameters.Length];
-
-                            for (var i = 0; i < parameters.Length; i++)
-                            {
-                                if (parameters[i].ParameterType == typeof(Guid))
-                                {
-                                    args[i] = id;
-                                }
-                                else if (parameters[i].HasDefaultValue)
-                                {
-                                    args[i] = parameters[i].DefaultValue!;
-                                }
-                                else
-                                {
-                                    // 尝试从 DI 容器获取
-                                    args[i] = _serviceProvider.GetService(parameters[i].ParameterType)!;
-                                }
-                            }
-
-                            agent = ctor.Invoke(args) as IGAgent;
-                            if (agent != null) break;
-                        }
-                        catch
-                        {
-                            // 继续尝试下一个构造函数
-                        }
-                    }
-                }
-
-                if (agent == null)
-                {
-                    // 最后尝试使用默认构造函数并设置ID（保留作为最后的后备方案）
-                    try
-                    {
-                        agent = Activator.CreateInstance(agentType) as IGAgent;
-                        if (agent != null)
-                        {
-                            var idProperty = agentType.GetProperty("Id");
-                            if (idProperty != null && idProperty.CanWrite)
-                            {
-                                idProperty.SetValue(agent, id);
-                            }
-
-                            // 手动注入依赖（仅在没有使用 IGAgentFactory 时才需要）
-                            AgentLoggerInjector.InjectLogger(agent, _serviceProvider);
-                            AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
-                            AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-                        }
-                    }
-                    catch
-                    {
-                        // 忽略
-                    }
-                }
-
-                if (agent == null)
-                {
                     throw new InvalidOperationException($"Failed to create agent instance of type {agentType.Name}");
                 }
             }
