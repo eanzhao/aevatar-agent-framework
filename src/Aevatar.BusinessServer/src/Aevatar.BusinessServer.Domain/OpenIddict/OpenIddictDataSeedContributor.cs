@@ -58,10 +58,23 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
 
     private async Task CreateScopesAsync()
     {
+        // Create Aevatar scope (main API scope)
+        if (await _openIddictScopeRepository.FindByNameAsync("Aevatar") == null)
+        {
+            await _scopeManager.CreateAsync(new OpenIddictScopeDescriptor {
+                Name = "Aevatar", 
+                DisplayName = "Aevatar API", 
+                Resources = { "Aevatar" }
+            });
+        }
+        
+        // Also create BusinessServer scope for backward compatibility
         if (await _openIddictScopeRepository.FindByNameAsync("BusinessServer") == null)
         {
             await _scopeManager.CreateAsync(new OpenIddictScopeDescriptor {
-                Name = "BusinessServer", DisplayName = "BusinessServer API", Resources = { "BusinessServer" }
+                Name = "BusinessServer", 
+                DisplayName = "BusinessServer API", 
+                Resources = { "BusinessServer" }
             });
         }
     }
@@ -74,11 +87,36 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
             OpenIddictConstants.Permissions.Scopes.Phone,
             OpenIddictConstants.Permissions.Scopes.Profile,
             OpenIddictConstants.Permissions.Scopes.Roles,
+            "Aevatar",
             "BusinessServer"
         };
 
         var configurationSection = _configuration.GetSection("OpenIddict:Applications");
 
+        // BusinessServer API Client (for JWT authentication)
+        var businessServerClientId = configurationSection["BusinessServer:ClientId"];
+        if (!businessServerClientId.IsNullOrWhiteSpace())
+        {
+            var businessServerSecret = configurationSection["BusinessServer:ClientSecret"];
+            var businessServerRootUrl = configurationSection["BusinessServer:RootUrl"]?.TrimEnd('/');
+
+            await CreateApplicationAsync(
+                applicationType: OpenIddictConstants.ApplicationTypes.Web,
+                name: businessServerClientId!,
+                type: OpenIddictConstants.ClientTypes.Confidential,
+                consentType: OpenIddictConstants.ConsentTypes.Implicit,
+                displayName: "Business Server API",
+                secret: businessServerSecret,
+                grantTypes: new List<string>
+                {
+                    OpenIddictConstants.GrantTypes.Password,
+                    OpenIddictConstants.GrantTypes.ClientCredentials,
+                    OpenIddictConstants.GrantTypes.RefreshToken
+                },
+                scopes: commonScopes,
+                clientUri: businessServerRootUrl
+            );
+        }
 
         //Console Test / Angular Client
         var consoleAndAngularClientId = configurationSection["BusinessServer_App:ClientId"];
