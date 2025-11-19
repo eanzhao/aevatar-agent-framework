@@ -25,8 +25,9 @@ public abstract class GAgentBase : IGAgent
 
     /// <summary>
     /// Agent unique identifier
+    /// Can be set internally by factories for recovery scenarios
     /// </summary>
-    public Guid Id { get; }
+    public Guid Id { get; internal set; }
 
     /// <summary>
     /// Event publisher for sending events

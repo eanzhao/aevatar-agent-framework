@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core.Helpers;
+using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -49,6 +50,12 @@ public class AIGAgentFactory : IGAgentFactory
         else
         {
             agent = (IGAgent)Activator.CreateInstance(agentType)!;
+            // Set ID for agents created with parameterless constructor
+            // This allows recovery scenarios without requiring ID constructor
+            if (agent is GAgentBase baseAgent)
+            {
+                baseAgent.Id = id;
+            }
         }
 
         LoggerInjector.InjectLogger(agent, _serviceProvider);

@@ -62,16 +62,9 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     // ========== Constructors ==========
     
     /// <summary>
-    /// Constructor with specific ID
+    /// Default constructor - ID will be set by factory if needed
     /// </summary>
-    public GAgentBaseWithEventSourcing(Guid id) : base(id)
-    {
-    }
-    
-    /// <summary>
-    /// Default constructor - generates new ID
-    /// </summary>
-    public GAgentBaseWithEventSourcing() : this(Guid.NewGuid())
+    public GAgentBaseWithEventSourcing() : base()
     {
     }
 

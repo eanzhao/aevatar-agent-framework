@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
@@ -112,6 +113,9 @@ var host = Host.CreateDefaultBuilder(args)
         
         // ✅ Register OrleansEventStore (uses IEventRepository + IEventStorageGrain)
         services.AddSingleton<IEventStore, OrleansEventStore>();
+        
+        // ✅ Register AIGAgentFactory for automatic EventStore injection
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
         
         // ✅ Register Orleans Agent Factory
         services.AddOrleansActorFactory();

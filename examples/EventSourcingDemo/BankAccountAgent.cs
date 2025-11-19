@@ -12,16 +12,6 @@ namespace EventSourcingDemo;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    // Default constructor - generates new ID
-    public BankAccountAgent() : base(Guid.NewGuid())
-    {
-    }
-    
-    // Constructor with specific ID - for recovery scenarios
-    public BankAccountAgent(Guid id) : base(id)
-    {
-    }
-    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"Bank Account Agent for {State.AccountHolder}");

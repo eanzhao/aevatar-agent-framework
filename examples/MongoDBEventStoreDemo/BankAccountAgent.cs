@@ -12,6 +12,8 @@ namespace MongoDBEventStoreDemo;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
+    // No need for ID constructor anymore - framework handles it automatically!
+    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"MongoDB Bank Account Agent for {State.AccountHolder}");
