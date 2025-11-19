@@ -1,9 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.Core.Tests.Agents.AI;
+using System.ComponentModel;
+using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
+using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -25,6 +22,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("Strategy CanHandle with reasoning question should return true")]
     public void Strategy_CanHandle_WithReasoningQuestion_ShouldReturnTrue()
     {
         // Arrange
@@ -42,6 +40,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("Strategy EstimateComplexity should return expected value")]
     public void Strategy_EstimateComplexity_ShouldReturnExpectedValue()
     {
         // Arrange
@@ -61,6 +60,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ChainOfThought ProcessAsync should generate multiple thought steps")]
     public async Task ChainOfThought_ProcessAsync_ShouldGenerateMultipleThoughtSteps()
     {
         // Arrange
@@ -91,6 +91,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ChainOfThought ProcessAsync with high confidence conclusion should stop early")]
     public async Task ChainOfThought_ProcessAsync_WithHighConfidenceConclusion_ShouldStopEarly()
     {
         // Arrange
@@ -120,6 +121,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ChainOfThought ProcessAsync reaching max steps should summarize")]
     public async Task ChainOfThought_ProcessAsync_ReachingMaxSteps_ShouldSummarize()
     {
         // Arrange
@@ -142,6 +144,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ChainOfThought ValidateRequirements without LLM provider should fail")]
     public void ChainOfThought_ValidateRequirements_WithoutLLMProvider_ShouldFail()
     {
         // Arrange
@@ -160,6 +163,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct CanHandle with tool required question should return true")]
     public void ReAct_CanHandle_WithToolRequiredQuestion_ShouldReturnTrue()
     {
         // Arrange
@@ -178,6 +182,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct ProcessAsync should alternate thought and action")]
     public async Task ReAct_ProcessAsync_ShouldAlternateThoughtAndAction()
     {
         // Arrange
@@ -211,6 +216,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct ProcessAsync should execute tools correctly")]
     public async Task ReAct_ProcessAsync_ShouldExecuteToolsCorrectly()
     {
         // Arrange
@@ -240,6 +246,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct ProcessAsync with tool failure should handle gracefully")]
     public async Task ReAct_ProcessAsync_WithToolFailure_ShouldHandleGracefully()
     {
         // Arrange
@@ -265,6 +272,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct ProcessAsync reaching max iterations should stop")]
     public async Task ReAct_ProcessAsync_ReachingMaxIterations_ShouldStop()
     {
         // Arrange
@@ -295,6 +303,7 @@ public class ProcessingStrategyTests
     }
 
     [Fact]
+    [DisplayName("ReAct IsTaskComplete with sufficient observations should return true")]
     public async Task ReAct_IsTaskComplete_WithSufficientObservations_ShouldReturnTrue()
     {
         // Arrange

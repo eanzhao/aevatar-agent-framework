@@ -16,10 +16,7 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
 
     protected LLMProviderFactoryBase(IOptions<LLMProvidersConfig> config, ILogger logger)
     {
-        if (config?.Value == null)
-            throw new ArgumentNullException(nameof(config));
-
-        Config = config.Value;
+        Config = config.Value ?? throw new ArgumentNullException(nameof(config));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ProviderConfigs = new Dictionary<string, LLMProviderConfig>(Config.Providers);
         RegisterProviders();

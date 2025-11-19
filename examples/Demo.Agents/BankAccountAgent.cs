@@ -15,12 +15,7 @@ namespace Demo.Agents;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    public BankAccountAgent(Guid id, IEventStore eventStore, ILogger<BankAccountAgent>? logger = null) 
-        : base(id, eventStore, logger)
-    {
-    }
-    
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         

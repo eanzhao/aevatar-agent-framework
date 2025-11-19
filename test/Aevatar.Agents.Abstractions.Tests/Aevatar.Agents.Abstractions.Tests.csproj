@@ -38,10 +38,6 @@
         <Protobuf Include="*.proto" GrpcServices="None" />
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Messages\" />
-    </ItemGroup>
-
 </Project>
 
 
