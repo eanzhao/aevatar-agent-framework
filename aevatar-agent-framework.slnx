@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/agents/">
+    <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" Type="Classic C#" />
+    <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" Type="Classic C#" />
+  </Folder>
   <Folder Name="/apps/" />
   <Folder Name="/docs/">
     <File Path="docs\CORE_CONCEPTS.md" />
