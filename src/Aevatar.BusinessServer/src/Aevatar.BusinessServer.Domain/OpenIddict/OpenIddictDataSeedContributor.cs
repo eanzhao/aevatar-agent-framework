@@ -165,6 +165,7 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 grantTypes: new List<string> { OpenIddictConstants.GrantTypes.AuthorizationCode, },
                 scopes: commonScopes,
                 redirectUri: $"{businessServerSwaggerRootUrl}/swagger/oauth2-redirect.html",
+                postLogoutRedirectUri: $"{businessServerSwaggerRootUrl}/swagger/",
                 clientUri: businessServerSwaggerRootUrl.EnsureEndsWith('/') + "swagger",
                 logoUri: "/images/clients/swagger.svg"
             );
@@ -390,7 +391,10 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
 
     private bool HasSameRedirectUris(OpenIddictApplication existingClient, AbpApplicationDescriptor application)
     {
-        return existingClient.RedirectUris == JsonSerializer.Serialize(application.RedirectUris.Select(q => q.ToString().RemovePostFix("/")));
+        var sameRedirectUris = existingClient.RedirectUris == JsonSerializer.Serialize(application.RedirectUris.Select(q => q.ToString().RemovePostFix("/")));
+        var samePostLogoutRedirectUris = existingClient.PostLogoutRedirectUris == JsonSerializer.Serialize(application.PostLogoutRedirectUris.Select(q => q.ToString().RemovePostFix("/")));
+        
+        return sameRedirectUris && samePostLogoutRedirectUris;
     }
 
     private bool HasSameScopes(OpenIddictApplication existingClient, AbpApplicationDescriptor application)
