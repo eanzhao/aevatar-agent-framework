@@ -33,7 +33,7 @@ AuthServer (44320)      BusinessServer (44345)
      ↓                         ↓
   用户/角色/权限管理       业务逻辑 + Token验证
          ↓
-    共享数据库 (MongoDB: New)
+    共享数据库 (MongoDB: AevatarBusiness)
 ```
 
 - **AuthServer**: 统一管理用户、角色、权限
@@ -54,7 +54,7 @@ TOKEN=$(curl -k -s -X POST https://localhost:44320/connect/token \
   -d "grant_type=password" \
   -d "username=admin" \
   -d "password=1q2w3E*" \
-  -d "client_id=New_AuthServer" \
+  -d "client_id=BusinessServer_App" \
   -d "scope=openid profile email roles Aevatar" \
   | jq -r '.access_token')
 
@@ -72,7 +72,7 @@ curl -k -H "Authorization: Bearer $TOKEN" \
 ## 配置说明
 
 **appsettings.json:**
-- `ConnectionStrings:Default`: mongodb://localhost:27017/New (共享数据库)
+- `ConnectionStrings:Default`: mongodb://localhost:27017/AevatarBusiness (共享数据库)
 - `AuthServer:Authority`: https://localhost:44320/
 - `AuthServer:RequireHttpsMetadata`: false (开发环境)
 
@@ -96,13 +96,13 @@ curl -k -H "Authorization: Bearer $TOKEN" \
 
 ```javascript
 // MongoDB命令
-use New
+use AevatarBusiness
 db.AbpPermissionGrants.insertMany([
   {
     TenantId: null,
     Name: "AbpIdentity.Users",
     ProviderName: "C",
-    ProviderKey: "New_AuthServer",
+    ProviderKey: "BusinessServer_App",
     Granted: true
   }
   // ... 其他权限

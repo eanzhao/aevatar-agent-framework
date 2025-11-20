@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
 
-namespace Aevatar.BusinessServer.Web;
+namespace Aevatar.BusinessServer.HttpApi.Host;
 
 public class Program
 {
@@ -19,7 +19,7 @@ public class Program
 
         try
         {
-            Log.Information("Starting web host.");
+            Log.Information("Starting BusinessServer HttpApi.Host.");
             var builder = WebApplication.CreateBuilder(args);
             builder.Host
                 .AddAppSettingsSecretsJson()
@@ -39,7 +39,7 @@ public class Program
                         .WriteTo.Async(c => c.Console())
                         .WriteTo.Async(c => c.AbpStudio(services));
                 });
-            await builder.AddApplicationAsync<BusinessServerWebModule>();
+            await builder.AddApplicationAsync<BusinessServerHttpApiHostModule>();
             var app = builder.Build();
             await app.InitializeApplicationAsync();
             await app.RunAsync();

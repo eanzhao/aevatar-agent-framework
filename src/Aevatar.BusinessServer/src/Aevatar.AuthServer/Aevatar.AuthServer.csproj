@@ -11,6 +11,14 @@
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
+  <!-- Project References (Shared Domain and Infrastructure) -->
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.BusinessServer.Domain\Aevatar.BusinessServer.Domain.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.Application\Aevatar.BusinessServer.Application.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.MongoDB\Aevatar.BusinessServer.MongoDB.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.HttpApi\Aevatar.BusinessServer.HttpApi.csproj" />
+  </ItemGroup>
+
   <!-- Core ABP Framework -->
   <ItemGroup>
     <PackageReference Include="Volo.Abp.Autofac" Version="9.0.4" />
@@ -18,45 +26,7 @@
     <PackageReference Include="Volo.Abp.Swashbuckle" Version="9.0.4" />
   </ItemGroup>
 
-  <!-- MongoDB -->
-  <ItemGroup>
-    <PackageReference Include="Volo.Abp.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.Identity.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.OpenIddict.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.PermissionManagement.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.FeatureManagement.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.SettingManagement.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.TenantManagement.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.BackgroundJobs.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.AuditLogging.MongoDB" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.BlobStoring.Database.MongoDB" Version="9.0.4" />
-  </ItemGroup>
-
-  <!-- Domain modules (CRITICAL: register permission providers) -->
-  <ItemGroup>
-    <PackageReference Include="Volo.Abp.PermissionManagement.Domain.Identity" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.PermissionManagement.Domain.OpenIddict" Version="9.0.4" />
-  </ItemGroup>
-
-  <!-- Application modules (CRITICAL for settings) -->
-  <ItemGroup>
-    <PackageReference Include="Volo.Abp.Account.Application" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.Identity.Application" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.PermissionManagement.Application" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.FeatureManagement.Application" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.SettingManagement.Application" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.TenantManagement.Application" Version="9.0.4" />
-  </ItemGroup>
-
-  <!-- HTTP API modules (provide /api/identity/* endpoints) -->
-  <ItemGroup>
-    <PackageReference Include="Volo.Abp.Identity.HttpApi" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.PermissionManagement.HttpApi" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.FeatureManagement.HttpApi" Version="9.0.4" />
-    <PackageReference Include="Volo.Abp.TenantManagement.HttpApi" Version="9.0.4" />
-  </ItemGroup>
-
-  <!-- UI & Web -->
+  <!-- UI & Web (Required for AuthServer Web UI) -->
   <ItemGroup>
     <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="4.0.5" />
     <PackageReference Include="Volo.Abp.Account.Web.OpenIddict" Version="9.0.4" />

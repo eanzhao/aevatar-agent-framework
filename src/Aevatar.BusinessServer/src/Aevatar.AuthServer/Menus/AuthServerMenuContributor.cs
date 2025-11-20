@@ -1,9 +1,7 @@
 using System.Threading.Tasks;
-using Aevatar.AuthServer.Localization;
-using Aevatar.AuthServer.Permissions;
 using Aevatar.AuthServer.MultiTenancy;
+using Aevatar.BusinessServer.Localization;
 using Volo.Abp.SettingManagement.Web.Navigation;
-using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Identity.Web.Navigation;
 using Volo.Abp.UI.Navigation;
 using Volo.Abp.TenantManagement.Web.Navigation;
@@ -22,7 +20,7 @@ public class AuthServerMenuContributor : IMenuContributor
 
     private static Task ConfigureMainMenuAsync(MenuConfigurationContext context)
     {
-        var l = context.GetLocalizer<AuthServerResource>();
+        var l = context.GetLocalizer<BusinessServerResource>();
 
         //Home
         context.Menu.AddItem(

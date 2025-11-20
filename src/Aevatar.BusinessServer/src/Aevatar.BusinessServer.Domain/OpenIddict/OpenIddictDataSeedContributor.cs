@@ -67,16 +67,6 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 Resources = { "Aevatar" }
             });
         }
-        
-        // Also create BusinessServer scope for backward compatibility
-        if (await _openIddictScopeRepository.FindByNameAsync("BusinessServer") == null)
-        {
-            await _scopeManager.CreateAsync(new OpenIddictScopeDescriptor {
-                Name = "BusinessServer", 
-                DisplayName = "BusinessServer API", 
-                Resources = { "BusinessServer" }
-            });
-        }
     }
 
     private async Task CreateApplicationsAsync()
@@ -87,13 +77,16 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
             OpenIddictConstants.Permissions.Scopes.Phone,
             OpenIddictConstants.Permissions.Scopes.Profile,
             OpenIddictConstants.Permissions.Scopes.Roles,
-            "Aevatar",
-            "BusinessServer"
+            "Aevatar"
         };
 
         var configurationSection = _configuration.GetSection("OpenIddict:Applications");
 
-        // BusinessServer API Client (for JWT authentication)
+        // ❌ Legacy AuthServer Client (for AuthServer self-authentication) - NOT USED ANYMORE
+        // This section was for old "New_AuthServer" configuration key
+        // No longer configured in appsettings.json, code kept for reference only
+
+        // BusinessServer Client (for BusinessServer Web UI)
         var businessServerClientId = configurationSection["BusinessServer:ClientId"];
         if (!businessServerClientId.IsNullOrWhiteSpace())
         {
@@ -105,27 +98,33 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 name: businessServerClientId!,
                 type: OpenIddictConstants.ClientTypes.Confidential,
                 consentType: OpenIddictConstants.ConsentTypes.Implicit,
-                displayName: "Business Server API",
-                secret: businessServerSecret,
+                displayName: "Business Server Application",
+                secret: businessServerSecret ?? "BusinessServerSecret",
                 grantTypes: new List<string>
                 {
-                    OpenIddictConstants.GrantTypes.Password,
                     OpenIddictConstants.GrantTypes.ClientCredentials,
+                    OpenIddictConstants.GrantTypes.AuthorizationCode,
                     OpenIddictConstants.GrantTypes.RefreshToken
                 },
                 scopes: commonScopes,
+                redirectUri: $"{businessServerRootUrl}/signin-oidc",
+                postLogoutRedirectUri: $"{businessServerRootUrl}/signout-callback-oidc",
                 clientUri: businessServerRootUrl
             );
         }
 
-        //Console Test / Angular Client
-        var consoleAndAngularClientId = configurationSection["BusinessServer_App:ClientId"];
-        if (!consoleAndAngularClientId.IsNullOrWhiteSpace())
+        // ❌ Legacy Console Test / Angular Client (New_App) - NOT USED ANYMORE
+        // This section was for old "New_App" configuration key
+        // Now using "BusinessServer_App" instead
+
+        // Console Test / Angular Client (BusinessServer_App for backward compatibility)
+        var businessServerAppClientId = configurationSection["BusinessServer_App:ClientId"];
+        if (!businessServerAppClientId.IsNullOrWhiteSpace())
         {
-            var consoleAndAngularClientRootUrl = configurationSection["BusinessServer_App:RootUrl"]?.TrimEnd('/');
+            var businessServerAppRootUrl = configurationSection["BusinessServer_App:RootUrl"]?.TrimEnd('/');
             await CreateApplicationAsync(
                 applicationType: OpenIddictConstants.ApplicationTypes.Web,
-                name: consoleAndAngularClientId!,
+                name: businessServerAppClientId!,
                 type: OpenIddictConstants.ClientTypes.Public,
                 consentType: OpenIddictConstants.ConsentTypes.Implicit,
                 displayName: "Console Test / Angular Application",
@@ -139,36 +138,34 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                     "Impersonation"
                 },
                 scopes: commonScopes,
-                redirectUri: consoleAndAngularClientRootUrl,
-                postLogoutRedirectUri: consoleAndAngularClientRootUrl,
-                clientUri: consoleAndAngularClientRootUrl,
+                redirectUri: businessServerAppRootUrl,
+                postLogoutRedirectUri: businessServerAppRootUrl,
+                clientUri: businessServerAppRootUrl,
                 logoUri: "/images/clients/angular.svg"
             );
         }
 
-        
-        
+        // ❌ Legacy Swagger Client (New_Swagger) - NOT USED ANYMORE
+        // This section was for old "New_Swagger" configuration key
+        // Now using "BusinessServer_Swagger" instead
 
-
-
-
-        // Swagger Client
-        var swaggerClientId = configurationSection["BusinessServer_Swagger:ClientId"];
-        if (!swaggerClientId.IsNullOrWhiteSpace())
+        // Swagger Client (BusinessServer_Swagger for backward compatibility)
+        var businessServerSwaggerClientId = configurationSection["BusinessServer_Swagger:ClientId"];
+        if (!businessServerSwaggerClientId.IsNullOrWhiteSpace())
         {
-            var swaggerRootUrl = configurationSection["BusinessServer_Swagger:RootUrl"]?.TrimEnd('/');
+            var businessServerSwaggerRootUrl = configurationSection["BusinessServer_Swagger:RootUrl"]?.TrimEnd('/');
 
             await CreateApplicationAsync(
                 applicationType: OpenIddictConstants.ApplicationTypes.Web,
-                name: swaggerClientId!,
+                name: businessServerSwaggerClientId!,
                 type: OpenIddictConstants.ClientTypes.Public,
                 consentType: OpenIddictConstants.ConsentTypes.Implicit,
                 displayName: "Swagger Application",
                 secret: null,
                 grantTypes: new List<string> { OpenIddictConstants.GrantTypes.AuthorizationCode, },
                 scopes: commonScopes,
-                redirectUri: $"{swaggerRootUrl}/swagger/oauth2-redirect.html",
-                clientUri: swaggerRootUrl.EnsureEndsWith('/') + "swagger",
+                redirectUri: $"{businessServerSwaggerRootUrl}/swagger/oauth2-redirect.html",
+                clientUri: businessServerSwaggerRootUrl.EnsureEndsWith('/') + "swagger",
                 logoUri: "/images/clients/swagger.svg"
             );
         }

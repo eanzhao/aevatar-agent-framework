@@ -1,12 +1,12 @@
-﻿using Aevatar.AuthServer.Localization;
+﻿using Aevatar.BusinessServer.Localization;
 using Volo.Abp.AspNetCore.Mvc.UI.RazorPages;
 
 namespace Aevatar.AuthServer.Pages;
 
-public abstract class NewPageModel : AbpPageModel
+public abstract class AuthServerPageModel : AbpPageModel
 {
-    protected NewPageModel()
+    protected AuthServerPageModel()
     {
-        LocalizationResourceType = typeof(AuthServerResource);
+        LocalizationResourceType = typeof(BusinessServerResource);
     }
 }

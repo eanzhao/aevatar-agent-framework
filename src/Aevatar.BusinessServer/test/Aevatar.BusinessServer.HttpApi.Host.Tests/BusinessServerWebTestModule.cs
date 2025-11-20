@@ -2,22 +2,18 @@ using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Localization;
-using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Aevatar.BusinessServer.MongoDB;
-using Aevatar.BusinessServer.Web;
-using Aevatar.BusinessServer.Web.Menus;
+using Aevatar.BusinessServer.HttpApi.Host;
 using Volo.Abp.AspNetCore.TestBase;
 using Volo.Abp.Modularity;
-using Volo.Abp.OpenIddict;
-using Volo.Abp.UI.Navigation;
 
 namespace Aevatar.BusinessServer;
 
 [DependsOn(
     typeof(AbpAspNetCoreTestBaseModule),
-    typeof(BusinessServerWebModule),
+    typeof(BusinessServerHttpApiHostModule),
     typeof(BusinessServerApplicationTestModule),
     typeof(BusinessServerMongoDbTestModule)
 )]
@@ -29,23 +25,11 @@ public class BusinessServerWebTestModule : AbpModule
         builder.AddJsonFile("appsettings.json", false);
         builder.AddJsonFile("appsettings.secrets.json", true);
         context.Services.ReplaceConfiguration(builder.Build());
-
-        context.Services.PreConfigure<IMvcBuilder>(builder =>
-        {
-            builder.PartManager.ApplicationParts.Add(new CompiledRazorAssemblyPart(typeof(BusinessServerWebModule).Assembly));
-        });
-
-        context.Services.GetPreConfigureActions<OpenIddictServerBuilder>().Clear();
-        PreConfigure<AbpOpenIddictAspNetCoreOptions>(options =>
-        {
-            options.AddDevelopmentEncryptionAndSigningCertificate = true;
-        });
     }
 
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         ConfigureLocalizationServices(context.Services);
-        ConfigureNavigationServices(context.Services);
     }
 
     private static void ConfigureLocalizationServices(IServiceCollection services)
@@ -56,14 +40,6 @@ public class BusinessServerWebTestModule : AbpModule
             options.DefaultRequestCulture = new RequestCulture("en");
             options.SupportedCultures = cultures;
             options.SupportedUICultures = cultures;
-        });
-    }
-
-    private static void ConfigureNavigationServices(IServiceCollection services)
-    {
-        services.Configure<AbpNavigationOptions>(options =>
-        {
-            options.MenuContributors.Add(new BusinessServerMenuContributor());
         });
     }
 }

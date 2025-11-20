@@ -23,33 +23,17 @@ using Volo.Abp.Identity.Web;
 using Volo.Abp.TenantManagement.Web;
 using Volo.Abp.PermissionManagement.Web;
 using Volo.Abp.PermissionManagement;
-using Volo.Abp.PermissionManagement.HttpApi;
-using Volo.Abp.PermissionManagement.Identity;
-using Volo.Abp.PermissionManagement.OpenIddict;
-using Volo.Abp.MongoDB;
-using Volo.Abp.Identity.MongoDB;
-using Volo.Abp.FeatureManagement.Web;
-using Volo.Abp.OpenIddict.MongoDB;
-using Volo.Abp.PermissionManagement.MongoDB;
-using Volo.Abp.FeatureManagement.MongoDB;
-using Volo.Abp.SettingManagement.MongoDB;
-using Volo.Abp.TenantManagement.MongoDB;
-using Volo.Abp.BackgroundJobs.MongoDB;
-using Volo.Abp.AuditLogging.MongoDB;
-using Volo.Abp.BlobStoring.Database.MongoDB;
 using Volo.Abp.OpenIddict;
+using Volo.Abp.FeatureManagement;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
 using Volo.Abp.Security.Claims;
-using Volo.Abp.Account;
-using Volo.Abp.Identity;
-using Volo.Abp.FeatureManagement;
-using Volo.Abp.SettingManagement;
-using Volo.Abp.TenantManagement;
 using Aevatar.AuthServer.Menus;
 using Volo.Abp.AspNetCore.Mvc.Localization;
-using Aevatar.AuthServer.Localization;
+using Aevatar.BusinessServer;
+using Aevatar.BusinessServer.Localization;
+using Aevatar.BusinessServer.MongoDB;
 
 namespace Aevatar.AuthServer;
 
@@ -59,35 +43,10 @@ namespace Aevatar.AuthServer;
     typeof(AbpAspNetCoreSerilogModule),
     typeof(AbpSwashbuckleModule),
     
-    // MongoDB
-    typeof(AbpMongoDbModule),
-    typeof(AbpIdentityMongoDbModule),
-    typeof(AbpOpenIddictMongoDbModule),
-    typeof(AbpPermissionManagementMongoDbModule),
-    typeof(AbpFeatureManagementMongoDbModule),
-    typeof(AbpSettingManagementMongoDbModule),
-    typeof(AbpTenantManagementMongoDbModule),
-    typeof(AbpBackgroundJobsMongoDbModule),
-    typeof(AbpAuditLoggingMongoDbModule),
-    typeof(BlobStoringDatabaseMongoDbModule),
-    
-    // Domain modules (CRITICAL: register permission providers)
-    typeof(AbpPermissionManagementDomainIdentityModule),
-    typeof(AbpPermissionManagementDomainOpenIddictModule),
-    
-    // Application modules
-    typeof(AbpAccountApplicationModule),
-    typeof(AbpIdentityApplicationModule),
-    typeof(AbpPermissionManagementApplicationModule),
-    typeof(AbpFeatureManagementApplicationModule),
-    typeof(AbpSettingManagementApplicationModule),
-    typeof(AbpTenantManagementApplicationModule),
-    
-    // HTTP API modules (CRITICAL: provide /api/identity/* endpoints)
-    typeof(AbpIdentityHttpApiModule),
-    typeof(AbpPermissionManagementHttpApiModule),
-    typeof(AbpFeatureManagementHttpApiModule),
-    typeof(AbpTenantManagementHttpApiModule),
+    // Shared BusinessServer Modules (provides Domain, Application, MongoDB, HttpApi)
+    typeof(BusinessServerMongoDbModule),
+    typeof(BusinessServerApplicationModule),
+    typeof(BusinessServerHttpApiModule),
     
     // UI
     typeof(AbpAspNetCoreMvcUiLeptonXLiteThemeModule),
@@ -103,11 +62,11 @@ public class AuthServerModule : AbpModule
     {
         var configuration = context.Services.GetConfiguration();
 
-        // Configure localization
+        // Configure localization - using BusinessServer's shared localization
         context.Services.PreConfigure<AbpMvcDataAnnotationsLocalizationOptions>(options =>
         {
             options.AddAssemblyResource(
-                typeof(AuthServerResource),
+                typeof(BusinessServerResource),
                 typeof(AuthServerModule).Assembly
             );
         });

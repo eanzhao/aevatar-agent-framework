@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.Doma
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.Application", "src\Aevatar.BusinessServer.Application\Aevatar.BusinessServer.Application.csproj", "{1A94A50E-06DC-43C1-80B5-B662820EC3EB}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.Web", "src\Aevatar.BusinessServer.Web\Aevatar.BusinessServer.Web.csproj", "{068855E8-9240-4F1A-910B-CF825794513B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.HttpApi.Host", "src\Aevatar.BusinessServer.HttpApi.Host\Aevatar.BusinessServer.HttpApi.Host.csproj", "{068855E8-9240-4F1A-910B-CF825794513B}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{CA9AC87F-097E-4F15-8393-4BC07735A5B0}"
 EndProject
@@ -15,7 +15,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{04DBDB01-7
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.Application.Tests", "test\Aevatar.BusinessServer.Application.Tests\Aevatar.BusinessServer.Application.Tests.csproj", "{50B2631D-129C-47B3-A587-029CCD6099BC}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.Web.Tests", "test\Aevatar.BusinessServer.Web.Tests\Aevatar.BusinessServer.Web.Tests.csproj", "{5F1B28C6-8D0C-4155-92D0-252F7EA5F674}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.HttpApi.Host.Tests", "test\Aevatar.BusinessServer.HttpApi.Host.Tests\Aevatar.BusinessServer.HttpApi.Host.Tests.csproj", "{5F1B28C6-8D0C-4155-92D0-252F7EA5F674}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Aevatar.BusinessServer.MongoDB", "src\Aevatar.BusinessServer.MongoDB\Aevatar.BusinessServer.MongoDB.csproj", "{E3444355-D47E-431E-BDD0-DD3A7113B2AE}"
 EndProject
