@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Proto;
 using Proto.DependencyInjection;
+using Proto.Remote;
+using Proto.Remote.GrpcNet;
 
 namespace Aevatar.Agents.Runtime.ProtoActor;
 
@@ -24,7 +26,7 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Optional action to configure the ProtoActor system.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddProtoActorAgentRuntime(
+    public static IServiceCollection AddAevatarProtoActorRuntime(
         this IServiceCollection services,
         Action<ActorSystemConfig>? configure = null)
     {
@@ -32,30 +34,29 @@ public static class ServiceCollectionExtensions
         var systemConfig = ActorSystemConfig.Setup();
         configure?.Invoke(systemConfig);
 
-        // Register ProtoActor system
-        services.AddSingleton(provider =>
+        if (services.All(x => x.ServiceType != typeof(ActorSystem)))
         {
-            var loggerFactory = provider.GetService<ILoggerFactory>();
-            return new ActorSystem(systemConfig)
-                .WithServiceProvider(provider);
-        });
-        
-        // Register IRootContext from ActorSystem
-        services.AddSingleton<IRootContext>(provider =>
-        {
-            var actorSystem = provider.GetRequiredService<ActorSystem>();
-            return actorSystem.Root;
-        });
+            services.AddSingleton(sp =>
+            {
+                var system = new ActorSystem();
+                // Use standard RemoteConfig from Proto.Remote
+                var remoteConfig = RemoteConfig.BindToLocalhost(8090);
+                var remote = new GrpcNetRemote(system, remoteConfig);
+                remote.StartAsync().Wait();
+                return system;
+            });
+        }
 
-        // Register ProtoActor dependencies
-        services.AddSingleton<ProtoActorGAgentActorFactory>();
-        services.AddSingleton<IGAgentActorFactory>(provider => 
-            provider.GetRequiredService<ProtoActorGAgentActorFactory>());
-        services.AddSingleton<ProtoActorGAgentActorManager>();
+        if (services.All(x => x.ServiceType != typeof(IRootContext)))
+        {
+            services.AddSingleton<IRootContext>(sp => sp.GetRequiredService<ActorSystem>().Root);
+        }
+
+        services.AddSingleton<IGAgentActorFactory, ProtoActorGAgentActorFactory>();
+        services.AddSingleton<IGAgentActorManager, ProtoActorGAgentActorManager>();
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
-        
-        // Register the factory provider for auto-discovery
-        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+        services.AddSingleton<ProtoActorSubscriptionManager>();
+        services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;

@@ -16,6 +16,7 @@
 
     <ItemGroup>
         <PackageReference Include="Proto.Actor" />
+        <PackageReference Include="Proto.Remote" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     </ItemGroup>

@@ -206,7 +206,7 @@ public class LocalGAgentActor : GAgentActorBase
         // 使用 EventRouter 创建 EventEnvelope
         var envelope = EventRouter.CreateEventEnvelope(evt, direction);
 
-        using var scope = Core.Observability.LoggingScope.CreateAgentScope(
+        using var scope = LoggingScope.CreateAgentScope(
             Logger,
             Id,
             "PublishEvent",

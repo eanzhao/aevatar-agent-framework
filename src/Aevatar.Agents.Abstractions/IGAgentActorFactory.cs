@@ -13,6 +13,6 @@ public interface IGAgentActorFactory
     /// <param name="ct">取消令牌</param>
     /// <typeparam name="TAgent">Agent 类型</typeparam>
     /// <returns>Actor 实例</returns>
-    Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
+    Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid? id = null, CancellationToken ct = default)
         where TAgent : IGAgent;
 }

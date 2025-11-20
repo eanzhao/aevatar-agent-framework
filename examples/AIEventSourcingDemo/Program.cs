@@ -43,9 +43,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IEventStore, InMemoryEventStore>();
 
         // Register Agent Factories
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
-        services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
-        services.AddSingleton<LocalMessageStreamRegistry>();
+        services.AddAevatarLocalRuntime();
     })
     .Build();
 

@@ -26,9 +26,14 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         _agentFactory = serviceProvider.GetService<IGAgentFactory>();
     }
 
-    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid id, CancellationToken ct = default)
+    public async Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(Guid? id = null, CancellationToken ct = default)
         where TAgent : IGAgent
     {
+        if (id == null)
+        {
+            id = Guid.NewGuid();
+        }
+
         var agentType = typeof(TAgent);
 
         if (_factoryProvider != null)
@@ -38,7 +43,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
             {
                 _logger.LogDebug("Using custom factory for type {AgentType} with id {Id}",
                     agentType.Name, id);
-                return await customFactory(this, id, ct);
+                return await customFactory(this, id.Value, ct);
             }
         }
 
@@ -51,14 +56,17 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
                 $"No IGAgentFactory registered. Cannot create agent of type {agentType.Name}");
         }
 
-        var agent = _agentFactory.CreateGAgent(id, agentType, ct);
+        var agent = _agentFactory.CreateGAgent(id.Value, agentType, ct);
 
-        return await CreateActorForAgentAsync(agent, id, ct);
+        await agent.ActivateAsync();
+
+        return await CreateActorForAgentAsync(agent, id.Value, ct);
     }
 
     /// <summary>
     /// 为已存在的 Agent 实例创建 Actor 包装器
     /// 由子类实现具体的包装逻辑
     /// </summary>
-    protected abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id, CancellationToken ct = default);
+    protected abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+        CancellationToken ct = default);
 }

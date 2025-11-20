@@ -37,7 +37,7 @@ public abstract class GAgentBase : IGAgent
     /// <summary>
     /// Logger property - supports automatic injection
     /// </summary>
-    protected ILogger Logger => NullLogger.Instance;
+    protected ILogger Logger { get; set; } = NullLogger.Instance;
 
     // Event handler cache (type -> method list)
     private static readonly ConcurrentDictionary<Type, MethodInfo[]> HandlerCache = new();

@@ -213,7 +213,7 @@ public static class MultiRuntimeEventSourcingDemo
         });
         
         // Local Agent Runtime - 注册工厂提供者
-        services.AddLocalAgentRuntime();
+        services.AddAevatarLocalRuntime();
         
         // EventStore - 注册为单例（所有运行时共享）
         services.AddSingleton<InMemoryEventStore>();

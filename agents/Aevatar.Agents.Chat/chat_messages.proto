@@ -1,0 +1,31 @@
+syntax = "proto3";
+option csharp_namespace = "Aevatar.Agents.Chat";
+
+import "google/protobuf/timestamp.proto";
+
+// 1. State (Required by AIGAgentBase)
+message ChatState {
+    string id = 1;
+    int32 interaction_count = 2;
+    google.protobuf.Timestamp last_active_at = 3;
+}
+
+// 2. Config (Required by AIGAgentBase)
+message ChatConfig {
+    string welcome_message = 1;
+    string persona = 2; // e.g., "friendly", "sarcastic"
+}
+
+// 3. Events
+message UserMessageEvent {
+    string user_id = 1;
+    string message = 2;
+}
+
+message AgentResponseEvent {
+    string user_id = 1;
+    string response = 2;
+    string agent_id = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+

@@ -40,7 +40,7 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
         {
             "openai" => CreateOpenAIChatClient(config),
             "azureopenai" or "azure_openai" => CreateAzureOpenAIChatClient(config),
-            _ => throw new NotSupportedException($"Unsupported LLM provider type: {config.ProviderType}")
+            _ => CreateOpenAIChatClient(config)
         };
     }
 

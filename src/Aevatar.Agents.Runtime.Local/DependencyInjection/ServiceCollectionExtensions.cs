@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Local.Subscription;
@@ -19,24 +20,18 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddLocalAgentRuntime(this IServiceCollection services)
+    public static IServiceCollection AddAevatarLocalRuntime(this IServiceCollection services)
     {
-        // Register the Local runtime dependencies
         services.AddSingleton<LocalGAgentActorFactory>();
         services.AddSingleton<IGAgentActorFactory>(provider =>
             provider.GetRequiredService<LocalGAgentActorFactory>());
-        services.AddSingleton<LocalGAgentActorManager>();
+        services.AddSingleton<IGAgentActorManager, LocalGAgentActorManager>();
         services.AddSingleton<LocalMessageStreamRegistry>();
         services.AddSingleton<LocalSubscriptionManager>();
 
-        // Register the factory provider for auto-discovery
-        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
-
-        // Register the default IGAgentFactory if not already registered
-        // This will be used by DefaultGAgentActorFactoryProvider
-        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;
     }
 }
-
