@@ -1,146 +1,130 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.MEAI;
 
-/// <summary>
-/// Microsoft.Extensions.AI LLM Provider实现
-/// 桥接Microsoft.Extensions.AI的IChatClient到框架的IAevatarLLMProvider
-/// </summary>
-internal class MEAILLMProvider : ILLMProvider
+// ReSharper disable InconsistentNaming
+public sealed class MEAILLMProvider : IAevatarLLMProvider
 {
-    private IChatClient? _chatClient;
-    private readonly List<ChatMessage> _conversationHistory = new();
-    
-    /// <summary>
-    /// 设置ChatClient
-    /// </summary>
-    public void SetChatClient(IChatClient chatClient)
+    private readonly IChatClient _chatClient;
+    private readonly LLMProviderConfig _config;
+    private readonly ILogger _logger;
+
+    public MEAILLMProvider(IChatClient chatClient, LLMProviderConfig config, ILogger logger)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
-    
 
-    /// <inheritdoc />
-    public async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request)
+    public async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
+        CancellationToken cancellationToken = default)
     {
-        if (_chatClient == null)
-        {
-            throw new InvalidOperationException("ChatClient not set. Call SetChatClient first.");
-        }
-        
-        // Convert request to MEAI format
+        _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
+
         var messages = new List<ChatMessage>();
-        
-        // Add system prompt if provided
+
         if (!string.IsNullOrEmpty(request.SystemPrompt))
-        {
             messages.Add(new ChatMessage(ChatRole.System, request.SystemPrompt));
-        }
-        
-        // Add conversation history
-        foreach (var msg in request.Messages)
+
+        if (request.Messages?.Count > 0)
         {
-            var role = ConvertToMEAIRole(msg.Role);
-            messages.Add(new ChatMessage(role, msg.Content));
+            foreach (var msg in request.Messages)
+            {
+                messages.Add(new ChatMessage(
+                    msg.Role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant,
+                    msg.Content));
+            }
         }
-        
-        // Add user prompt
+
         if (!string.IsNullOrEmpty(request.UserPrompt))
-        {
             messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
-        }
-        
-        // Configure options
+
         var options = new ChatOptions
         {
-            Temperature = (float)(request.Settings?.Temperature ?? 0.7),
-            MaxOutputTokens = request.Settings?.MaxTokens
+            Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
+            MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
+            ModelId = _config.Model
         };
-        
-        // Add functions/tools if available
-        if (request.Functions?.Count > 0)
-        {
-            // Convert functions to AITools
-            var tools = new List<AITool>();
-            foreach (var func in request.Functions)
-            {
-                tools.Add(ConvertToAITool(func));
-            }
-            options.Tools = tools;
-        }
-        
-        // Call the chat client
-        var response = await _chatClient.GetResponseAsync(messages, options);
-        
-        // Convert response
+
+        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+
         var result = new AevatarLLMResponse
         {
-            Content = response.Text ?? string.Empty
+            Content = response.Text,
+            ModelName = response.ModelId ?? _config.Model,
+            AevatarStopReason = AevatarStopReason.Complete
         };
-        
-        // Check for function calls in the messages
-        var lastMessage = response.Messages?.LastOrDefault();
-        if (lastMessage?.Contents?.Any(c => c is FunctionCallContent) == true)
-        {
-            var functionCall = lastMessage.Contents
-                .OfType<FunctionCallContent>()
-                .FirstOrDefault();
-            
-            if (functionCall != null)
-            {
-                result.AevatarFunctionCall = new AevatarFunctionCall
-                {
-                    Name = functionCall.CallId,
-                    Arguments = functionCall.Arguments?.ToString() ?? "{}"
-                };
-            }
-        }
-        
-        // Set usage if available
+
         if (response.Usage != null)
         {
             result.Usage = new AevatarTokenUsage
             {
+                TotalTokens = (int)(response.Usage.TotalTokenCount ?? 0),
                 PromptTokens = (int)(response.Usage.InputTokenCount ?? 0),
-                CompletionTokens = (int)(response.Usage.OutputTokenCount ?? 0),
-                TotalTokens = (int)(response.Usage.TotalTokenCount ?? 0)
+                CompletionTokens = (int)(response.Usage.OutputTokenCount ?? 0)
             };
         }
-        
+
         return result;
     }
 
-    
-    private ChatRole ConvertToMEAIRole(AevatarChatRole role)
+    public async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        return role switch
+        _logger.LogDebug("Generating streaming response using MEAI provider: {Model}", _config.Model);
+
+        var messages = new List<ChatMessage>();
+
+        if (!string.IsNullOrEmpty(request.SystemPrompt))
+            messages.Add(new ChatMessage(ChatRole.System, request.SystemPrompt));
+
+        if (request.Messages.Count > 0)
         {
-            AevatarChatRole.System => ChatRole.System,
-            AevatarChatRole.User => ChatRole.User,
-            AevatarChatRole.Assistant => ChatRole.Assistant,
-            AevatarChatRole.Function => ChatRole.Tool,
-            _ => ChatRole.User
+            foreach (var msg in request.Messages)
+            {
+                messages.Add(new ChatMessage(
+                    msg.Role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant,
+                    msg.Content));
+            }
+        }
+
+        if (!string.IsNullOrEmpty(request.UserPrompt))
+            messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
+
+        var options = new ChatOptions
+        {
+            Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
+            MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
+            ModelId = _config.Model
         };
+
+        await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
+        {
+            if (!string.IsNullOrEmpty(chatUpdate.Text))
+            {
+                yield return new AevatarLLMToken
+                {
+                    Content = chatUpdate.Text,
+                    IsComplete = false
+                };
+            }
+        }
+
+        yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
     }
-    
-    private AITool ConvertToAITool(AevatarFunctionDefinition func)
+
+    public Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
     {
-        // Create a simple AITool from function definition
-        // This is a simplified conversion - real implementation might need more details
-        Func<Dictionary<string, object?>, Task<object>> handler = async (args) =>
+        return Task.FromResult(new AevatarModelInfo
         {
-            // This is just a placeholder - actual execution would be handled elsewhere
-            return $"Function {func.Name} called with {args.Count} arguments";
-        };
-        
-        return AIFunctionFactory.Create(handler);
+            Name = _config.Model,
+            MaxTokens = _config.MaxTokens,
+            SupportsStreaming = _config.EnableStreaming,
+            SupportsFunctions = false
+        });
     }
 }

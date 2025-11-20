@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
 
@@ -69,7 +70,7 @@ public class EventRoutingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(message),
                 Direction = EventDirection.Down,
                 MaxHopCount = maxHops,
@@ -162,7 +163,7 @@ public class EventRoutingController : ControllerBase
                 var envelope = new EventEnvelope
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Timestamp = TimestampHelper.GetUtcNow(),
                     Payload = Any.Pack(msg),
                     Direction = EventDirection.Down
                 };
@@ -240,7 +241,7 @@ public class EventRoutingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(broadcastMsg),
                 Direction = EventDirection.Down // 向所有子节点广播
             };

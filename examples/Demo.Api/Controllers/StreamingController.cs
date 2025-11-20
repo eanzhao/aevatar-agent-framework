@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
 
@@ -54,7 +55,7 @@ public class StreamingController : ControllerBase
                 var envelope = new EventEnvelope
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Timestamp = TimestampHelper.GetUtcNow(),
                     Payload = Any.Pack(message),
                     Direction = EventDirection.Down
                 };
@@ -129,7 +130,7 @@ public class StreamingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(publishMessage),
                 Direction = EventDirection.Down // 向下传播给所有订阅者
             };
@@ -195,7 +196,7 @@ public class StreamingController : ControllerBase
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Timestamp = TimestampHelper.GetUtcNow(),
                 Payload = Any.Pack(message),
                 Direction = EventDirection.Both // 双向传播
             };

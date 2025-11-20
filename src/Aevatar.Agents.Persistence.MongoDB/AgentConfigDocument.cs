@@ -1,4 +1,5 @@
 using System;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
 namespace Aevatar.Agents.Persistence.MongoDB;
@@ -10,9 +11,22 @@ namespace Aevatar.Agents.Persistence.MongoDB;
 internal class AgentConfigDocument<TConfig>
 {
     /// <summary>
-    /// Agent ID (MongoDB _id)
+    /// MongoDB document ID (auto-generated)
     /// </summary>
     [BsonId]
+    [BsonRepresentation(BsonType.ObjectId)]
+    public string? Id { get; set; }
+
+    /// <summary>
+    /// Agent Type (full type name)
+    /// </summary>
+    [BsonRequired]
+    public string AgentType { get; set; } = default!;
+
+    /// <summary>
+    /// Agent ID
+    /// </summary>
+    [BsonRequired]
     public Guid AgentId { get; set; }
 
     /// <summary>

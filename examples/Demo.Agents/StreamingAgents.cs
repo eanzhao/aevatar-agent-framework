@@ -10,11 +10,6 @@ public class StreamProcessorAgent : GAgentBase<StreamState>
 {
     private int _messageCount = 0;
     
-    public StreamProcessorAgent(Guid id, ILogger<StreamProcessorAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
-    
     [EventHandler]
     public Task HandleStreamMessage(StreamMessage message)
     {
@@ -36,10 +31,6 @@ public class StreamProcessorAgent : GAgentBase<StreamState>
 // 发布者Agent
 public class PublisherAgent : GAgentBase<PublisherState>
 {
-    public PublisherAgent(Guid id, ILogger<PublisherAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     public override Task<string> GetDescriptionAsync()
     {
@@ -61,10 +52,6 @@ public class PublisherAgent : GAgentBase<PublisherState>
 // 订阅者Agent
 public class SubscriberAgent : GAgentBase<SubscriberState>
 {
-    public SubscriberAgent(Guid id, ILogger<SubscriberAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task HandleSubscribedMessage(EventEnvelope envelope)

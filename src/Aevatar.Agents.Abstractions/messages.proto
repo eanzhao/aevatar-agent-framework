@@ -7,41 +7,40 @@ import "google/protobuf/timestamp.proto";
 // 事件传播方向
 enum EventDirection {
   EVENT_DIRECTION_UNSPECIFIED = 0;
-  
+
   // 向下发送：Parent发送到自己的stream，自动广播给所有children
-  EVENT_DIRECTION_DOWN = 1;         
-  
+  EVENT_DIRECTION_DOWN = 1;
+
   // 向上发送：Child发送到parent的stream，自动广播给所有siblings（包括自己）
-  EVENT_DIRECTION_UP = 2;           
-  
+  EVENT_DIRECTION_UP = 2;
+
   // 双向发送：同时向上和向下发送
-  EVENT_DIRECTION_BOTH = 3;         
+  EVENT_DIRECTION_BOTH = 3;
 }
 
 message MessageEnvelope {
   string id = 1;
-  int64 timestamp = 2;
+  google.protobuf.Timestamp timestamp = 2;
   google.protobuf.Any payload = 3;  // 业务Agent解析
 }
 
 message EventEnvelope {
-  // 基础字段
+  // Basic fields.
   string id = 1;
-  int64 timestamp = 2;
-  int64 version = 3;  // 事件版本号
-  google.protobuf.Any payload = 4;  // 事件Payload
-  
-  // 传播控制字段
-  string correlation_id = 5;        // 关联ID，用于追踪事件链
-  string publisher_id = 6;          // 发布者ID（Agent ID）
-  EventDirection direction = 7;     // 传播方向
-  bool should_stop_propagation = 8; // 停止传播标志
-  int32 max_hop_count = 9;          // 最大跳数（-1 表示无限制）
-  int32 current_hop_count = 10;     // 当前跳数
-  int32 min_hop_count = 11;         // 最小跳数（-1 表示无限制）
-  string message = 12;              // 附加消息（调试或日志）
-  repeated string publishers = 13;  // 发布者链（按传播顺序）
-  int64 published_timestamp_utc = 14; // 发布时间戳（UTC，毫秒）
+  google.protobuf.Timestamp timestamp = 2;
+  int64 version = 3;
+  google.protobuf.Any payload = 4;
+
+  // Propagation control fields.
+  string correlation_id = 5;
+  string publisher_id = 6;
+  EventDirection direction = 7;
+  bool should_stop_propagation = 8;
+  int32 max_hop_count = 9;
+  int32 current_hop_count = 10;
+  int32 min_hop_count = 11;
+  string message = 12;
+  repeated string publishers = 13;
 }
 
 message SubAgentAdded {
@@ -87,7 +86,7 @@ message EventHandlerExceptionEvent {
   string event_type = 4;
   string exception_message = 5;
   string stack_trace = 6;
-  int64 timestamp = 7;
+  google.protobuf.Timestamp timestamp = 7;
 }
 
 message GAgentBaseExceptionEvent {
@@ -95,7 +94,7 @@ message GAgentBaseExceptionEvent {
   string operation = 2;
   string exception_message = 3;
   string stack_trace = 4;
-  int64 timestamp = 5;
+  google.protobuf.Timestamp timestamp = 5;
 }
 
 // ============================================================
@@ -110,10 +109,10 @@ message AgentStateEvent {
   google.protobuf.Timestamp timestamp = 2;
   int64 version = 3;
   string event_type = 4;  // 事件类型（全限定名）
-  
+
   // 事件数据（使用 Any 支持任意 Protobuf 消息）
   google.protobuf.Any event_data = 5;
-  
+
   // 元数据
   string agent_id = 6;
   string correlation_id = 7;
@@ -125,10 +124,10 @@ message AgentStateEvent {
 message AgentSnapshot {
   int64 version = 1;
   google.protobuf.Timestamp timestamp = 2;
-  
+
   // 快照状态数据（使用 Any 支持任意状态类型）
   google.protobuf.Any state_data = 3;
-  
+
   map<string, string> metadata = 4;
 }
 

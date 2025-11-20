@@ -8,10 +8,6 @@ namespace Demo.Agents;
 // 管理者Agent
 public class ManagerAgent : GAgentBase<ManagerState>
 {
-    public ManagerAgent(Guid id, ILogger<ManagerAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task HandleManagementEvent(EventEnvelope envelope)
@@ -33,10 +29,6 @@ public class ManagerAgent : GAgentBase<ManagerState>
 // 员工Agent
 public class EmployeeAgent : GAgentBase<EmployeeState>
 {
-    public EmployeeAgent(Guid id, ILogger<EmployeeAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task HandleWorkEvent(EventEnvelope envelope)
@@ -58,10 +50,6 @@ public class EmployeeAgent : GAgentBase<EmployeeState>
 // 层级Agent
 public class HierarchyAgent : GAgentBase<HierarchyState>
 {
-    public HierarchyAgent(Guid id, ILogger<HierarchyAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [EventHandler]
     public Task HandleHierarchyMessage(HierarchyMessage message)

@@ -74,7 +74,7 @@ public class DefaultToolExecutor : IToolExecutor
             await PublishToolExecutedEventAsync(executionResult, context, cancellationToken);
             
             // 记录到内存（如果配置了）
-            if (context.RecordToMemory && context.Memory != null)
+            if (context is { RecordToMemory: true, Memory: not null })
             {
                 await RecordExecutionToMemoryAsync(executionResult, context, cancellationToken);
             }

@@ -13,8 +13,4 @@
     <PackageReference Include="MongoDB.Driver" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Configuration\" />
-  </ItemGroup>
-
 </Project>

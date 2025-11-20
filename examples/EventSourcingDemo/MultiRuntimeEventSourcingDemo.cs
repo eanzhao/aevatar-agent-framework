@@ -1,6 +1,8 @@
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
-using Aevatar.Agents.Runtime.Local.EventSourcing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -52,13 +54,12 @@ public static class MultiRuntimeEventSourcingDemo
         var logger = serviceProvider.GetRequiredService<ILogger<LocalGAgentActorFactory>>();
         var factory = new LocalGAgentActorFactory(serviceProvider, logger);
         
-        // ✅ 场景1：使用新的 WithEventSourcingAsync 扩展方法
-        Console.WriteLine("\n⚡ 场景1：使用 WithEventSourcingAsync 扩展方法");
+        // ✅ 场景1：自动 EventSourcing 注入
+        Console.WriteLine("\n⚡ 场景1：AIGAgentFactory 自动注入 EventStore");
         Console.WriteLine("───────────────────────────────────────────────");
         
-        // 创建 Actor 并启用 EventSourcing（一行搞定！）
-        var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)
-            .WithEventSourcingAsync(eventStore, serviceProvider);  // ✅ 新API
+        // 创建 Actor（EventStore 已通过 DI 自动注入）
+        var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
         
         var agent = actor.GetAgent() as BankAccountAgent;
         if (agent == null)
@@ -108,9 +109,8 @@ public static class MultiRuntimeEventSourcingDemo
         var events = await eventStore.GetEventsAsync(agentId);
         Console.WriteLine($"  📝 EventStore 中的事件数: {events.Count}");
         
-        // 创建新 Actor 并自动恢复
-        var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)
-            .WithEventSourcingAsync(eventStore, serviceProvider);  // ✅ 自动重放
+        // 创建新 Actor（EventStore 会自动注入并重放事件）
+        var newActor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
         
         var recoveredAgent = newActor.GetAgent() as BankAccountAgent;
         if (recoveredAgent != null)
@@ -158,32 +158,25 @@ public static class MultiRuntimeEventSourcingDemo
         Console.WriteLine("════════════════════════════════════════════");
         Console.WriteLine("✅ Orleans 现在使用统一的 IEventStore 接口！\n");
         
-        Console.WriteLine("🔧 配置方式 (Silo):");
+        Console.WriteLine("🔧 配置方式 (ServiceProvider):");
         Console.WriteLine("───────────────────────────────────────────────");
         Console.WriteLine("```csharp");
-        Console.WriteLine("siloBuilder.AddAgentEventSourcing(options =>");
-        Console.WriteLine("{");
-        Console.WriteLine("    options.UseInMemoryStore = false;  // 使用 OrleansEventStore");
-        Console.WriteLine("    options.StorageProvider = \"EventStoreStorage\";");
-        Console.WriteLine("});");
+        Console.WriteLine("// 在 ServiceProvider 中注册 EventStore");
+        Console.WriteLine("services.AddSingleton<IEventStore, OrleansEventStore>();");
         Console.WriteLine("");
-        Console.WriteLine("// 配置 GrainStorage");
-        Console.WriteLine("siloBuilder.AddMemoryGrainStorage(\"EventStoreStorage\");");
-        Console.WriteLine("// 或使用其他存储:");
-        Console.WriteLine("// siloBuilder.AddAzureTableGrainStorage(\"EventStoreStorage\", ...);");
+        Console.WriteLine("// 注册 AIGAgentFactory");
+        Console.WriteLine("services.AddSingleton<IGAgentFactory, AIGAgentFactory>();");
         Console.WriteLine("```\n");
         
-        Console.WriteLine("💡 使用方式 (Client):");
+        Console.WriteLine("💡 使用方式 (完全透明):");
         Console.WriteLine("───────────────────────────────────────────────");
         Console.WriteLine("```csharp");
-        Console.WriteLine("// 方式1: 通过工厂创建");
-        Console.WriteLine("var factory = new OrleansGAgentActorFactory(grainFactory, serviceProvider, logger);");
-        Console.WriteLine("var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId)");
-        Console.WriteLine("    .WithEventSourcingAsync(eventStore);  // ✅ 统一API");
+        Console.WriteLine("// AIGAgentFactory 会自动检测并注入 EventStore");
+        Console.WriteLine("var factory = serviceProvider.GetRequiredService<IGAgentFactory>();");
+        Console.WriteLine("var actor = await factory.CreateGAgent<BankAccountAgent>(agentId);");
         Console.WriteLine("");
-        Console.WriteLine("// 方式2: 直接使用 Grain");
-        Console.WriteLine("var grain = grainFactory.GetGrain<IStandardGAgentGrain>(agentId.ToString());");
-        Console.WriteLine("await grain.ActivateAsync();");
+        Console.WriteLine("// EventStore 已自动注入到 Agent 中");
+        Console.WriteLine("// OnActivateAsync 会自动重放事件");
         Console.WriteLine("```\n");
         
         Console.WriteLine("🌟 统一的 EventSourcing 特性:");
@@ -221,6 +214,11 @@ public static class MultiRuntimeEventSourcingDemo
         
         // EventStore - 注册为单例（所有运行时共享）
         services.AddSingleton<InMemoryEventStore>();
+        services.AddSingleton<IEventStore>(
+            provider => provider.GetRequiredService<InMemoryEventStore>());
+
+        // 注册 AIGAgentFactory（会自动注入 EventStore）
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
         
         return services;
     }

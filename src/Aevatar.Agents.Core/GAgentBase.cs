@@ -1,91 +1,132 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
-using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
+using Aevatar.Agents.Abstractions.Helpers;
+using Google.Protobuf.WellKnownTypes;
+using Type = System.Type;
 
 namespace Aevatar.Agents.Core;
 
 /// <summary>
-/// Agent base class
-/// Provides event handler auto-discovery and invocation, automatic state persistence
+/// Non-generic base class for all GAgents.
+/// Provides event handler auto-discovery and invocation infrastructure.
+/// This class focuses solely on event processing without state management concerns.
 /// </summary>
-/// <typeparam name="TState">Agent state type</typeparam>
-public abstract class GAgentBase<TState> : IStateGAgent<TState>
-    where TState : class, new()
+public abstract class GAgentBase : IGAgent
 {
     // ============ Fields ============
 
     /// <summary>
-    /// State object (writable, automatically persisted to StateStore)
+    /// Agent unique identifier
+    /// Can be set internally by factories for recovery scenarios
     /// </summary>
-    protected TState State { get; set; } = new TState();
+    public Guid Id { get; internal set; }
 
     /// <summary>
-    /// StateStore (injected by Actor layer)
+    /// Event publisher for sending events
     /// </summary>
-    public IStateStore<TState>? StateStore { get; set; }
-
-    private ILogger _logger = NullLogger.Instance;
     protected IEventPublisher? EventPublisher;
 
     /// <summary>
     /// Logger property - supports automatic injection
     /// </summary>
-    protected ILogger Logger
-    {
-        get => _logger;
-        set => _logger = value ?? NullLogger.Instance;
-    }
+    protected ILogger Logger => NullLogger.Instance;
 
-    // 事件处理器缓存（类型 -> 方法列表）
+    // Event handler cache (type -> method list)
     private static readonly ConcurrentDictionary<Type, MethodInfo[]> HandlerCache = new();
 
-    // ============ 构造函数 ============
-
-    protected GAgentBase()
-    {
-        Id = Guid.NewGuid();
-        // Logger 已经初始化为 NullLogger.Instance
-    }
-
-    protected GAgentBase(Guid id)
-    {
-        Id = id;
-    }
-
-    protected GAgentBase(ILogger? logger)
-    {
-        Logger = logger;  // 使用属性 setter，会自动处理 null
-        Id = Guid.NewGuid();
-    }
-
-    protected GAgentBase(Guid id, ILogger? logger)
-    {
-        Id = id;
-        Logger = logger;  // 使用属性 setter，会自动处理 null
-    }
-
-    // ============ IStateGAgent 实现 ============
-
-    public TState GetState()
-    {
-        return State;
-    }
-
-    public Guid Id { get; }
-
-    public abstract Task<string> GetDescriptionAsync();
-
-    // ============ 事件发布 ============
+    // ============ Constructors ============
 
     /// <summary>
-    /// 发布事件（委托给 EventPublisher）
+    /// Default constructor - generates a new ID
+    /// </summary>
+    public GAgentBase()
+    {
+        Id = Guid.NewGuid();
+    }
+
+    /// <summary>
+    /// Constructor with specific ID
+    /// </summary>
+    public GAgentBase(Guid id)
+    {
+        Id = id;
+    }
+
+    // ============ IGAgent Implementation ============
+
+    /// <summary>
+    /// Get agent description
+    /// </summary>
+    public virtual string GetDescription()
+    {
+        return GetType().Name;
+    }
+
+    /// <summary>
+    /// Get agent description - async version
+    /// </summary>
+    /// <returns></returns>
+    public virtual Task<string> GetDescriptionAsync()
+    {
+        return Task.FromResult(GetDescription());
+    }
+
+    /// <summary>
+    /// Get all subscribed event types
+    /// </summary>
+    public virtual Task<List<Type>> GetAllSubscribedEventsAsync(bool includeAllEventHandler = false)
+    {
+        var handlers = GetEventHandlers();
+        var eventTypes = new HashSet<Type>();
+
+        foreach (var handler in handlers)
+        {
+            var paramType = handler.GetParameters().FirstOrDefault()?.ParameterType;
+
+            if (paramType == null)
+                continue;
+
+            // Skip EventEnvelope (AllEventHandler) if not requested
+            if (!includeAllEventHandler && paramType == typeof(EventEnvelope))
+                continue;
+
+            // Only include IMessage types
+            if (typeof(IMessage).IsAssignableFrom(paramType))
+            {
+                eventTypes.Add(paramType);
+            }
+        }
+
+        return Task.FromResult(eventTypes.ToList());
+    }
+
+    public async Task ActivateAsync()
+    {
+        // Allow State modification during agent activation
+        // This is necessary for initializing agent state before event processing begins
+        using (StateProtectionContext.BeginInitializationScope())
+        {
+            await OnActivateAsync();
+        }
+    }
+
+    public async Task DeactivateAsync()
+    {
+        await OnDeactivateAsync();
+    }
+
+    // ============ Event Publishing ============
+
+    /// <summary>
+    /// Publish event (delegates to EventPublisher)
     /// </summary>
     protected async Task<string> PublishAsync<TEvent>(
         TEvent evt,
@@ -103,36 +144,31 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         try
         {
             var eventId = await EventPublisher.PublishEventAsync(evt, direction, ct);
-            
-            // 记录发布指标
+
+            // Record publish metrics
             stopwatch.Stop();
             AgentMetrics.RecordEventPublished(typeof(TEvent).Name, Id.ToString());
             AgentMetrics.EventPublishLatency.Record(stopwatch.ElapsedMilliseconds,
                 new KeyValuePair<string, object?>("event.type", typeof(TEvent).Name),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()));
-                
+
             return eventId;
         }
         catch (Exception ex)
         {
-            // 记录异常指标
+            // Record exception metrics
             AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "PublishEvent");
             throw;
         }
     }
 
-    /// <summary>
-    /// 设置事件发布器（由 Actor 层调用）
-    /// </summary>
-    public void SetEventPublisher(IEventPublisher publisher)
-    {
-        EventPublisher = publisher;
-    }
+    // EventPublisher is now injected via EventPublisherInjector
+    // No public setter method needed
 
-    // ============ 事件处理器发现 ============
+    // ============ Event Handler Discovery ============
 
     /// <summary>
-    /// 获取所有事件处理器方法（缓存）
+    /// Get all event handler methods (cached)
     /// </summary>
     public MethodInfo[] GetEventHandlers()
     {
@@ -141,7 +177,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     }
 
     /// <summary>
-    /// 发现事件处理器（通过反射）
+    /// Discover event handlers via reflection
     /// </summary>
     private MethodInfo[] DiscoverEventHandlers(Type type)
     {
@@ -160,7 +196,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     }
 
     /// <summary>
-    /// 判断是否是事件处理器方法（可被子类重写）
+    /// Determine if a method is an event handler (can be overridden by subclasses)
     /// </summary>
     protected virtual bool IsEventHandlerMethod(MethodInfo method)
     {
@@ -169,19 +205,19 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
 
         var paramType = parameters[0].ParameterType;
 
-        // [EventHandler] 标记的方法，参数必须是 IMessage
+        // [EventHandler] marked methods, parameter must be IMessage
         if (method.GetCustomAttribute<EventHandlerAttribute>() != null)
         {
             return typeof(IMessage).IsAssignableFrom(paramType);
         }
 
-        // [AllEventHandler] 标记的方法，参数必须是 EventEnvelope
+        // [AllEventHandler] marked methods, parameter must be EventEnvelope
         if (method.GetCustomAttribute<AllEventHandlerAttribute>() != null)
         {
             return paramType == typeof(EventEnvelope);
         }
 
-        // 默认处理器：方法名为 HandleAsync 或 Handle，参数是 IMessage
+        // Convention-based handlers: method named HandleAsync or HandleEventAsync, parameter is IMessage
         if (method.Name is "HandleAsync" or "HandleEventAsync")
         {
             return typeof(IMessage).IsAssignableFrom(paramType) && !paramType.IsAbstract;
@@ -190,23 +226,25 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         return false;
     }
 
-    // ============ 事件处理器调用 ============
+    // ============ Event Handler Invocation ============
 
     /// <summary>
-    /// 处理事件（由 Actor 层调用，可被子类重写）
-    /// 自动加载/保存 State
+    /// Handle event - entry point that can be overridden by derived classes
+    /// Derived classes should override this to add state management
     /// </summary>
     public virtual async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // 1. 加载 State（如果配置了 StateStore）
-        if (StateStore != null)
-        {
-            State = await StateStore.LoadAsync(Id, ct) ?? new TState();
-        }
+        await HandleEventCoreAsync(envelope, ct);
+    }
 
-        // 2. 创建事件处理的日志作用域
+    /// <summary>
+    /// Core event handling implementation without state management
+    /// This method contains the actual event processing logic
+    /// </summary>
+    protected virtual async Task HandleEventCoreAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        // Create event handling log scope
         var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
-        Console.WriteLine($"GAgentBase.HandleEventAsync called for agent {Id} with event type {eventType}");
 
         using var scope = LoggingScope.CreateEventHandlingScope(
             Logger,
@@ -219,23 +257,20 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         var handled = false;
 
         var handlers = GetEventHandlers();
-        Console.WriteLine($"GAgentBase.HandleEventAsync found {handlers.Count()} handlers");
 
         foreach (var handler in handlers)
         {
             try
             {
                 var paramType = handler.GetParameters()[0].ParameterType;
-                Console.WriteLine($"GAgentBase: Processing handler {handler.Name} with parameter type {paramType.Name}");
 
-                // 检查是否允许处理自己发出的事件
+                // Check if should handle event
                 if (!ShouldHandleEvent(handler, envelope))
                 {
-                    Console.WriteLine($"GAgentBase: Handler {handler.Name} skipped by ShouldHandleEvent");
                     continue;
                 }
 
-                // AllEventHandler - 直接传递 EventEnvelope
+                // AllEventHandler - pass EventEnvelope directly
                 if (handler.GetCustomAttribute<AllEventHandlerAttribute>() != null)
                 {
                     await InvokeHandler(handler, envelope, ct);
@@ -243,44 +278,44 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                     continue;
                 }
 
-                // EventHandler - 解包 Payload
+                // EventHandler - unpack Payload
                 if (envelope.Payload != null)
                 {
+                    object? message = null;
                     try
                     {
-                        // 使用反射调用泛型的 Unpack<T> 方法
-                        var unpackMethod = typeof(Google.Protobuf.WellKnownTypes.Any)
+                        // Use reflection to call generic Unpack<T> method
+                        var unpackMethod = typeof(Any)
                             .GetMethod("Unpack", Type.EmptyTypes)
                             ?.MakeGenericMethod(paramType);
 
                         if (unpackMethod != null)
                         {
-                            var message = unpackMethod.Invoke(envelope.Payload, null);
+                            message = unpackMethod.Invoke(envelope.Payload, null);
                             Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}",
                                 message?.GetType().Name ?? "null", handler.Name);
-
-                            // 检查类型是否匹配
-                            if (message != null && paramType.IsInstanceOfType(message))
-                            {
-                                Console.WriteLine($"GAgentBase: Invoking handler {handler.Name} with message type {message.GetType().Name}");
-                                Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}",
-                                    handler.Name, message.GetType().Name);
-                                await InvokeHandler(handler, message, ct);
-                                handled = true;
-                                Console.WriteLine($"GAgentBase: Handler {handler.Name} completed successfully");
-                            }
-                            else
-                            {
-                                Console.WriteLine($"GAgentBase: Type mismatch - handler {handler.Name} expects {paramType.Name}, got {message?.GetType().Name ?? "null"}");
-                                Logger.LogDebug("Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
-                                    handler.Name, paramType.Name, message?.GetType().Name ?? "null");
-                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        // Unpack 失败，可能是类型不匹配，跳过
+                        // Unpack failed, possibly type mismatch, skip
                         Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
+                        continue;
+                    }
+
+                    // Check if type matches and invoke handler
+                    if (message != null && paramType.IsInstanceOfType(message))
+                    {
+                        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}",
+                            handler.Name, message.GetType().Name);
+                        await InvokeHandler(handler, message, ct);
+                        handled = true;
+                    }
+                    else
+                    {
+                        Logger.LogDebug(
+                            "Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
+                            handler.Name, paramType.Name, message?.GetType().Name ?? "null");
                     }
                 }
             }
@@ -288,23 +323,17 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             {
                 Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
 
-                // 记录异常指标
+                // Record exception metrics
                 AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Name}");
 
-                // 发布异常事件
+                // Publish exception event
                 await PublishExceptionEventAsync(envelope, handler.Name, ex);
 
-                // 继续处理其他 handler
+                // Continue processing other handlers
             }
         }
 
-        // 3. 保存 State（如果配置了 StateStore）
-        if (StateStore != null)
-        {
-            await StateStore.SaveAsync(Id, State, ct);
-        }
-
-        // 记录事件处理指标
+        // Record event handling metrics
         stopwatch.Stop();
         if (handled)
         {
@@ -312,7 +341,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         }
         else
         {
-            // 没有处理器处理这个事件
+            // No handler processed this event
             AgentMetrics.EventsDropped.Add(1,
                 new KeyValuePair<string, object?>("event.type", eventType),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()));
@@ -320,7 +349,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     }
 
     /// <summary>
-    /// 判断是否应该处理事件（可被子类使用）
+    /// Determine if an event should be handled (can be used by subclasses)
     /// </summary>
     protected bool ShouldHandleEvent(MethodInfo handler, EventEnvelope envelope)
     {
@@ -331,7 +360,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                                 allEventHandlerAttr?.AllowSelfHandling ??
                                 false;
 
-        // 如果不允许处理自己的事件，且发布者是自己，则跳过
+        // If self-handling is not allowed and publisher is self, skip
         if (!allowSelfHandling && envelope.PublisherId == Id.ToString())
         {
             return false;
@@ -341,58 +370,38 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     }
 
     /// <summary>
-    /// 调用处理器方法（可被子类使用）
+    /// Invoke handler method (can be used by subclasses)
     /// </summary>
     protected async Task InvokeHandler(MethodInfo handler, object parameter, CancellationToken ct)
     {
         Logger.LogDebug("Invoking handler method {HandlerName} on {AgentType} with parameter type {ParameterType}",
             handler.Name, GetType().Name, parameter.GetType().Name);
+
+        // Create event handler scope to allow State modifications
+        using var scope = StateProtectionContext.BeginEventHandlerScope();
         
-        var result = handler.Invoke(this, new[] { parameter });
-
-        if (result is Task task)
+        try
         {
-            await task;
-        }
-        
-        Logger.LogDebug("Handler method {HandlerName} completed", handler.Name);
-    }
+            var result = handler.Invoke(this, new[] { parameter });
 
-    // ============ 事件订阅信息 ============
-
-    /// <summary>
-    /// 获取所有订阅的事件类型
-    /// </summary>
-    public virtual Task<List<Type>> GetAllSubscribedEventsAsync(bool includeAllEventHandler = false)
-    {
-        var handlers = GetEventHandlers();
-        var eventTypes = new HashSet<Type>();
-
-        foreach (var handler in handlers)
-        {
-            var paramType = handler.GetParameters().FirstOrDefault()?.ParameterType;
-
-            if (paramType == null)
-                continue;
-
-            // 跳过 EventEnvelope（AllEventHandler）
-            if (!includeAllEventHandler && paramType == typeof(EventEnvelope))
-                continue;
-
-            // 只包含 IMessage 类型
-            if (typeof(Google.Protobuf.IMessage).IsAssignableFrom(paramType))
+            if (result is Task task)
             {
-                eventTypes.Add(paramType);
+                await task;
             }
-        }
 
-        return Task.FromResult(eventTypes.ToList());
+            Logger.LogDebug("Handler method {HandlerName} completed", handler.Name);
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException != null)
+        {
+            // Unwrap the TargetInvocationException to get the actual exception
+            throw tie.InnerException;
+        }
     }
 
-    // ============ 资源管理 ============
+    // ============ Resource Management ============
 
     /// <summary>
-    /// 准备资源上下文
+    /// Prepare resource context
     /// </summary>
     public virtual Task PrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
     {
@@ -403,19 +412,19 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
     }
 
     /// <summary>
-    /// 资源上下文准备回调（由子类重写）
+    /// Resource context preparation callback (overridden by subclasses)
     /// </summary>
     protected virtual Task OnPrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
     {
-        // 默认实现：什么都不做
-        // 子类可以重写此方法来处理资源
+        // Default implementation: do nothing
+        // Subclasses can override to handle resources
         return Task.CompletedTask;
     }
 
-    // ============ 异常处理 ============
+    // ============ Exception Handling ============
 
     /// <summary>
-    /// 发布异常事件
+    /// Publish exception event
     /// </summary>
     protected virtual async Task PublishExceptionEventAsync(
         EventEnvelope originalEnvelope,
@@ -427,15 +436,18 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             if (EventPublisher == null)
                 return;
 
+            // Build complete exception message including inner exceptions
+            var fullExceptionMessage = BuildFullExceptionMessage(exception);
+            
             var exceptionEvent = new EventHandlerExceptionEvent
             {
                 AgentId = Id.ToString(),
                 EventId = originalEnvelope.Id,
                 HandlerName = handlerName,
                 EventType = originalEnvelope.Payload?.TypeUrl ?? "Unknown",
-                ExceptionMessage = exception.Message,
+                ExceptionMessage = fullExceptionMessage,
                 StackTrace = exception.StackTrace ?? string.Empty,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                Timestamp = TimestampHelper.GetUtcNow()
             };
 
             Logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
@@ -447,9 +459,41 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
             Logger.LogError(ex, "Error publishing exception event");
         }
     }
+    
+    /// <summary>
+    /// Build a complete exception message including all inner exceptions
+    /// </summary>
+    private static string BuildFullExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        var currentException = exception;
+        var level = 0;
+        
+        while (currentException != null && level < 10) // Limit depth to prevent infinite loops
+        {
+            if (level == 0)
+            {
+                messages.Add($"{currentException.GetType().Name}: {currentException.Message}");
+            }
+            else
+            {
+                messages.Add($" ---> {currentException.GetType().Name}: {currentException.Message}");
+            }
+            
+            currentException = currentException.InnerException;
+            level++;
+        }
+        
+        if (level >= 10 && currentException != null)
+        {
+            messages.Add(" ---> [Exception chain truncated]");
+        }
+        
+        return string.Join(Environment.NewLine, messages);
+    }
 
     /// <summary>
-    /// 发布框架异常事件
+    /// Publish framework exception event
     /// </summary>
     protected virtual async Task PublishFrameworkExceptionAsync(
         string operation,
@@ -466,7 +510,7 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
                 Operation = operation,
                 ExceptionMessage = exception.Message,
                 StackTrace = exception.StackTrace ?? string.Empty,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                Timestamp = TimestampHelper.GetUtcNow()
             };
 
             Logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
@@ -479,21 +523,21 @@ public abstract class GAgentBase<TState> : IStateGAgent<TState>
         }
     }
 
-    // ============ 生命周期回调（可选重写） ============
+    // ============ Lifecycle Callbacks (optional override) ============
 
     /// <summary>
-    /// 激活回调
+    /// Activation callback
     /// </summary>
-    public virtual Task OnActivateAsync(CancellationToken ct = default)
+    protected virtual Task OnActivateAsync(CancellationToken ct = default)
     {
         Logger.LogDebug("Agent {Id} activated", Id);
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// 停用回调
+    /// Deactivation callback
     /// </summary>
-    public virtual Task OnDeactivateAsync(CancellationToken ct = default)
+    protected virtual Task OnDeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogDebug("Agent {Id} deactivated", Id);
         return Task.CompletedTask;

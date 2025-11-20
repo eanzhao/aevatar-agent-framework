@@ -71,8 +71,7 @@ public static class AgentStateStoreInjector
         var properties = agentType.GetProperties(bindingFlags);
         foreach (var prop in properties)
         {
-            if (prop.Name == "StateStore" &&
-                prop.PropertyType.IsGenericType &&
+            if (prop is { Name: "StateStore", PropertyType.IsGenericType: true } &&
                 prop.PropertyType.GetGenericTypeDefinition() == typeof(IStateStore<>))
             {
                 return prop;

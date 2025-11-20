@@ -12,12 +12,6 @@ namespace Demo.Agents;
 /// </summary>
 public class ObservableAgent : GAgentBase<SimpleAgentState>
 {
-    public ObservableAgent(Guid id)
-        : base(id)
-    {
-        // Logger 将被自动注入
-    }
-
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult("Observable Agent with built-in metrics and logging");
@@ -84,7 +78,7 @@ public class ObservableAgent : GAgentBase<SimpleAgentState>
         return Task.CompletedTask;
     }
 
-    public override async Task OnActivateAsync(CancellationToken ct)
+    protected override async Task OnActivateAsync(CancellationToken ct)
     {
         Logger.LogInformation("ObservableAgent {Id} activated", Id);
         
@@ -95,7 +89,7 @@ public class ObservableAgent : GAgentBase<SimpleAgentState>
         await base.OnActivateAsync(ct);
     }
 
-    public override async Task OnDeactivateAsync(CancellationToken ct)
+    protected override async Task OnDeactivateAsync(CancellationToken ct)
     {
         Logger.LogInformation("ObservableAgent {Id} deactivated with {Count} events processed", 
             Id, State.Counter);

@@ -485,3 +485,5 @@ $RECYCLE.BIN/
 
 old/
 ai-smart-home/
+
+appsettings.secrets.json

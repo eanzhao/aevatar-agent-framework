@@ -1,4 +1,6 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Runtime.Orleans;
@@ -14,6 +16,7 @@ public static class DependencyInjectionExtensions
     public static IServiceCollection AddOrleansActorFactory(this IServiceCollection services)
     {
         services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
         return services;
     }
 }

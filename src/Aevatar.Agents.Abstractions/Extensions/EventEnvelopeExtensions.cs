@@ -1,3 +1,6 @@
+using Aevatar.Agents.Abstractions.Helpers;
+using Google.Protobuf.WellKnownTypes;
+
 namespace Aevatar.Agents.Abstractions;
 
 /// <summary>
@@ -8,26 +11,26 @@ public static class EventEnvelopeExtensions
     /// <summary>
     /// 获取发布时间（UTC）
     /// </summary>
-    public static DateTime GetPublishedTimestampUtc(this EventEnvelope envelope)
+    public static Timestamp GetPublishedTimestamp(this EventEnvelope envelope)
     {
-        return DateTimeOffset.FromUnixTimeMilliseconds(envelope.PublishedTimestampUtc).UtcDateTime;
+        return envelope.Timestamp;
     }
 
     /// <summary>
     /// 设置发布时间为当前时间（UTC）
     /// </summary>
-    public static void SetPublishedTimestampUtcNow(this EventEnvelope envelope)
+    public static void SetPublishedTimestampToNow(this EventEnvelope envelope)
     {
-        envelope.PublishedTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        envelope.Timestamp = TimestampHelper.GetUtcNow();
     }
 
     /// <summary>
     /// 获取事件年龄（从发布到现在的时长）
     /// </summary>
-    public static TimeSpan GetEventAge(this EventEnvelope envelope)
+    public static Duration GetEventAge(this EventEnvelope envelope)
     {
-        var publishedTime = envelope.GetPublishedTimestampUtc();
-        return DateTime.UtcNow - publishedTime;
+        var publishedTime = envelope.GetPublishedTimestamp();
+        return TimestampHelper.GetUtcNow() - publishedTime;
     }
 
     /// <summary>
@@ -36,8 +39,8 @@ public static class EventEnvelopeExtensions
     /// <param name="envelope">事件信封</param>
     /// <param name="maxAge">最大年龄</param>
     /// <returns>是否过期</returns>
-    public static bool IsExpired(this EventEnvelope envelope, TimeSpan maxAge)
+    public static bool IsExpired(this EventEnvelope envelope, Duration maxAge)
     {
-        return envelope.GetEventAge() > maxAge;
+        return envelope.GetEventAge().Seconds > maxAge.Seconds;
     }
 }

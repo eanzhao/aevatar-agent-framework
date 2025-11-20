@@ -21,7 +21,7 @@ services.AddSingleton<LocalGAgentActorFactory>();
 services.AddSingleton<IGAgentActorFactory>(sp => sp.GetRequiredService<LocalGAgentActorFactory>());
 
 // 注册AutoDiscoveryProvider用于Agent实例化
-services.AddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
 
 var serviceProvider = services.BuildServiceProvider();
 

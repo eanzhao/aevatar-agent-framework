@@ -1,0 +1,9 @@
+syntax = "proto3";
+package Aevatar.Agents.Abstractions.Tests;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+message AbstractionsTestEvent {
+  
+}

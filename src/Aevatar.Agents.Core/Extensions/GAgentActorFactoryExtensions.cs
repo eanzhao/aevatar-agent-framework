@@ -15,7 +15,7 @@ public static class GAgentActorFactoryExtensions
     /// </summary>
     public static IServiceCollection AddGAgentActorFactoryProvider(this IServiceCollection services)
     {
-        services.TryAddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         return services;
     }
 }

@@ -40,13 +40,21 @@
 **AI 能力集成指南**
 
 涵盖内容：
-- AI Agent 架构（MEAIGAgentBase）
+- **AI Agent 3级架构**（AIGAgentBase → AIGAgentWithToolBase → AIGAgentWithProcessStrategy）
 - Microsoft.Extensions.AI 集成
-- LLM Provider 配置（Azure OpenAI、OpenAI）
-- AI 工具系统开发
-- 对话历史管理
+- **LLMProviderFactory** 配置（Azure OpenAI、OpenAI、Ollama）
+- **IAevatarTool** 工具系统开发
+- **LLM元推理**策略选择（Chain-of-Thought、ReAct、Tree-of-Thoughts）
+- 对话历史管理和流式响应
 
 **适合**: 需要构建AI智能体的开发者
+
+**架构**：
+```
+Level 1: AIGAgentBase                    ← 基础聊天能力
+Level 2: AIGAgentWithToolBase            ← 增加工具调用
+Level 3: AIGAgentWithProcessStrategy     ← 增加策略选择
+```
 
 ---
 
@@ -76,19 +84,6 @@
 - 高级模式（Supervisor、Aggregator、Saga）
 
 **适合**: 需要深入理解框架内部机制或扩展框架的开发者
-
----
-
-## 🗂️ 归档文档
-
-`archived/` 目录包含历史变更记录和过时文档，仅供参考：
-
-- 历史重构记录（*_SUMMARY.md）
-- 迁移指南（*_MIGRATION.md）
-- 测试修复记录（*_FIX.md）
-- Runtime 抽象分析（RUNTIME_ABSTRACTION_*.md）
-
-**通常不需要阅读归档文档，除非你在研究框架的演化历史。**
 
 ---
 
@@ -123,29 +118,6 @@
 - **选择Local还是Orleans** → [RUNTIME_GUIDE.md](RUNTIME_GUIDE.md) § Runtime选择指南
 - **扩展框架** → [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) § 扩展点
 - **监控Agent** → [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) § 可观测性
-
----
-
-## 📊 文档整理说明
-
-### 整理前（2025-11-13之前）
-- **文档数量**: 27个
-- **总大小**: ~300KB
-- **问题**: 大量历史记录、重复内容、过时信息
-
-### 整理后（2025-11-13）
-- **核心文档**: 5个（本目录）
-- **归档文档**: 22个（archived/）
-- **总大小**: 核心文档~100KB
-- **改进**: 清晰结构、无重复、与代码同步
-
-### 整理原则
-
-1. ✅ **删除历史**: 变更记录移到archived
-2. ✅ **合并重复**: 相同主题合并为单一文档
-3. ✅ **精简内容**: 只保留当前有效信息
-4. ✅ **结构清晰**: 5个文档覆盖所有主题
-5. ✅ **易于维护**: 减少文档数量，降低维护成本
 
 ---
 
@@ -185,6 +157,6 @@
 
 ---
 
-**Last Updated**: 2025-11-13  
-**Document Version**: 2.0 (Post-consolidation)
+**Last Updated**: 2025-11-17
+**Document Version**: 3.0 (3-Level AI Agent Architecture)
 

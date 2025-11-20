@@ -240,7 +240,6 @@ await parentActor.AddChildAsync(childId);
 
 **订阅机制**:
 - `SetParentAsync()` 自动创建对父Stream的订阅
-- 支持类型过滤（使用 `GAgentBase<TState, TEvent>` 时）
 - 自动清理（`ClearParentAsync()`时取消订阅）
 
 ---
@@ -288,39 +287,48 @@ public async Task HandleAsync(MyEvent evt)
 1. **方法签名**: 必须返回 `Task`，接受单个参数
 2. **优先级**: 通过 `[EventHandler(Priority = 1)]` 设置
 3. **自事件**: 默认不处理自己发布的事件，使用 `HandleSelfEvents = true` 覆盖
-4. **类型过滤**: 使用 `GAgentBase<TState, TEvent>` 在类型层面过滤
 
 ---
 
-## 📊 类型过滤机制
+## 📊 Agent配置机制
 
-### 基础Agent（无过滤）
+### 基础Agent（仅状态）
 
 ```csharp
 public class MyAgent : GAgentBase<MyState>
 {
-    // 接收所有类型的事件
+    // 只有状态管理，无额外配置
     [EventHandler]
-    public async Task HandleAnyEvent(IMessage evt) { }
+    public async Task HandleEvent(MyEvent evt) 
+    { 
+        State.ProcessedCount++;
+    }
 }
 ```
 
-### 类型过滤Agent
+### 可配置Agent
 
 ```csharp
-public class MyAgent : GAgentBase<MyState, TeamEvent>
+public class MyAgent : GAgentBase<MyState, MyConfig>
 {
-    // 只接收 TeamEvent 及其子类型
-    // 其他事件在订阅时就被过滤，不会反序列化
-    [EventHandler]
-    public async Task HandleTeamEvent(TeamEvent evt) { }
+    // 同时支持状态和配置管理
+    // Config对象独立于State持久化
+    
+    protected override Task OnActivateAsync(CancellationToken ct = default)
+    {
+        // 使用配置初始化Agent
+        if (Config.EnableLogging)
+        {
+            Logger.LogInformation("Agent activated");
+        }
+        return base.OnActivateAsync(ct);
+    }
 }
 ```
 
-**好处**:
-- 减少不必要的反序列化开销
-- 类型安全
-- 性能优化
+**注意**:
+- 由于Protobuf类型不支持继承，事件类型过滤功能已废弃
+- 所有事件过滤应在处理器内部基于事件内容进行判断
 
 ---
 
