@@ -122,6 +122,15 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
         if (!businessServerAppClientId.IsNullOrWhiteSpace())
         {
             var businessServerAppRootUrl = configurationSection["BusinessServer_App:RootUrl"]?.TrimEnd('/');
+            
+            // Extract base URL for post_logout_redirect_uri
+            // e.g., "https://localhost:3000/auth/openiddict" -> "https://localhost:3000"
+            string? postLogoutUrl = businessServerAppRootUrl;
+            if (!string.IsNullOrEmpty(businessServerAppRootUrl) && Uri.TryCreate(businessServerAppRootUrl, UriKind.Absolute, out var uri))
+            {
+                postLogoutUrl = $"{uri.Scheme}://{uri.Authority}";
+            }
+            
             await CreateApplicationAsync(
                 applicationType: OpenIddictConstants.ApplicationTypes.Web,
                 name: businessServerAppClientId!,
@@ -139,7 +148,7 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 },
                 scopes: commonScopes,
                 redirectUri: businessServerAppRootUrl,
-                postLogoutRedirectUri: businessServerAppRootUrl,
+                postLogoutRedirectUri: postLogoutUrl,  // Use base URL for logout
                 clientUri: businessServerAppRootUrl,
                 logoUri: "/images/clients/angular.svg"
             );
