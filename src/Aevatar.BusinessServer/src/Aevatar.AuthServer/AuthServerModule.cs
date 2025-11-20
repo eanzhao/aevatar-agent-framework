@@ -126,8 +126,19 @@ public class AuthServerModule : AbpModule
                 LeptonXLiteThemeBundles.Styles.Global,
                 bundle =>
                 {
-                    bundle.AddFiles("/global-scripts.js");
                     bundle.AddFiles("/global-styles.css");
+                }
+            );
+            
+            options.ScriptBundles.Configure(
+                LeptonXLiteThemeBundles.Scripts.Global,
+                bundle =>
+                {
+                    // CRITICAL: Load timeago compatibility layer BEFORE ABP framework scripts
+                    // ABP 9.x dom-event-handlers.js calls $('time.timeago').timeago()
+                    // but timeago.js was replaced with Luxon. This provides the missing jQuery plugin.
+                    bundle.AddFiles("/libs/timeago/timeago-compat.js");
+                    bundle.AddFiles("/global-scripts.js");
                 }
             );
         });
