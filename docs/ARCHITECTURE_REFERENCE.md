@@ -259,7 +259,7 @@ public class MyAgentState  // 手动定义的类无法正确序列化
 
 > **记住：如果数据需要跨运行时边界传输，就必须使用 Protobuf 定义它！**
 >
-> 详细规则请查看 [序列化规则文档](docs/Serialization_Rules.md)
+> 详细规则请查看 [全能指南 - 序列化](docs/AEVATAR_FRAMEWORK_GUIDE.md#defining-state--events-protobuf)
 
 ## 🔌 消息流 (Streaming)
 

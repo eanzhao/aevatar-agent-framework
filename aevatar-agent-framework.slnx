@@ -5,14 +5,9 @@
   </Folder>
   <Folder Name="/apps/" />
   <Folder Name="/docs/">
-    <File Path="docs\CORE_CONCEPTS.md" />
-    <File Path="docs\EVENTSOURCING.md" />
-    <File Path="docs\DEVELOPER_GUIDE.md" />
-    <File Path="docs\AI_INTEGRATION.md" />
-    <File Path="docs\README.md" />
-    <File Path="docs\RUNTIME_GUIDE.md" />
-    <File Path="docs\ACTOR_ARCHITECTURE.md" />
-    <File Path="docs\AGENT_ARCHITECTURE.md" />
+    <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
+    <File Path="docs\CONSTITUTION.md" />
+    <File Path="docs\ARCHITECTURE_REFERENCE.md" />
   </Folder>
   <Folder Name="/examples/">
     <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" Type="Classic C#" />
