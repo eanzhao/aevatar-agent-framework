@@ -12,19 +12,12 @@ namespace MongoDBEventStoreDemo;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    public BankAccountAgent(
-        Guid id,
-        ILogger<BankAccountAgent>? logger = null)
-        : base(id, null, logger)
-    {
-    }
-
+    // No need for ID constructor anymore - framework handles it automatically!
+    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"MongoDB Bank Account Agent for {State.AccountHolder}");
     }
-
-    public new BankAccountState GetState() => State;
 
     protected override ISnapshotStrategy SnapshotStrategy => new IntervalSnapshotStrategy(10);
 
@@ -32,7 +25,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 
     public async Task CreateAccountAsync(string accountHolder, decimal initialBalance = 0)
     {
-        Logger?.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
+        Logger.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
             accountHolder, initialBalance);
 
         var evt = new AccountCreated

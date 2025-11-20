@@ -2,7 +2,7 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Aevatar.Agents.AI.Abstractions.Tools;
+using Aevatar.Agents.AI.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.Core.Tools.BuiltIn;
@@ -30,8 +30,17 @@ public enum EventDirection
 
 /// <summary>
 /// 事件发布工具 - 内置AI工具
+/// <para/>
+/// 允许Agent向其他Agent发送事件
 /// </summary>
-public class AevatarEventPublisherTool : IAevatarAITool
+[AevatarTool(
+    Name = "publish_event",
+    Description = "Publish events to the agent hierarchy to communicate with other agents",
+    Category = ToolCategory.Communication,
+    Version = "1.0.0",
+    AutoRegister = true
+)]
+public class AevatarEventPublisherTool : AevatarToolBase
 {
     private readonly ILogger<AevatarEventPublisherTool> _logger;
 
@@ -40,12 +49,45 @@ public class AevatarEventPublisherTool : IAevatarAITool
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public string Name => "publish_event";
-    public string Description => "Publish events to the agent hierarchy";
+    public override string Name => "publish_event";
+    public override string Description => "Publish events to the agent hierarchy";
+    public override ToolCategory Category => ToolCategory.Communication;
+    public override string Version => "1.0.0";
 
-    public async Task<AevatarAIToolResult> ExecuteAsync(
-        AevatarAIToolContext context,
+    public override ToolParameters CreateParameters()
+    {
+        return new ToolParameters
+        {
+            Required = new[] { "eventType", "eventData" },
+            Items = new Dictionary<string, ToolParameter>
+            {
+                ["eventType"] = new ToolParameter
+                {
+                    Type = "string",
+                    Description = "The type of event to publish (full type name)",
+                    Required = true
+                },
+                ["eventData"] = new ToolParameter
+                {
+                    Type = "object",
+                    Description = "The data/payload of the event",
+                    Required = true
+                },
+                ["direction"] = new ToolParameter
+                {
+                    Type = "string",
+                    Description = "The direction of event propagation (Up, Down, Bidirectional)",
+                    Required = false,
+                    DefaultValue = "Bidirectional"
+                }
+            }
+        };
+    }
+
+    public override async Task<object?> ExecuteAsync(
         Dictionary<string, object> parameters,
+        ToolContext context,
+        ILogger? logger,
         CancellationToken cancellationToken = default)
     {
         try
@@ -57,13 +99,13 @@ public class AevatarEventPublisherTool : IAevatarAITool
             if (string.IsNullOrWhiteSpace(eventType))
             {
                 _logger.LogWarning("Event type is required but not provided");
-                return AevatarAIToolResult.CreateFailure("Event type is required");
+                throw new ArgumentException("Event type is required");
             }
 
             if (eventData == null)
             {
                 _logger.LogWarning("Event data is required but not provided");
-                return AevatarAIToolResult.CreateFailure("Event data is required");
+                throw new ArgumentException("Event data is required");
             }
 
             // 创建事件实例
@@ -71,7 +113,7 @@ public class AevatarEventPublisherTool : IAevatarAITool
             if (eventInstance == null)
             {
                 _logger.LogWarning("Failed to create event instance for type: {EventType}", eventType);
-                return AevatarAIToolResult.CreateFailure($"Invalid event type: {eventType}");
+                throw new InvalidOperationException($"Invalid event type: {eventType}");
             }
 
             // 解析事件方向
@@ -88,19 +130,38 @@ public class AevatarEventPublisherTool : IAevatarAITool
             _logger.LogInformation("Successfully published event: {EventType} with direction: {Direction}",
                 eventType, eventDirection);
 
-            return AevatarAIToolResult.CreateSuccess(new
+            return new
             {
                 published = true,
                 eventType,
                 direction = eventDirection.ToString(),
                 timestamp = DateTime.UtcNow
-            });
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to publish event");
-            return AevatarAIToolResult.CreateFailure($"Failed to publish event: {ex.Message}");
+            throw; // Re-throw instead of returning failure result
         }
+    }
+
+    public override ToolParameterValidationResult ValidateParameters(Dictionary<string, object?> parameters)
+    {
+        var result = new ToolParameterValidationResult { IsValid = true };
+
+        if (!parameters.ContainsKey("eventType") || string.IsNullOrWhiteSpace(parameters["eventType"]?.ToString()))
+        {
+            result.IsValid = false;
+            result.Errors.Add("Required parameter 'eventType' is missing or empty");
+        }
+
+        if (!parameters.ContainsKey("eventData") || parameters["eventData"] == null)
+        {
+            result.IsValid = false;
+            result.Errors.Add("Required parameter 'eventData' is missing or null");
+        }
+
+        return result;
     }
 
     private object? CreateEventInstance(string eventType, object eventData)

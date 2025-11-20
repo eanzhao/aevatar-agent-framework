@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+option csharp_namespace = "Aevatar.Agents.AI.Core.Messages";
+
+import "google/protobuf/timestamp.proto";
+
+// AI Decision Event - Records an AI decision/response
+message AIDecisionEvent {
+    string prompt = 1;                          // The input prompt/question
+    string response = 2;                        // The AI's response
+    int32 tokens_used = 3;                      // Number of tokens consumed
+    string model = 4;                            // AI model used (e.g., gpt-4)
+    double temperature = 5;                      // Temperature setting used
+    google.protobuf.Timestamp timestamp = 6;    // When the decision was made
+    map<string, string> metadata = 7;           // Additional metadata
+}
+
+// AI Tool Invocation Event - Records when AI invokes a tool/function
+message AIToolInvocationEvent {
+    string tool_name = 1;                       // Name of the tool invoked
+    string tool_input = 2;                      // Input provided to the tool
+    string tool_output = 3;                     // Output from the tool
+    bool success = 4;                           // Whether the invocation succeeded
+    string error_message = 5;                   // Error message if failed
+    int32 tokens_used = 6;                      // Tokens used for this invocation
+    google.protobuf.Timestamp timestamp = 7;    // When the tool was invoked
+}
+
+// AI Context Update Event - Records when conversation context changes
+message AIContextUpdateEvent {
+    repeated string added_messages = 1;         // Messages added to context
+    repeated string removed_messages = 2;       // Messages removed from context
+    int32 total_messages = 3;                   // Total messages in context after update
+    string reason = 4;                           // Reason for context update
+    google.protobuf.Timestamp timestamp = 5;    // When context was updated
+}
+
+// AI Model Switch Event - Records when the AI model is changed
+message AIModelSwitchEvent {
+    string previous_model = 1;                  // Previous model used
+    string new_model = 2;                        // New model to use
+    string reason = 3;                           // Reason for switch
+    google.protobuf.Timestamp timestamp = 4;    // When the switch occurred
+}
+
+// AI Error Event - Records AI-related errors
+message AIErrorEvent {
+    string error_type = 1;                      // Type of error (e.g., "RateLimitError")
+    string error_message = 2;                    // Detailed error message
+    string model = 3;                            // Model that produced the error
+    string prompt = 4;                           // Prompt that caused the error
+    google.protobuf.Timestamp timestamp = 5;    // When the error occurred
+    map<string, string> context = 6;            // Additional error context
+}
+
+// AI Training Feedback Event - Records feedback for model improvement
+message AITrainingFeedbackEvent {
+    string prompt = 1;                           // Original prompt
+    string response = 2;                         // AI's response
+    int32 rating = 3;                           // Rating (1-5)
+    string feedback_text = 4;                    // Textual feedback
+    bool is_correct = 5;                        // Whether response was correct
+    google.protobuf.Timestamp timestamp = 6;    // When feedback was provided
+}

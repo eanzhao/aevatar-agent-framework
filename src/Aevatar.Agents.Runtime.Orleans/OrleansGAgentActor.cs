@@ -1,5 +1,7 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Orleans.Streams;
 
@@ -8,14 +10,16 @@ namespace Aevatar.Agents.Runtime.Orleans;
 /// <summary>
 /// Orleans Agent Actor
 /// 继承自 GAgentActorBase,使用 Orleans Streams 进行事件传输
+/// 使用 byte[] 流以避免 JSON 序列化问题（支持 Protobuf ByteString）
 /// </summary>
 public class OrleansGAgentActor : GAgentActorBase
 {
     private readonly IGrainFactory _grainFactory;
     private readonly IStreamProvider _streamProvider;
-    private readonly Dictionary<Guid, IAsyncStream<EventEnvelope>> _actorStreams = new();
-    private IAsyncStream<EventEnvelope>? _myStream;
-    private StreamSubscriptionHandle<EventEnvelope>? _streamSubscription;
+    private readonly StreamingOptions _streamingOptions;
+    private readonly Dictionary<Guid, IAsyncStream<byte[]>> _actorStreams = new();
+    private IAsyncStream<byte[]>? _myStream;
+    private StreamSubscriptionHandle<byte[]>? _streamSubscription;
 
     // ============ 构造函数 ============
 
@@ -26,17 +30,20 @@ public class OrleansGAgentActor : GAgentActorBase
         IGAgent agent,
         IGrainFactory grainFactory,
         IStreamProvider streamProvider,
-        ILogger? logger = null)
-        : base(agent, logger)
+        StreamingOptions streamingOptions)
+        : base(agent)
     {
         _grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));
         _streamProvider = streamProvider;
+        _streamingOptions = streamingOptions ?? new StreamingOptions();
 
-        // 创建自己的 Stream
+        // 创建自己的 Stream (使用配置的 StreamNamespace)
+        // 使用 byte[] 类型以避免 JSON 序列化问题，支持 Protobuf ByteString
         try
         {
-            var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, Id.ToString());
-            _myStream = _streamProvider.GetStream<EventEnvelope>(streamId);
+            var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
+            var streamId = StreamId.Create(streamNamespace, Id.ToString());
+            _myStream = _streamProvider.GetStream<byte[]>(streamId);
         }
         catch (Exception ex)
         {
@@ -54,12 +61,18 @@ public class OrleansGAgentActor : GAgentActorBase
 
     /// <summary>
     /// 发送事件给自己 - 通过 Orleans Stream
+    /// 序列化 EventEnvelope 为 byte[] 以支持 Protobuf ByteString
     /// </summary>
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
         if (_myStream != null)
         {
-            await _myStream.OnNextAsync(envelope);
+            // 序列化为 byte[] 以避免 JSON 序列化问题
+            using var stream = new MemoryStream();
+            using var codedOutput = new CodedOutputStream(stream);
+            envelope.WriteTo(codedOutput);
+            codedOutput.Flush();
+            await _myStream.OnNextAsync(stream.ToArray());
         }
         else
         {
@@ -70,20 +83,27 @@ public class OrleansGAgentActor : GAgentActorBase
 
     /// <summary>
     /// 发送事件到指定 Actor - 通过 Orleans Streams
+    /// 序列化 EventEnvelope 为 byte[] 以支持 Protobuf ByteString
     /// </summary>
     protected override async Task SendEventToActorAsync(Guid actorId, EventEnvelope envelope, CancellationToken ct)
     {
         try
         {
-            // 获取或创建目标 Actor 的 Stream
+            // 获取或创建目标 Actor 的 Stream (使用配置的 StreamNamespace)
             if (!_actorStreams.TryGetValue(actorId, out var stream))
             {
-                var streamId = StreamId.Create(AevatarAgentsOrleansConstants.StreamNamespace, actorId.ToString());
-                stream = _streamProvider.GetStream<EventEnvelope>(streamId);
+                var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
+                var streamId = StreamId.Create(streamNamespace, actorId.ToString());
+                stream = _streamProvider.GetStream<byte[]>(streamId);
                 _actorStreams[actorId] = stream;
             }
 
-            await stream.OnNextAsync(envelope);
+            // 序列化为 byte[] 以避免 JSON 序列化问题
+            using var memoryStream = new MemoryStream();
+            using var codedOutput = new CodedOutputStream(memoryStream);
+            envelope.WriteTo(codedOutput);
+            codedOutput.Flush();
+            await stream.OnNextAsync(memoryStream.ToArray());
         }
         catch (Exception ex)
         {
@@ -94,7 +114,7 @@ public class OrleansGAgentActor : GAgentActorBase
             {
                 var grain = _grainFactory.GetGrain<IGAgentGrain>(actorId.ToString());
                 using var stream = new MemoryStream();
-                using var codedOutput = new Google.Protobuf.CodedOutputStream(stream);
+                using var codedOutput = new CodedOutputStream(stream);
                 envelope.WriteTo(codedOutput);
                 codedOutput.Flush();
                 await grain.HandleEventAsync(stream.ToArray());
@@ -192,19 +212,22 @@ public class OrleansGAgentActor : GAgentActorBase
 
     /// <summary>
     /// 处理从 Orleans Stream 接收到的事件
+    /// 反序列化 byte[] 为 EventEnvelope
     /// </summary>
-    private async Task OnStreamEventReceived(EventEnvelope envelope, StreamSequenceToken? token)
+    private async Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
     {
-        Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
-
         try
         {
+            // 反序列化 byte[] 为 EventEnvelope
+            var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+            Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
+
             // 直接调用基类的 HandleEventAsync (会走完整的处理流程)
             await HandleEventAsync(envelope, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error handling stream event {EventId} for Agent {AgentId}", envelope.Id, Id);
+            Logger.LogError(ex, "Error deserializing or handling stream event for Agent {AgentId}", Id);
         }
     }
 }

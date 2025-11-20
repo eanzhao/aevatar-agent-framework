@@ -21,71 +21,54 @@ public static class AgentEventStoreInjector
             return;
 
         var agentType = agent.GetType();
-        var baseType = agentType.BaseType;
-
-        // Find GAgentBaseWithEventSourcing<TState> in the inheritance chain
-        while (baseType != null && baseType != typeof(object))
+        
+        // Find EventStore property (it's protected in GAgentBaseWithEventSourcing)
+        var eventStoreProperty = agentType.GetProperty("EventStore",
+            BindingFlags.Instance | 
+            BindingFlags.NonPublic | 
+            BindingFlags.Public);
+            
+        if (eventStoreProperty != null && 
+            eventStoreProperty.PropertyType == typeof(IEventStore) &&
+            eventStoreProperty.CanWrite)
         {
-            if (baseType.IsGenericType &&
-                baseType.GetGenericTypeDefinition().Name == "GAgentBaseWithEventSourcing`1")
+            // Get IEventStore from DI
+            var eventStore = serviceProvider.GetService(typeof(IEventStore));
+            if (eventStore != null)
             {
-                // Get IEventStore from DI
-                var eventStore = serviceProvider.GetService(typeof(IEventStore));
-                if (eventStore != null)
+                try
                 {
-                    // Find and call SetEventStore method
-                    var setEventStoreMethod = FindSetEventStoreMethod(agentType);
-                    if (setEventStoreMethod != null)
-                    {
-                        try
-                        {
-                            setEventStoreMethod.Invoke(agent, [eventStore]);
-                        }
-                        catch (Exception)
-                        {
-                            // Log error silently (Agent may work without EventStore)
-                        }
-                    }
+                    eventStoreProperty.SetValue(agent, eventStore);
                 }
-
-                break;
+                catch (Exception)
+                {
+                    // Log error silently (Agent may work without EventStore)
+                }
             }
-
-            baseType = baseType.BaseType;
         }
     }
 
+
     /// <summary>
-    /// Find SetEventStore method in agent type hierarchy
+    /// Check if agent needs EventStore
     /// </summary>
-    private static MethodInfo? FindSetEventStoreMethod(Type agentType)
+    /// <param name="agent">Agent instance</param>
+    /// <returns>True if the agent has an EventStore property</returns>
+    public static bool HasEventStore(IGAgent agent)
     {
-        const BindingFlags bindingFlags =
-            BindingFlags.Instance |
-            BindingFlags.Public |
-            BindingFlags.NonPublic;
+        if (agent == null)
+            return false;
 
-        // Check current type
-        var methods = agentType.GetMethods(bindingFlags);
-        foreach (var method in methods)
-        {
-            if (method.Name == "SetEventStore" &&
-                method.ReturnType == typeof(void) &&
-                method.GetParameters().Length == 1 &&
-                method.GetParameters()[0].ParameterType == typeof(IEventStore))
-            {
-                return method;
-            }
-        }
-
-        // Check base type recursively
-        if (agentType.BaseType != null && agentType.BaseType != typeof(object))
-        {
-            var baseMethod = FindSetEventStoreMethod(agentType.BaseType);
-            if (baseMethod != null)
-                return baseMethod;
-        }
-
-        return null;
+        var agentType = agent.GetType();
+        
+        // Check if agent has EventStore property (it's protected in GAgentBaseWithEventSourcing)
+        var eventStoreProperty = agentType.GetProperty("EventStore",
+            BindingFlags.Instance | 
+            BindingFlags.NonPublic | 
+            BindingFlags.Public);
+            
+        return eventStoreProperty != null && 
+               eventStoreProperty.PropertyType == typeof(IEventStore) &&
+               eventStoreProperty.CanWrite;
     }
 }

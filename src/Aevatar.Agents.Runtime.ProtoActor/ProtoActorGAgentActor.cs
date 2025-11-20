@@ -23,9 +23,8 @@ public class ProtoActorGAgentActor : GAgentActorBase
         IGAgent agent,
         IRootContext rootContext,
         PID actorPid,
-        ProtoActorMessageStreamRegistry streamRegistry,
-        ILogger? logger = null)
-        : base(agent, logger)
+        ProtoActorMessageStreamRegistry streamRegistry)
+        : base(agent)
     {
         _rootContext = rootContext ?? throw new ArgumentNullException(nameof(rootContext));
         _actorPid = actorPid ?? throw new ArgumentNullException(nameof(actorPid));
@@ -58,44 +57,17 @@ public class ProtoActorGAgentActor : GAgentActorBase
         var parentStream = _streamRegistry.GetStream(parentId);
         if (parentStream != null)
         {
-            // 创建类型过滤器（如果Agent有特定的事件类型约束）
-            Func<EventEnvelope, bool>? filter = null;
+            // 注意：事件类型过滤功能已废弃
+            // 因为Protobuf不支持继承，无法在类型层面进行有效过滤
+            // 所有事件过滤应在Agent的事件处理器内部基于事件内容进行
             
-            // 检查Agent是否继承自GAgentBase<TState, TEvent>，获取TEvent类型
-            var agentType = Agent.GetType();
-            var baseType = agentType.BaseType;
-            while (baseType != null)
-            {
-                if (baseType.IsGenericType && 
-                    baseType.GetGenericTypeDefinition() == typeof(GAgentBase<,>))
-                {
-                    var eventType = baseType.GetGenericArguments()[1];
-                    // 创建类型过滤器
-                    filter = envelope =>
-                    {
-                        if (envelope.Payload == null) return false;
-                        // 检查TypeUrl是否包含事件类型名
-                        return envelope.Payload.TypeUrl.Contains(eventType.Name) ||
-                               envelope.Payload.TypeUrl.Contains(eventType.FullName);
-                    };
-                    break;
-                }
-                baseType = baseType.BaseType;
-            }
-            
-            // 创建组合过滤器：类型过滤 + 过滤掉自己发布的事件
+            // 创建过滤器：过滤掉自己发布的事件
             Func<EventEnvelope, bool>? combinedFilter = envelope =>
             {
                 // 过滤掉自己发布的事件，避免循环
                 if (envelope.PublisherId == Id.ToString())
                 {
                     return false;
-                }
-                
-                // 应用类型过滤
-                if (filter != null)
-                {
-                    return filter(envelope);
                 }
                 
                 return true;

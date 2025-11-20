@@ -11,11 +11,6 @@ namespace Demo.Agents;
 /// </summary>
 public class WeatherAgent : GAgentBase<WeatherAgentState>
 {
-    public WeatherAgent(Guid id, ILogger<WeatherAgent>? logger = null)
-        : base(id, logger)
-    {
-    }
-    
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult("Weather Agent - Provides weather information for cities");

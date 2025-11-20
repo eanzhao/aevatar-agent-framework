@@ -12,22 +12,10 @@ namespace EventSourcingDemo;
 /// </summary>
 public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
 {
-    public BankAccountAgent(
-        Guid id,
-        ILogger<BankAccountAgent>? logger = null)
-        : base(id, null, logger)
-    {
-    }
-
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult($"Bank Account Agent for {State.AccountHolder}");
     }
-
-    /// <summary>
-    /// Get current state (for demo/testing)
-    /// </summary>
-    public BankAccountState GetState() => State;
 
     // ========== Business Operations (使用新 API) ==========
 

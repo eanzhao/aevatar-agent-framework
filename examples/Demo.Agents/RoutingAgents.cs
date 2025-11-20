@@ -8,10 +8,6 @@ namespace Demo.Agents;
 // 路由Agent
 public class RouterAgent : GAgentBase<RouterState>
 {
-    public RouterAgent(Guid id, ILogger<RouterAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [EventHandler]
     public Task HandleRoutingMessage(RoutingMessage message)
@@ -33,10 +29,6 @@ public class RouterAgent : GAgentBase<RouterState>
 // 处理器Agent
 public class ProcessorAgent : GAgentBase<ProcessorState>
 {
-    public ProcessorAgent(Guid id, ILogger<ProcessorAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task ProcessEvent(EventEnvelope envelope)
@@ -58,10 +50,6 @@ public class ProcessorAgent : GAgentBase<ProcessorState>
 // 过滤器Agent
 public class FilterAgent : GAgentBase<FilterState>
 {
-    public FilterAgent(Guid id, ILogger<FilterAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task FilterEvent(EventEnvelope envelope)
@@ -97,10 +85,6 @@ public class FilterAgent : GAgentBase<FilterState>
 // 日志Agent
 public class LoggerAgent : GAgentBase<LoggerState>
 {
-    public LoggerAgent(Guid id, ILogger<LoggerAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [AllEventHandler]
     public Task LogEvent(EventEnvelope envelope)
@@ -129,10 +113,6 @@ public class LoggerAgent : GAgentBase<LoggerState>
 // 广播Agent
 public class BroadcastAgent : GAgentBase<BroadcastState>
 {
-    public BroadcastAgent(Guid id, ILogger<BroadcastAgent>? logger = null) 
-        : base(id, logger)
-    {
-    }
     
     [EventHandler]
     public Task HandleBroadcast(BroadcastMessage broadcast)

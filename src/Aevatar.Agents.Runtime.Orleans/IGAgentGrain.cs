@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Google.Protobuf;
 using Orleans;
 
 namespace Aevatar.Agents.Runtime.Orleans;

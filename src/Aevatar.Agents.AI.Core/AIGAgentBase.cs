@@ -1,9 +1,10 @@
+using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Core.Extensions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Messages;
-// Models are now in Aevatar.Agents.AI namespace from protobuf
-using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
@@ -13,407 +14,443 @@ namespace Aevatar.Agents.AI.Core;
 /// Level 1: Basic AI Agent with chat capabilities using state-based conversation management.
 /// 第一级：使用基于状态的对话管理的具有基础聊天能力的AI代理
 /// </summary>
-/// <typeparam name="TState">The agent state type (must extend or contain AevatarAIAgentState)</typeparam>
-public abstract class AIGAgentBase<TState> : GAgentBase<TState>
-    where TState : class, IMessage, new()
+/// <typeparam name="TState">The business state type (defined by the developer using protobuf)</typeparam>
+/// <typeparam name="TConfig">The configuration type (must be protobuf type)</typeparam>
+public abstract class AIGAgentBase<TState, TConfig> : GAgentBase<TState, TConfig>
+    where TState : class, IMessage<TState>, new()
+    where TConfig : class, IMessage<TConfig>, new()
 {
     #region Fields
-    
-    private readonly ILLMProvider _llmProvider;
-    private AevatarAIAgentState? _aiState;
-    
+
+    private IAevatarLLMProvider? _llmProvider;
+    private bool _isInitialized;
+    protected ILLMProviderFactory LLMProviderFactory { get; set; }
+
     #endregion
-    
+
+    public AIGAgentBase()
+    {
+    }
+
+    public AIGAgentBase(Guid id) : base(id)
+    {
+    }
+
     #region Properties
-    
+
     /// <summary>
     /// System prompt for the AI agent.
     /// AI代理的系统提示词
     /// </summary>
     public virtual string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
-    
-    /// <summary>
-    /// AI configuration.
-    /// AI配置
-    /// </summary>
-    public AIAgentConfiguration Configuration { get; }
-    
+
     /// <summary>
     /// Gets the LLM provider.
     /// 获取LLM提供商
     /// </summary>
-    public ILLMProvider LLMProvider => _llmProvider;
-    
-    /// <summary>
-    /// Gets the AI state. Must be overridden to provide state access.
-    /// 获取AI状态。必须重写以提供状态访问
-    /// </summary>
-    protected virtual AevatarAIAgentState GetAIState()
+    public IAevatarLLMProvider LLMProvider
     {
-        // Try to get AI state from the agent state
-        // This should be overridden in derived classes for proper state management
-        if (_aiState == null)
+        get
         {
-            _aiState = new AevatarAIAgentState
-            {
-                AgentId = Id.ToString(),
-                AiConfig = new AevatarAIConfiguration
-                {
-                    Model = Configuration.Model,
-                    MaxHistory = Configuration.MaxHistory,
-                    Temperature = Configuration.Temperature,
-                    MaxTokens = Configuration.MaxTokens,
-                    SystemPrompt = SystemPrompt
-                }
-            };
+            if (!_isInitialized)
+                throw new InvalidOperationException(
+                    "AI Agent must be initialized before use. Call InitializeAsync() first.");
+            return _llmProvider!;
         }
-        return _aiState;
     }
-    
+
     /// <summary>
-    /// Gets the conversation history from AI state.
-    /// 从AI状态获取对话历史
+    /// Gets the AI configuration (AevatarAIAgentConfiguration is stored in State).
+    /// 获取AI配置（AevatarAIAgentConfiguration存储在State中）
     /// </summary>
-    public IList<AevatarChatMessage> ConversationHistory => GetAIState().ConversationHistory;
-    
+    public AevatarAIAgentConfiguration Configuration { get; protected set; } = new();
+
     #endregion
-    
-    #region Constructors
-    
+
+    #region Initialization - Version 1: Use configured LLM Provider
+
     /// <summary>
-    /// Initializes a new instance of the AIGAgentBase class.
-    /// 初始化AIGAgentBase类的新实例
+    /// Initialize the AI agent with a named LLM provider from ASP.NET Options.
+    /// This method must be called before using the agent.
+    /// 使用appsettings.json中配置的LLM提供商初始化AI代理。必须在调用前初始化。
     /// </summary>
-    protected AIGAgentBase() : base()
+    /// <param name="providerName">Name of the LLM provider from appsettings.json (e.g., "openai-gpt4", "azure-gpt35")</param>
+    /// <param name="configureAI">Optional configuration action for AI settings</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public virtual async Task InitializeAsync(
+        string providerName,
+        Action<AevatarAIAgentConfiguration>? configureAI = null,
+        CancellationToken cancellationToken = default)
     {
-        Configuration = new AIAgentConfiguration();
-        ConfigureAI(Configuration);
+        if (_isInitialized)
+            return;
+
+        // Use InitializationScope to allow State and Config modifications during initialization
+        using var initScope = StateProtectionContext.BeginInitializationScope();
         
-        _llmProvider = CreateLLMProvider();
-        InitializeAIState();
-        InitializeConversation();
-    }
-    
-    /// <summary>
-    /// Initializes a new instance with dependency injection.
-    /// 使用依赖注入初始化新实例
-    /// </summary>
-    protected AIGAgentBase(
-        ILLMProvider llmProvider,
-        ILogger? logger = null) : base(logger)
-    {
-        _llmProvider = llmProvider ?? throw new ArgumentNullException(nameof(llmProvider));
-        
-        Configuration = new AIAgentConfiguration();
+        // 1. Load state and config if stores are available
+        if (StateStore != null)
+        {
+            State = await StateStore.LoadAsync(Id, cancellationToken) ?? new TState();
+        }
+
+        if (ConfigStore != null)
+        {
+            var agentType = GetType();
+            var savedConfig = await ConfigStore.LoadAsync(agentType, Id, cancellationToken);
+            if (savedConfig != null)
+            {
+                Config = savedConfig;
+            }
+        }
+
+        // 2. Configure AI settings
         ConfigureAI(Configuration);
-        InitializeAIState();
-        InitializeConversation();
+        configureAI?.Invoke(Configuration);
+
+        // 3. Configure custom settings
+        ConfigureCustom(Config);
+
+        // 4. Create LLM Provider from factory using provider name
+        _llmProvider = await CreateLLMProviderFromFactoryAsync(providerName, cancellationToken);
+
+        _isInitialized = true;
+
+        Logger.LogInformation("AI Agent {AgentId} initialized with LLM provider '{ProviderName}'", Id, providerName);
     }
-    
+
     #endregion
-    
+
+    #region Initialization - Version 2: Use custom LLM Provider config
+
+    /// <summary>
+    /// Initialize the AI agent with custom LLM provider configuration.
+    /// This method must be called before using the agent.
+    /// 使用自定义LLM提供商配置初始化AI代理。必须在调用前初始化。
+    /// </summary>
+    /// <param name="providerConfig">Custom LLM provider configuration</param>
+    /// <param name="configureAI">Optional configuration action for AI settings</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public virtual async Task InitializeAsync(
+        LLMProviderConfig providerConfig,
+        Action<AevatarAIAgentConfiguration>? configureAI = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isInitialized)
+            return;
+
+        // Use InitializationScope to allow State and Config modifications during initialization
+        using var initScope = StateProtectionContext.BeginInitializationScope();
+        
+        // 1. Load state and config if stores are available
+        if (StateStore != null)
+        {
+            State = await StateStore.LoadAsync(Id, cancellationToken) ?? new TState();
+        }
+
+        if (ConfigStore != null)
+        {
+            var agentType = GetType();
+            var savedConfig = await ConfigStore.LoadAsync(agentType, Id, cancellationToken);
+            if (savedConfig != null)
+            {
+                Config = savedConfig;
+            }
+        }
+
+        // 2. Configure AI settings
+        ConfigureAI(Configuration);
+        configureAI?.Invoke(Configuration);
+
+        // 3. Configure custom settings
+        ConfigureCustom(Config);
+
+        // 4. Create LLM Provider from custom config
+        _llmProvider = await CreateLLMProviderFromConfigAsync(providerConfig, cancellationToken);
+
+        _isInitialized = true;
+
+        Logger.LogInformation("AI Agent {AgentId} initialized with custom LLM provider '{ProviderType}'",
+            Id, providerConfig.ProviderType);
+    }
+
+    #endregion
+
+    #region LLM Provider Creation
+
+    /// <summary>
+    /// Creates LLM Provider from factory using provider name.
+    /// 使用提供商名称从工厂创建LLM Provider
+    /// </summary>
+    protected virtual async Task<IAevatarLLMProvider> CreateLLMProviderFromFactoryAsync(
+        string providerName,
+        CancellationToken cancellationToken)
+    {
+        if (LLMProviderFactory == null)
+        {
+            throw new InvalidOperationException(
+                "ILLMProviderFactory is not available. " +
+                "Use the constructor that accepts ILLMProviderFactory or override this method.");
+        }
+
+        // Get provider from factory
+        return await LLMProviderFactory.GetProviderAsync(providerName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates LLM Provider from custom configuration.
+    /// 从自定义配置创建LLM Provider
+    /// </summary>
+    protected virtual async Task<IAevatarLLMProvider> CreateLLMProviderFromConfigAsync(
+        LLMProviderConfig providerConfig,
+        CancellationToken cancellationToken)
+    {
+        if (LLMProviderFactory == null)
+        {
+            throw new InvalidOperationException(
+                "ILLMProviderFactory is not available. " +
+                "Use the constructor that accepts ILLMProviderFactory or override this method.");
+        }
+
+        // Create provider from config using factory
+        return LLMProviderFactory.CreateProvider(providerConfig, cancellationToken);
+    }
+
+    #endregion
+
     #region Configuration Methods
-    
+
     /// <summary>
     /// Configure AI settings. Override in derived classes.
     /// 配置AI设置。在派生类中重写
     /// </summary>
-    protected virtual void ConfigureAI(AIAgentConfiguration config)
+    protected virtual void ConfigureAI(AevatarAIAgentConfiguration config)
     {
+        // Set defaults
         config.Model = "gpt-4";
-        config.MaxHistory = 20;
         config.Temperature = 0.7;
         config.MaxTokens = 2000;
+        config.MaxHistory = 20;
+
+        // Override in derived classes
     }
-    
+
     /// <summary>
-    /// Creates the LLM provider. Override to customize.
-    /// 创建LLM提供商。重写以自定义
+    /// Configure custom settings. Override in derived classes.
+    /// 配置自定义设置。在派生类中重写
     /// </summary>
-    protected virtual ILLMProvider CreateLLMProvider()
+    protected virtual void ConfigureCustom(TConfig config)
     {
-        // In production, this would be injected or created from configuration
-        throw new NotImplementedException(
-            "LLM Provider must be injected or CreateLLMProvider must be overridden");
+        // Override in derived classes to configure custom settings
     }
-    
-    /// <summary>
-    /// Initialize AI state. Override to customize.
-    /// 初始化AI状态。重写以自定义
-    /// </summary>
-    protected virtual void InitializeAIState()
-    {
-        var aiState = GetAIState();
-        if (aiState.AiConfig == null)
-        {
-            aiState.AiConfig = new AevatarAIConfiguration
-            {
-                Model = Configuration.Model,
-                MaxHistory = Configuration.MaxHistory,
-                Temperature = Configuration.Temperature,
-                MaxTokens = Configuration.MaxTokens,
-                SystemPrompt = Configuration.SystemPrompt ?? SystemPrompt,
-                    ProcessingMode = AevatarAIProcessingMode.Standard
-            };
-        }
-    }
-    
-    /// <summary>
-    /// Initialize conversation with system prompt if needed.
-    /// 如果需要，使用系统提示词初始化对话
-    /// </summary>
-    protected virtual void InitializeConversation()
-    {
-        var aiState = GetAIState();
-        // Add system prompt if conversation is empty and we have a prompt
-        if (aiState.ConversationHistory.Count == 0 && !string.IsNullOrEmpty(SystemPrompt))
-        {
-            aiState.AddSystemMessage(SystemPrompt, Configuration.MaxHistory);
-        }
-    }
-    
+
     #endregion
-    
-    #region Core Chat Abstraction
-    
+
+    #region Chat Methods
+
     /// <summary>
-    /// Process a chat request.
-    /// 处理聊天请求
+    /// Process a chat request and return a response.
+    /// 处理聊天请求并返回响应
     /// </summary>
-    protected virtual async Task<Aevatar.Agents.AI.ChatResponse> ChatAsync(Aevatar.Agents.AI.ChatRequest request)
+    /// <param name="request">Chat request</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Chat response</returns>
+    public virtual async Task<ChatResponse> ChatAsync(
+        ChatRequest request,
+        CancellationToken cancellationToken = default)
     {
+        if (!_isInitialized)
+            throw new InvalidOperationException(
+                "AI Agent must be initialized before use. Call InitializeAsync() first.");
+
         try
         {
-            // Add user message to conversation history
-            var aiState = GetAIState();
-            aiState.AddUserMessage(request.Message, Configuration.MaxHistory);
-            
-            // Build LLM request
+            // Build LLM request from chat request
             var llmRequest = BuildLLMRequest(request);
-            
-            // Get response from LLM
-            var llmResponse = await _llmProvider.GenerateAsync(llmRequest);
-            
-            // Add assistant response to history
-            aiState.AddAssistantMessage(llmResponse.Content, Configuration.MaxHistory);
-            
-            // Update activity tracking
-            aiState.LastActivity = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
-            aiState.TotalTokensUsed += llmResponse.Usage?.TotalTokens ?? 0;
-            
-            // Build and return chat response
-            return new Aevatar.Agents.AI.ChatResponse
+
+            // Call LLM
+            var llmResponse = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
+
+            // Build chat response
+            var response = new ChatResponse
             {
                 Content = llmResponse.Content,
-                Usage = ConvertTokenUsage(llmResponse.Usage),
                 RequestId = request.RequestId
             };
+
+            // Add token usage if available
+            if (llmResponse.Usage != null)
+            {
+                response.Usage = new AevatarTokenUsage
+                {
+                    PromptTokens = llmResponse.Usage.PromptTokens,
+                    CompletionTokens = llmResponse.Usage.CompletionTokens,
+                    TotalTokens = llmResponse.Usage.TotalTokens
+                };
+            }
+
+            // Publish chat response event
+            await PublishAsync(new ChatResponseEvent
+            {
+                RequestId = request.RequestId,
+                Content = response.Content,
+                TokensUsed = response.Usage?.TotalTokens ?? 0,
+                Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+            }, ct: cancellationToken);
+
+            return response;
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "Error processing chat request");
+            Logger.LogError(ex, "Error processing chat request {RequestId}", request.RequestId);
             throw;
         }
     }
-    
+
     /// <summary>
     /// Build LLM request from chat request.
-    /// 从聊天请求构建LLM请求
+    /// 从聊天请求构建 LLM 请求
     /// </summary>
-    protected virtual AevatarLLMRequest BuildLLMRequest(Aevatar.Agents.AI.ChatRequest request)
+    protected virtual AevatarLLMRequest BuildLLMRequest(
+        ChatRequest request)
     {
-        var llmRequest = new AevatarLLMRequest
+        return new AevatarLLMRequest
         {
             SystemPrompt = SystemPrompt,
-            UserPrompt = request.Message,
+            Messages = new List<AevatarChatMessage>
+            {
+                new()
+                {
+                    Role = AevatarChatRole.User,
+                    Content = request.Message
+                }
+            },
             Settings = GetLLMSettings(request)
         };
-        
-        // Add conversation history
-        var aiState = GetAIState();
-        if (aiState.ConversationHistory.Count > 0)
-        {
-            var history = aiState.GetRecentHistory(Configuration.MaxHistory);
-            // History is from AI namespace (Protobuf), llmRequest expects Abstractions types
-            // These are the same type, just different namespaces
-            foreach (var item in history)
-            {
-                llmRequest.Messages.Add(item);
-            }
-        }
-        
-        // Add context from state if available
-        if (aiState.Context != null && aiState.Context.Count > 0)
-        {
-            foreach (var kvp in aiState.Context)
-            {
-                llmRequest.Context[kvp.Key] = kvp.Value;
-            }
-        }
-        
-        return llmRequest;
     }
-    
+
     /// <summary>
-    /// Get LLM settings for the request.
-    /// 获取请求的LLM设置
+    /// Get LLM settings from chat request.
+    /// 从聊天请求获取 LLM 设置
     /// </summary>
     protected virtual AevatarLLMSettings GetLLMSettings(Aevatar.Agents.AI.ChatRequest request)
     {
+        // Use request values if provided (considering 0 as a valid temperature), otherwise use configuration
+        // For temperature: accept any value >= 0 as valid override
+        // For maxTokens: only positive values are valid overrides
+        double temperature = request.Temperature >= 0 ? request.Temperature : Configuration.Temperature;
+        int maxTokens = request.MaxTokens > 0 ? request.MaxTokens : Configuration.MaxTokens;
+
         return new AevatarLLMSettings
         {
-            ModelId = Configuration.Model,
-            Temperature = request.Temperature > 0 ? request.Temperature : Configuration.Temperature,
-            MaxTokens = request.MaxTokens > 0 ? request.MaxTokens : Configuration.MaxTokens
+            Temperature = temperature,
+            MaxTokens = maxTokens,
+            ModelId = Configuration.Model
         };
     }
-    
-    #endregion
-    
-    #region Event Handlers
-    
+
     /// <summary>
-    /// Handle chat request events.
-    /// 处理聊天请求事件
+    /// Create a chat request with the given message.
+    /// 使用给定的消息创建聊天请求
     /// </summary>
-    [EventHandlerAttribute]
-    protected virtual async Task HandleChatRequestEvent(ChatRequestEvent evt)
+    public virtual ChatRequest CreateChatRequest(string message)
     {
-        var request = new Aevatar.Agents.AI.ChatRequest
-        {
-            Message = evt.Message,
-            RequestId = evt.RequestId,
-            // Context will be added below
-        };
-        
-        // Add context items to the map
-        foreach (var item in evt.Context)
-        {
-            request.Context[item.Key] = item.Value;
-        };
-        
-        var response = await ChatAsync(request);
-        
-        await PublishAsync(new Aevatar.Agents.AI.Core.Messages.ChatResponseEvent
-        {
-            Content = response.Content,
-            RequestId = evt.RequestId,
-            TokensUsed = response.Usage?.TotalTokens ?? 0
-        });
+        return ChatRequest.Create(message);
     }
-    
-    #endregion
-    
-    #region Helper Methods
-    
-    
+
     /// <summary>
-    /// Convert metadata from protobuf map to dictionary.
-    /// 将元数据从protobuf映射转换为字典
+    /// Generate a response to a message (convenience method).
+    /// 生成消息的响应（便捷方法）
     /// </summary>
-    private Dictionary<string, object>? ConvertMetadata(
-        Google.Protobuf.Collections.MapField<string, string> metadata)
+    public virtual Task<ChatResponse> GenerateResponseAsync(
+        string message,
+        CancellationToken cancellationToken = default)
     {
-        if (metadata == null || metadata.Count == 0)
-            return null;
-            
-        var result = new Dictionary<string, object>();
-        foreach (var kvp in metadata)
-        {
-            result[kvp.Key] = kvp.Value;
-        }
-        return result;
+        var request = CreateChatRequest(message);
+        return ChatAsync(request, cancellationToken);
     }
-    
+
     /// <summary>
-    /// Convert protobuf map to dictionary context.
-    /// 将protobuf映射转换为字典上下文
+    /// Generate a streaming response to a chat request.
+    /// 生成聊天请求的流式响应
     /// </summary>
-    private Dictionary<string, object> ConvertToContext(
-        Google.Protobuf.Collections.MapField<string, string> protoContext)
+    public virtual async IAsyncEnumerable<string> ChatStreamAsync(
+        ChatRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var context = new Dictionary<string, object>();
-        if (protoContext != null)
+        if (!_isInitialized)
+            throw new InvalidOperationException(
+                "AI Agent must be initialized before use. Call InitializeAsync() first.");
+
+        // Build LLM request
+        var llmRequest = BuildLLMRequest(request);
+
+        // Stream from LLM
+        var enumerator = LLMProvider.GenerateStreamAsync(llmRequest, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+
+        try
         {
-            foreach (var kvp in protoContext)
+            while (true)
             {
-                context[kvp.Key] = kvp.Value;
+                string? content = null;
+                bool hasNext;
+                bool isComplete = false;
+
+                try
+                {
+                    hasNext = await enumerator.MoveNextAsync();
+                    if (!hasNext) break;
+
+                    var token = enumerator.Current;
+                    content = token.Content;
+                    isComplete = token.IsComplete;
+                }
+                catch (Exception ex)
+                {
+                    Logger?.LogError(ex, "Error in streaming chat request {RequestId}", request.RequestId);
+                    throw;
+                }
+
+                if (!string.IsNullOrEmpty(content))
+                {
+                    yield return content;
+                }
+
+                if (isComplete)
+                    break;
             }
         }
-        return context;
-    }
-    
-    /// <summary>
-    /// Convert LLM token usage to our token usage.
-    /// 转换LLM令牌使用量
-    /// </summary>
-    private AevatarTokenUsage ConvertTokenUsage(AevatarTokenUsage? llmUsage)
-    {
-        if (llmUsage == null) return null;
-        
-        return new AevatarTokenUsage
+        finally
         {
-            PromptTokens = llmUsage.PromptTokens,
-            CompletionTokens = llmUsage.CompletionTokens,
-            TotalTokens = llmUsage.TotalTokens
-        };
+            await enumerator.DisposeAsync();
+        }
     }
-    
+
+    /// <summary>
+    /// Generate a streaming response to a message (convenience method).
+    /// 生成消息的流式响应（便捷方法）
+    /// </summary>
+    public virtual IAsyncEnumerable<string> GenerateResponseStreamAsync(
+        string message,
+        CancellationToken cancellationToken = default)
+    {
+        var request = CreateChatRequest(message);
+        return ChatStreamAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Check if the LLM provider supports streaming.
+    /// 检查 LLM 提供商是否支持流式响应
+    /// </summary>
+    public virtual async Task<bool> SupportsStreamingAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_isInitialized)
+            return false;
+
+        var modelInfo = await LLMProvider.GetModelInfoAsync(cancellationToken);
+        return modelInfo.SupportsStreaming;
+    }
+
     #endregion
-}
-
-/// <summary>
-/// AI Agent configuration.
-/// AI代理配置
-/// </summary>
-public class AIAgentConfiguration
-{
-    /// <summary>
-    /// LLM provider instance.
-    /// LLM提供商实例
-    /// </summary>
-    public ILLMProvider? LLMProvider { get; set; }
-    
-    /// <summary>
-    /// Model to use.
-    /// 要使用的模型
-    /// </summary>
-    public string Model { get; set; } = "gpt-4";
-    
-    /// <summary>
-    /// System prompt.
-    /// 系统提示词
-    /// </summary>
-    public string? SystemPrompt { get; set; }
-    
-    /// <summary>
-    /// Maximum conversation history.
-    /// 最大对话历史
-    /// </summary>
-    public int MaxHistory { get; set; } = 20;
-    
-    /// <summary>
-    /// Default temperature.
-    /// 默认温度
-    /// </summary>
-    public double Temperature { get; set; } = 0.7;
-    
-    /// <summary>
-    /// Default max tokens.
-    /// 默认最大令牌数
-    /// </summary>
-    public int MaxTokens { get; set; } = 2000;
-}
-
-/// <summary>
-/// Interface for LLM providers.
-/// LLM提供商接口
-/// </summary>
-public interface ILLMProvider
-{
-    /// <summary>
-    /// Generate a response from the LLM.
-    /// 从LLM生成响应
-    /// </summary>
-    Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request);
 }

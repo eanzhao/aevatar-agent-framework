@@ -1,0 +1,165 @@
+syntax = "proto3";
+package Aevatar.Agents;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+// 事件传播方向
+enum EventDirection {
+  EVENT_DIRECTION_UNSPECIFIED = 0;
+
+  // 向下发送：Parent发送到自己的stream，自动广播给所有children
+  EVENT_DIRECTION_DOWN = 1;
+
+  // 向上发送：Child发送到parent的stream，自动广播给所有siblings（包括自己）
+  EVENT_DIRECTION_UP = 2;
+
+  // 双向发送：同时向上和向下发送
+  EVENT_DIRECTION_BOTH = 3;
+}
+
+message MessageEnvelope {
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Any payload = 3;  // 业务Agent解析
+}
+
+message EventEnvelope {
+  // Basic fields.
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  int64 version = 3;
+  google.protobuf.Any payload = 4;
+
+  // Propagation control fields.
+  string correlation_id = 5;
+  string publisher_id = 6;
+  EventDirection direction = 7;
+  bool should_stop_propagation = 8;
+  int32 max_hop_count = 9;
+  int32 current_hop_count = 10;
+  int32 min_hop_count = 11;
+  string message = 12;
+  repeated string publishers = 13;
+}
+
+message SubAgentAdded {
+  string sub_agent_id = 1;
+}
+
+message SubAgentRemoved {
+  string sub_agent_id = 1;
+}
+
+message LLMEvent {
+  string prompt = 1;
+  string response = 2;
+}
+
+message GeneralConfigEvent {
+  string config_key = 1;
+  string config_value = 2;
+}
+
+message CodeValidationEvent {
+  string code = 1;
+  bool result = 2;
+}
+
+message LLMAgentState {
+  repeated string sub_agent_ids = 1;
+  int64 current_version = 2;
+  string llm_config = 3;
+}
+
+message CodingAgentState {
+  repeated string sub_agent_ids = 1;
+  int64 current_version = 2;
+  string validation_history = 3;
+}
+
+// 异常事件
+message EventHandlerExceptionEvent {
+  string agent_id = 1;
+  string event_id = 2;
+  string handler_name = 3;
+  string event_type = 4;
+  string exception_message = 5;
+  string stack_trace = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+message GAgentBaseExceptionEvent {
+  string agent_id = 1;
+  string operation = 2;
+  string exception_message = 3;
+  string stack_trace = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// ============================================================
+// EventSourcing Messages
+// ============================================================
+
+// Agent State Event - EventSourcing 核心消息
+// 用于持久化和重放 Agent 状态变更
+message AgentStateEvent {
+  // 基础字段
+  string event_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  int64 version = 3;
+  string event_type = 4;  // 事件类型（全限定名）
+
+  // 事件数据（使用 Any 支持任意 Protobuf 消息）
+  google.protobuf.Any event_data = 5;
+
+  // 元数据
+  string agent_id = 6;
+  string correlation_id = 7;
+  map<string, string> metadata = 8;
+}
+
+// Agent Snapshot - 快照消息
+// 用于优化事件重放性能
+message AgentSnapshot {
+  int64 version = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  // 快照状态数据（使用 Any 支持任意状态类型）
+  google.protobuf.Any state_data = 3;
+
+  map<string, string> metadata = 4;
+}
+
+// ============================================================
+// Framework-level State Change Events
+// ============================================================
+
+// Parent changed event
+message ParentChangedEvent {
+  string old_parent = 1;
+  string new_parent = 2;
+}
+
+// Child added event  
+message ChildAddedEvent {
+  string child_id = 1;
+}
+
+// Child removed event
+message ChildRemovedEvent {
+  string child_id = 1;
+}
+
+// Custom state changed event (wrapper)
+message CustomStateChangedEvent {
+  string description = 1;
+  google.protobuf.Any state_data = 2;
+}
+
+// Agent initialized event
+message AgentInitializedEvent {
+  string agent_id = 1;
+  string agent_type = 2;
+  google.protobuf.Any initial_state = 3;
+}

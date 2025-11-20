@@ -1,0 +1,13 @@
+syntax = "proto3";
+package Aevatar.Agents.Orleans.Tests;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+message OrleansTestState {
+  bool is_initialized = 1;
+  bool is_disposed = 2;
+  int32 processed_count = 3;
+  int32 event_count = 4;
+  string last_message = 5;
+}

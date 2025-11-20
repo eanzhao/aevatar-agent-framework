@@ -11,10 +11,6 @@ namespace StateStoreDemo;
 /// </summary>
 public class CounterAgent : GAgentBase<CounterState>
 {
-    public CounterAgent() : base() { }
-
-    public CounterAgent(Guid id, ILogger<CounterAgent>? logger = null) : base(id, logger) { }
-
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleIncrementAsync(IncrementEvent evt)
     {

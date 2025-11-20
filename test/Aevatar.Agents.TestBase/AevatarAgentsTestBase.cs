@@ -8,7 +8,8 @@ namespace Aevatar.Agents.TestBase;
 /// <summary>
 /// Base class for all Aevatar Agents tests that need Orleans cluster
 /// </summary>
-public abstract class AevatarAgentsTestBase : IClassFixture<ClusterFixture>, IDisposable
+[Collection("OrleansCluster")]
+public abstract class AevatarAgentsTestBase : IDisposable
 {
     protected ClusterFixture Fixture { get; }
     protected IClusterClient ClusterClient { get; }
@@ -38,6 +39,9 @@ public abstract class AevatarAgentsTestBase : IClassFixture<ClusterFixture>, IDi
         return ServiceProvider.GetService<T>();
     }
 }
+
+
+
 
 
 

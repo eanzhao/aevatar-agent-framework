@@ -19,15 +19,15 @@ public interface IAevatarLLMProvider
     IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(
         AevatarLLMRequest request,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// 获取模型信息（可选实现）
     /// </summary>
     Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
     {
         // 默认实现
-        return Task.FromResult(new AevatarModelInfo 
-        { 
+        return Task.FromResult(new AevatarModelInfo
+        {
             Name = "unknown",
             MaxTokens = 4096,
             SupportsStreaming = false,
