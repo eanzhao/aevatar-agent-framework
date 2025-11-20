@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/agents/">
     <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" Type="Classic C#" />
+    <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" Type="Classic C#" />
     <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" Type="Classic C#" />
     <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" Type="Classic C#" />
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" Type="Classic C#" />
@@ -18,6 +19,7 @@
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
+    <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" Type="Classic C#" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="Classic C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
     <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" Type="Classic C#" />

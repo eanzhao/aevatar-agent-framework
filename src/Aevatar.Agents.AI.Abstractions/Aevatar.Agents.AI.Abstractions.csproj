@@ -20,7 +20,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Protobuf Include="ai_messages.proto" GrpcServices="None" />
+        <Protobuf Include="ai_abstractions_messages.proto" GrpcServices="None" />
     </ItemGroup>
 
     <ItemGroup>

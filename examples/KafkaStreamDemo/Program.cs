@@ -2,6 +2,7 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Kafka.Demo;
 using KafkaStreamDemo;
 using Microsoft.Extensions.Configuration;
@@ -74,9 +75,10 @@ static IHostBuilder CreateHostBuilder(string[] args)
         .UseOrleans((context, siloBuilder) =>
         {
             // Configure Orleans with Kafka Stream
-            var loggerFactory = context.Services.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger("OrleansConfiguration");
-            ConfigureOrleans(siloBuilder, context.Configuration, logger);
+            // TODO: Fix this
+            // var loggerFactory = context.Services.GetRequiredService<ILoggerFactory>();
+            // var logger = loggerFactory.CreateLogger("OrleansConfiguration");
+            // ConfigureOrleans(siloBuilder, context.Configuration, logger);
         })
         .ConfigureServices((context, services) =>
         {
@@ -89,13 +91,13 @@ static IHostBuilder CreateHostBuilder(string[] args)
                 context.Configuration.GetSection("Kafka"));
             
             // Register Orleans Agents support
-            services.AddOrleansAgents();
+            services.AddAevatarOrleansRuntime();
             
             // Register Actor Manager
             services.AddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
             
             // Register Auto-Discovery Factory Provider
-            services.AddSingleton<IGAgentActorFactoryProvider, AutoDiscoveryGAgentActorFactoryProvider>();
+            services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         })
         .ConfigureLogging(logging =>
         {
@@ -288,8 +290,8 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager, ILogger logger)
         // Get producer state from Grain (not from local actor instance)
         Console.WriteLine("6. Checking Producer State...");
         logger.LogDebug("Retrieving producer state from Grain");
-        var producerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)producerActor;
-        var producerState = await producerOrleansActor.GetStateFromGrainAsync<KafkaProducerState>();
+        var producerOrleansActor = (OrleansGAgentActor)producerActor;
+        var producerState = ((KafkaProducerAgent)producerOrleansActor.GetAgent()).GetState();
         
         if (producerState != null)
         {
@@ -307,8 +309,8 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager, ILogger logger)
         // Get consumer state from Grain (not from local actor instance)
         Console.WriteLine("7. Checking Consumer State...");
         logger.LogDebug("Retrieving consumer state from Grain");
-        var consumerOrleansActor = (Aevatar.Agents.Runtime.Orleans.OrleansGAgentActor)consumerActor;
-        var consumerState = await consumerOrleansActor.GetStateFromGrainAsync<KafkaConsumerState>();
+        var consumerOrleansActor = (OrleansGAgentActor)consumerActor;
+        var consumerState = ((KafkaConsumerAgent)consumerOrleansActor.GetAgent()).GetState();
         
         if (consumerState != null)
         {

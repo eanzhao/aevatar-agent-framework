@@ -10,6 +10,7 @@
       <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
       <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
       <ProjectReference Include="..\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" />
+      <ProjectReference Include="..\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" />
     </ItemGroup>
 
 </Project>

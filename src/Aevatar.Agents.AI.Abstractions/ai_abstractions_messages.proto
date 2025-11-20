@@ -1,0 +1,342 @@
+syntax = "proto3";
+
+package Aevatar.Agents.AI;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+// =====================================================
+// Core AI Types and Enums
+// =====================================================
+
+enum AevatarAIProcessingMode {
+  AEVATAR_AI_PROCESSING_MODE_UNSPECIFIED = 0;
+  AEVATAR_AI_PROCESSING_MODE_STANDARD = 1;
+  AEVATAR_AI_PROCESSING_MODE_CHAIN_OF_THOUGHT = 2;
+  AEVATAR_AI_PROCESSING_MODE_RE_ACT = 3;
+  AEVATAR_AI_PROCESSING_MODE_TREE_OF_THOUGHTS = 4;
+}
+
+enum AevatarChatRole {
+  UNSPECIFIED = 0;
+  SYSTEM = 1;
+  USER = 2;
+  ASSISTANT = 3;
+  FUNCTION = 4;
+}
+
+// =====================================================
+// AI Agent Configuration (Framework Level)
+// =====================================================
+
+// AI Agent框架配置（包含AI行为相关的配置）
+message AevatarAIAgentConfiguration {
+  string model = 1;                      // 模型名称
+  double temperature = 2;                // 温度参数
+  int32 max_tokens = 3;                  // 最大token数
+  int32 max_history = 4;                 // 对话历史最大长度
+  double top_p = 5;                      // top_p采样
+  double frequency_penalty = 6;          // 频率惩罚
+  double presence_penalty = 7;           // 存在惩罚
+}
+
+// =====================================================
+// Default AI Agent Config
+// =====================================================
+
+// 默认的AI Agent配置（用于AIGAgentBase<TState>）
+// 包含框架AI配置和扩展的配置选项
+message AevatarAIAgentConfig {
+  string system_prompt = 1;
+  google.protobuf.Any custom_config = 2;
+
+  // e.g. "gpt-4", "claude-3-opus". If empty, use default model.
+  optional string model = 3;
+
+  // e.g. 0.2 for strict, 0.8 for creative. If empty, use default temp.
+  optional double temperature = 4;
+
+  // e.g. 4096. If zero, use default limit.
+  optional int32 max_tokens = 5;
+}
+
+// =====================================================
+// AI Agent State (Framework Managed)
+// =====================================================
+
+// AI Agent状态
+message AevatarAIAgentState {
+  // 基础状态
+  string agent_id = 1;
+  int64 version = 2;
+
+  // 对话历史
+  repeated AevatarChatMessage conversation_history = 3;
+
+  // 工作记忆
+  WorkingMemory working_memory = 4;
+
+  // 工具执行历史
+  ToolExecutionHistory tool_history = 5;
+
+  // 上下文
+  map<string, string> context = 6;
+
+  // 活动跟踪
+  google.protobuf.Timestamp last_activity = 7;
+  int32 total_tokens_used = 8;
+
+  // 扩展状态
+  google.protobuf.Any custom_state = 9;
+}
+
+// 工作记忆
+message WorkingMemory {
+  map<string, google.protobuf.Any> context = 1;
+  repeated string active_tools = 2;
+  map<string, string> variables = 3;
+}
+
+// 工具执行历史
+message ToolExecutionHistory {
+  repeated ToolExecution executions = 1;
+  int32 max_history = 2;
+}
+
+// 工具执行记录
+message ToolExecution {
+  string execution_id = 1;
+  string tool_name = 2;
+  map<string, string> parameters = 3;
+  string result = 4;
+  bool success = 5;
+  string error = 6;
+  google.protobuf.Timestamp timestamp = 7;
+  int64 duration_ms = 8;
+}
+
+// =====================================================
+// Chat and Conversation Messages
+// =====================================================
+
+message AevatarChatMessage {
+  string id = 1;
+  AevatarChatRole role = 2;
+  string content = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  string function_name = 5;
+  string function_arguments = 6;
+  int32 token_count = 7;
+  map<string, string> metadata = 8;
+}
+
+message ConversationSummary {
+  string content = 1;
+  repeated string key_points = 2;
+  repeated string topics = 3;
+  string sentiment = 4;
+}
+
+// =====================================================
+// Processing Messages
+// =====================================================
+
+message AevatarAIProcessingRequest {
+  string request_id = 1;
+  google.protobuf.Any input_event = 2;
+  string prompt_template = 3;
+  map<string, string> parameters = 4;
+  AevatarAIProcessingMode mode = 5;
+}
+
+// AI处理响应
+message AevatarAIProcessingResponse {
+  string request_id = 1;
+  google.protobuf.Any output_event = 2;
+  string generated_text = 3;
+  repeated ToolInvocation tool_invocations = 4;
+  AevatarTokenUsage token_usage = 5;
+  int64 processing_time_ms = 6;
+}
+
+// 工具调用
+message ToolInvocation {
+  string tool_name = 1;
+  map<string, string> arguments = 2;
+  string result = 3;
+}
+
+// Token使用情况
+message AevatarTokenUsage {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+  double estimated_cost = 4;
+}
+
+// =====================================================
+// Reasoning and Thought Events
+// =====================================================
+
+// 思考步骤事件（用于链式思考）
+message AevatarThoughtStepEvent {
+  string agent_id = 1;
+  string thought_id = 2;
+  int32 step_number = 3;
+  string thought_content = 4;
+  string reasoning = 5;
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+// ReAct观察事件
+message AevatarReActObservationEvent {
+  string agent_id = 1;
+  int32 iteration = 2;
+  string observation = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// 树状思考节点事件
+message AevatarTreeOfThoughtsNodeEvent {
+  string agent_id = 1;
+  string node_id = 2;
+  string parent_node_id = 3;
+  string thought_content = 4;
+  double confidence_score = 5;
+  bool is_selected = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+// =====================================================
+// Memory Events
+// =====================================================
+
+// 记忆存储事件
+message AevatarMemoryStoredEvent {
+  string agent_id = 1;
+  string memory_type = 2; // short_term, long_term, working
+  string memory_key = 3;
+  google.protobuf.Any memory_value = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// 记忆检索事件
+message AevatarMemoryRetrievedEvent {
+  string agent_id = 1;
+  string memory_type = 2;
+  string query = 3;
+  repeated string memory_keys = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// 记忆清理事件
+message AevatarMemoryCleanupEvent {
+  string agent_id = 1;
+  string memory_type = 2;
+  int32 items_removed = 3;
+  string reason = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// =====================================================
+// Chat Request/Response Messages
+// =====================================================
+
+// Chat request
+message ChatRequest {
+  string message = 1;
+  map<string, string> context = 2;
+  string request_id = 3;
+  int32 max_tokens = 4;
+  double temperature = 5;
+}
+
+// Chat response
+message ChatResponse {
+  string content = 1;
+  AevatarTokenUsage usage = 2;
+  repeated ProcessingStep processing_steps = 3;
+  string request_id = 4;
+  bool tool_called = 5;
+  ToolCallInfo tool_call = 6;
+}
+
+// Tool call information
+message ToolCallInfo {
+  string tool_name = 1;
+  map<string, string> arguments = 2;
+  string result = 3;
+}
+
+// Processing step (moved from AI.Core)
+message ProcessingStep {
+  ProcessingStepType type = 1;
+  string description = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string result = 4;
+  map<string, string> metadata = 5;
+}
+
+// Processing step type
+enum ProcessingStepType {
+  PROCESSING_STEP_TYPE_UNSPECIFIED = 0;
+  PROCESSING_STEP_TYPE_PREPARATION = 1;
+  PROCESSING_STEP_TYPE_LLM_GENERATION = 2;
+  PROCESSING_STEP_TYPE_TOOL_EXECUTION = 3;
+  PROCESSING_STEP_TYPE_REASONING = 4;
+  PROCESSING_STEP_TYPE_ACTION = 5;
+  PROCESSING_STEP_TYPE_OBSERVATION = 6;
+  PROCESSING_STEP_TYPE_STRATEGY_SELECTION = 7;
+}
+
+// =====================================================
+// Tool System Messages
+// =====================================================
+
+// AI Tool result
+message AevatarAIToolResult {
+  bool success = 1;
+  google.protobuf.Any data = 2;
+  string error_message = 3;
+  map<string, string> metadata = 4;
+}
+
+// AI Tool context
+message AevatarAIToolContext {
+  string agent_id = 1;
+  string session_id = 2;
+  string user_id = 3;
+  map<string, string> metadata = 4;
+  // Note: ServiceProvider and CancellationToken can't be serialized
+  // These will be injected at runtime via partial class
+}
+
+// Execution context (from ToolDefinition.cs)
+message ExecutionContext {
+  string agent_id = 1;
+  string session_id = 2;
+  string user_id = 3;
+  map<string, string> metadata = 4;
+}
+
+// =====================================================
+// AI Context Messages
+// =====================================================
+
+// AI processing context
+message AevatarAIContext {
+  string agent_id = 1;
+  string question = 2;
+  string system_prompt = 3;
+  google.protobuf.Any working_memory = 4;
+  google.protobuf.Any agent_state = 5;
+  repeated AevatarConversationEntry conversation_history = 6;
+  map<string, string> metadata = 7;
+}
+
+// Conversation entry
+message AevatarConversationEntry {
+  string role = 1;
+  string content = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}

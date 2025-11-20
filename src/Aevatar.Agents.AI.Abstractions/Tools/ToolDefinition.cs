@@ -229,6 +229,3 @@ public class RetryPolicy
     /// </summary>
     public int MaxRetryDelayMs { get; set; } = 30000;
 }
-
-// ExecutionContext has been moved to ai_messages.proto
-// Use Aevatar.Agents.AI.ExecutionContext from the generated protobuf code

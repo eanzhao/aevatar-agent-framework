@@ -28,7 +28,7 @@ public class KafkaProducerAgent : GAgentBase<KafkaProducerState>
         InitializeState();
     }
     
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         

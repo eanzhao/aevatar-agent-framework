@@ -8,7 +8,7 @@ namespace Aevatar.Agents.AI.Core;
 /// Uses AIAgentConfig as the default configuration type.
 /// </summary>
 /// <typeparam name="TState">The business state type (defined by the developer using protobuf)</typeparam>
-public abstract class AIGAgentBase<TState> : AIGAgentBase<TState, AIAgentConfig>
+public abstract class AIGAgentBase<TState> : AIGAgentBase<TState, AevatarAIAgentConfig>
     where TState : class, IMessage<TState>, new()
 {
     #region Constructors
