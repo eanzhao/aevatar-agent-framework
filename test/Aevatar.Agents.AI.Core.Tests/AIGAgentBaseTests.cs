@@ -167,6 +167,7 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     {
         // Arrange
         var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
+
         await agent.InitializeAsync("test-provider");
 
         // Act

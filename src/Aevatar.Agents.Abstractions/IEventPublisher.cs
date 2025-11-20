@@ -22,3 +22,17 @@ public interface IEventPublisher
         CancellationToken ct = default)
         where TEvent : IMessage;
 }
+
+/// <summary>
+/// Not useful but should be injected to agent once its initialization.
+/// </summary>
+public sealed class NullEventPublisher : IEventPublisher
+{
+    public static NullEventPublisher Instance { get; } = new NullEventPublisher();
+
+    public Task<string> PublishEventAsync<TEvent>(TEvent evt, EventDirection direction = EventDirection.Down,
+        CancellationToken ct = default) where TEvent : IMessage
+    {
+        return Task.FromResult(string.Empty);
+    }
+}

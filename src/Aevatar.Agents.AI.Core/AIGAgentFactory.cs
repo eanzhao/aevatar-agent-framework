@@ -62,6 +62,9 @@ public class AIGAgentFactory : IGAgentFactory
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
 
+        // Will be replaced when this agent is wrapped by an actor.
+        AgentEventPublisherInjector.InjectEventPublisher(agent, NullEventPublisher.Instance);
+
         if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
         {
             AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);

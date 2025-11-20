@@ -1,7 +1,11 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Core.Helpers;
+using Microsoft.CodeAnalysis.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans.Streams;
 
 namespace Aevatar.Agents.Runtime.Orleans;
@@ -13,6 +17,7 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
 {
     private readonly IClusterClient _clusterClient;
     private readonly IStreamProvider? _streamProvider;
+    private readonly StreamingOptions _streamingOptions;
 
     public OrleansGAgentActorFactory(
         IServiceProvider serviceProvider,
@@ -21,7 +26,14 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         : base(serviceProvider, logger)
     {
         _clusterClient = clusterClient;
-        _streamProvider = clusterClient.GetStreamProvider(AevatarAgentsOrleansConstants.StreamProviderName);
+
+        // Get StreamingOptions from configuration (with fallback to default)
+        _streamingOptions = serviceProvider.GetService<IOptions<StreamingOptions>>()?.Value
+                            ?? new StreamingOptions();
+
+        var streamProviderName = _streamingOptions.StreamProviderName;
+        _streamProvider = clusterClient.GetStreamProvider(streamProviderName)
+                          ?? throw new InvalidOperationException($"Stream provider '{streamProviderName}' not found");
     }
 
     protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
@@ -35,7 +47,7 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("Using Standard Grain for agent {Id}", id);
 
         // 创建 Orleans Actor (继承自 GAgentActorBase!)
-        var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider);
+        var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider, _streamingOptions);
 
         LoggerInjector.InjectLogger(actor, _serviceProvider);
 
