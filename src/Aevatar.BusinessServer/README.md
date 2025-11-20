@@ -2,23 +2,53 @@
 
 业务服务器 - 专注业务逻辑，认证授权统一由AuthServer管理。
 
+## 技术栈
+
+- **ABP Framework**: 9.3.1
+- **MongoDB Driver**: 3.0.0
+- **.NET**: 9.0
+- **OpenIddict**: OAuth 2.0 / OpenID Connect
+- **LeptonXLite**: 4.3.1 (UI Theme)
+
 ## 快速启动
 
-### 1. AuthServer (认证中心)
+### 0. 前置准备
+
 ```bash
-cd ../Aevatar.AuthServer/src/Aevatar.AuthServer.Web
+# 安装 AuthServer 前端依赖
+cd src/Aevatar.AuthServer
+npm install
+```
+
+### 1. 初始化数据库
+
+```bash
+cd src/Aevatar.BusinessServer.DbMigrator
 dotnet run
 ```
-访问: https://localhost:44320
 
-### 2. BusinessServer (业务服务)
+### 2. 启动 AuthServer (认证中心)
+
 ```bash
-cd src/Aevatar.BusinessServer.Web
+cd src/Aevatar.AuthServer
 dotnet run
 ```
-访问: https://localhost:44345
 
-### 3. 默认账号
+- 访问: https://localhost:44320
+- 功能: 用户/角色/权限管理、OAuth 授权
+
+### 3. 启动 BusinessServer (业务服务)
+
+```bash
+cd src/Aevatar.BusinessServer.HttpApi.Host
+dotnet run
+```
+
+- 访问: https://localhost:44345/swagger
+- 功能: 业务 API + JWT 认证
+
+### 4. 默认账号
+
 ```
 用户名: admin
 密码: 1q2w3E*
@@ -29,15 +59,28 @@ dotnet run
 ## 架构
 
 ```
-AuthServer (44320)      BusinessServer (44345)
-     ↓                         ↓
-  用户/角色/权限管理       业务逻辑 + Token验证
-         ↓
+AuthServer (44320)           BusinessServer (44345)
+     ↓                              ↓
+OpenID Connect Server          JWT Bearer 验证
+用户/角色/权限管理               业务 API
+LeptonXLite UI                  Swagger UI
+         ↓                          ↓
     共享数据库 (MongoDB: AevatarBusiness)
 ```
 
-- **AuthServer**: 统一管理用户、角色、权限
-- **BusinessServer**: 只验证JWT Token，专注业务
+### 核心组件
+
+- **AuthServer**: 
+  - OpenIddict Server (OAuth 2.0 / OIDC)
+  - ABP Identity (用户/角色管理)
+  - LeptonXLite 主题 (管理界面)
+  - DataTables, Bootstrap 5 等前端组件
+
+- **BusinessServer**: 
+  - 纯 API 服务（无 UI）
+  - JWT Bearer 认证
+  - 业务逻辑实现
+  - Swagger API 文档
 
 ---
 
@@ -113,18 +156,80 @@ db.AbpPermissionGrants.insertMany([
 
 ---
 
-## 前端库
+## 前端库管理
 
-保留最小集合：
-- abp (ABP核心)
-- bootstrap (UI框架)
-- @fortawesome (图标)
-- jquery (DOM操作)
-- jquery-validation (表单验证)
-- luxon (日期时间)
+### AuthServer (有 UI)
 
-已移除复杂UI组件（datatables, select2, sweetalert等），因为BusinessServer不再有复杂的管理UI。
+使用 **npm** 管理前端依赖：
+
+```bash
+cd src/Aevatar.AuthServer
+npm install  # 根据 package.json 安装依赖
+```
+
+安装后会生成 `wwwroot/libs/` 目录，包含：
+- ABP Framework 核心 JS
+- Bootstrap 5 (UI 框架)
+- DataTables (数据表格)
+- jQuery & Validation
+- Luxon (日期时间，替代 moment.js)
+- Font Awesome (图标)
+
+**注意**: `wwwroot/libs/*` 已被 `.gitignore` 排除（除手动创建的兼容层外），每次克隆代码后需运行 `npm install`。
+
+### BusinessServer (无 UI)
+
+纯 API 服务，不需要前端库。
 
 ---
 
-更多信息: https://docs.abp.io/
+## 中央包管理 (CPM)
+
+项目使用 **Central Package Management** 统一管理 NuGet 包版本：
+
+- 版本定义: `/Directory.Packages.props`（根目录）
+- 项目引用: 无需指定 `Version` 属性
+
+更新所有包版本：
+```bash
+# 只需修改 Directory.Packages.props 中的版本号
+<PackageVersion Include="Volo.Abp.Core" Version="9.3.1" />
+```
+
+---
+
+## 常见问题
+
+### Q: MongoDB GUID 格式错误
+
+**错误**: `Expected BsonBinarySubType to be UuidStandard, but it is UuidLegacy`
+
+**原因**: MongoDB Driver 3.0.0 使用 `UuidStandard` 格式
+
+**解决**: 
+```bash
+mongosh AevatarBusiness --eval "db.dropDatabase()"
+cd src/Aevatar.BusinessServer.DbMigrator && dotnet run
+```
+
+### Q: DataTables 文件找不到
+
+**错误**: `Could not find '/libs/datatables.net/js/dataTables.min.js'`
+
+**解决**: 
+```bash
+cd src/Aevatar.AuthServer
+npm install
+```
+
+### Q: LeptonXLite 版本不匹配
+
+确保版本一致：
+- `package.json`: `@abp/aspnetcore.mvc.ui.theme.leptonxlite: ~4.3.1`
+- `Directory.Packages.props`: `Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite: 4.3.1`
+
+---
+
+更多信息: 
+- ABP Framework: https://docs.abp.io/
+- OpenIddict: https://documentation.openiddict.com/
