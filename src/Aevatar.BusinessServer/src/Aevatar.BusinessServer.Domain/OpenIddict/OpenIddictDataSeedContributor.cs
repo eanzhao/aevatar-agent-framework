@@ -240,8 +240,8 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
 
         if (!redirectUri.IsNullOrWhiteSpace() || !postLogoutRedirectUri.IsNullOrWhiteSpace())
         {
-            // ABP 9.3.1: Logout endpoint permission is automatically added when post_logout_redirect_uri is set
-            // application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Logout);
+            // Add logout endpoint permission (OpenIddict uses string constant "ept:logout")
+            application.Permissions.Add("ept:logout");
         }
 
         var buildInGrantTypes = new[] {
@@ -298,8 +298,8 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
             if (grantType == OpenIddictConstants.GrantTypes.DeviceCode)
             {
                 application.Permissions.Add(OpenIddictConstants.Permissions.GrantTypes.DeviceCode);
-                // ABP 9.3.1: Device endpoint permission is automatically added for DeviceCode grant type
-                // application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Device);
+                // Add device endpoint permission (OpenIddict uses string constant "ept:device")
+                application.Permissions.Add("ept:device");
             }
 
             if (grantType == OpenIddictConstants.GrantTypes.Implicit)
