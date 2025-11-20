@@ -5,16 +5,18 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Local;
 using AIEventSourcingDemo;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
-// Build host with DI
+// ============================================================================
+// Build Host with Dependency Injection
+// ============================================================================
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureAppConfiguration((context, config) =>
     {
@@ -25,8 +27,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
         var config = context.Configuration;
-        services.Configure<LLMProvidersConfig>(config.GetSection("LLMProviders"));
-
+        
         // Configure logging
         services.AddLogging(builder =>
         {
@@ -34,160 +35,280 @@ var host = Host.CreateDefaultBuilder(args)
             builder.SetMinimumLevel(LogLevel.Information);
         });
 
-        // Register MEAI LLM Provider Factory
+        // Configure LLM Providers
+        services.Configure<LLMProvidersConfig>(config.GetSection("LLMProviders"));
         services.AddSingleton<ILLMProviderFactory, MEAILLMProviderFactory>();
 
-        // Configure MongoDB for Event Sourcing
-        services.AddSingleton<IMongoClient>(sp =>
-        {
-            var connectionString = context.Configuration.GetConnectionString("MongoDB") 
-                ?? "mongodb://localhost:27017";
-            return new MongoClient(connectionString);
-        });
-
-        // For demo purposes, we'll use InMemoryEventStore
-        // In production, implement MongoDB-based IEventStore
+        // Configure Event Store (InMemory for demo)
         services.AddSingleton<IEventStore, InMemoryEventStore>();
 
+        // Register Agent Factories
         services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
         services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
+        services.AddSingleton<LocalMessageStreamRegistry>();
     })
     .Build();
 
-// Run the demo
+// ============================================================================
+// Main Demo Execution
+// ============================================================================
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
 var eventStore = host.Services.GetRequiredService<IEventStore>();
-var llmProviderFactory = host.Services.GetRequiredService<ILLMProviderFactory>();
 var actorFactory = host.Services.GetRequiredService<IGAgentActorFactory>();
 
-logger.LogInformation("=== AI Agent with Event Sourcing Demo ===");
-logger.LogInformation("");
+logger.LogInformation("╔════════════════════════════════════════════╗");
+logger.LogInformation("║   AI Agent with Event Sourcing Demo       ║");
+logger.LogInformation("║   Pure Event-Driven Architecture          ║");
+logger.LogInformation("╚════════════════════════════════════════════╝\n");
 
 try
 {
-    // Create AI Assistant Agent
+    // ========================================================================
+    // 1. Create AI Assistant Actor
+    // ========================================================================
+    logger.LogInformation("▶ Creating AI Assistant Agent...");
     var assistantId = Guid.NewGuid();
     var assistantActor = await actorFactory.CreateGAgentActorAsync<AIAssistantAgent>(assistantId);
     var assistant = (AIAssistantAgent)assistantActor.GetAgent();
 
-    // Initialize assistant through event (not direct state modification)
-    await assistant.InitializeAssistantAsync("HyperAssistant");
+    // ========================================================================
+    // 2. Note: Event Handlers Process Everything Internally
+    // ========================================================================
+    logger.LogInformation("▶ Event handlers will process all events internally...");
+    logger.LogInformation("  - HandleInitialization: Initialize AI capabilities");
+    logger.LogInformation("  - HandleUserMessage: Generate AI responses");
+    logger.LogInformation("  - HandleAssistantResponse: Analyze quality");
+    logger.LogInformation("  - HandleFeedback: Adjust parameters");
+    logger.LogInformation("  - HandleConversationComplete: Analytics & maintenance");
 
-    // Initialize AI with OpenAI provider
-    await assistant.InitializeAsync(
-        "deepseek", // Use the provider configured in appsettings.json
-        config =>
-        {
-            config.Model = "deepseek-chat";
-            config.Temperature = 0.8;
-            config.MaxTokens = 1500;
-        });
-
-    logger.LogInformation("AI Assistant initialized: {Name} ({Id})", 
+    // ========================================================================
+    // 3. Initialize Assistant via Event
+    // ========================================================================
+    logger.LogInformation("▶ Initializing assistant via event...");
+    await assistantActor.PublishEventAsync(new AssistantInitializedEvent
+    {
+        AssistantId = assistantId.ToString(),
+        Name = "HyperAssistant",
+        CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    
+    // Wait for initialization to complete
+    Console.WriteLine("[DEBUG] Waiting for initialization to complete...");
+    await Task.Delay(3000); // Give more time for initialization
+    Console.WriteLine("[DEBUG] Initialization wait complete");
+    logger.LogInformation("✅ Assistant '{Name}' initialized (ID: {Id})", 
         assistant.GetCurrentState().Name, assistantId);
 
-    // === Conversation 1: General Chat ===
-    logger.LogInformation("\n--- Conversation 1: General Chat ---");
+    // ========================================================================
+    // 4. Conversation 1: General Chat about Event Sourcing
+    // ========================================================================
+    logger.LogInformation("\n╔════ Conversation 1: Event Sourcing ════╗");
     
-    var response1 = await assistant.HandleUserMessageAsync(
-        "user123",
-        "Hello! Can you tell me about event sourcing?");
-    logger.LogInformation("User: Hello! Can you tell me about event sourcing?");
-    logger.LogInformation("Assistant: {Response}", response1);
-
-    var response2 = await assistant.HandleUserMessageAsync(
-        "user123",
-        "How does it relate to AI agents?");
-    logger.LogInformation("\nUser: How does it relate to AI agents?");
-    logger.LogInformation("Assistant: {Response}", response2);
-
+    var conversationId = Guid.NewGuid().ToString();
+    
+    // First message
+    await SendUserMessage(assistantActor, assistant,
+        "user123", conversationId,
+        "Hello! Can you tell me about event sourcing?",
+        logger);
+    
+    // Follow-up question  
+    await SendUserMessage(assistantActor, assistant,
+        "user123", conversationId,
+        "How does it relate to AI agents?",
+        logger);
+    
     // Provide feedback
-    await assistant.ProvideFeedbackAsync(4.5, "Very helpful explanation!");
-    logger.LogInformation("User provided feedback: 4.5/5.0 - Very helpful!");
-
-    // Complete conversation
-    await assistant.CompleteConversationAsync("Event Sourcing", 4.5);
-    logger.LogInformation("Conversation completed.\n");
-
-    // === Conversation 2: Code Assistance ===
-    logger.LogInformation("--- Conversation 2: Code Assistance ---");
-
-    var response3 = await assistant.HandleUserMessageAsync(
-        "user456",
-        "Can you write a simple C# class that implements a counter with events?");
-    logger.LogInformation("User: Can you write a simple C# class that implements a counter with events?");
-    logger.LogInformation("Assistant: {Response}", response3);
-
-    await assistant.ProvideFeedbackAsync(5.0, "Perfect code example!");
-    await assistant.CompleteConversationAsync("C# Code Generation", 5.0);
-    logger.LogInformation("Conversation completed.\n");
-
-    // === Display Agent State ===
-    logger.LogInformation("--- Agent State Summary ---");
-    var state = assistant.GetCurrentState();
-    logger.LogInformation("Total Interactions: {Count}", state.TotalInteractions);
-    logger.LogInformation("Average Satisfaction: {Score:F2}/5.0", state.AverageSatisfaction);
-    logger.LogInformation("Conversation History: {Count} conversations", state.ConversationHistory.Count);
-
-    // === Demonstrate Event Replay ===
-    logger.LogInformation("\n--- Demonstrating Event Replay ---");
+    await assistantActor.PublishEventAsync(new FeedbackReceived
+    {
+        ConversationId = conversationId,
+        SatisfactionScore = 4.5,
+        FeedbackText = "Very helpful explanation!",
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    logger.LogInformation("⭐ Feedback: 4.5/5.0 - Very helpful!");
     
-    // Create a new agent instance with the same ID
+    // Complete conversation
+    await assistantActor.PublishEventAsync(new ConversationCompleted
+    {
+        ConversationId = conversationId,
+        TotalMessages = 2,
+        TotalTokens = assistant.GetCurrentState().TotalInteractions * 50, // Estimate
+        FinalSatisfaction = 4.5,
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    logger.LogInformation("✅ Conversation 1 completed\n");
+
+    // ========================================================================
+    // 5. Conversation 2: Code Assistance
+    // ========================================================================
+    logger.LogInformation("╔════ Conversation 2: Code Generation ════╗");
+    
+    var conversationId2 = Guid.NewGuid().ToString();
+    
+    // Ask for code example
+    await SendUserMessage(assistantActor, assistant,
+        "user456", conversationId2,
+        "Can you write a simple C# class that implements a counter with events?",
+        logger);
+    
+    // Provide perfect feedback
+    await assistantActor.PublishEventAsync(new FeedbackReceived
+    {
+        ConversationId = conversationId2,
+        SatisfactionScore = 5.0,
+        FeedbackText = "Perfect code example!",
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    logger.LogInformation("⭐ Feedback: 5.0/5.0 - Perfect!");
+    
+    // Complete conversation
+    await assistantActor.PublishEventAsync(new ConversationCompleted
+    {
+        ConversationId = conversationId2,
+        TotalMessages = 1,
+        TotalTokens = assistant.GetCurrentState().TotalInteractions * 75, // Estimate
+        FinalSatisfaction = 5.0,
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    logger.LogInformation("✅ Conversation 2 completed\n");
+
+    // ========================================================================
+    // 6. Display Current State
+    // ========================================================================
+    logger.LogInformation("╔════ Agent State Summary ════╗");
+    var state = assistant.GetCurrentState();
+    logger.LogInformation("📊 Total Interactions: {Count}", state.TotalInteractions);
+    logger.LogInformation("⭐ Average Satisfaction: {Score:F2}/5.0", state.AverageSatisfaction);
+    logger.LogInformation("💬 Conversation History: {Count} conversations", state.ConversationHistory.Count);
+    
+    foreach (var conv in state.ConversationHistory)
+    {
+        logger.LogInformation("  └─ {Id}: {Topic} (Score: {Score:F1})", 
+            conv.ConversationId.Substring(0, 8), 
+            conv.Topic ?? "General", 
+            conv.SatisfactionScore);
+    }
+
+    // ========================================================================
+    // 7. Demonstrate Event Replay
+    // ========================================================================
+    logger.LogInformation("\n╔════ Event Replay Demo ════╗");
+    logger.LogInformation("🔄 Creating new agent instance with same ID...");
+    
     var replayedAssistantActor = await actorFactory.CreateGAgentActorAsync<AIAssistantAgent>(assistantId);
     var replayedAssistant = (AIAssistantAgent)replayedAssistantActor.GetAgent();
     
-    // Replay events from the event store (this will reconstruct state from events)
+    logger.LogInformation("📼 Replaying events from event store...");
     await replayedAssistant.ReplayEventsAsync();
+    await Task.Delay(500); // Allow event handlers to process
     
-    // Initialize AI after replay (AI config is not part of event sourcing)
-    await replayedAssistant.InitializeAsync(
-        "deepseek",
-        config =>
-        {
-            config.Model = "deepseek-chat";
-            config.Temperature = 0.8;
-            config.MaxTokens = 1500;
-        });
-
-    logger.LogInformation("Replayed agent state:");
     var replayedState = replayedAssistant.GetCurrentState();
-    logger.LogInformation("Total Interactions: {Count}", replayedState.TotalInteractions);
-    logger.LogInformation("Average Satisfaction: {Score:F2}/5.0", replayedState.AverageSatisfaction);
-    logger.LogInformation("Conversation History: {Count} conversations", replayedState.ConversationHistory.Count);
-
+    logger.LogInformation("✅ Replay complete!");
+    logger.LogInformation("📊 Replayed Interactions: {Count}", replayedState.TotalInteractions);
+    logger.LogInformation("⭐ Replayed Satisfaction: {Score:F2}/5.0", replayedState.AverageSatisfaction);
+    
     // Verify state matches
-    var originalState = assistant.GetCurrentState();
-    if (replayedState.TotalInteractions == originalState.TotalInteractions &&
-        Math.Abs(replayedState.AverageSatisfaction - originalState.AverageSatisfaction) < 0.01)
+    if (replayedState.TotalInteractions == state.TotalInteractions &&
+        Math.Abs(replayedState.AverageSatisfaction - state.AverageSatisfaction) < 0.01)
     {
-        logger.LogInformation("✅ Event replay successful - state matches original!");
+        logger.LogInformation("✅ State validation: PERFECT MATCH!");
+    }
+    else
+    {
+        logger.LogWarning("⚠️ State mismatch detected");
     }
 
-    // === Query Event History ===
-    logger.LogInformation("\n--- Event History ---");
+    // ========================================================================
+    // 8. Event History Analysis
+    // ========================================================================
+    logger.LogInformation("\n╔════ Event History Analysis ════╗");
     
     var events = await eventStore.GetEventsAsync(assistantId);
-    var eventTypes = events
+    var eventAnalysis = events
         .GroupBy(e => e.EventType)
-        .Select(g => new { Type = g.Key.Split('.').Last(), Count = g.Count() });
+        .Select(g => new { 
+            Type = g.Key.Split('.').Last(), 
+            Count = g.Count(),
+            FirstOccurred = g.Min(e => e.Timestamp),
+            LastOccurred = g.Max(e => e.Timestamp)
+        })
+        .OrderByDescending(e => e.Count);
 
-    foreach (var eventType in eventTypes)
+    foreach (var evt in eventAnalysis)
     {
-        logger.LogInformation("  {Type}: {Count} events", eventType.Type, eventType.Count);
+        logger.LogInformation("📌 {Type}: {Count} events", evt.Type, evt.Count);
     }
+    
+    logger.LogInformation("\n📊 Total Events: {Count}", events.Count);
+    logger.LogInformation("⏱️ Event Sourcing Version: {Version}", assistant.GetCurrentVersion());
+    logger.LogInformation("📦 Cached Event Types: {Count}", 
+        AIGAgentBaseWithEventSourcing<AIAssistantState, AIAssistantConfig>.CachedTypeCount);
 
-    logger.LogInformation("\n--- Performance Metrics ---");
-    logger.LogInformation("Current Version: {Version}", assistant.GetCurrentVersion());
-    logger.LogInformation("Cached Event Types: {Count}", AIGAgentBaseWithEventSourcing<AIAssistantState, AIAssistantConfig>.CachedTypeCount);
-    logger.LogInformation("Pending Events: {Count}", assistant.GetPendingEventCount());
-
-    // Create a manual snapshot
+    // ========================================================================
+    // 9. Create Manual Snapshot
+    // ========================================================================
+    logger.LogInformation("\n💾 Creating manual snapshot for optimization...");
     await assistant.CreateSnapshotAsync();
-    logger.LogInformation("Manual snapshot created.");
+    logger.LogInformation("✅ Snapshot created successfully");
 }
 catch (Exception ex)
 {
-    logger.LogError(ex, "Error running AI Event Sourcing demo");
+    logger.LogError(ex, "❌ Error in AI Event Sourcing demo");
 }
 
-logger.LogInformation("\n=== Demo Complete ===");
+logger.LogInformation("\n╔════════════════════════════════════════════╗");
+logger.LogInformation("║           Demo Complete! 🎉               ║");
+logger.LogInformation("╚════════════════════════════════════════════╝");
+
+// ============================================================================
+// Helper Methods
+// ============================================================================
+
+async Task SendUserMessage(
+    IGAgentActor actor,
+    AIAssistantAgent assistant,
+    string userId,
+    string conversationId,
+    string message,
+    ILogger logger)
+{
+    logger.LogInformation("👤 User: {Message}", message);
+    
+    // Record initial state
+    var initialInteractions = assistant.GetCurrentState().TotalInteractions;
+    
+    // Publish message event - will be handled by HandleUserMessage event handler
+    await actor.PublishEventAsync(new UserMessageReceived
+    {
+        UserId = userId,
+        Message = message,
+        ConversationId = conversationId,
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+    });
+    
+    // Wait for processing (event handlers are async)
+    // In a real system, you'd implement proper async response handling
+    Console.WriteLine("[DEBUG] Waiting for event handlers to process...");
+    
+    // Poll for completion with timeout
+    var maxWaitTime = TimeSpan.FromSeconds(35); // 35 seconds total (30s AI timeout + buffer)
+    var pollInterval = TimeSpan.FromMilliseconds(500);
+    var startTime = DateTime.UtcNow;
+    
+    while (DateTime.UtcNow - startTime < maxWaitTime)
+    {
+        await Task.Delay(pollInterval);
+        var currentInteractions = assistant.GetCurrentState().TotalInteractions;
+        
+        if (currentInteractions > initialInteractions)
+        {
+            logger.LogInformation("🤖 Assistant: [Response generated via event handler - see logs above]");
+            logger.LogInformation("   Total interactions: {Count}", currentInteractions);
+            return; // Response processed successfully
+        }
+    }
+    
+    // Timeout reached
+    logger.LogWarning("⚠️ Response timed out after {Seconds} seconds", maxWaitTime.TotalSeconds);
+}

@@ -69,3 +69,47 @@ message ConversationCompleted {
     double final_satisfaction = 4;
     google.protobuf.Timestamp timestamp = 5;
 }
+
+// Response quality analysis event
+message ResponseQualityEvent {
+    string response_id = 1;
+    string quality = 2; // Excellent, Good, Acceptable, Poor
+    bool needs_refinement = 3;
+    string original_response = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Learning triggered event
+message LearningTriggeredEvent {
+    string conversation_id = 1;
+    double satisfaction_score = 2;
+    string feedback_text = 3;
+    string sentiment = 4; // Positive, Negative, Neutral
+    string context = 5;
+    google.protobuf.Timestamp timestamp = 6;
+}
+
+// Successful pattern detected
+message SuccessfulPatternEvent {
+    string conversation_id = 1;
+    string pattern = 2;
+    double score = 3;
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+// Conversation analytics generated
+message ConversationAnalyticsEvent {
+    string conversation_id = 1;
+    ConversationAnalyticsData analytics = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+// Analytics data structure
+message ConversationAnalyticsData {
+    string conversation_id = 1;
+    int64 duration_seconds = 2;
+    double average_response_time = 3;
+    double token_efficiency = 4;
+    double satisfaction_score = 5;
+    double cost_estimate = 6;
+}
