@@ -26,6 +26,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     #region Fields
 
     private IAevatarToolManager? _toolManager;
+    private ConversationHistoryManager? _historyManager;
+    private ToolExecutionCoordinator? _executionCoordinator;
 
     #endregion
 
@@ -60,6 +62,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// </summary>
     protected AIGAgentWithToolBase() : base()
     {
+        InitializeManagers();
     }
 
     /// <summary>
@@ -72,6 +75,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         ILogger? logger = null)
     {
         _toolManager = toolManager ?? throw new ArgumentNullException(nameof(toolManager));
+        InitializeManagers();
     }
 
     #endregion
@@ -145,6 +149,36 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         // Use a null logger for now, can be enhanced later
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<DefaultToolManager>.Instance;
         return new DefaultToolManager(logger);
+    }
+
+    /// <summary>
+    /// Initialize history manager and execution coordinator.
+    /// 初始化历史管理器和执行协调器
+    /// </summary>
+    private void InitializeManagers()
+    {
+        _historyManager = new ConversationHistoryManager(State.History);
+        // Coordinator will be initialized when needed (requires LLMProvider)
+    }
+
+    /// <summary>
+    /// Get or create the execution coordinator.
+    /// 获取或创建执行协调器
+    /// </summary>
+    private ToolExecutionCoordinator GetExecutionCoordinator()
+    {
+        if (_executionCoordinator == null)
+        {
+            if (_historyManager == null)
+                throw new InvalidOperationException("History manager not initialized");
+            
+            _executionCoordinator = new ToolExecutionCoordinator(
+                ToolManager,
+                LLMProvider,
+                _historyManager,
+                Logger);
+        }
+        return _executionCoordinator;
     }
 
     #endregion
@@ -306,131 +340,48 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
         Logger.LogDebug("Executing tool: {ToolName}", functionCall.Name);
 
-        // 1. Add tool call to history
-        AddToolCallToHistory(functionCall);
+        // Build LLM request for follow-up (includes history + tool result)
+        var llmRequest = BuildLLMRequest(request);
 
-        // 2. Execute tool and record result
-        var result = await ExecuteAndRecordToolAsync(functionCall, request.RequestId, cancellationToken);
-
-        // 3. Generate final response with tool execution result
-        return await GenerateFinalResponseWithToolsAsync(request, functionCall, result, cancellationToken);
-    }
-
-    /// <summary>
-    /// Add tool call message to conversation history.
-    /// </summary>
-    private void AddToolCallToHistory(AevatarFunctionCall functionCall)
-    {
-        var toolCallMsg = new AevatarChatMessage
-        {
-            Role = AevatarChatRole.Assistant,
-            ToolCalls = { new ToolCall { ToolName = functionCall.Name, Arguments = functionCall.Arguments } }
-        };
-        AddMessageToHistory(toolCallMsg);
-    }
-
-    /// <summary>
-    /// Execute tool and add result to history.
-    /// </summary>
-    private async Task<ToolExecutionResult> ExecuteAndRecordToolAsync(
-        AevatarFunctionCall functionCall,
-        string requestId,
-        CancellationToken cancellationToken)
-    {
-        // Parse arguments
-        var parameters = ParseToolArguments(functionCall.Arguments);
-
-        // Execute tool
-        var result = await ExecuteToolAsync(functionCall.Name, parameters, cancellationToken: cancellationToken);
-
-        // Add tool result to history
-        var toolResultMsg = new AevatarChatMessage
-        {
-            Role = AevatarChatRole.Tool,
-            Content = result.Content,
-            ToolResult = new ToolExecutionResult
-            {
-                ToolName = functionCall.Name,
-                Content = result.Content,
-                IsSuccess = result.IsSuccess,
-                ErrorMessage = result.ErrorMessage
-            }
-        };
-        AddMessageToHistory(toolResultMsg);
+        // Execute tool workflow using coordinator
+        var coordinator = GetExecutionCoordinator();
+        var (toolResult, finalLLMResponse) = await coordinator.ExecuteToolWorkflowAsync(
+            functionCall,
+            llmRequest,
+            cancellationToken);
 
         // Publish tool execution event
-        await PublishToolExecutionEventAsync(functionCall.Name, parameters, result, requestId);
+        await PublishToolExecutionEventAsync(functionCall.Name, new Dictionary<string, object>(), toolResult, request.RequestId);
 
-        return result;
-    }
+        // Build and publish final response
+        var response = coordinator.CreateResponseWithToolInfo(
+            request.RequestId,
+            finalLLMResponse,
+            functionCall,
+            toolResult);
 
-    /// <summary>
-    /// Generate final LLM response after tool execution.
-    /// </summary>
-    private async Task<ChatResponse> GenerateFinalResponseWithToolsAsync(
-        ChatRequest request,
-        AevatarFunctionCall functionCall,
-        ToolExecutionResult toolResult,
-        CancellationToken cancellationToken)
-    {
-        // Build request with updated history (includes tool result)
-        var followUpRequest = BuildLLMRequest(request);
-
-        // Call LLM for final response
-        var followUpResponse = await LLMProvider.GenerateAsync(followUpRequest, cancellationToken);
-
-        // Add assistant response to history
-        AddMessageToHistory(followUpResponse.Content, AevatarChatRole.Assistant);
-
-        // Build response object
-        var response = CreateChatResponseWithToolInfo(request.RequestId, followUpResponse, functionCall, toolResult);
-
-        // Publish chat response event
         await PublishChatResponseAsync(response, request.RequestId);
 
-        return response;
-    }
-
-    /// <summary>
-    /// Create ChatResponse with tool execution information.
-    /// </summary>
-    private ChatResponse CreateChatResponseWithToolInfo(
-        string requestId,
-        AevatarLLMResponse llmResponse,
-        AevatarFunctionCall functionCall,
-        ToolExecutionResult toolResult)
-    {
-        var response = new ChatResponse
-        {
-            Content = llmResponse.Content,
-            RequestId = requestId,
-            ToolCalled = true,
-            ToolCall = new ToolCallInfo
+        // Record AI decision (Event Sourcing)
+        RaiseAIDecision(
+            request.Message,
+            response.Content,
+            response.Usage?.TotalTokens ?? 0,
+            new Dictionary<string, string>
             {
-                ToolName = functionCall.Name,
-                Result = toolResult.Content ?? string.Empty
-            }
-        };
+                ["request_id"] = request.RequestId,
+                ["chat_type"] = "tool_execution",
+                ["tool_name"] = functionCall.Name
+            });
 
-        // Populate tool call arguments
-        if (!string.IsNullOrEmpty(functionCall.Arguments))
+        if (AutoConfirmEvents && EventStore != null)
         {
-            PopulateToolCallArguments(response.ToolCall, functionCall.Arguments);
-        }
-
-        // Add usage information
-        if (llmResponse.Usage != null)
-        {
-            response.Usage = new AevatarTokenUsage
-            {
-                PromptTokens = llmResponse.Usage.PromptTokens,
-                CompletionTokens = llmResponse.Usage.CompletionTokens,
-                TotalTokens = llmResponse.Usage.TotalTokens
-            };
+            await ConfirmEventsAsync(cancellationToken);
         }
 
         return response;
     }
+
 
     /// <summary>
     /// Populate tool call arguments from JSON string.
@@ -449,24 +400,19 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// </summary>
     protected void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
     {
-        var msg = new AevatarChatMessage
-        {
-            Role = role,
-            Content = content,
-            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
-        };
-        State.History.Add(msg);
+        if (_historyManager == null)
+            throw new InvalidOperationException("History manager not initialized");
+        
+        _historyManager.AddMessage(content, role, name);
     }
 
     protected void AddMessageToHistory(AevatarChatMessage msg)
     {
-        if (msg.Timestamp == null)
-        {
-            msg.Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
-        }
-        State.History.Add(msg);
+        if (_historyManager == null)
+            throw new InvalidOperationException("History manager not initialized");
+        
+        _historyManager.AddMessage(msg);
     }
-
     /// <summary>
     /// Publish chat response event.
     /// </summary>
