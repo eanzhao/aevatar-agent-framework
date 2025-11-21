@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core;
 
 /// <summary>
-/// Agent 管理器默认实现
-/// 负责 Agent 类型发现、注册和元数据管理
+/// Default implementation of Agent Manager.
+/// Responsible for Agent type discovery, registration, and metadata management.
 /// </summary>
 public class GAgentManager : IGAgentManager
 {
@@ -22,11 +22,11 @@ public class GAgentManager : IGAgentManager
     {
         _logger = logger;
 
-        // 初始化时扫描当前程序集中的类型
+        // Scan types in the current assembly during initialization
         DiscoverTypesInLoadedAssemblies();
     }
 
-    #region 类型发现
+    #region Type Discovery
 
     public List<Type> GetAvailableAgentTypes()
     {
@@ -50,7 +50,7 @@ public class GAgentManager : IGAgentManager
             return metadata.SupportedEventTypes;
         }
 
-        // 如果没有缓存的元数据，动态分析
+        // If no cached metadata, analyze dynamically
         return AnalyzeSupportedEventTypes(agentType);
     }
 
@@ -70,7 +70,7 @@ public class GAgentManager : IGAgentManager
 
     #endregion
 
-    #region 类型注册
+    #region Type Registration
 
     public void RegisterAgentType(Type agentType)
     {
@@ -117,7 +117,7 @@ public class GAgentManager : IGAgentManager
 
     #endregion
 
-    #region 元数据
+    #region Metadata
 
     public AgentTypeMetadata? GetAgentMetadata(Type agentType)
     {
@@ -136,7 +136,7 @@ public class GAgentManager : IGAgentManager
 
     #endregion
 
-    #region 插件支持
+    #region Plugin Support
 
     public int LoadAgentTypesFromAssembly(Assembly assembly)
     {
@@ -148,14 +148,14 @@ public class GAgentManager : IGAgentManager
         {
             var types = assembly.GetTypes();
 
-            // 加载 Agent 类型
+            // Load Agent types
             foreach (var type in types.Where(IsValidAgentType))
             {
                 RegisterAgentType(type);
                 count++;
             }
 
-            // 加载事件类型
+            // Load Event types
             foreach (var type in types.Where(IsValidEventType))
             {
                 RegisterEventType(type);
@@ -165,7 +165,7 @@ public class GAgentManager : IGAgentManager
         {
             _logger.LogWarning(ex, "Failed to load some types from assembly {AssemblyName}", assembly.FullName);
 
-            // 尝试加载可访问的类型
+            // Try to load accessible types
             if (ex.Types != null)
             {
                 foreach (var type in ex.Types.Where(t => t != null))
@@ -231,7 +231,7 @@ public class GAgentManager : IGAgentManager
 
     #endregion
 
-    #region 私有方法
+    #region Private Methods
 
     private void DiscoverTypesInLoadedAssemblies()
     {
@@ -239,7 +239,7 @@ public class GAgentManager : IGAgentManager
 
         foreach (var assembly in assemblies)
         {
-            // 跳过系统程序集
+            // Skip system assemblies
             if (assembly.FullName?.StartsWith("System") == true ||
                 assembly.FullName?.StartsWith("Microsoft") == true)
             {
@@ -280,7 +280,7 @@ public class GAgentManager : IGAgentManager
 
     private Type? ExtractStateType(Type agentType)
     {
-        // 查找 IStateGAgent<TState> 接口
+        // Find IStateGAgent<TState> interface
         var stateInterface = agentType.GetInterfaces()
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IStateGAgent<>));
 
@@ -308,14 +308,14 @@ public class GAgentManager : IGAgentManager
     {
         var supportedEvents = new List<Type>();
 
-        // 查找所有带有 EventHandler 特性的方法
+        // Find all methods with EventHandler attribute
         var methods = agentType.GetMethods(
             BindingFlags.Public |
             BindingFlags.NonPublic |
             BindingFlags.Instance |
             BindingFlags.DeclaredOnly);
 
-        // 也要检查基类的方法
+        // Also check base class methods
         var baseType = agentType.BaseType;
         while (baseType != null && baseType != typeof(object))
         {
@@ -349,8 +349,8 @@ public class GAgentManager : IGAgentManager
 
     private string? GetTypeDescription(Type type)
     {
-        // 尝试从 XML 文档注释或特性获取描述
-        // 这里简化处理，实际可以集成 XML 文档读取
+        // Try to get description from XML documentation comments or attributes
+        // Simplified here, can integrate XML documentation reading in practice
         var descriptionAttr = type.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>();
         return descriptionAttr?.Description;
     }
