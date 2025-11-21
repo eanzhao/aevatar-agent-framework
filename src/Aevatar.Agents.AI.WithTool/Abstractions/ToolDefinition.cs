@@ -53,7 +53,7 @@ public class ToolDefinition
     /// <summary>
     /// 版本
     /// </summary>
-    public string Version { get; set; } = "1.0.0";
+    public string Version { get; set; } = ToolConstants.DefaultVersion;
     
     /// <summary>
     /// 是否启用
@@ -134,7 +134,7 @@ public class ToolParameter
     /// <summary>
     /// 参数类型
     /// </summary>
-    public string Type { get; set; } = "string";
+    public string Type { get; set; } = ToolConstants.DefaultParameterType;
     
     /// <summary>
     /// 是否必需
@@ -195,7 +195,7 @@ public class ToolReturnValue
     /// <summary>
     /// 返回值类型
     /// </summary>
-    public string Type { get; set; } = "object";
+    public string Type { get; set; } = ToolConstants.DefaultReturnType;
     
     /// <summary>
     /// 描述
@@ -216,12 +216,12 @@ public class RetryPolicy
     /// <summary>
     /// 最大重试次数
     /// </summary>
-    public int MaxRetries { get; set; } = 3;
+    public int MaxRetries { get; set; } = RetryPolicyDefaults.MaxRetries;
     
     /// <summary>
     /// 重试延迟（毫秒）
     /// </summary>
-    public int RetryDelayMs { get; set; } = 1000;
+    public int RetryDelayMs { get; set; } = RetryPolicyDefaults.RetryDelayMs;
     
     /// <summary>
     /// 是否使用指数退避
@@ -231,5 +231,5 @@ public class RetryPolicy
     /// <summary>
     /// 最大延迟（毫秒）
     /// </summary>
-    public int MaxRetryDelayMs { get; set; } = 30000;
+    public int MaxRetryDelayMs { get; set; } = RetryPolicyDefaults.MaxRetryDelayMs;
 }

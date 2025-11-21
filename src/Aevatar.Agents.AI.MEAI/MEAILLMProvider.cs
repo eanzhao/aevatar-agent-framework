@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +26,18 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
     {
         _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
 
+        var messages = BuildChatMessages(request);
+        var options = BuildChatOptions(request);
+        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+
+        return CreateAevatarLLMResponse(response);
+    }
+
+    /// <summary>
+    /// Build chat messages from request.
+    /// </summary>
+    private List<ChatMessage> BuildChatMessages(AevatarLLMRequest request)
+    {
         var messages = new List<ChatMessage>();
 
         if (!string.IsNullOrEmpty(request.SystemPrompt))
@@ -43,6 +56,14 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         if (!string.IsNullOrEmpty(request.UserPrompt))
             messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
 
+        return messages;
+    }
+
+    /// <summary>
+    /// Build chat options including temperature, max tokens, and tools.
+    /// </summary>
+    private ChatOptions BuildChatOptions(AevatarLLMRequest request)
+    {
         var options = new ChatOptions
         {
             Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
@@ -53,41 +74,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         // Add tools/functions if provided
         if (request.Functions != null && request.Functions.Count > 0)
         {
-            var aiTools = new List<AITool>();
-            foreach (var func in request.Functions)
-            {
-                // Create AIFunction from AevatarFunctionDefinition
-                var parameters = new Dictionary<string, object>();
-                if (func.Parameters != null)
-                {
-                    foreach (var param in func.Parameters)
-                    {
-                        parameters[param.Key] = new
-                        {
-                            type = param.Value.Type,
-                            description = param.Value.Description,
-                            required = param.Value.Required
-                        };
-                    }
-                }
-                
-                var schema = new
-                {
-                    type = "object",
-                    properties = parameters,
-                    required = func.Parameters?
-                        .Where(p => p.Value.Required)
-                        .Select(p => p.Key)
-                        .ToArray() ?? Array.Empty<string>()
-                };
-                
-                // Create function tool
-                Func<Dictionary<string, object?>, Task<object>> handler = async (args) => $"Function {func.Name} called";
-                
-                var aiFunc = AIFunctionFactory.Create(handler, func.Name, func.Description);
-                aiTools.Add(aiFunc);
-            }
-            
+            var aiTools = ConvertFunctionsToAITools(request.Functions);
             if (aiTools.Count > 0)
             {
                 options.Tools = aiTools;
@@ -95,8 +82,33 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             }
         }
 
-        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+        return options;
+    }
 
+    /// <summary>
+    /// Convert Aevatar function definitions to Microsoft.Extensions.AI tools.
+    /// </summary>
+    private List<AITool> ConvertFunctionsToAITools(IList<AevatarFunctionDefinition> functions)
+    {
+        var aiTools = new List<AITool>();
+        foreach (var func in functions)
+        {
+            // Create function tool with placeholder handler
+            // Actual execution happens in ToolManager
+            Func<Dictionary<string, object?>, Task<object>> handler = 
+                async (args) => string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name);
+            
+            var aiFunc = AIFunctionFactory.Create(handler, func.Name, func.Description);
+            aiTools.Add(aiFunc);
+        }
+        return aiTools;
+    }
+
+    /// <summary>
+    /// Create AevatarLLMResponse from Microsoft.Extensions.AI ChatResponse.
+    /// </summary>
+    private AevatarLLMResponse CreateAevatarLLMResponse(Microsoft.Extensions.AI.ChatResponse response)
+    {
         var result = new AevatarLLMResponse
         {
             Content = response.Text ?? string.Empty,

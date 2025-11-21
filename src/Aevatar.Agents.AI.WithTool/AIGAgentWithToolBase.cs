@@ -306,22 +306,44 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
         Logger.LogDebug("Executing tool: {ToolName}", functionCall.Name);
 
-        // 1. Add assistant message with tool call to history
+        // 1. Add tool call to history
+        AddToolCallToHistory(functionCall);
+
+        // 2. Execute tool and record result
+        var result = await ExecuteAndRecordToolAsync(functionCall, request.RequestId, cancellationToken);
+
+        // 3. Generate final response with tool execution result
+        return await GenerateFinalResponseWithToolsAsync(request, functionCall, result, cancellationToken);
+    }
+
+    /// <summary>
+    /// Add tool call message to conversation history.
+    /// </summary>
+    private void AddToolCallToHistory(AevatarFunctionCall functionCall)
+    {
         var toolCallMsg = new AevatarChatMessage
         {
             Role = AevatarChatRole.Assistant,
-            // Content = string.Empty, // Protobuf defaults to empty string
             ToolCalls = { new ToolCall { ToolName = functionCall.Name, Arguments = functionCall.Arguments } }
         };
         AddMessageToHistory(toolCallMsg);
+    }
 
-        // 2. Parse arguments
+    /// <summary>
+    /// Execute tool and add result to history.
+    /// </summary>
+    private async Task<ToolExecutionResult> ExecuteAndRecordToolAsync(
+        AevatarFunctionCall functionCall,
+        string requestId,
+        CancellationToken cancellationToken)
+    {
+        // Parse arguments
         var parameters = ParseToolArguments(functionCall.Arguments);
 
-        // 3. Execute tool
+        // Execute tool
         var result = await ExecuteToolAsync(functionCall.Name, parameters, cancellationToken: cancellationToken);
 
-        // 4. Add tool result to history
+        // Add tool result to history
         var toolResultMsg = new AevatarChatMessage
         {
             Role = AevatarChatRole.Tool,
@@ -336,57 +358,90 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         };
         AddMessageToHistory(toolResultMsg);
 
-        // 5. Publish tool execution event
-        await PublishToolExecutionEventAsync(functionCall.Name, parameters, result, request.RequestId);
+        // Publish tool execution event
+        await PublishToolExecutionEventAsync(functionCall.Name, parameters, result, requestId);
 
-        // 6. Follow-up generation (Recursive call to ChatAsync? No, avoid re-adding user message)
-        // We need to generate the final response based on the updated history.
-        
-        // Build request again (now includes tool result)
+        return result;
+    }
+
+    /// <summary>
+    /// Generate final LLM response after tool execution.
+    /// </summary>
+    private async Task<ChatResponse> GenerateFinalResponseWithToolsAsync(
+        ChatRequest request,
+        AevatarFunctionCall functionCall,
+        ToolExecutionResult toolResult,
+        CancellationToken cancellationToken)
+    {
+        // Build request with updated history (includes tool result)
         var followUpRequest = BuildLLMRequest(request);
 
-        // Call LLM
+        // Call LLM for final response
         var followUpResponse = await LLMProvider.GenerateAsync(followUpRequest, cancellationToken);
 
         // Add assistant response to history
         AddMessageToHistory(followUpResponse.Content, AevatarChatRole.Assistant);
 
-        // Build final response
-        var response = new ChatResponse
-        {
-            Content = followUpResponse.Content,
-            RequestId = request.RequestId,
-            ToolCalled = true,
-            ToolCall = new ToolCallInfo
-            {
-                ToolName = functionCall.Name,
-                Result = result.Content ?? string.Empty
-            }
-        };
-
-        if (!string.IsNullOrEmpty(functionCall.Arguments))
-        {
-            var args = ParseToolArguments(functionCall.Arguments);
-            foreach (var arg in args)
-            {
-                response.ToolCall.Arguments[arg.Key.ToString()] = arg.Value?.ToString() ?? string.Empty;
-            }
-        }
-
-        if (followUpResponse.Usage != null)
-        {
-            response.Usage = new AevatarTokenUsage
-            {
-                PromptTokens = followUpResponse.Usage.PromptTokens,
-                CompletionTokens = followUpResponse.Usage.CompletionTokens,
-                TotalTokens = followUpResponse.Usage.TotalTokens
-            };
-        }
+        // Build response object
+        var response = CreateChatResponseWithToolInfo(request.RequestId, followUpResponse, functionCall, toolResult);
 
         // Publish chat response event
         await PublishChatResponseAsync(response, request.RequestId);
 
         return response;
+    }
+
+    /// <summary>
+    /// Create ChatResponse with tool execution information.
+    /// </summary>
+    private ChatResponse CreateChatResponseWithToolInfo(
+        string requestId,
+        AevatarLLMResponse llmResponse,
+        AevatarFunctionCall functionCall,
+        ToolExecutionResult toolResult)
+    {
+        var response = new ChatResponse
+        {
+            Content = llmResponse.Content,
+            RequestId = requestId,
+            ToolCalled = true,
+            ToolCall = new ToolCallInfo
+            {
+                ToolName = functionCall.Name,
+                Result = toolResult.Content ?? string.Empty
+            }
+        };
+
+        // Populate tool call arguments
+        if (!string.IsNullOrEmpty(functionCall.Arguments))
+        {
+            PopulateToolCallArguments(response.ToolCall, functionCall.Arguments);
+        }
+
+        // Add usage information
+        if (llmResponse.Usage != null)
+        {
+            response.Usage = new AevatarTokenUsage
+            {
+                PromptTokens = llmResponse.Usage.PromptTokens,
+                CompletionTokens = llmResponse.Usage.CompletionTokens,
+                TotalTokens = llmResponse.Usage.TotalTokens
+            };
+        }
+
+        return response;
+    }
+
+    /// <summary>
+    /// Populate tool call arguments from JSON string.
+    /// </summary>
+    private void PopulateToolCallArguments(ToolCallInfo toolCall, string argumentsJson)
+    {
+        var args = ParseToolArguments(argumentsJson);
+        foreach (var arg in args)
+        {
+            toolCall.Arguments[arg.Key.ToString()] = arg.Value?.ToString() ?? string.Empty;
+        }
     }
 
     /// <summary>
