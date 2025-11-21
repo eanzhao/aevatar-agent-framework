@@ -54,6 +54,17 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         set
         {
             StateProtectionContext.EnsureModifiable("Direct State assignment");
+            
+            // If we have events in the stream (Version > 0), we are in Event Sourcing mode.
+            // Direct state modification is not allowed in this mode to ensure consistency.
+            // State should only be updated via RaiseEvent -> ApplyEvent.
+            if (_currentVersion > 0)
+            {
+                throw new InvalidOperationException(
+                    "Direct State modification is not allowed when Event Sourcing is active (Version > 0). " +
+                    "Use RaiseEvent to modify state, or clear EventStore to reset version.");
+            }
+
             _state = value;
         }
     }
@@ -310,7 +321,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
             TransitionState(newState, message);
 
             // Update state
-            SetStateInternalOptimized(newState);
+            SetState(newState);
 
             return Task.CompletedTask;
         }
@@ -323,10 +334,12 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         }
     }
 
-    private void SetStateInternalOptimized(TState newState)
+    private void SetState(TState newState)
     {
-        using var _ = StateProtectionContext.BeginInitializationScope();
-        State = newState;
+        // Directly set the field to bypass the EventStore check in the property setter.
+        // This method is only called by the framework (ApplyEventInternalAsync, ReplayEventsAsync),
+        // so it is safe to update the state here.
+        _state = newState;
     }
 
     // ============ Event Replay ============
@@ -354,7 +367,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
                 snapshot.Version, Id);
 
             var snapshotState = snapshot.StateData.Unpack<TState>();
-            SetStateInternalOptimized(snapshotState);
+            SetState(snapshotState);
             _currentVersion = snapshot.Version;
             Logger.LogInformation("Snapshot loaded, current version: {Version}", _currentVersion);
         }

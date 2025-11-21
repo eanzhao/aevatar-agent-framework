@@ -17,7 +17,16 @@ public abstract class AIGAgentBase<TCustomState> : AIGAgentBase
     protected TCustomState CustomState
     {
         get => _customStateAccessor.GetValue(State.CustomState);
-        set => State.CustomState = _customStateAccessor.SetValue(value, "Direct State assignment");
+        set
+        {
+            if (GetCurrentVersion() > 0)
+            {
+                throw new InvalidOperationException(
+                    "Direct CustomState modification is not allowed when Event Sourcing is active (Version > 0). " +
+                    "Use RaiseEvent to modify state.");
+            }
+            State.CustomState = _customStateAccessor.SetValue(value, "Direct State assignment");
+        }
     }
 
     public TCustomState GetCustomState() => _customStateAccessor.GetValue(State.CustomState, false);
