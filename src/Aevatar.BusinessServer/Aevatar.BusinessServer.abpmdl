@@ -1,0 +1,105 @@
+{
+  "template": "app",
+  "imports": {
+    "Volo.Abp.LeptonXLiteTheme": {
+      "version": "4.0.5",
+      "isInstalled": true
+    },
+    "Volo.Abp.Account": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.OpenIddict": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.Identity": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.TenantManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.SettingManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.PermissionManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    },
+    "Volo.Abp.FeatureManagement": {
+      "version": "9.0.4",
+      "isInstalled": true
+    }
+  },
+  "folders": {
+    "items": {
+      "src": {},
+      "test": {}
+    }
+  },
+  "packages": {
+    "Aevatar.BusinessServer.Application": {
+      "path": "src/Aevatar.BusinessServer.Application/Aevatar.BusinessServer.Application.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.Application.Tests": {
+      "path": "test/Aevatar.BusinessServer.Application.Tests/Aevatar.BusinessServer.Application.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.MongoDB": {
+      "path": "src/Aevatar.BusinessServer.MongoDB/Aevatar.BusinessServer.MongoDB.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.MongoDB.Tests": {
+      "path": "test/Aevatar.BusinessServer.MongoDB.Tests/Aevatar.BusinessServer.MongoDB.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.Domain.Shared": {
+      "path": "src/Aevatar.BusinessServer.Domain.Shared/Aevatar.BusinessServer.Domain.Shared.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.Application.Contracts": {
+      "path": "src/Aevatar.BusinessServer.Application.Contracts/Aevatar.BusinessServer.Application.Contracts.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.HttpApi": {
+      "path": "src/Aevatar.BusinessServer.HttpApi/Aevatar.BusinessServer.HttpApi.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.HttpApi.Client": {
+      "path": "src/Aevatar.BusinessServer.HttpApi.Client/Aevatar.BusinessServer.HttpApi.Client.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.Web": {
+      "path": "src/Aevatar.BusinessServer.Web/Aevatar.BusinessServer.Web.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.Web.Tests": {
+      "path": "test/Aevatar.BusinessServer.Web.Tests/Aevatar.BusinessServer.Web.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.TestBase": {
+      "path": "test/Aevatar.BusinessServer.TestBase/Aevatar.BusinessServer.TestBase.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.Domain.Tests": {
+      "path": "test/Aevatar.BusinessServer.Domain.Tests/Aevatar.BusinessServer.Domain.Tests.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.HttpApi.Client.ConsoleTestApp": {
+      "path": "test/Aevatar.BusinessServer.HttpApi.Client.ConsoleTestApp/Aevatar.BusinessServer.HttpApi.Client.ConsoleTestApp.abppkg",
+      "folder": "test"
+    },
+    "Aevatar.BusinessServer.DbMigrator": {
+      "path": "src/Aevatar.BusinessServer.DbMigrator/Aevatar.BusinessServer.DbMigrator.abppkg",
+      "folder": "src"
+    },
+    "Aevatar.BusinessServer.Domain": {
+      "path": "src/Aevatar.BusinessServer.Domain/Aevatar.BusinessServer.Domain.abppkg",
+      "folder": "src"
+    }
+  }
+}
