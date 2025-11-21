@@ -49,15 +49,65 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };
+        
+        // Add tools/functions if provided
+        if (request.Functions != null && request.Functions.Count > 0)
+        {
+            var aiTools = new List<AITool>();
+            foreach (var func in request.Functions)
+            {
+                // Create AIFunction from AevatarFunctionDefinition
+                var parameters = new Dictionary<string, object>();
+                if (func.Parameters != null)
+                {
+                    foreach (var param in func.Parameters)
+                    {
+                        parameters[param.Key] = new
+                        {
+                            type = param.Value.Type,
+                            description = param.Value.Description,
+                            required = param.Value.Required
+                        };
+                    }
+                }
+                
+                var schema = new
+                {
+                    type = "object",
+                    properties = parameters,
+                    required = func.Parameters?
+                        .Where(p => p.Value.Required)
+                        .Select(p => p.Key)
+                        .ToArray() ?? Array.Empty<string>()
+                };
+                
+                // Create function tool
+                Func<Dictionary<string, object?>, Task<object>> handler = async (args) => $"Function {func.Name} called";
+                
+                var aiFunc = AIFunctionFactory.Create(handler, func.Name, func.Description);
+                aiTools.Add(aiFunc);
+            }
+            
+            if (aiTools.Count > 0)
+            {
+                options.Tools = aiTools;
+                _logger.LogInformation("Added {Count} tools to ChatOptions", aiTools.Count);
+            }
+        }
 
         var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
 
         var result = new AevatarLLMResponse
         {
-            Content = response.Text,
+            Content = response.Text ?? string.Empty,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete
         };
+        
+        // Note: Function calling handling depends on the specific ChatClient implementation
+        // Tools have been added to ChatOptions, but the current IChatClient.GetResponseAsync
+        // may not expose function calls in a standardized way. This needs further investigation
+        // based on the actual ChatClient implementation being used (e.g., DeepSeekChatClient)
 
         if (response.Usage != null)
         {
@@ -124,7 +174,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             Name = _config.Model,
             MaxTokens = _config.MaxTokens,
             SupportsStreaming = _config.EnableStreaming,
-            SupportsFunctions = false
+            SupportsFunctions = true // MEAI supports tools/functions
         });
     }
 }

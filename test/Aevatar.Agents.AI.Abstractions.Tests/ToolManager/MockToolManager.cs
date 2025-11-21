@@ -45,11 +45,11 @@ public class MockToolManager : IAevatarToolManager
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult<IReadOnlyList<ToolDefinition>>(_tools.Values.Where(t => t.IsEnabled).ToList());
     }
-    
+
     public Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        AevatarToolExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

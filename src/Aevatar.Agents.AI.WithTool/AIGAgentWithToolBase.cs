@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Aevatar.Agents.AI.WithTool.Tools;
@@ -108,12 +109,14 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Get list of registered tools.
     /// 获取已注册的工具列表
     /// </summary>
-    protected internal IReadOnlyList<ToolDefinition> GetRegisteredTools()
+    protected IReadOnlyList<ToolDefinition> GetRegisteredTools()
     {
         if (_toolManager == null)
             return Array.Empty<ToolDefinition>();
 
-        return ToolManager.GetAvailableToolsAsync().Result;
+        var task = ToolManager.GetAvailableToolsAsync();
+        if (task == null) return Array.Empty<ToolDefinition>();
+        return task.Result ?? [];
     }
 
     /// <summary>
@@ -155,7 +158,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        AevatarToolExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         return await ToolManager.ExecuteToolAsync(toolName, parameters, context, cancellationToken);
@@ -169,52 +172,57 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Update active tools list in AI state.
     /// 在AI状态中更新活动工具列表
     /// </summary>
-    protected abstract void UpdateActiveToolsInState();
+    protected virtual void UpdateActiveToolsInState()
+    {
+        // Default implementation does nothing.
+        // Derived classes can override to persist active tools in state if needed.
+    }
 
     #endregion
 
-    #region Chat with Tools
+    #region Chat Methods
 
     /// <summary>
-    /// Chat with the agent (using tools if needed).
-    /// 与代理聊天（如果需要会使用工具）
+    /// Process a chat request and return a response.
+    /// Overrides base implementation to support tools and history.
     /// </summary>
-    public async Task<ChatResponse> ChatWithToolAsync(
+    public override async Task<ChatResponse> ChatAsync(
         ChatRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!_isInitialized)
+            throw new InvalidOperationException("AI Agent must be initialized before use. Call InitializeAsync() first.");
+
         try
         {
-            // Add user message to conversation history
+            // 1. Add user message to history
             AddMessageToHistory(request.Message, AevatarChatRole.User);
 
-            // Build LLM request with tools
-            var llmRequest = BuildLLMRequestWithTools(request);
+            // 2. Build LLM request (includes history and tools)
+            var llmRequest = BuildLLMRequest(request);
 
-            // Get response from LLM
+            // 3. Call LLM
             var llmResponse = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
 
-            // Handle function calls if present
+            // 4. Handle function calls if present
             if (llmResponse.AevatarFunctionCall != null)
             {
                 return await HandleFunctionCallAsync(request, llmResponse, cancellationToken);
             }
 
-            // Add assistant response to history
+            // 5. Add assistant response to history
             AddMessageToHistory(llmResponse.Content, AevatarChatRole.Assistant);
 
-            // Build and return chat response
-            var chatResponse = new ChatResponse
+            // 6. Build response
+            var response = new ChatResponse
             {
                 Content = llmResponse.Content,
-                RequestId = request.RequestId,
-                ToolCalled = false
+                RequestId = request.RequestId
             };
 
-            // Add token usage if available
             if (llmResponse.Usage != null)
             {
-                chatResponse.Usage = new AevatarTokenUsage
+                response.Usage = new AevatarTokenUsage
                 {
                     PromptTokens = llmResponse.Usage.PromptTokens,
                     CompletionTokens = llmResponse.Usage.CompletionTokens,
@@ -222,31 +230,64 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
                 };
             }
 
-            // Publish chat response event
-            await PublishChatResponseAsync(chatResponse, request.RequestId);
+            // 7. Publish events
+            await PublishChatResponseAsync(response, request.RequestId);
 
-            return chatResponse;
+            // 8. Record AI decision (Event Sourcing)
+            RaiseAIDecision(
+                request.Message,
+                response.Content,
+                response.Usage?.TotalTokens ?? 0,
+                new Dictionary<string, string>
+                {
+                    ["request_id"] = request.RequestId,
+                    ["chat_type"] = "tool_aware"
+                });
+
+            if (AutoConfirmEvents && EventStore != null)
+            {
+                await ConfirmEventsAsync(cancellationToken);
+            }
+
+            return response;
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "Error processing chat with tools request {RequestId}", request.RequestId);
+            Logger.LogError(ex, "Error processing chat request {RequestId}", request.RequestId);
             throw;
         }
     }
 
     /// <summary>
-    /// Build LLM request with tool definitions.
-    /// 构建包含工具定义的 LLM 请求
+    /// Build LLM request from chat request.
+    /// Overrides base to include history and tools.
     /// </summary>
-    protected virtual AevatarLLMRequest BuildLLMRequestWithTools(ChatRequest request)
+    protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
     {
-        var llmRequest = BuildLLMRequest(request);
-
-        // Add function definitions from tools
-        var functionDefs = ToolManager.GenerateFunctionDefinitionsAsync().Result;
-        if (functionDefs != null && functionDefs.Count > 0)
+        var llmRequest = new AevatarLLMRequest
         {
-            llmRequest.Functions = functionDefs.ToList();
+            SystemPrompt = SystemPrompt,
+            Settings = GetLLMSettings(request),
+            Messages = new List<AevatarChatMessage>()
+        };
+
+        // Add history
+        if (State.History != null)
+        {
+            foreach (var msg in State.History)
+            {
+                llmRequest.Messages.Add(msg);
+            }
+        }
+
+        // Inject tools
+        if (HasTools)
+        {
+            var functionDefs = ToolManager.GenerateFunctionDefinitionsAsync().Result;
+            if (functionDefs != null && functionDefs.Count > 0)
+            {
+                llmRequest.Functions = functionDefs.ToList();
+            }
         }
 
         return llmRequest;
@@ -254,7 +295,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Handle function call from LLM.
-    /// 处理来自 LLM 的函数调用
     /// </summary>
     private async Task<ChatResponse> HandleFunctionCallAsync(
         ChatRequest request,
@@ -262,36 +302,50 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         CancellationToken cancellationToken)
     {
         var functionCall = llmResponse.AevatarFunctionCall;
-        if (functionCall == null)
+        if (functionCall == null) throw new InvalidOperationException("Function call expected");
+
+        Logger.LogDebug("Executing tool: {ToolName}", functionCall.Name);
+
+        // 1. Add assistant message with tool call to history
+        var toolCallMsg = new AevatarChatMessage
         {
-            throw new InvalidOperationException("Function call expected but not found");
-        }
+            Role = AevatarChatRole.Assistant,
+            // Content = string.Empty, // Protobuf defaults to empty string
+            ToolCalls = { new ToolCall { ToolName = functionCall.Name, Arguments = functionCall.Arguments } }
+        };
+        AddMessageToHistory(toolCallMsg);
 
-        Logger?.LogDebug("Executing tool: {ToolName}", functionCall.Name);
-
-        // Parse arguments
+        // 2. Parse arguments
         var parameters = ParseToolArguments(functionCall.Arguments);
 
-        // Execute the tool
-        var result = await ExecuteToolAsync(
-            functionCall.Name,
-            parameters,
-            cancellationToken: cancellationToken);
+        // 3. Execute tool
+        var result = await ExecuteToolAsync(functionCall.Name, parameters, cancellationToken: cancellationToken);
 
-        // Add function message to history (simplify to avoid string interpolation issue)
-        var message = $"Tool {functionCall.Name} executed";
-        AddMessageToHistory(message, AevatarChatRole.Tool, functionCall.Name);
-
-        // Create follow-up request with tool result
-        var followUpRequest = BuildLLMRequestWithTools(request);
-        followUpRequest.Messages.Add(new AevatarChatMessage
+        // 4. Add tool result to history
+        var toolResultMsg = new AevatarChatMessage
         {
             Role = AevatarChatRole.Tool,
-            ToolCalls = { new ToolCall { ToolName = functionCall.Name } },
-            Content = result.Content ?? "No result"
-        });
+            Content = result.Content,
+            ToolResult = new ToolExecutionResult
+            {
+                ToolName = functionCall.Name,
+                Content = result.Content,
+                IsSuccess = result.IsSuccess,
+                ErrorMessage = result.ErrorMessage
+            }
+        };
+        AddMessageToHistory(toolResultMsg);
 
-        // Get final response from LLM
+        // 5. Publish tool execution event
+        await PublishToolExecutionEventAsync(functionCall.Name, parameters, result, request.RequestId);
+
+        // 6. Follow-up generation (Recursive call to ChatAsync? No, avoid re-adding user message)
+        // We need to generate the final response based on the updated history.
+        
+        // Build request again (now includes tool result)
+        var followUpRequest = BuildLLMRequest(request);
+
+        // Call LLM
         var followUpResponse = await LLMProvider.GenerateAsync(followUpRequest, cancellationToken);
 
         // Add assistant response to history
@@ -302,17 +356,14 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         {
             Content = followUpResponse.Content,
             RequestId = request.RequestId,
-            ToolCalled = true
+            ToolCalled = true,
+            ToolCall = new ToolCallInfo
+            {
+                ToolName = functionCall.Name,
+                Result = result.Content ?? string.Empty
+            }
         };
 
-        // Set tool call info
-        response.ToolCall = new ToolCallInfo
-        {
-            ToolName = functionCall.Name,
-            Result = result.Content ?? string.Empty
-        };
-
-        // Parse and set arguments map
         if (!string.IsNullOrEmpty(functionCall.Arguments))
         {
             var args = ParseToolArguments(functionCall.Arguments);
@@ -322,7 +373,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             }
         }
 
-        // Add token usage if available
         if (followUpResponse.Usage != null)
         {
             response.Usage = new AevatarTokenUsage
@@ -333,44 +383,69 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             };
         }
 
-        // Publish events
+        // Publish chat response event
         await PublishChatResponseAsync(response, request.RequestId);
-        await PublishToolExecutionEventAsync(
-            functionCall.Name,
-            parameters,
-            result,
-            request.RequestId);
 
         return response;
     }
 
     /// <summary>
     /// Add message to conversation history.
-    /// 添加消息到对话历史
     /// </summary>
-    protected abstract void AddMessageToHistory(string content, AevatarChatRole role, string? name = null);
+    protected void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
+    {
+        var msg = new AevatarChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+        State.History.Add(msg);
+    }
 
-    /// <summary>
-    /// Build basic LLM request from chat request.
-    /// 从聊天请求构建基本的 LLM 请求
-    /// </summary>
-    protected new abstract AevatarLLMRequest BuildLLMRequest(ChatRequest request);
+    protected void AddMessageToHistory(AevatarChatMessage msg)
+    {
+        if (msg.Timestamp == null)
+        {
+            msg.Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow);
+        }
+        State.History.Add(msg);
+    }
 
     /// <summary>
     /// Publish chat response event.
-    /// 发布聊天响应事件
     /// </summary>
-    protected abstract Task PublishChatResponseAsync(ChatResponse response, string requestId);
+    protected virtual async Task PublishChatResponseAsync(ChatResponse response, string requestId)
+    {
+        await PublishAsync(new ChatResponseEvent
+        {
+            RequestId = requestId,
+            Content = response.Content,
+            TokensUsed = response.Usage?.TotalTokens ?? 0,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+        });
+    }
 
     /// <summary>
     /// Publish tool execution event.
-    /// 发布工具执行事件
     /// </summary>
-    protected abstract Task PublishToolExecutionEventAsync(
+    protected virtual async Task PublishToolExecutionEventAsync(
         string toolName,
         Dictionary<string, object> parameters,
         ToolExecutionResult result,
-        string requestId);
+        string requestId)
+    {
+        var response = new ToolExecutionResponseEvent
+        {
+            RequestId = requestId,
+            ToolName = toolName,
+            Success = result.IsSuccess,
+            Result = result.Content ?? "",
+            Error = result.ErrorMessage ?? "",
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+        await PublishAsync(response);
+    }
 
     #endregion
 

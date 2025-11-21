@@ -26,7 +26,7 @@ public class DefaultToolExecutor : IToolExecutor
     public virtual async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        ToolExecutionContext context,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -44,33 +44,7 @@ public class DefaultToolExecutor : IToolExecutor
             var result = await context.ToolManager.ExecuteToolAsync(
                 toolName,
                 parameters,
-                new AevatarToolExecutionContext // Explicit usage if needed, or check where it is defined.
-                // Wait, AevatarToolExecutionContext is in Abstractions?
-                // I moved AevatarToolExecutionContext (Proto) to WithTool.Messages?
-                // And there is AevatarToolExecutionContext (C#?) in Abstractions?
-                // Let's check where AevatarToolExecutionContext is used.
-                // ToolManager.ExecuteToolAsync uses AevatarToolExecutionContext?
-                // In ToolManager interface: ExecuteToolAsync(..., AevatarToolExecutionContext? context, ...)
-                // I moved ToolManager interface to WithTool.Abstractions.
-                // So I should check what type AevatarToolExecutionContext refers to there.
-                // It probably refers to the one in WithTool.Abstractions if defined there, or imported.
-                // I moved AevatarToolExecutionContext (Proto) to WithTool.Messages.
-                // Is there a C# AevatarToolExecutionContext? 
-                // ToolDefinition.cs had AevatarToolExecutionContext.
-                // I moved ToolDefinition.cs to WithTool.Abstractions.
-                // So AevatarToolExecutionContext might be in WithTool.Abstractions too?
-                // Wait, ai_abstractions_messages.proto had AevatarToolExecutionContext.
-                // I removed it from ai_abstractions_messages.proto.
-                // I added it to tool_messages.proto (WithTool.Messages).
-                // But ToolDefinition.cs likely relies on a C# class or the Proto class.
-                // If it relied on Proto class, it now relies on WithTool.Messages.AevatarToolExecutionContext.
-                // But ToolManager interface uses it.
-                
-                // Let's check ToolManager interface in WithTool.Abstractions/IAevatarToolManager.cs
-                {
-                    AgentId = context.AgentId,
-                    SessionId = context.GetSessionId()
-                },
+                context,
                 cancellationToken);
             
             stopwatch.Stop();

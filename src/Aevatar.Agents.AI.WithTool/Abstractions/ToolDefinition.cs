@@ -38,7 +38,7 @@ public class ToolDefinition
     /// <summary>
     /// 执行函数
     /// </summary>
-    public Func<Dictionary<string, object>, AevatarToolExecutionContext?, CancellationToken, Task<IMessage>>? ExecuteAsync { get; set; }
+    public Func<Dictionary<string, object>, ToolExecutionContext?, CancellationToken, Task<IMessage>>? ExecuteAsync { get; set; }
     
     /// <summary>
     /// 标签

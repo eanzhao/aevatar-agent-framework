@@ -65,44 +65,29 @@ internal class MEAIToolManager : IAevatarToolManager
     public async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        AevatarToolExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Tool execution is simplified since ToolDefinition doesn't have ExecuteFunc
+            // Execute via ToolDefinition's ExecuteAsync if available
             if (_toolDefinitions.TryGetValue(toolName, out var definition))
             {
-                // Simplified execution
-                return new ToolExecutionResult
+                if (definition.ExecuteAsync != null)
                 {
-                    IsSuccess = true,
-                    Content = $"Tool {toolName} executed with {parameters.Count} parameters"
-                };
-            }
-            
-            // Try to execute via AITool if available
-            if (_aiTools.TryGetValue(toolName, out var aiTool))
-            {
-                // Convert parameters for AITool execution
-                var nullableParams = parameters.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => (object?)kvp.Value);
-                
-                // Invoke the AITool
-                var result = await Task.FromResult<object>($"Tool {toolName} invoked");
-                
-                return new ToolExecutionResult
-                {
-                    IsSuccess = true,
-                    Content = result.ToString()
-                };
+                    var result = await definition.ExecuteAsync(parameters, context, cancellationToken);
+                    return new ToolExecutionResult
+                    {
+                        IsSuccess = true,
+                        Content = result?.ToString() ?? string.Empty
+                    };
+                }
             }
             
             return new ToolExecutionResult
             {
                 IsSuccess = false,
-                Content = $"Tool {toolName} not found"
+                Content = $"Tool {toolName} not found or has no ExecuteAsync"
             };
         }
         catch (Exception ex)
@@ -129,6 +114,21 @@ internal class MEAIToolManager : IAevatarToolManager
                 Description = tool.Description,
                 Parameters = new Dictionary<string, AevatarParameterDefinition>()
             };
+            
+            // Convert ToolParameters to AevatarParameterDefinition
+            if (tool.Parameters?.Items != null)
+            {
+                foreach (var param in tool.Parameters.Items)
+                {
+                    func.Parameters[param.Key] = new AevatarParameterDefinition
+                    {
+                        Type = param.Value.Type ?? "string",
+                        Description = param.Value.Description ?? "",
+                        Required = param.Value.Required
+                    };
+                }
+            }
+            
             functions.Add(func);
         }
         

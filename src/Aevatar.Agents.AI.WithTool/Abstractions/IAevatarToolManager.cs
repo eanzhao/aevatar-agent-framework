@@ -28,7 +28,7 @@ public interface IAevatarToolManager
     Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        AevatarToolExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default);
     
     /// <summary>
