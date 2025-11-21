@@ -15,38 +15,40 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
         await base.OnActivateAsync(ct);
 
         // Initialize State
-        if (string.IsNullOrEmpty(State.Id))
+        if (string.IsNullOrEmpty(CustomState.Id))
         {
-            State.Id = Id.ToString();
-            State.FilesProcessedCount = 0;
-            State.TotalCharsTranslated = 0;
+            CustomState.Id = Id.ToString();
+            CustomState.FilesProcessedCount = 0;
+            CustomState.TotalCharsTranslated = 0;
         }
-        State.LastActivityAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        CustomState.LastActivityAt = Timestamp.FromDateTime(DateTime.UtcNow);
 
         // Initialize Config Defaults
-        if (string.IsNullOrEmpty(Config.DefaultTargetLanguage))
+        if (string.IsNullOrEmpty(CustomConfig.DefaultTargetLanguage))
         {
-            Config.DefaultTargetLanguage = "en";
+            CustomConfig.DefaultTargetLanguage = "en";
         }
 
         // Setup System Prompt for translation expert
         SystemPrompt = "You are a professional translator. " +
                        "Your task is to translate the provided text content accurately and naturally into the target language. " +
                        "Do not include any explanations or conversational filler, just output the translated text.";
-        
-        Logger.LogInformation("TranslationAgent {AgentId} activated. Default target: {Target}", Id, Config.DefaultTargetLanguage);
+
+        Logger.LogInformation("TranslationAgent {AgentId} activated. Default target: {Target}", Id,
+            CustomConfig.DefaultTargetLanguage);
     }
 
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleTranslateFile(TranslateFileEvent evt)
     {
         Logger.LogInformation("Received translation request for file: {FilePath}", evt.FilePath);
-        
-        State.LastActivityAt = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        string targetLang = !string.IsNullOrEmpty(evt.TargetLanguage) 
-            ? evt.TargetLanguage 
-            : Config.DefaultTargetLanguage;
+        CustomState.LastActivityAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        string targetLang = !string.IsNullOrEmpty(evt.TargetLanguage)
+            ? evt.TargetLanguage
+            : CustomConfig.DefaultTargetLanguage;
 
         try
         {
@@ -61,17 +63,17 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
             if (string.IsNullOrWhiteSpace(content))
             {
                 Logger.LogWarning("File is empty: {FilePath}", evt.FilePath);
-                return; 
+                return;
             }
 
             // 3. Perform Translation using AI
             Logger.LogInformation("Translating {Chars} chars to {Lang}...", content.Length, targetLang);
-            
+
             // Construct a specific prompt for this task
             var prompt = $"Translate the following text to {targetLang}:\n\n{content}";
-            
-            var response = await ChatAsync(new ChatRequest 
-            { 
+
+            var response = await ChatAsync(new ChatRequest
+            {
                 Message = prompt,
                 RequestId = Guid.NewGuid().ToString()
             });
@@ -85,7 +87,7 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
             string outputFileName = $"{fileNameWithoutExt}_{targetLang}{ext}";
             string outputPath = Path.Combine(directory, outputFileName);
 
-            if (File.Exists(outputPath) && !Config.OverwriteExisting)
+            if (File.Exists(outputPath) && !CustomConfig.OverwriteExisting)
             {
                 Logger.LogWarning("Output file already exists and overwrite is disabled: {OutputPath}", outputPath);
                 // Optionally publish failure event or skip
@@ -96,8 +98,8 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
                 Logger.LogInformation("Translation saved to: {OutputPath}", outputPath);
 
                 // 5. Update State
-                State.FilesProcessedCount++;
-                State.TotalCharsTranslated += content.Length;
+                CustomState.FilesProcessedCount++;
+                CustomState.TotalCharsTranslated += content.Length;
 
                 // 6. Publish Success
                 await PublishAsync(new FileTranslatedEvent
@@ -113,7 +115,7 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
         catch (Exception ex)
         {
             Logger.LogError(ex, "Translation failed for {FilePath}", evt.FilePath);
-            
+
             await PublishAsync(new FileTranslatedEvent
             {
                 OriginalFilePath = evt.FilePath,
@@ -127,7 +129,6 @@ public class TranslationAgent : AIGAgentBase<TranslationState, TranslationConfig
 
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"Translator ({State.FilesProcessedCount} files processed)");
+        return Task.FromResult($"Translator ({CustomState.FilesProcessedCount} files processed)");
     }
 }
-

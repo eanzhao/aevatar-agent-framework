@@ -25,8 +25,7 @@ public static class AIAgentLLMProviderFactoryInjector
 
         while (baseType != null && baseType != typeof(object))
         {
-            if (baseType.IsGenericType &&
-                (baseType.Name == "AIGAgentBase`1" || baseType.Name == "AIGAgentBase`2"))
+            if (baseType.Name == "AIGAgentBase")
             {
                 // Get ILLMProviderFactory from DI
                 var factory = serviceProvider.GetService(typeof(ILLMProviderFactory));
@@ -94,57 +93,5 @@ public static class AIAgentLLMProviderFactoryInjector
         var targetType = target.GetType();
         var property = FindFactoryProperty(targetType);
         return property != null;
-    }
-
-    /// <summary>
-    /// Directly inject ILLMProviderFactory into Agent
-    /// </summary>
-    public static void InjectLLMProviderFactory(IGAgent agent, ILLMProviderFactory factory)
-    {
-        if (agent == null || factory == null)
-            return;
-
-        var agentType = agent.GetType();
-        var factoryProperty = FindFactoryProperty(agentType);
-
-        if (factoryProperty != null && factoryProperty.CanWrite)
-        {
-            try
-            {
-                factoryProperty.SetValue(agent, factory);
-            }
-            catch (Exception)
-            {
-                // Silently handle injection failure
-            }
-        }
-    }
-
-    /// <summary>
-    /// Generic injection method for any object
-    /// </summary>
-    public static void InjectLLMProviderFactory(object target, IServiceProvider serviceProvider)
-    {
-        if (target == null || serviceProvider == null)
-            return;
-
-        var targetType = target.GetType();
-
-        var factory = serviceProvider.GetService(typeof(ILLMProviderFactory));
-        if (factory == null)
-            return;
-
-        var factoryProperty = FindFactoryProperty(targetType);
-        if (factoryProperty != null && factoryProperty.CanWrite)
-        {
-            try
-            {
-                factoryProperty.SetValue(target, factory);
-            }
-            catch (Exception)
-            {
-                // Silently handle injection failure
-            }
-        }
     }
 }

@@ -3,6 +3,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Abstractions.Tests.Fixtures;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -150,7 +151,7 @@ public class LLMProviderFactoryBaseTests : IClassFixture<AITestFixture>
         var provider = factory.GetDefaultProvider();
 
         // Assert
-        var history = await memory.GetConversationHistoryAsync();
+        var history = await memory.GetHistoryAsync();
         history.Count.ShouldBe(1);
         tools.ShouldNotBeEmpty();
         provider.ShouldNotBeNull();

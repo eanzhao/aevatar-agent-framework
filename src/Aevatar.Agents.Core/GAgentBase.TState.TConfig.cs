@@ -13,11 +13,9 @@ namespace Aevatar.Agents.Core;
 /// <typeparam name="TState">Agent state type</typeparam>
 /// <typeparam name="TConfig">Agent configuration type</typeparam>
 public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
-    where TState : class, IMessage, new()
-    where TConfig : class, IMessage, new()
+    where TState : class, IMessage<TState>, new()
+    where TConfig : class, IMessage<TConfig>, new()
 {
-    private TConfig _config = new();
-    
     public GAgentBase()
     {
     }
@@ -25,6 +23,17 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     public GAgentBase(Guid id) : base(id)
     {
     }
+    
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct);
+        if (ConfigStore != null)
+        {
+            await ConfigStore.SaveAsync(GetType(), Id, _config, ct);
+        }
+    }
+
+    private TConfig _config = new();
 
     /// <summary>
     /// Configuration object - should only be modified within OnActivateAsync or event handlers.
@@ -38,8 +47,8 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     {
         get
         {
-            #if DEBUG
-            if (!StateProtectionContext.IsInEventHandler)
+#if DEBUG
+            if (!StateProtectionContext.IsModifiable)
             {
                 var callerMethod = new System.Diagnostics.StackFrame(1)?.GetMethod()?.Name ?? "Unknown";
                 if (!IsAllowedConfigAccessMethod(callerMethod))
@@ -49,30 +58,33 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
                         "Config should only be modified within OnActivateAsync or event handlers.");
                 }
             }
-            #endif
+#endif
             return _config;
         }
         set
         {
-            StateProtectionContext.EnsureInEventHandler("Direct Config assignment");
+            StateProtectionContext.EnsureModifiable("Direct Config assignment");
             _config = value;
         }
     }
-    
-    #if DEBUG
-    private static bool IsAllowedConfigAccessMethod(string methodName)
+
+#if DEBUG
+    protected virtual bool IsAllowedConfigAccessMethod(string methodName)
     {
         // Allow certain methods to access Config without warning
         return methodName switch
         {
-            "GetConfig" => true,
-            "GetDescription" => true,
-            "GetDescriptionAsync" => true,
-            "ToString" => true,
+            nameof(GetConfig) => true,
+            nameof(GetDescription) => true,
+            nameof(GetDescriptionAsync) => true,
+            nameof(OnActivateAsync) => true,
+            nameof(ToString) => true,
+            nameof(HandleEventAsync) => true,
+            nameof(HandleConfigAsync) => true,
             _ => false
         };
     }
-    #endif
+#endif
 
     /// <summary>
     /// Configuration store (injected by Actor layer)
@@ -138,5 +150,5 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     /// <summary>
     /// Get configuration (for agents that need to read config)
     /// </summary>
-    public TConfig GetConfig() => Config;
+    public TConfig GetConfig() => _config.Clone();
 }

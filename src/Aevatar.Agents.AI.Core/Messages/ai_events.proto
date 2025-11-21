@@ -15,17 +15,6 @@ message AIDecisionEvent {
     map<string, string> metadata = 7;           // Additional metadata
 }
 
-// AI Tool Invocation Event - Records when AI invokes a tool/function
-message AIToolInvocationEvent {
-    string tool_name = 1;                       // Name of the tool invoked
-    string tool_input = 2;                      // Input provided to the tool
-    string tool_output = 3;                     // Output from the tool
-    bool success = 4;                           // Whether the invocation succeeded
-    string error_message = 5;                   // Error message if failed
-    int32 tokens_used = 6;                      // Tokens used for this invocation
-    google.protobuf.Timestamp timestamp = 7;    // When the tool was invoked
-}
-
 // AI Context Update Event - Records when conversation context changes
 message AIContextUpdateEvent {
     repeated string added_messages = 1;         // Messages added to context

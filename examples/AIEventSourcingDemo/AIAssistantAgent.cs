@@ -6,6 +6,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using Aevatar.Agents.AI.Core.EventSourcing;
 
 namespace AIEventSourcingDemo;
 
@@ -53,11 +54,6 @@ public class AIAssistantAgent : AIGAgentBaseWithEventSourcing<AIAssistantState, 
     }
 
     /// <summary>
-    /// Get the current state for external access
-    /// </summary>
-    public AIAssistantState GetCurrentState() => State;
-
-    /// <summary>
     /// Commit pending events (public wrapper)
     /// </summary>
     public async Task CommitEventsAsync()
@@ -66,29 +62,16 @@ public class AIAssistantAgent : AIGAgentBaseWithEventSourcing<AIAssistantState, 
     }
 
     /// <summary>
-    /// Configure assistant-specific settings
-    /// </summary>
-    protected override void ConfigureCustom(AIAssistantConfig config)
-    {
-        config.Personality = "Friendly and helpful AI assistant";
-        config.Capabilities.Add("General knowledge");
-        config.Capabilities.Add("Code assistance");
-        config.Capabilities.Add("Creative writing");
-        config.CreativityLevel = 0.7;
-        config.EnableLearning = true;
-    }
-
-    /// <summary>
     /// System prompt for the AI assistant
     /// </summary>
     public override string SystemPrompt => $@"
-You are {Config.Personality}.
+You are {CustomConfig.Personality}.
 
 Your capabilities include:
-{string.Join("\n", Config.Capabilities.Select(c => $"- {c}"))}
+{string.Join("\n", CustomConfig.Capabilities.Select(c => $"- {c}"))}
 
-Creativity level: {Config.CreativityLevel}
-Learning enabled: {Config.EnableLearning}
+Creativity level: {CustomConfig.CreativityLevel}
+Learning enabled: {CustomConfig.EnableLearning}
 
 Provide helpful, accurate, and engaging responses.
 Be concise but thorough.
@@ -106,6 +89,13 @@ Be concise but thorough.
         {
             Console.WriteLine($"[DEBUG]   - {handler.Name}");
         }
+        
+        CustomConfig.Personality = "Friendly and helpful AI assistant";
+        CustomConfig.Capabilities.Add("General knowledge");
+        CustomConfig.Capabilities.Add("Code assistance");
+        CustomConfig.Capabilities.Add("Creative writing");
+        CustomConfig.CreativityLevel = 0.7;
+        CustomConfig.EnableLearning = true;
     }
 
     public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
@@ -133,14 +123,14 @@ Be concise but thorough.
             try
             {
                 // Initialize with configured LLM provider from appsettings
-                Console.WriteLine($"[DEBUG] Attempting to initialize AI with provider: deepseek");
+                Console.WriteLine("[DEBUG] Attempting to initialize AI with provider: deepseek");
                 await InitializeAsync(
                     "deepseek", // Use the provider configured in appsettings.json
                     config =>
                     {
                         config.Model = "deepseek-chat";
-                        config.Temperature = 0.8;
-                        config.MaxTokens = 1500;
+                        config.Temperature = 0.8f;
+                        config.MaxOutputTokens = 1500;
                     });
 
                 _localInitialized = true;
@@ -423,10 +413,10 @@ Be concise but thorough.
         }
 
         // Trigger periodic maintenance if needed
-        if (State.TotalInteractions % 100 == 0)
+        if (CustomState.TotalInteractions % 100 == 0)
         {
             Logger?.LogInformation("Triggering periodic maintenance after {Count} interactions",
-                State.TotalInteractions);
+                CustomState.TotalInteractions);
             await PerformPeriodicMaintenance();
         }
 
@@ -585,7 +575,7 @@ Be concise but thorough.
 
             case ConversationCompleted completed:
                 // Add to conversation history
-                state.ConversationHistory.Add(new ConversationSummary
+                state.History.Add(new ConversationSummary
                 {
                     ConversationId = completed.ConversationId,
                     UserId = "user", // Would be from actual user context
@@ -597,9 +587,9 @@ Be concise but thorough.
                 });
 
                 // Keep only last 100 conversations
-                while (state.ConversationHistory.Count > 100)
+                while (state.History.Count > 100)
                 {
-                    state.ConversationHistory.RemoveAt(0);
+                    state.History.RemoveAt(0);
                 }
 
                 break;
@@ -622,8 +612,8 @@ Be concise but thorough.
     /// </summary>
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"AI Assistant '{State.Name}' - {State.TotalInteractions} interactions, " +
-                               $"Satisfaction: {State.AverageSatisfaction:F2}/5.0");
+        return Task.FromResult($"AI Assistant '{CustomState.Name}' - {CustomState.TotalInteractions} interactions, " +
+                               $"Satisfaction: {CustomState.AverageSatisfaction:F2}/5.0");
     }
 
     #region Helper Methods
@@ -666,20 +656,20 @@ Be concise but thorough.
     private string GetConversationContext(string conversationId)
     {
         // Extract conversation context from state
-        var conversation = State.ConversationHistory.FirstOrDefault(c => c.ConversationId == conversationId);
+        var conversation = CustomState.History.FirstOrDefault(c => c.ConversationId == conversationId);
         return conversation?.Topic ?? "No context available";
     }
 
     private async Task AdjustAIParameters(double satisfactionScore, string sentiment)
     {
-        if (satisfactionScore < 3.0 && Configuration != null)
+        if (satisfactionScore < 3.0 && Config != null)
         {
             // Adjust temperature for better responses
-            var currentTemp = Configuration.Temperature;
-            Configuration.Temperature =
+            var currentTemp = Config.Temperature;
+            Config.Temperature = (float)
                 Math.Max(0.3, currentTemp - 0.1); // Lower temperature for more focused responses
             Logger?.LogInformation("Adjusted AI temperature from {Old} to {New}", currentTemp,
-                Configuration.Temperature);
+                Config.Temperature);
         }
 
         await Task.CompletedTask;

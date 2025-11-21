@@ -17,11 +17,10 @@ public class CustomerServiceAgent : AIGAgentBase<AevatarAIAgentState>
     }
 
     // 可选：配置 AI 参数
-    protected override void ConfigureAI(AevatarAIAgentConfiguration config)
+    protected override void ConfigAI(AevatarAIAgentConfig config)
     {
         config.Model = "gpt-4";
-        config.Temperature = 0.7;
-        config.MaxTokens = 2000;
-        config.MaxHistory = 50; // 保存 50 条对话历史
+        config.Temperature = 0.7f;
+        config.MaxOutputTokens = 2000;
     }
 }

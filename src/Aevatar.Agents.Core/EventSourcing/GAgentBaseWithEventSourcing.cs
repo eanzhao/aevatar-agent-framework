@@ -21,31 +21,14 @@ namespace Aevatar.Agents.Core.EventSourcing;
 public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     where TState : class, IMessage<TState>, new()
 {
-    // ========== Performance Optimization: Type Cache ==========
+    // ========== Dependencies ==========
+
+    private static readonly IEventTypeResolver _defaultResolver = new ProtobufEventTypeResolver();
 
     /// <summary>
-    /// Cache for Protobuf type parsers to avoid reflection on every event
-    /// Key: Simple type name (e.g., "MoneyDeposited")
-    /// Value: Cached parser and metadata
-    /// Memory: ~150 bytes per event type (negligible)
-    /// Performance: 5-7x faster event application
+    /// Event type resolver (can be overridden or injected)
     /// </summary>
-    private static readonly ConcurrentDictionary<string, TypeParserCache> _typeCache = new();
-
-    /// <summary>
-    /// Internal class to cache type and parser information
-    /// Reduces reflection overhead from ~5ms to ~0.5ms per event
-    /// </summary>
-    private sealed class TypeParserCache
-    {
-        public required System.Type Type { get; init; }
-        public required MessageParser Parser { get; init; }
-
-        /// <summary>
-        /// Estimated memory usage for monitoring
-        /// </summary>
-        public static int EstimatedSizeBytes => 150;
-    }
+    protected virtual IEventTypeResolver EventTypeResolver => _defaultResolver;
 
     // ========== Instance Fields ==========
 
@@ -60,7 +43,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     private readonly List<AgentStateEvent> _pendingEvents = [];
 
     // ========== Constructors ==========
-    
+
     /// <summary>
     /// Default constructor - ID will be set by factory if needed
     /// </summary>
@@ -182,32 +165,30 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     {
         try
         {
-            // Extract simple type name from TypeUrl
-            var simpleTypeName = ExtractSimpleTypeName(evt.EventData.TypeUrl);
-
             // ✅ Get or build type cache (first call uses reflection, subsequent calls use cache)
-            var cache = GetOrBuildTypeCache(simpleTypeName);
-            if (cache == null)
+            var typeInfo = EventTypeResolver.Resolve(evt.EventData.TypeUrl, this.GetType().Assembly);
+
+            if (typeInfo == null)
             {
                 Logger?.LogWarning(
-                    "Failed to resolve type {TypeName} from TypeUrl {TypeUrl}",
-                    simpleTypeName, evt.EventData.TypeUrl);
+                    "Failed to resolve type from TypeUrl {TypeUrl}",
+                    evt.EventData.TypeUrl);
                 return Task.CompletedTask;
             }
 
             // ✅ Parse message using cached parser (avoid reflection)
             // Use ByteString directly instead of ToByteArray() to avoid array copy
-            var message = cache.Parser.ParseFrom(evt.EventData.Value);
+            var message = typeInfo.Parser.ParseFrom(evt.EventData.Value);
 
             if (message == null)
             {
-                Logger?.LogWarning("Failed to parse event {TypeName}", simpleTypeName);
+                Logger?.LogWarning("Failed to parse event {TypeName}", typeInfo.Type.Name);
                 return Task.CompletedTask;
             }
 
             Logger?.LogDebug(
                 "Applying event {TypeName} version {Version} to agent {AgentId}",
-                simpleTypeName, evt.Version, Id);
+                typeInfo.Type.Name, evt.Version, Id);
 
             // ✅ Framework automatically clones state (developers don't need to)
             var newState = State.Clone();
@@ -229,95 +210,7 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
         }
     }
 
-    /// <summary>
-    /// Extract simple type name from Protobuf TypeUrl
-    /// Example: "type.googleapis.com/EventSourcingDemo.MoneyDeposited" -> "MoneyDeposited"
-    /// </summary>
-    private static string ExtractSimpleTypeName(string typeUrl)
-    {
-        var fullTypeName = typeUrl.Substring(typeUrl.LastIndexOf('/') + 1);
-        return fullTypeName.Contains('.')
-            ? fullTypeName.Substring(fullTypeName.LastIndexOf('.') + 1)
-            : fullTypeName;
-    }
 
-    /// <summary>
-    /// Get type cache or build it on first access
-    /// Thread-safe and optimized for concurrent access
-    /// </summary>
-    private TypeParserCache? GetOrBuildTypeCache(string simpleTypeName)
-    {
-        // Fast path: cache hit (most common case after first event of each type)
-        if (_typeCache.TryGetValue(simpleTypeName, out var cache))
-        {
-            return cache;
-        }
-
-        // Slow path: cache miss, build and cache (rare, only on first event of each type)
-        cache = BuildTypeCache(simpleTypeName);
-        if (cache != null)
-        {
-            _typeCache[simpleTypeName] = cache;
-
-            Logger?.LogInformation(
-                "Type {TypeName} cached. Total cached types: {Count}, Est. memory: {Memory:F2}KB",
-                simpleTypeName,
-                _typeCache.Count,
-                _typeCache.Count * TypeParserCache.EstimatedSizeBytes / 1024.0);
-        }
-
-        return cache;
-    }
-
-    /// <summary>
-    /// Build type cache using reflection (slow, called only once per event type)
-    /// </summary>
-    private TypeParserCache? BuildTypeCache(string simpleTypeName)
-    {
-        try
-        {
-            // Lookup type in agent's assembly by simple name
-            var assembly = this.GetType().Assembly;
-            var matchingType = assembly.GetTypes()
-                .FirstOrDefault(t => t.Name == simpleTypeName && typeof(IMessage).IsAssignableFrom(t));
-
-            if (matchingType == null)
-            {
-                Logger?.LogWarning(
-                    "Type {TypeName} not found in assembly {Assembly}",
-                    simpleTypeName, assembly.FullName);
-                return null;
-            }
-
-            // Get Parser property
-            var parser = matchingType
-                .GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)
-                ?.GetValue(null) as MessageParser;
-
-            if (parser == null)
-            {
-                Logger?.LogWarning(
-                    "Parser property not found for type {TypeName}",
-                    matchingType.FullName);
-                return null;
-            }
-
-            Logger?.LogDebug(
-                "Built type cache for {TypeName} (type: {FullName})",
-                simpleTypeName, matchingType.FullName);
-
-            return new TypeParserCache
-            {
-                Type = matchingType,
-                Parser = parser
-            };
-        }
-        catch (Exception ex)
-        {
-            Logger?.LogError(ex, "Error building type cache for {TypeName}", simpleTypeName);
-            return null;
-        }
-    }
 
     /// <summary>
     /// Set state internally (optimized with cached FieldInfo)
@@ -412,33 +305,19 @@ public abstract class GAgentBaseWithEventSourcing<TState> : GAgentBase<TState>
     protected virtual ISnapshotStrategy SnapshotStrategy =>
         new IntervalSnapshotStrategy(100);
 
-    // ========== Performance Monitoring ==========
-
-    /// <summary>
-    /// Get number of cached event types (for monitoring)
-    /// </summary>
-    public static int CachedTypeCount => _typeCache.Count;
-
-    /// <summary>
-    /// Get estimated cache memory usage in bytes (for monitoring)
-    /// </summary>
-    public static long EstimatedCacheMemoryBytes =>
-        _typeCache.Count * TypeParserCache.EstimatedSizeBytes;
-
-    /// <summary>
-    /// Get estimated cache memory usage in KB (for monitoring)
-    /// </summary>
-    public static double EstimatedCacheMemoryKB =>
-        EstimatedCacheMemoryBytes / 1024.0;
-
     /// <summary>
     /// Clear type cache (for testing or memory management)
     /// Warning: Will cause performance degradation until cache is rebuilt
     /// </summary>
     public static void ClearTypeCache()
     {
-        _typeCache.Clear();
+        if (_defaultResolver is ProtobufEventTypeResolver resolver)
+        {
+            resolver.ClearCache();
+        }
     }
+
+
 
     /// <summary>
     /// Create snapshot internally

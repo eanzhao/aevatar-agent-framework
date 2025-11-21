@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.EventSourcing;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
@@ -95,7 +96,7 @@ try
     await Task.Delay(3000); // Give more time for initialization
     Console.WriteLine("[DEBUG] Initialization wait complete");
     logger.LogInformation("✅ Assistant '{Name}' initialized (ID: {Id})", 
-        assistant.GetCurrentState().Name, assistantId);
+        assistant.GetCustomState().Name, assistantId);
 
     // ========================================================================
     // 4. Conversation 1: General Chat about Event Sourcing
@@ -131,7 +132,7 @@ try
     {
         ConversationId = conversationId,
         TotalMessages = 2,
-        TotalTokens = assistant.GetCurrentState().TotalInteractions * 50, // Estimate
+        TotalTokens = assistant.GetCustomState().TotalInteractions * 50, // Estimate
         FinalSatisfaction = 4.5,
         Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
     });
@@ -165,7 +166,7 @@ try
     {
         ConversationId = conversationId2,
         TotalMessages = 1,
-        TotalTokens = assistant.GetCurrentState().TotalInteractions * 75, // Estimate
+        TotalTokens = assistant.GetCustomState().TotalInteractions * 75, // Estimate
         FinalSatisfaction = 5.0,
         Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
     });
@@ -175,12 +176,12 @@ try
     // 6. Display Current State
     // ========================================================================
     logger.LogInformation("╔════ Agent State Summary ════╗");
-    var state = assistant.GetCurrentState();
+    var state = assistant.GetCustomState();
     logger.LogInformation("📊 Total Interactions: {Count}", state.TotalInteractions);
     logger.LogInformation("⭐ Average Satisfaction: {Score:F2}/5.0", state.AverageSatisfaction);
-    logger.LogInformation("💬 Conversation History: {Count} conversations", state.ConversationHistory.Count);
+    logger.LogInformation("💬 Conversation History: {Count} conversations", state.History.Count);
     
-    foreach (var conv in state.ConversationHistory)
+    foreach (var conv in state.History)
     {
         logger.LogInformation("  └─ {Id}: {Topic} (Score: {Score:F1})", 
             conv.ConversationId.Substring(0, 8), 
@@ -201,7 +202,7 @@ try
     await replayedAssistant.ReplayEventsAsync();
     await Task.Delay(500); // Allow event handlers to process
     
-    var replayedState = replayedAssistant.GetCurrentState();
+    var replayedState = replayedAssistant.GetCustomState();
     logger.LogInformation("✅ Replay complete!");
     logger.LogInformation("📊 Replayed Interactions: {Count}", replayedState.TotalInteractions);
     logger.LogInformation("⭐ Replayed Satisfaction: {Score:F2}/5.0", replayedState.AverageSatisfaction);
@@ -274,7 +275,8 @@ async Task SendUserMessage(
     logger.LogInformation("👤 User: {Message}", message);
     
     // Record initial state
-    var initialInteractions = assistant.GetCurrentState().TotalInteractions;
+    var customState = assistant.GetCustomState();
+    var initialInteractions = customState.TotalInteractions;
     
     // Publish message event - will be handled by HandleUserMessage event handler
     await actor.PublishEventAsync(new UserMessageReceived
@@ -297,7 +299,7 @@ async Task SendUserMessage(
     while (DateTime.UtcNow - startTime < maxWaitTime)
     {
         await Task.Delay(pollInterval);
-        var currentInteractions = assistant.GetCurrentState().TotalInteractions;
+        var currentInteractions = assistant.GetCustomState().TotalInteractions;
         
         if (currentInteractions > initialInteractions)
         {

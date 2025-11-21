@@ -29,13 +29,13 @@ public static class ConversationExtensions
             Role = AevatarChatRole.User,
             Content = message,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenCount = EstimateTokenCount(message)
+            TokenUsed = EstimateTokenCount(message)
         };
         
-        state.ConversationHistory.Add(chatMessage);
+        state.History.Add(chatMessage);
         
         // Trim history if needed
-        if (maxHistory.HasValue && state.ConversationHistory.Count > maxHistory.Value)
+        if (maxHistory.HasValue && state.History.Count > maxHistory.Value)
         {
             state.TrimHistory(maxHistory.Value);
         }
@@ -53,13 +53,13 @@ public static class ConversationExtensions
             Role = AevatarChatRole.Assistant,
             Content = message,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenCount = EstimateTokenCount(message)
+            TokenUsed = EstimateTokenCount(message)
         };
         
-        state.ConversationHistory.Add(chatMessage);
+        state.History.Add(chatMessage);
         
         // Trim history if needed
-        if (maxHistory.HasValue && state.ConversationHistory.Count > maxHistory.Value)
+        if (maxHistory.HasValue && state.History.Count > maxHistory.Value)
         {
             state.TrimHistory(maxHistory.Value);
         }
@@ -77,13 +77,13 @@ public static class ConversationExtensions
             Role = AevatarChatRole.System,
             Content = message,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenCount = EstimateTokenCount(message)
+            TokenUsed = EstimateTokenCount(message)
         };
         
-        state.ConversationHistory.Add(chatMessage);
+        state.History.Add(chatMessage);
         
         // Trim history if needed
-        if (maxHistory.HasValue && state.ConversationHistory.Count > maxHistory.Value)
+        if (maxHistory.HasValue && state.History.Count > maxHistory.Value)
         {
             state.TrimHistory(maxHistory.Value);
         }
@@ -102,18 +102,17 @@ public static class ConversationExtensions
         var chatMessage = new AevatarChatMessage
         {
             Id = Guid.NewGuid().ToString(),
-            Role = AevatarChatRole.Function,
+            Role = AevatarChatRole.Tool,
             Content = result,
-            FunctionName = functionName,
-            FunctionArguments = arguments ?? string.Empty,
+            ToolCalls = { new ToolCall{ToolName = functionName, Arguments = arguments} },
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenCount = EstimateTokenCount(result)
+            TokenUsed = EstimateTokenCount(result)
         };
         
-        state.ConversationHistory.Add(chatMessage);
+        state.History.Add(chatMessage);
         
         // Trim history if needed
-        if (maxHistory.HasValue && state.ConversationHistory.Count > maxHistory.Value)
+        if (maxHistory.HasValue && state.History.Count > maxHistory.Value)
         {
             state.TrimHistory(maxHistory.Value);
         }
@@ -136,15 +135,15 @@ public static class ConversationExtensions
         }
         
         // Estimate tokens if not set
-        if (message.TokenCount == 0)
+        if (message.TokenUsed == 0)
         {
-            message.TokenCount = EstimateTokenCount(message.Content);
+            message.TokenUsed = EstimateTokenCount(message.Content);
         }
         
-        state.ConversationHistory.Add(message);
+        state.History.Add(message);
         
         // Trim history if needed
-        if (maxHistory.HasValue && state.ConversationHistory.Count > maxHistory.Value)
+        if (maxHistory.HasValue && state.History.Count > maxHistory.Value)
         {
             state.TrimHistory(maxHistory.Value);
         }
@@ -160,13 +159,13 @@ public static class ConversationExtensions
     /// </summary>
     public static List<AevatarChatMessage> GetRecentHistory(this AevatarAIAgentState state, int maxMessages)
     {
-        if (maxMessages <= 0 || state.ConversationHistory.Count == 0)
+        if (maxMessages <= 0 || state.History.Count == 0)
         {
             return new List<AevatarChatMessage>();
         }
         
-        return state.ConversationHistory
-            .Skip(Math.Max(0, state.ConversationHistory.Count - maxMessages))
+        return state.History
+            .Skip(Math.Max(0, state.History.Count - maxMessages))
             .ToList();
     }
     
@@ -176,7 +175,7 @@ public static class ConversationExtensions
     /// </summary>
     public static int GetEstimatedTokenCount(this AevatarAIAgentState state)
     {
-        return state.ConversationHistory.Sum(m => m.TokenCount);
+        return state.History.Sum(m => m.TokenUsed);
     }
     
     /// <summary>
@@ -185,7 +184,7 @@ public static class ConversationExtensions
     /// </summary>
     public static List<AevatarChatMessage> GetMessagesByRole(this AevatarAIAgentState state, AevatarChatRole role)
     {
-        return state.ConversationHistory.Where(m => m.Role == role).ToList();
+        return state.History.Where(m => m.Role == role).ToList();
     }
     
     /// <summary>
@@ -194,7 +193,7 @@ public static class ConversationExtensions
     /// </summary>
     public static AevatarChatMessage? GetLastMessage(this AevatarAIAgentState state)
     {
-        return state.ConversationHistory.LastOrDefault();
+        return state.History.LastOrDefault();
     }
     
     /// <summary>
@@ -203,7 +202,7 @@ public static class ConversationExtensions
     /// </summary>
     public static AevatarChatMessage? GetLastUserMessage(this AevatarAIAgentState state)
     {
-        return state.ConversationHistory.LastOrDefault(m => m.Role == AevatarChatRole.User);
+        return state.History.LastOrDefault(m => m.Role == AevatarChatRole.User);
     }
     
     /// <summary>
@@ -212,7 +211,7 @@ public static class ConversationExtensions
     /// </summary>
     public static AevatarChatMessage? GetLastAssistantMessage(this AevatarAIAgentState state)
     {
-        return state.ConversationHistory.LastOrDefault(m => m.Role == AevatarChatRole.Assistant);
+        return state.History.LastOrDefault(m => m.Role == AevatarChatRole.Assistant);
     }
     
     #endregion
@@ -223,9 +222,9 @@ public static class ConversationExtensions
     /// Clears the conversation history.
     /// 清空对话历史
     /// </summary>
-    public static void ClearConversationHistory(this AevatarAIAgentState state)
+    public static void ClearHistory(this AevatarAIAgentState state)
     {
-        state.ConversationHistory.Clear();
+        state.History.Clear();
     }
     
     /// <summary>
@@ -234,19 +233,19 @@ public static class ConversationExtensions
     /// </summary>
     public static void TrimHistory(this AevatarAIAgentState state, int maxMessages)
     {
-        if (state.ConversationHistory.Count <= maxMessages)
+        if (state.History.Count <= maxMessages)
         {
             return;
         }
         
-        var toKeep = state.ConversationHistory
-            .Skip(state.ConversationHistory.Count - maxMessages)
+        var toKeep = state.History
+            .Skip(state.History.Count - maxMessages)
             .ToList();
         
-        state.ConversationHistory.Clear();
+        state.History.Clear();
         foreach (var message in toKeep)
         {
-            state.ConversationHistory.Add(message);
+            state.History.Add(message);
         }
     }
     
@@ -256,30 +255,30 @@ public static class ConversationExtensions
     /// </summary>
     public static void TrimToTokenLimit(this AevatarAIAgentState state, int maxTokens, bool preserveSystemMessage = true)
     {
-        if (state.ConversationHistory.Count == 0)
+        if (state.History.Count == 0)
         {
             return;
         }
         
         var systemMessages = preserveSystemMessage
-            ? state.ConversationHistory.Where(m => m.Role == AevatarChatRole.System).ToList()
+            ? state.History.Where(m => m.Role == AevatarChatRole.System).ToList()
             : new List<AevatarChatMessage>();
         
-        var nonSystemMessages = state.ConversationHistory
+        var nonSystemMessages = state.History
             .Where(m => m.Role != AevatarChatRole.System)
             .ToList();
         
-        var currentTokens = systemMessages.Sum(m => m.TokenCount);
+        var currentTokens = systemMessages.Sum(m => m.TokenUsed);
         var messagesToKeep = new List<AevatarChatMessage>();
         
         // Add messages from the most recent backwards
         for (int i = nonSystemMessages.Count - 1; i >= 0; i--)
         {
             var message = nonSystemMessages[i];
-            if (currentTokens + message.TokenCount <= maxTokens)
+            if (currentTokens + message.TokenUsed <= maxTokens)
             {
                 messagesToKeep.Insert(0, message);
-                currentTokens += message.TokenCount;
+                currentTokens += message.TokenUsed;
             }
             else
             {
@@ -288,14 +287,14 @@ public static class ConversationExtensions
         }
         
         // Rebuild conversation history
-        state.ConversationHistory.Clear();
+        state.History.Clear();
         foreach (var msg in systemMessages)
         {
-            state.ConversationHistory.Add(msg);
+            state.History.Add(msg);
         }
         foreach (var msg in messagesToKeep)
         {
-            state.ConversationHistory.Add(msg);
+            state.History.Add(msg);
         }
     }
     
@@ -309,15 +308,14 @@ public static class ConversationExtensions
     /// </summary>
     public static string ExportConversationAsJson(this AevatarAIAgentState state)
     {
-        var messages = state.ConversationHistory.Select(m => new
+        var messages = state.History.Select(m => new
         {
             id = m.Id,
             role = m.Role.ToString(),
             content = m.Content,
             timestamp = m.Timestamp?.ToDateTime().ToString("O"),
-            functionName = m.FunctionName,
-            functionArguments = m.FunctionArguments,
-            tokenCount = m.TokenCount,
+            toolCall = m.ToolCalls,
+            tokenUsed = m.TokenUsed,
             metadata = m.Metadata
         }).ToList();
         
@@ -337,7 +335,7 @@ public static class ConversationExtensions
         sb.AppendLine("# Conversation History");
         sb.AppendLine();
         
-        foreach (var message in state.ConversationHistory)
+        foreach (var message in state.History)
         {
             var timestamp = message.Timestamp?.ToDateTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "N/A";
             
@@ -352,21 +350,25 @@ public static class ConversationExtensions
                 case AevatarChatRole.System:
                     sb.AppendLine($"## ⚙️ System [{timestamp}]");
                     break;
-                case AevatarChatRole.Function:
-                    sb.AppendLine($"## 🔧 Function: {message.FunctionName} [{timestamp}]");
-                    if (!string.IsNullOrEmpty(message.FunctionArguments))
+                case AevatarChatRole.Tool:
+                    foreach (var toolCall in message.ToolCalls)
                     {
-                        sb.AppendLine($"**Arguments:** `{message.FunctionArguments}`");
+                        sb.AppendLine($"## 🔧 Function: {toolCall.ToolName} [{timestamp}]");
+                        if (!string.IsNullOrEmpty(toolCall.Arguments))
+                        {
+                            sb.AppendLine($"**Arguments:** `{toolCall.Arguments}`");
+                        }
                     }
+
                     break;
             }
             
             sb.AppendLine();
             sb.AppendLine(message.Content);
             
-            if (message.TokenCount > 0)
+            if (message.TokenUsed > 0)
             {
-                sb.AppendLine($"*Tokens: {message.TokenCount}*");
+                sb.AppendLine($"*Tokens: {message.TokenUsed}*");
             }
             
             sb.AppendLine();
@@ -383,18 +385,18 @@ public static class ConversationExtensions
     /// </summary>
     public static string GetConversationSummary(this AevatarAIAgentState state)
     {
-        if (state.ConversationHistory.Count == 0)
+        if (state.History.Count == 0)
         {
             return "Empty conversation";
         }
         
         var sb = new StringBuilder();
-        sb.AppendLine($"Conversation Summary ({state.ConversationHistory.Count} messages):");
+        sb.AppendLine($"Conversation Summary ({state.History.Count} messages):");
         
-        var userMessages = state.ConversationHistory.Count(m => m.Role == AevatarChatRole.User);
-        var assistantMessages = state.ConversationHistory.Count(m => m.Role == AevatarChatRole.Assistant);
-        var systemMessages = state.ConversationHistory.Count(m => m.Role == AevatarChatRole.System);
-        var functionMessages = state.ConversationHistory.Count(m => m.Role == AevatarChatRole.Function);
+        var userMessages = state.History.Count(m => m.Role == AevatarChatRole.User);
+        var assistantMessages = state.History.Count(m => m.Role == AevatarChatRole.Assistant);
+        var systemMessages = state.History.Count(m => m.Role == AevatarChatRole.System);
+        var functionMessages = state.History.Count(m => m.Role == AevatarChatRole.Tool);
         
         sb.AppendLine($"- User messages: {userMessages}");
         sb.AppendLine($"- Assistant messages: {assistantMessages}");
@@ -402,10 +404,10 @@ public static class ConversationExtensions
         sb.AppendLine($"- Function messages: {functionMessages}");
         sb.AppendLine($"- Total tokens: {state.GetEstimatedTokenCount()}");
         
-        if (state.ConversationHistory.Count > 0)
+        if (state.History.Count > 0)
         {
-            var firstMessage = state.ConversationHistory.First();
-            var lastMessage = state.ConversationHistory.Last();
+            var firstMessage = state.History.First();
+            var lastMessage = state.History.Last();
             sb.AppendLine($"- Started: {firstMessage.Timestamp?.ToDateTime():yyyy-MM-dd HH:mm:ss}");
             sb.AppendLine($"- Last activity: {lastMessage.Timestamp?.ToDateTime():yyyy-MM-dd HH:mm:ss}");
         }
@@ -442,14 +444,14 @@ public static class ConversationExtensions
     {
         var summary = new ConversationSummary();
         
-        if (state.ConversationHistory.Count == 0)
+        if (state.History.Count == 0)
         {
             summary.Content = "No conversation to summarize.";
             return summary;
         }
         
-        var messages = state.ConversationHistory
-            .Take(Math.Min(messagesToSummarize, state.ConversationHistory.Count))
+        var messages = state.History
+            .Take(Math.Min(messagesToSummarize, state.History.Count))
             .ToList();
         
         // Build summary content

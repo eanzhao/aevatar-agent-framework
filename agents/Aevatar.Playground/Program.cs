@@ -29,8 +29,8 @@ var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
 logger.LogInformation("=== Aevatar Chat Playground ===");
 
-//await new ChatAgentDemo().RunAsync(factory, logger);
-await new TranslationAgentDemo().RunAsync(factory, logger);
+await new ChatAgentDemo().RunAsync(factory, logger);
+//await new TranslationAgentDemo().RunAsync(factory, logger);
 
 logger.LogInformation("Playground terminated.");
 

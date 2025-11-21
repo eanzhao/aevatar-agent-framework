@@ -1,10 +1,7 @@
 ﻿using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Persistence;
-using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.StateProtection;
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
-using Aevatar.Agents.Abstractions.Helpers;
 using Google.Protobuf;
 
 namespace Aevatar.Agents.Core;
@@ -15,12 +12,12 @@ namespace Aevatar.Agents.Core;
 /// </summary>
 /// <typeparam name="TState">Agent state type</typeparam>
 public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
-    where TState : class, IMessage, new()
+    where TState : class, IMessage<TState>, new()
 {
     // ============ Fields ============
 
     private TState _state = new();
-    
+
     /// <summary>
     /// State object - should only be modified within event handlers.
     /// Direct State assignment is protected, but individual property modifications cannot be intercepted
@@ -31,53 +28,55 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// </summary>
     protected TState State
     {
-        get 
+        get
         {
             // For development/debug builds, we can add a warning when accessing State outside handlers
-            #if DEBUG
-            if (!StateProtectionContext.IsInEventHandler)
+#if DEBUG
+            if (!StateProtectionContext.IsModifiable)
             {
                 var callerMethod = new StackFrame(1)?.GetMethod()?.Name ?? "Unknown";
-                if (!IsAllowedMethod(callerMethod))
+                if (!IsAllowedStateAccessMethod(callerMethod))
                 {
                     Debug.WriteLine(
                         $"WARNING: State accessed from '{callerMethod}' outside event handler context. " +
                         "State should only be modified within event handlers.");
                 }
             }
-            #endif
+#endif
             return _state;
         }
         set
         {
-            StateProtectionContext.EnsureInEventHandler("Direct State assignment");
+            StateProtectionContext.EnsureModifiable("Direct State assignment");
             _state = value;
         }
     }
-    
+
     /// <summary>
     /// Validates if the current context allows State modification.
     /// Throws an exception if not in a valid context.
     /// </summary>
     protected void ValidateStateModificationContext(string operationName = "State modification")
     {
-        StateProtectionContext.EnsureInEventHandler(operationName);
+        StateProtectionContext.EnsureModifiable(operationName);
     }
-    
-    #if DEBUG
-    private static bool IsAllowedMethod(string methodName)
+
+#if DEBUG
+    protected virtual bool IsAllowedStateAccessMethod(string methodName)
     {
         // Allow certain methods to access State without warning
         return methodName switch
         {
-            "GetState" => true,
-            "GetDescription" => true,
-            "GetDescriptionAsync" => true,
-            "ToString" => true,
+            nameof(GetState) => true,
+            nameof(GetDescription) => true,
+            nameof(GetDescriptionAsync) => true,
+            nameof(OnActivateAsync) => true,
+            nameof(ToString) => true,
+            nameof(HandleEventAsync) => true,
             _ => false
         };
     }
-    #endif
+#endif
 
     /// <summary>
     /// StateStore (injected by Actor layer)
@@ -93,15 +92,21 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     public GAgentBase(Guid id) : base(id)
     {
     }
-    
-    // OnActivateAsync is no longer overridden here
-    // The InitializationScope is now managed in GAgentBase.ActivateAsync
+
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
+    {
+        await base.OnActivateAsync(ct);
+        if (StateStore != null)
+        {
+            await StateStore.SaveAsync(Id, _state, ct);
+        }
+    }
 
     // ============ IStateGAgent Implementation ============
 
     public TState GetState()
     {
-        return _state; // Return internal state for read-only access
+        return _state.Clone(); // Return clone of state for read-only access
     }
 
     // ============ Event Handling with State Persistence ============
@@ -121,10 +126,10 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
                 _state = await StateStore.LoadAsync(Id, ct) ?? new TState();
             }
         }
-        
+
         // 2. Call core event handling implementation
         await HandleEventCoreAsync(envelope, ct);
-        
+
         // 3. Save State (if StateStore is configured)
         if (StateStore != null)
         {

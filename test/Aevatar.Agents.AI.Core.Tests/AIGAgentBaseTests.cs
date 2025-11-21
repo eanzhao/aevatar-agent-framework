@@ -45,13 +45,12 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         // Assert
         agent.InitializeCallCount.Should().Be(1);
         agent.ConfigureAICallCount.Should().Be(1);
-        agent.ConfigureCustomCallCount.Should().Be(1);
         agent.IsInitialized.Should().BeTrue();
 
-        var aiConfig = agent.GetAIConfiguration();
+        var aiConfig = agent.GetConfig();
         aiConfig.Should().NotBeNull();
         aiConfig.Model.Should().Be("test-model");
-        aiConfig.Temperature.Should().Be(0.5);
+        aiConfig.Temperature.Should().Be(0.5f);
     }
 
     [Fact]
@@ -75,14 +74,14 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         await agent.InitializeAsync(customConfig, config =>
         {
             config.Model = "overridden-model";
-            config.Temperature = 0.9;
+            config.Temperature = 0.9f;
         });
 
         // Assert
         agent.InitializeCallCount.Should().Be(1);
-        var aiConfig = agent.GetAIConfiguration();
+        var aiConfig = agent.GetConfig();
         aiConfig.Model.Should().Be("overridden-model");
-        aiConfig.Temperature.Should().Be(0.9);
+        aiConfig.Temperature.Should().Be(0.9f);
     }
 
     [Fact]
@@ -99,7 +98,6 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         // Assert
         agent.InitializeCallCount.Should().Be(2); // Both calls tracked
         agent.ConfigureAICallCount.Should().Be(1); // But config only once
-        agent.ConfigureCustomCallCount.Should().Be(1);
     }
 
     [Fact]
@@ -207,15 +205,15 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         await agent.InitializeAsync("test-provider");
 
         // Assert
-        var config = agent.GetCustomConfiguration();
-        config.Should().NotBeNull();
-        config.ConfigId.Should().Be("test-config");
-        config.MaxRetries.Should().Be(3);
-        config.TimeoutSeconds.Should().Be(30.0);
-        config.EnableLogging.Should().BeTrue();
-        config.AllowedOperations.Should().Contain("read");
-        config.AllowedOperations.Should().Contain("write");
-        config.CustomSettings["test-key"].Should().Be("test-value");
+        var config = agent.GetCustomConfig();
+        config.ShouldNotBeNull();
+        config.ConfigId.ShouldBe("test-config");
+        config.MaxRetries.ShouldBe(3);
+        config.TimeoutSeconds.ShouldBe(30.0);
+        config.EnableLogging.ShouldBeTrue();
+        config.AllowedOperations.ShouldContain("read");
+        config.AllowedOperations.ShouldContain("write");
+        config.CustomSettings["test-key"].ShouldBe("test-value");
     }
 
     [Fact]

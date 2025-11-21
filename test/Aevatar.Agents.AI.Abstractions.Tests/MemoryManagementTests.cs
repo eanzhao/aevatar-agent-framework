@@ -30,8 +30,8 @@ public class MemoryManagementTests
     }
 
     [Fact]
-    [DisplayName("Memory GetConversationHistoryAsync should return messages in order")]
-    public async Task Memory_GetConversationHistoryAsync_ShouldReturnInOrder()
+    [DisplayName("Memory GetHistoryAsync should return messages in order")]
+    public async Task Memory_GetHistoryAsync_ShouldReturnInOrder()
     {
         // Arrange
         var memory = new MockMemory();
@@ -40,7 +40,7 @@ public class MemoryManagementTests
         await memory.AddMessageAsync("user", "Third");
 
         // Act
-        var history = await memory.GetConversationHistoryAsync();
+        var history = await memory.GetHistoryAsync();
 
         // Assert
         history.Count.ShouldBe(3);
@@ -50,8 +50,8 @@ public class MemoryManagementTests
     }
 
     [Fact]
-    [DisplayName("Memory GetConversationHistoryAsync with limit should respect the limit")]
-    public async Task Memory_GetConversationHistoryAsync_WithLimit_ShouldRespectLimit()
+    [DisplayName("Memory GetHistoryAsync with limit should respect the limit")]
+    public async Task Memory_GetHistoryAsync_WithLimit_ShouldRespectLimit()
     {
         // Arrange
         var memory = new MockMemory();
@@ -61,7 +61,7 @@ public class MemoryManagementTests
         }
 
         // Act
-        var history = await memory.GetConversationHistoryAsync(limit: 5);
+        var history = await memory.GetHistoryAsync(limit: 5);
 
         // Assert
         history.Count.ShouldBe(5);
@@ -80,7 +80,7 @@ public class MemoryManagementTests
 
         // Act
         await memory.ClearHistoryAsync();
-        var history = await memory.GetConversationHistoryAsync();
+        var history = await memory.GetHistoryAsync();
 
         // Assert
         history.ShouldBeEmpty();
@@ -154,7 +154,7 @@ public class MemoryManagementTests
         var afterAdd = DateTime.UtcNow;
 
         // Assert
-        var history = await memory.GetConversationHistoryAsync();
+        var history = await memory.GetHistoryAsync();
         history[0].Timestamp.ShouldBeNull();
     }
 
@@ -172,7 +172,7 @@ public class MemoryManagementTests
             await memory.AddMessageAsync("user", "Test", cts.Token));
 
         await Should.ThrowAsync<OperationCanceledException>(async () =>
-            await memory.GetConversationHistoryAsync(cancellationToken: cts.Token));
+            await memory.GetHistoryAsync(cancellationToken: cts.Token));
 
         await Should.ThrowAsync<OperationCanceledException>(async () => await memory.ClearHistoryAsync(cts.Token));
 

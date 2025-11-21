@@ -231,7 +231,7 @@ public abstract class GAgentBase : IGAgent
             {
                 var paramType = handler.GetParameters()[0].ParameterType;
 
-                // Check if should handle event
+                // Check if it should handle event
                 if (!ShouldHandleEvent(handler, envelope))
                 {
                     continue;
@@ -346,7 +346,7 @@ public abstract class GAgentBase : IGAgent
 
         // Create event handler scope to allow State modifications
         using var scope = StateProtectionContext.BeginEventHandlerScope();
-        
+
         try
         {
             var result = handler.Invoke(this, new[] { parameter });
@@ -405,7 +405,7 @@ public abstract class GAgentBase : IGAgent
 
             // Build complete exception message including inner exceptions
             var fullExceptionMessage = ExceptionFormatter.BuildFullExceptionMessage(exception);
-            
+
             var exceptionEvent = new EventHandlerExceptionEvent
             {
                 AgentId = Id.ToString(),
@@ -465,7 +465,7 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     protected virtual Task OnActivateAsync(CancellationToken ct = default)
     {
-        Logger.LogDebug("Agent {Id} activated", Id);
+        Logger.LogDebug("Agent {Id} of type {AgentType} activated", Id, GetType().Name);
         return Task.CompletedTask;
     }
 

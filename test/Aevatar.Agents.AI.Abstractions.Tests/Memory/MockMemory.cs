@@ -24,7 +24,7 @@ public class MockMemory : IAevatarAIMemory
         return Task.CompletedTask;
     }
     
-    public Task<IReadOnlyList<AevatarConversationEntry>> GetConversationHistoryAsync(
+    public Task<IReadOnlyList<AevatarConversationEntry>> GetHistoryAsync(
         int? limit = null, 
         CancellationToken cancellationToken = default)
     {

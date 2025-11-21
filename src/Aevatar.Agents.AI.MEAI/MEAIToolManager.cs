@@ -1,4 +1,6 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Messages;
 using Microsoft.Extensions.AI;
 
 namespace Aevatar.Agents.AI.MEAI;
@@ -60,11 +62,10 @@ internal class MEAIToolManager : IAevatarToolManager
         return Task.FromResult<IReadOnlyList<ToolDefinition>>(_toolDefinitions.Values.ToList());
     }
 
-    /// <inheritdoc />
     public async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        Aevatar.Agents.AI.ExecutionContext? context = null,
+        AevatarToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -75,8 +76,8 @@ internal class MEAIToolManager : IAevatarToolManager
                 // Simplified execution
                 return new ToolExecutionResult
                 {
-                    Success = true,
-                    Result = $"Tool {toolName} executed with {parameters.Count} parameters"
+                    IsSuccess = true,
+                    Content = $"Tool {toolName} executed with {parameters.Count} parameters"
                 };
             }
             
@@ -93,23 +94,23 @@ internal class MEAIToolManager : IAevatarToolManager
                 
                 return new ToolExecutionResult
                 {
-                    Success = true,
-                    Result = result
+                    IsSuccess = true,
+                    Content = result.ToString()
                 };
             }
             
             return new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Tool {toolName} not found"
+                IsSuccess = false,
+                Content = $"Tool {toolName} not found"
             };
         }
         catch (Exception ex)
         {
             return new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Error executing tool {toolName}: {ex.Message}"
+                IsSuccess = false,
+                Content = $"Error executing tool {toolName}: {ex.Message}"
             };
         }
     }
