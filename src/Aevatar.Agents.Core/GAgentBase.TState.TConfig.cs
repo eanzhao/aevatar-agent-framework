@@ -95,6 +95,10 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
     /// Handle event with automatic configuration and state loading/saving
     /// Extends the parent implementation to add configuration persistence
     /// </summary>
+    /// <summary>
+    /// Handle event with automatic configuration and state loading/saving
+    /// Extends the parent implementation to add configuration persistence
+    /// </summary>
     public override async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
         // Get the actual agent type for configuration isolation
@@ -110,29 +114,13 @@ public abstract class GAgentBase<TState, TConfig> : GAgentBase<TState>
             }
         }
 
-        // 2. Load State (if StateStore is configured)
-        if (StateStore != null)
-        {
-            // Use EventHandlerScope to allow state loading during event handling setup
-            using (StateProtectionContext.BeginEventHandlerScope())
-            {
-                State = await StateStore.LoadAsync(Id, ct) ?? new TState();
-            }
-        }
+        // 2. Call base implementation (Handles State loading, Event Sourcing, Core handling, State saving)
+        await base.HandleEventAsync(envelope, ct);
 
-        // 3. Call core event handling implementation
-        await HandleEventCoreAsync(envelope, ct);
-
-        // 4. Save Configuration (if ConfigStore is configured)
+        // 3. Save Configuration (if ConfigStore is configured)
         if (ConfigStore != null)
         {
             await ConfigStore.SaveAsync(agentType, Id, Config, ct);
-        }
-
-        // 5. Save State (if StateStore is configured)
-        if (StateStore != null)
-        {
-            await StateStore.SaveAsync(Id, State, ct);
         }
     }
 

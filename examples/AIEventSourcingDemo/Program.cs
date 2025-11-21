@@ -3,7 +3,6 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.Core.EventSourcing;
 using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
@@ -240,9 +239,6 @@ try
     }
     
     logger.LogInformation("\n📊 Total Events: {Count}", events.Count);
-    logger.LogInformation("⏱️ Event Sourcing Version: {Version}", assistant.GetCurrentVersion());
-    logger.LogInformation("📦 Cached Event Types: {Count}", 
-        AIGAgentBaseWithEventSourcing<AIAssistantState, AIAssistantConfig>.CachedTypeCount);
 
     // ========================================================================
     // 9. Create Manual Snapshot

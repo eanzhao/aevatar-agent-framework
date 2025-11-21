@@ -1,3 +1,4 @@
+using System.Diagnostics.Tracing;
 using Google.Protobuf;
 
 namespace Aevatar.Agents.AI.Core;
@@ -29,5 +30,17 @@ public abstract class AIGAgentBase<TCustomState> : AIGAgentBase
     public AIGAgentBase(Guid id) : base(id)
     {
         _customStateAccessor = new StatePropertyAccessor<TCustomState>();
+    }
+
+    protected override void TransitionState(AevatarAIAgentState state, IMessage evt)
+    {
+        base.TransitionState(state, evt);
+        var customState = state.CustomState == null ? new TCustomState() : state.CustomState.Unpack<TCustomState>();
+        TransitionState(customState, evt);
+    }
+
+    protected virtual void TransitionState(TCustomState state, IMessage evt)
+    {
+
     }
 }

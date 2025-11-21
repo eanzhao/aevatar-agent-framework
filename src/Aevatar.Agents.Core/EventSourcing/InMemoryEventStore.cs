@@ -90,7 +90,7 @@ public class InMemoryEventStore : IEventStore
             }
 
             return Task.FromResult(eventList.Max(e => e.Version));
-            }
+        }
     }
 
     // ========== Snapshot Operations ==========

@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.StateProtection;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
 // ReSharper disable InconsistentNaming
@@ -68,7 +69,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         CancellationToken cancellationToken)
     {
         await ActivateAsync();
-        
+
         // Load state and config if stores are available
         if (StateStore != null)
         {
@@ -260,6 +261,23 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
                 Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
             }, ct: cancellationToken);
 
+            // Record the AI decision as an event (Event Sourcing)
+            RaiseAIDecision(
+                request.Message,
+                response.Content,
+                response.Usage?.TotalTokens ?? 0,
+                new Dictionary<string, string>
+                {
+                    ["request_id"] = request.RequestId,
+                    ["chat_type"] = "sync"
+                });
+
+            // Auto-confirm if configured and EventStore is present
+            if (AutoConfirmEvents && EventStore != null)
+            {
+                await ConfirmEventsAsync(cancellationToken);
+            }
+
             return response;
         }
         catch (Exception ex)
@@ -408,6 +426,64 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
         var modelInfo = await LLMProvider.GetModelInfoAsync(cancellationToken);
         return modelInfo.SupportsStreaming;
+    }
+
+    #endregion
+
+    #region AI Event Sourcing Support
+
+    /// <summary>
+    /// Auto-confirm events after AI operations.
+    /// Defaults to false. Override to enable.
+    /// </summary>
+    protected virtual bool AutoConfirmEvents => false;
+
+    /// <summary>
+    /// Record an AI decision as an event.
+    /// </summary>
+    protected void RaiseAIDecision(
+        string prompt,
+        string response,
+        int tokensUsed,
+        Dictionary<string, string>? metadata = null)
+    {
+        var aiEvent = new AIDecisionEvent
+        {
+            Prompt = prompt,
+            Response = response,
+            TokensUsed = tokensUsed,
+            Model = Config.Model,
+            Temperature = Config.Temperature,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+
+        // Add AI-specific metadata
+        var eventMetadata = metadata ?? new Dictionary<string, string>();
+        eventMetadata["ai_model"] = Config.Model;
+        eventMetadata["ai_temperature"] = Config.Temperature.ToString();
+
+        RaiseEvent(aiEvent, eventMetadata);
+    }
+
+    /// <summary>
+    /// Pure functional state transition for AI Agent.
+    /// </summary>
+    protected override void TransitionState(AevatarAIAgentState state, IMessage evt)
+    {
+        // Default implementation handles standard AI events
+        // Users can override to handle custom events
+        switch (evt)
+        {
+            case AIDecisionEvent aiEvent:
+                // Update state with AI decision if needed
+                // For now, standard state might not need to track every decision,
+                // but we can add it to history if we want.
+                // The standard AevatarAIAgentState might have a history field.
+                break;
+            case ChatResponseEvent chatEvent:
+                // Already handled by ChatAsync return value, but maybe we want to update history here?
+                break;
+        }
     }
 
     #endregion

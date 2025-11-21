@@ -1,4 +1,6 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Persistence;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.Tests.Agents;
@@ -52,6 +54,13 @@ public class ConfigurableTestAgent : GAgentBase<TestAgentState, TestAgentConfig>
                 await Task.Delay(100);
             }
         }
+    }
+
+    [EventHandler]
+    public async Task ChangeStateAsync(Empty empty)
+    {
+        State.Name = "DualGeneric";
+        State.Counter = 100;
     }
 
     private Task ProcessEventWithRetry(TestEvent evt)

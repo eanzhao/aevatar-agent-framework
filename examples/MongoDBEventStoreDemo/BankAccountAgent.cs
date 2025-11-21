@@ -1,3 +1,4 @@
+using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.EventSourcing;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;
@@ -10,7 +11,7 @@ namespace MongoDBEventStoreDemo;
 /// Bank Account Agent with EventSourcing support (MongoDB backend)
 /// Demonstrates EventSourcing V2 API with MongoDB storage
 /// </summary>
-public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
+public class BankAccountAgent : GAgentBase<BankAccountState>
 {
     // No need for ID constructor anymore - framework handles it automatically!
     

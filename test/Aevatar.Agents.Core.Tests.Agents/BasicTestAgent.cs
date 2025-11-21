@@ -51,6 +51,13 @@ public class BasicTestAgent : GAgentBase<TestAgentState>
         }
         await Task.CompletedTask;
     }
+
+    [EventHandler]
+    public async Task ModifyStateAsync(Empty empty)
+    {
+        State.Counter = 42;
+        State.Name = "SingleGeneric";
+    }
     
     [AllEventHandler]
     public async Task HandleAnyEvent(EventEnvelope envelope)

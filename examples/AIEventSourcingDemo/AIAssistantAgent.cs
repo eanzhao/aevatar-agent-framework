@@ -6,7 +6,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Text;
-using Aevatar.Agents.AI.Core.EventSourcing;
+using Aevatar.Agents.AI;
 
 namespace AIEventSourcingDemo;
 
@@ -14,7 +14,7 @@ namespace AIEventSourcingDemo;
 /// AI Assistant Agent with Event Sourcing
 /// Demonstrates how AI decisions and state changes are captured as events
 /// </summary>
-public class AIAssistantAgent : AIGAgentBaseWithEventSourcing<AIAssistantState, AIAssistantConfig>
+public class AIAssistantAgent : AIGAgentBase<AIAssistantState, AIAssistantConfig>
 {
     // Current conversation context
     private string? _currentConversationId;

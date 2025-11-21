@@ -30,8 +30,8 @@ public class EventHandlerTests(CoreTestFixture fixture) : IClassFixture<CoreTest
         handlers.ShouldNotBeNull();
         handlers.Length.ShouldBeGreaterThan(0);
 
-        // BasicTestAgent has 3 handlers: HandleTestEvent, HandleTestCommand, HandleAnyEvent
-        handlers.Length.ShouldBe(3);
+        // BasicTestAgent has 4 handlers: HandleTestEvent, HandleTestCommand, HandleAnyEvent, ModifyStateAsync
+        handlers.Length.ShouldBe(4);
     }
 
     [Fact(DisplayName = "Should find methods with EventHandler attribute")]

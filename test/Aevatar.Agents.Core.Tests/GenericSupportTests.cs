@@ -1,11 +1,7 @@
-using System;
-using System.Threading.Tasks;
-using Xunit;
 using Shouldly;
 using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
 using Aevatar.Agents.Core.Helpers;
-using Microsoft.Extensions.DependencyInjection;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 
@@ -34,9 +30,8 @@ public class GenericSupportTests(CoreTestFixture fixture) : IClassFixture<CoreTe
         agent.GetState().ShouldNotBeNull();
         agent.GetState().ShouldBeOfType<TestAgentState>();
 
-        // Verify state can be modified
-        agent.GetState().Counter = 42;
-        agent.GetState().Name = "SingleGeneric";
+        // Verify state can be modified (only by event handlers)
+        await agent.ModifyStateAsync(new Empty());
 
         agent.GetState().Counter.ShouldBe(42);
         agent.GetState().Name.ShouldBe("SingleGeneric");
@@ -62,9 +57,8 @@ public class GenericSupportTests(CoreTestFixture fixture) : IClassFixture<CoreTe
     public async Task Should_Support_Dual_Generic_Parameters()
     {
         // Arrange & Act - Create agent with TState and TConfig parameters
-        var agent = new ConfigurableTestAgent();
-        AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
-        AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+        var factory = fixture.GAgentFactory;
+        var agent = factory.CreateGAgent<ConfigurableTestAgent>();
 
         // Set configuration
         var config = new TestAgentConfig
@@ -97,8 +91,7 @@ public class GenericSupportTests(CoreTestFixture fixture) : IClassFixture<CoreTe
         actualConfig.Settings["environment"].ShouldBe("test");
 
         // Verify state works independently
-        agent.GetState().Name = "DualGeneric";
-        agent.GetState().Counter = 100;
+        await agent.ChangeStateAsync(new Empty());
 
         agent.GetState().Name.ShouldBe("DualGeneric");
         agent.GetState().Counter.ShouldBe(100);
@@ -129,6 +122,7 @@ public class GenericSupportTests(CoreTestFixture fixture) : IClassFixture<CoreTe
         await agent.ActivateAsync();
 
         // Verify it can be serialized/deserialized
+        state = agent.GetState();
         var bytes = state.ToByteArray();
         bytes.ShouldNotBeNull();
         bytes.Length.ShouldBeGreaterThan(0);
@@ -247,7 +241,7 @@ public class GenericSupportTests(CoreTestFixture fixture) : IClassFixture<CoreTe
         agent.GetConfig().Enabled.ShouldBeTrue();
 
         // Modify and verify
-        agent.GetState().Value = 42;
+        await agent.ModifyStateAsync(new Empty());
         agent.GetState().Value.ShouldBe(42);
     }
 

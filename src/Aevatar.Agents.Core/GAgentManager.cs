@@ -261,7 +261,6 @@ public class GAgentManager : IGAgentManager
     {
         var stateType = ExtractStateType(agentType);
         var supportedEvents = AnalyzeSupportedEventTypes(agentType);
-        var supportsEventSourcing = typeof(GAgentBaseWithEventSourcing<>).IsAssignableFrom(agentType);
         var supportsConfiguration = IsConfigurationAgent(agentType);
 
         return new AgentTypeMetadata
@@ -271,7 +270,8 @@ public class GAgentManager : IGAgentManager
             Description = GetTypeDescription(agentType),
             StateType = stateType,
             SupportedEventTypes = supportedEvents,
-            SupportsEventSourcing = supportsEventSourcing,
+            // TODO
+            SupportsEventSourcing = true,
             SupportsConfiguration = supportsConfiguration,
             AssemblyName = agentType.Assembly.FullName,
             RegisteredAt = DateTimeOffset.UtcNow

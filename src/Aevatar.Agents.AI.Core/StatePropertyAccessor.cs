@@ -16,19 +16,18 @@ internal class StatePropertyAccessor<T> where T : class, IMessage<T>, new()
     private T _value = new();
     private Any? _lastPackedValue;
 
-    public T GetValue(Any? packedValue, bool checkProtection = true)
+    public T GetValue(Any? packedValue, bool checkProtection = true, [CallerMemberName] string callerMethod = "")
     {
 #if DEBUG
         if (checkProtection && !StateProtectionContext.IsModifiable)
         {
-            var callerMethod = new StackFrame(2).GetMethod()?.Name ?? "Unknown";
             Debug.WriteLine(
                 $"WARNING: State/Config accessed from '{callerMethod}' outside protected context. " +
                 "Should only be modified within OnActivateAsync or event handlers.");
         }
 #endif
         // Return cached value if source hasn't changed
-        if (_value != null && object.ReferenceEquals(packedValue, _lastPackedValue))
+        if (_value != null && ReferenceEquals(packedValue, _lastPackedValue))
         {
             return _value;
         }
