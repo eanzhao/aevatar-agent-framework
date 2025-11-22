@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.MEAI;
 
 // ReSharper disable InconsistentNaming
-public sealed class MEAILLMProvider : IAevatarLLMProvider
+public sealed class MEAILLMProvider : AevatarLLMProviderBase
 {
     private readonly IChatClient _chatClient;
     private readonly LLMProviderConfig _config;
@@ -21,7 +21,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
+    public override async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
@@ -116,7 +116,11 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         {
             Content = response.Text ?? string.Empty,
             ModelName = response.ModelId ?? _config.Model,
-            AevatarStopReason = AevatarStopReason.Complete
+            AevatarStopReason = AevatarStopReason.Complete,
+            Usage = CreateTokenUsage(
+                (int?)response.Usage?.InputTokenCount,
+                (int?)response.Usage?.OutputTokenCount,
+                (int?)response.Usage?.TotalTokenCount)
         };
 
         // Note: Function calling handling depends on the specific ChatClient implementation
@@ -124,20 +128,10 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         // may not expose function calls in a standardized way. This needs further investigation
         // based on the actual ChatClient implementation being used (e.g., DeepSeekChatClient)
 
-        if (response.Usage != null)
-        {
-            result.Usage = new AevatarTokenUsage
-            {
-                TotalTokens = (int)(response.Usage.TotalTokenCount ?? 0),
-                PromptTokens = (int)(response.Usage.InputTokenCount ?? 0),
-                CompletionTokens = (int)(response.Usage.OutputTokenCount ?? 0)
-            };
-        }
-
         return result;
     }
 
-    public async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
+    public override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Generating streaming response using MEAI provider: {Model}", _config.Model);

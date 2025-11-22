@@ -1,6 +1,4 @@
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.LLMTornado;
-using Aevatar.Agents.AI.LLMTornadoExtension;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Xunit;
