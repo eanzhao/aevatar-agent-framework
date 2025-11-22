@@ -50,6 +50,7 @@
     <PackageVersion Include="Azure.AI.OpenAI" Version="2.0.0" />
     <PackageVersion Include="OpenAI" Version="2.6.0" />
     <PackageVersion Include="Azure.Identity" Version="1.13.1" />
+    <PackageVersion Include="LlmTornado" Version="3.8.23" />
     <!-- MongoDB -->
     <PackageVersion Include="MongoDB.Driver" Version="3.0.0" />
     <!-- OpenTelemetry -->

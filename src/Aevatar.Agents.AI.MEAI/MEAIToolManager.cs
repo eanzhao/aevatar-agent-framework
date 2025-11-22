@@ -47,7 +47,7 @@ internal class MEAIToolManager : IAevatarToolManager
                     return new ToolExecutionResult
                     {
                         IsSuccess = true,
-                        Content = result?.ToString() ?? string.Empty
+                        Content = result.ToString() ?? string.Empty
                     };
                 }
             }

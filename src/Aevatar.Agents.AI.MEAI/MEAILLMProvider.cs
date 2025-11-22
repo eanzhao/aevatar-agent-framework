@@ -70,9 +70,9 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };
-        
+
         // Add tools/functions if provided
-        if (request.Functions != null && request.Functions.Count > 0)
+        if (request.Functions is { Count: > 0 })
         {
             var aiTools = ConvertFunctionsToAITools(request.Functions);
             if (aiTools.Count > 0)
@@ -93,14 +93,17 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         var aiTools = new List<AITool>();
         foreach (var func in functions)
         {
+            var aiFunc = AIFunctionFactory.Create((Func<Dictionary<string, object?>, Task<object>>)Handler, func.Name,
+                func.Description);
+            aiTools.Add(aiFunc);
+            continue;
+
             // Create function tool with placeholder handler
             // Actual execution happens in ToolManager
-            Func<Dictionary<string, object?>, Task<object>> handler = 
-                async (args) => string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name);
-            
-            var aiFunc = AIFunctionFactory.Create(handler, func.Name, func.Description);
-            aiTools.Add(aiFunc);
+            async Task<object> Handler(Dictionary<string, object?> _) =>
+                string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name);
         }
+
         return aiTools;
     }
 
@@ -115,7 +118,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete
         };
-        
+
         // Note: Function calling handling depends on the specific ChatClient implementation
         // Tools have been added to ChatOptions, but the current IChatClient.GetResponseAsync
         // may not expose function calls in a standardized way. This needs further investigation
