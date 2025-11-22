@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Messages;
@@ -15,9 +16,8 @@ namespace Aevatar.Agents.AI.WithTool;
 
 /// <summary>
 /// Level 2: AI Agent with tool/function calling support.
-/// 第二级：支持工具/函数调用的AI代理
-/// 在AIGAgentBase基础上增加了自定义工具注册和管理功能
-/// 继承关系：AIGAgentBase -> AIGAgentWithToolBase
+/// Extends AIGAgentBase with custom tool registration and management capabilities.
+/// Inheritance: AIGAgentBase -> AIGAgentWithToolBase
 /// </summary>
 /// <typeparam name="TState">The agent state type (must be Protobuf)</typeparam>
 public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
@@ -35,22 +35,22 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Gets the tool manager.
-    /// 获取工具管理器
     /// </summary>
     protected IAevatarToolManager ToolManager
     {
         get
         {
-            EnsureToolManagerInitialized();
+            if (_toolManager == null)
+            {
+                // Fallback for backward compatibility or if accessed before InitializeAsync
+                // But ideally we should throw or warn.
+                // For now, let's keep lazy init but without calling RegisterTools synchronously if possible.
+                // Actually, EnsureToolManagerInitialized no longer calls RegisterTools, so it's safe(r).
+                EnsureToolManagerInitialized();
+            }
             return _toolManager!;
         }
     }
-
-    /// <summary>
-    /// Gets whether tools are registered and available.
-    /// 获取是否已注册工具并可用
-    /// </summary>
-    protected bool HasTools => _toolManager != null && GetRegisteredTools().Count > 0;
 
     #endregion
 
@@ -58,7 +58,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Initializes a new instance of the AIGAgentWithToolBase class.
-    /// 初始化AIGAgentWithToolBase类的新实例
     /// </summary>
     protected AIGAgentWithToolBase() : base()
     {
@@ -67,7 +66,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Initializes a new instance with dependency injection.
-    /// 使用依赖注入初始化新实例
     /// </summary>
     protected AIGAgentWithToolBase(
         IAevatarLLMProvider llmProvider,
@@ -78,22 +76,45 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         InitializeManagers();
     }
 
+    /// <summary>
+    /// Initialize the AI agent with a named LLM provider from ASP.NET Options.
+    /// </summary>
+    public override async Task InitializeAsync(
+        string providerName,
+        Action<AevatarAIAgentConfig>? configAI = null,
+        CancellationToken cancellationToken = default)
+    {
+        await base.InitializeAsync(providerName, configAI, cancellationToken);
+        await RegisterToolsAsync();
+    }
+
+    /// <summary>
+    /// Initialize the AI agent with custom LLM provider configuration.
+    /// </summary>
+    public override async Task InitializeAsync(
+        LLMProviderConfig providerConfig,
+        Action<AevatarAIAgentConfig>? configAI = null,
+        CancellationToken cancellationToken = default)
+    {
+        await base.InitializeAsync(providerConfig, configAI, cancellationToken);
+        await RegisterToolsAsync();
+    }
+
     #endregion
 
     #region Tool Registration
 
     /// <summary>
-    /// Register tools for this agent. Override in derived classes to register custom tools.
-    /// 为此代理注册工具。在派生类中重写以注册自定义工具
+    /// Register tools asynchronously for this agent. Override in derived classes to register custom tools.
     /// </summary>
-    protected virtual void RegisterTools()
+    protected virtual async Task RegisterToolsAsync()
     {
-        // Override in derived classes to register tools
+        EnsureToolManagerInitialized();
+        await Task.CompletedTask;
     }
 
     /// <summary>
     /// Helper method to register a tool using the new IAevatarTool interface.
-    /// 使用新的 IAevatarTool 接口注册工具的辅助方法
     /// </summary>
     protected async Task RegisterToolAsync(IAevatarTool tool, ILogger? logger = null)
     {
@@ -110,22 +131,28 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     }
 
     /// <summary>
-    /// Get list of registered tools.
-    /// 获取已注册的工具列表
+    /// Get list of registered tools asynchronously.
     /// </summary>
-    protected IReadOnlyList<ToolDefinition> GetRegisteredTools()
+    protected async Task<IReadOnlyList<ToolDefinition>> GetRegisteredToolsAsync()
     {
         if (_toolManager == null)
-            return Array.Empty<ToolDefinition>();
+            return [];
 
-        var task = ToolManager.GetAvailableToolsAsync();
-        if (task == null) return Array.Empty<ToolDefinition>();
-        return task.Result ?? [];
+        return await ToolManager.GetAvailableToolsAsync() ?? [];
+    }
+
+    /// <summary>
+    /// Check if tools are available asynchronously.
+    /// </summary>
+    protected async Task<bool> HasToolsAsync()
+    {
+        if (_toolManager == null) return false;
+        var tools = await GetRegisteredToolsAsync();
+        return tools.Count > 0;
     }
 
     /// <summary>
     /// Ensure tool manager is initialized.
-    /// 确保工具管理器已初始化
     /// </summary>
     private void EnsureToolManagerInitialized()
     {
@@ -133,27 +160,22 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             return;
 
         _toolManager = CreateToolManager();
-
-        // Register tools after manager is created
-        RegisterTools();
         UpdateActiveToolsInState();
     }
 
     /// <summary>
     /// Creates the tool manager. Override to customize.
-    /// 创建工具管理器。重写以自定义
     /// </summary>
     protected virtual IAevatarToolManager CreateToolManager()
     {
-        // Default implementation creates a DefaultToolManager
+        // Default implementation creates a AevatarToolManager
         // Use a null logger for now, can be enhanced later
-        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<DefaultToolManager>.Instance;
-        return new DefaultToolManager(logger);
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<AevatarToolManager>.Instance;
+        return new AevatarToolManager(logger);
     }
 
     /// <summary>
     /// Initialize history manager and execution coordinator.
-    /// 初始化历史管理器和执行协调器
     /// </summary>
     private void InitializeManagers()
     {
@@ -163,7 +185,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Get or create the execution coordinator.
-    /// 获取或创建执行协调器
     /// </summary>
     private ToolExecutionCoordinator GetExecutionCoordinator()
     {
@@ -171,13 +192,14 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         {
             if (_historyManager == null)
                 throw new InvalidOperationException("History manager not initialized");
-            
+
             _executionCoordinator = new ToolExecutionCoordinator(
                 ToolManager,
                 LLMProvider,
                 _historyManager,
                 Logger);
         }
+
         return _executionCoordinator;
     }
 
@@ -187,7 +209,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Execute a tool by name with arguments.
-    /// 通过名称和参数执行工具
     /// </summary>
     protected async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
@@ -204,7 +225,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Update active tools list in AI state.
-    /// 在AI状态中更新活动工具列表
     /// </summary>
     protected virtual void UpdateActiveToolsInState()
     {
@@ -225,7 +245,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         CancellationToken cancellationToken = default)
     {
         if (!_isInitialized)
-            throw new InvalidOperationException("AI Agent must be initialized before use. Call InitializeAsync() first.");
+            throw new InvalidOperationException(
+                "AI Agent must be initialized before use. Call InitializeAsync() first.");
 
         try
         {
@@ -233,7 +254,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             AddMessageToHistory(request.Message, AevatarChatRole.User);
 
             // 2. Build LLM request (includes history and tools)
-            var llmRequest = BuildLLMRequest(request);
+            var llmRequest = await BuildLLMRequestAsync(request, cancellationToken);
 
             // 3. Call LLM
             var llmResponse = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
@@ -296,7 +317,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// Build LLM request from chat request.
     /// Overrides base to include history and tools.
     /// </summary>
-    protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
+    protected virtual async Task<AevatarLLMRequest> BuildLLMRequestAsync(ChatRequest request,
+        CancellationToken cancellationToken = default)
     {
         var llmRequest = new AevatarLLMRequest
         {
@@ -315,13 +337,11 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         }
 
         // Inject tools
-        if (HasTools)
+        // Use async method to avoid .Result blocking
+        var functionDefs = await ToolManager.GenerateFunctionDefinitionsAsync(cancellationToken);
+        if (functionDefs != null && functionDefs.Count > 0)
         {
-            var functionDefs = ToolManager.GenerateFunctionDefinitionsAsync().Result;
-            if (functionDefs != null && functionDefs.Count > 0)
-            {
-                llmRequest.Functions = functionDefs.ToList();
-            }
+            llmRequest.Functions = functionDefs.ToList();
         }
 
         return llmRequest;
@@ -341,7 +361,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         Logger.LogDebug("Executing tool: {ToolName}", functionCall.Name);
 
         // Build LLM request for follow-up (includes history + tool result)
-        var llmRequest = BuildLLMRequest(request);
+        var llmRequest = await BuildLLMRequestAsync(request, cancellationToken);
 
         // Execute tool workflow using coordinator
         var coordinator = GetExecutionCoordinator();
@@ -351,7 +371,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             cancellationToken);
 
         // Publish tool execution event
-        await PublishToolExecutionEventAsync(functionCall.Name, new Dictionary<string, object>(), toolResult, request.RequestId);
+        await PublishToolExecutionEventAsync(functionCall.Name, new Dictionary<string, object>(), toolResult,
+            request.RequestId);
 
         // Build and publish final response
         var response = coordinator.CreateResponseWithToolInfo(
@@ -402,7 +423,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         if (_historyManager == null)
             throw new InvalidOperationException("History manager not initialized");
-        
+
         _historyManager.AddMessage(content, role, name);
     }
 
@@ -410,9 +431,10 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         if (_historyManager == null)
             throw new InvalidOperationException("History manager not initialized");
-        
+
         _historyManager.AddMessage(msg);
     }
+
     /// <summary>
     /// Publish chat response event.
     /// </summary>
@@ -489,7 +511,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
             }
 
             return JsonSerializer.Deserialize<Dictionary<string, object>>(argumentsJson)
-                ?? new Dictionary<string, object>();
+                   ?? new Dictionary<string, object>();
         }
         catch (JsonException ex)
         {

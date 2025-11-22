@@ -75,7 +75,7 @@ try
     logger.LogInformation("✅ Agent 创建完成");
     
     // Verify tools are registered
-    var tools = agent.GetAvailableTools();
+    var tools = await agent.GetAvailableToolsAsync();
     logger.LogInformation("📋 已注册工具数量: {Count}", tools.Count);
     foreach (var tool in tools)
     {

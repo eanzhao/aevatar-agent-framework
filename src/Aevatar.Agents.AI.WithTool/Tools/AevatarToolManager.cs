@@ -1,28 +1,22 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
-using Aevatar.Agents.AI.WithTool.Messages;
 using Google.Protobuf;
 
 namespace Aevatar.Agents.AI.WithTool.Tools;
 
 /// <summary>
-/// 默认工具管理器实现
+/// Default implementation of the tool manager.
 /// <para/>
-/// 提供线程安全的工具注册、发现、执行和Function Calling支持
+/// Provides thread-safe tool registration, discovery, execution, and Function Calling support.
 /// </summary>
-public class DefaultToolManager : IAevatarToolManager
+public class AevatarToolManager : IAevatarToolManager
 {
     private readonly ConcurrentDictionary<string, ToolDefinition> _tools = new();
-    private readonly ILogger<DefaultToolManager> _logger;
+    private readonly ILogger<AevatarToolManager> _logger;
 
-    public DefaultToolManager(ILogger<DefaultToolManager> logger)
+    public AevatarToolManager(ILogger<AevatarToolManager> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -104,7 +98,7 @@ public class DefaultToolManager : IAevatarToolManager
 
         try
         {
-            // 执行工具
+            // Execute tool
             var result = await tool.ExecuteAsync(parameters, context, cancellationToken);
 
             _logger.LogDebug("Tool executed successfully: {ToolName}", toolName);
@@ -154,7 +148,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 获取单个工具
+    /// Get a single tool by name.
     /// </summary>
     public async Task<ToolDefinition?> GetToolAsync(string toolName, CancellationToken cancellationToken = default)
     {
@@ -165,7 +159,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 检查工具是否存在
+    /// Check if a tool exists.
     /// </summary>
     public bool HasTool(string toolName)
     {
@@ -173,7 +167,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 启用工具
+    /// Enable a tool.
     /// </summary>
     public async Task<bool> EnableToolAsync(string toolName, CancellationToken cancellationToken = default)
     {
@@ -194,7 +188,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 禁用工具
+    /// Disable a tool.
     /// </summary>
     public async Task<bool> DisableToolAsync(string toolName, CancellationToken cancellationToken = default)
     {
@@ -215,7 +209,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 转换工具参数到函数参数
+    /// Convert tool parameters to function parameters.
     /// </summary>
     private Dictionary<string, AevatarParameterDefinition> ConvertToFunctionParameters(ToolParameters parameters)
     {
@@ -242,7 +236,7 @@ public class DefaultToolManager : IAevatarToolManager
     }
 
     /// <summary>
-    /// 解析类型字符串
+    /// Parse type string.
     /// </summary>
     private static string ParseTypeString(string? type)
     {
@@ -254,7 +248,7 @@ public class DefaultToolManager : IAevatarToolManager
             "boolean" or "bool" => "boolean",
             "array" => "array",
             "object" => "object",
-            _ => "string" // 默认
+            _ => "string" // Default
         };
     }
 }

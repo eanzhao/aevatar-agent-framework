@@ -185,7 +185,7 @@ Strategy Decision:";
 
         try
         {
-            var availableTools = HasTools ? GetRegisteredTools() : new List<ToolDefinition>();
+            var availableTools = await HasToolsAsync() ? await GetRegisteredToolsAsync() : new List<ToolDefinition>();
             var toolNames = availableTools.Any() ? string.Join(", ", availableTools.Select(t => t.Name)) : "none";
 
             var metaPrompt = _metaReasoningPromptTemplate

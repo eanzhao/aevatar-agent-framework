@@ -561,7 +561,7 @@ dotnet test --collect:"XPlat Code Coverage"
 
 ### 13.3 Tool Implementation Tests 🛠️
 
-#### DefaultToolManager Tests
+#### AevatarToolManager Tests
 - **ConcurrentRegistration_ShouldBeThreadSafe**: 验证并发注册的线程安全性
 - **RegisterToolAsync_WithCannotOverride_ShouldIgnoreDuplicate**: 测试不可覆盖工具的重复注册
 - **ExecuteToolAsync_NonExistentTool_ShouldReturnError**: 验证不存在工具的执行错误

@@ -19,26 +19,24 @@ public class SmartAssistantAgent : AIGAgentWithToolBase<AevatarAIAgentState>
         _ = ToolManager;
     }
 
-    /// <summary>
-    /// 注册工具
-    /// </summary>
-    protected override void RegisterTools()
+    protected override async Task RegisterToolsAsync()
     {
         Logger?.LogInformation("🔧 开始注册工具...");
 
         // 注册计算器工具
         var calculatorTool = new CalculatorTool();
-        RegisterToolAsync(calculatorTool, Logger).Wait();
+        await RegisterToolAsync(calculatorTool, Logger);
         Logger?.LogInformation("✅ 已注册工具: {Name} - {Description}", calculatorTool.Name, calculatorTool.Description);
 
         // 注册天气工具
         var weatherTool = new WeatherTool();
-        RegisterToolAsync(weatherTool, Logger).Wait();
+        await RegisterToolAsync(weatherTool, Logger);
         Logger?.LogInformation("✅ 已注册工具: {Name} - {Description}", weatherTool.Name, weatherTool.Description);
 
-        var registeredCount = GetRegisteredTools().Count;
+        var tools = await GetRegisteredToolsAsync();
+        var registeredCount = tools.Count;
         Logger?.LogInformation("🎉 工具注册完成！共 {Count} 个工具", registeredCount);
-        
+
         if (registeredCount == 0)
         {
             Logger?.LogWarning("⚠️ 警告: GetRegisteredTools() 返回 0 个工具!");
@@ -48,9 +46,9 @@ public class SmartAssistantAgent : AIGAgentWithToolBase<AevatarAIAgentState>
     /// <summary>
     /// Get available tools for testing/debugging
     /// </summary>
-    public IReadOnlyList<ToolDefinition> GetAvailableTools()
+    public async Task<IReadOnlyList<ToolDefinition>> GetAvailableToolsAsync()
     {
-        return GetRegisteredTools();
+        return await GetRegisteredToolsAsync();
     }
 
     public override string SystemPrompt => @"
