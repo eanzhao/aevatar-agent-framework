@@ -13,7 +13,7 @@ namespace Demo.Agents;
 /// <summary>
 /// 银行账户Agent - 支持Event Sourcing
 /// </summary>
-public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
+public class BankAccountAgent : GAgentBase<BankAccountState>
 {
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {

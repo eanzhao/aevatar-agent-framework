@@ -42,6 +42,7 @@
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+        <ProjectReference Include="..\..\src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     </ItemGroup>

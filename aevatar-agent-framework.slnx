@@ -14,6 +14,7 @@
     <File Path="docs\AI_AGENT_MAKER_GUIDE.md" />
   </Folder>
   <Folder Name="/examples/">
+    <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" Type="Classic C#" />
     <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" Type="Classic C#" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
@@ -29,6 +30,8 @@
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
     <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" Type="Classic C#" />
+    <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />

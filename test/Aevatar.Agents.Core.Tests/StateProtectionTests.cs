@@ -72,25 +72,25 @@ public class StateProtectionTests
     public void StateProtectionContext_Should_Track_Handler_Scope()
     {
         // Initially not in handler
-        StateProtectionContext.IsInEventHandler.Should().BeFalse();
+        StateProtectionContext.IsModifiable.Should().BeFalse();
 
         // Enter handler scope
         using (var scope = StateProtectionContext.BeginEventHandlerScope())
         {
-            StateProtectionContext.IsInEventHandler.Should().BeTrue();
+            StateProtectionContext.IsModifiable.Should().BeTrue();
 
             // Nested scope should maintain state
             using (var nestedScope = StateProtectionContext.BeginEventHandlerScope())
             {
-                StateProtectionContext.IsInEventHandler.Should().BeTrue();
+                StateProtectionContext.IsModifiable.Should().BeTrue();
             }
 
             // Still in outer scope
-            StateProtectionContext.IsInEventHandler.Should().BeTrue();
+            StateProtectionContext.IsModifiable.Should().BeTrue();
         }
 
         // Exited all scopes
-        StateProtectionContext.IsInEventHandler.Should().BeFalse();
+        StateProtectionContext.IsModifiable.Should().BeFalse();
     }
 
     [Fact]
@@ -107,14 +107,14 @@ public class StateProtectionTests
             tasks[i] = Task.Run(async () =>
             {
                 // Initially not in handler
-                results[index] = StateProtectionContext.IsInEventHandler;
+                results[index] = StateProtectionContext.IsModifiable;
 
                 await Task.Delay(Random.Shared.Next(10, 50)); // Random delay
 
                 using (var scope = StateProtectionContext.BeginEventHandlerScope())
                 {
                     // Should be in handler now
-                    results[index] = StateProtectionContext.IsInEventHandler;
+                    results[index] = StateProtectionContext.IsModifiable;
                     await Task.Delay(Random.Shared.Next(10, 50));
                 }
             });
@@ -130,21 +130,21 @@ public class StateProtectionTests
     public void Initialization_Scope_Should_Allow_State_Modification()
     {
         // Initially not in initialization
-        StateProtectionContext.IsInEventHandler.Should().BeFalse();
+        StateProtectionContext.IsModifiable.Should().BeFalse();
 
         // Enter initialization scope
         using (var scope = StateProtectionContext.BeginInitializationScope())
         {
             // Should be allowed (same flag as event handler)
-            StateProtectionContext.IsInEventHandler.Should().BeTrue();
+            StateProtectionContext.IsModifiable.Should().BeTrue();
 
             // This would normally be State modification during initialization
-            var canModify = StateProtectionContext.IsInEventHandler;
+            var canModify = StateProtectionContext.IsModifiable;
             canModify.Should().BeTrue();
         }
 
         // Exited initialization scope
-        StateProtectionContext.IsInEventHandler.Should().BeFalse();
+        StateProtectionContext.IsModifiable.Should().BeFalse();
     }
 }
 

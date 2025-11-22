@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +26,18 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
     {
         _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
 
+        var messages = BuildChatMessages(request);
+        var options = BuildChatOptions(request);
+        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+
+        return CreateAevatarLLMResponse(response);
+    }
+
+    /// <summary>
+    /// Build chat messages from request.
+    /// </summary>
+    private List<ChatMessage> BuildChatMessages(AevatarLLMRequest request)
+    {
         var messages = new List<ChatMessage>();
 
         if (!string.IsNullOrEmpty(request.SystemPrompt))
@@ -43,21 +56,70 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
         if (!string.IsNullOrEmpty(request.UserPrompt))
             messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
 
+        return messages;
+    }
+
+    /// <summary>
+    /// Build chat options including temperature, max tokens, and tools.
+    /// </summary>
+    private ChatOptions BuildChatOptions(AevatarLLMRequest request)
+    {
         var options = new ChatOptions
         {
             Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };
+        
+        // Add tools/functions if provided
+        if (request.Functions != null && request.Functions.Count > 0)
+        {
+            var aiTools = ConvertFunctionsToAITools(request.Functions);
+            if (aiTools.Count > 0)
+            {
+                options.Tools = aiTools;
+                _logger.LogInformation("Added {Count} tools to ChatOptions", aiTools.Count);
+            }
+        }
 
-        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+        return options;
+    }
 
+    /// <summary>
+    /// Convert Aevatar function definitions to Microsoft.Extensions.AI tools.
+    /// </summary>
+    private List<AITool> ConvertFunctionsToAITools(IList<AevatarFunctionDefinition> functions)
+    {
+        var aiTools = new List<AITool>();
+        foreach (var func in functions)
+        {
+            // Create function tool with placeholder handler
+            // Actual execution happens in ToolManager
+            Func<Dictionary<string, object?>, Task<object>> handler = 
+                async (args) => string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name);
+            
+            var aiFunc = AIFunctionFactory.Create(handler, func.Name, func.Description);
+            aiTools.Add(aiFunc);
+        }
+        return aiTools;
+    }
+
+    /// <summary>
+    /// Create AevatarLLMResponse from Microsoft.Extensions.AI ChatResponse.
+    /// </summary>
+    private AevatarLLMResponse CreateAevatarLLMResponse(Microsoft.Extensions.AI.ChatResponse response)
+    {
         var result = new AevatarLLMResponse
         {
-            Content = response.Text,
+            Content = response.Text ?? string.Empty,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete
         };
+        
+        // Note: Function calling handling depends on the specific ChatClient implementation
+        // Tools have been added to ChatOptions, but the current IChatClient.GetResponseAsync
+        // may not expose function calls in a standardized way. This needs further investigation
+        // based on the actual ChatClient implementation being used (e.g., DeepSeekChatClient)
 
         if (response.Usage != null)
         {
@@ -124,7 +186,7 @@ public sealed class MEAILLMProvider : IAevatarLLMProvider
             Name = _config.Model,
             MaxTokens = _config.MaxTokens,
             SupportsStreaming = _config.EnableStreaming,
-            SupportsFunctions = false
+            SupportsFunctions = true // MEAI supports tools/functions
         });
     }
 }

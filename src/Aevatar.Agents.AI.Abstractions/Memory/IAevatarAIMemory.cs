@@ -18,7 +18,7 @@ public interface IAevatarAIMemory
     /// <summary>
     /// 获取对话历史（核心方法）
     /// </summary>
-    Task<IReadOnlyList<AevatarConversationEntry>> GetConversationHistoryAsync(
+    Task<IReadOnlyList<AevatarConversationEntry>> GetHistoryAsync(
         int? limit = null,
         CancellationToken cancellationToken = default);
     

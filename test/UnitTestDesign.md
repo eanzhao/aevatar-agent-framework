@@ -505,8 +505,8 @@ dotnet test --collect:"XPlat Code Coverage"
 
 #### IAevatarAIMemory Tests
 - **AddMessageAsync_ShouldStoreMessage**: 验证消息存储功能
-- **GetConversationHistoryAsync_ShouldReturnInOrder**: 测试历史记录的顺序性
-- **GetConversationHistoryAsync_WithLimit_ShouldRespectLimit**: 验证历史记录限制
+- **GetHistoryAsync_ShouldReturnInOrder**: 测试历史记录的顺序性
+- **GetHistoryAsync_WithLimit_ShouldRespectLimit**: 验证历史记录限制
 - **ClearHistoryAsync_ShouldRemoveAllMessages**: 测试清空历史记录
 - **SearchAsync_ShouldReturnRelevantResults**: 验证语义搜索相关性
 - **SearchAsync_WithTopK_ShouldLimitResults**: 测试搜索结果数量限制
@@ -561,7 +561,7 @@ dotnet test --collect:"XPlat Code Coverage"
 
 ### 13.3 Tool Implementation Tests 🛠️
 
-#### DefaultToolManager Tests
+#### AevatarToolManager Tests
 - **ConcurrentRegistration_ShouldBeThreadSafe**: 验证并发注册的线程安全性
 - **RegisterToolAsync_WithCannotOverride_ShouldIgnoreDuplicate**: 测试不可覆盖工具的重复注册
 - **ExecuteToolAsync_NonExistentTool_ShouldReturnError**: 验证不存在工具的执行错误
@@ -599,7 +599,7 @@ dotnet test --collect:"XPlat Code Coverage"
 ### 13.5 Integration Tests 🔄
 
 - **AIAgent_CompleteConversation_WithTools**: 测试完整对话流程，包含工具调用
-- **AIAgent_ConversationHistory_ShouldMaintain**: 验证对话历史维护
+- **AIAgent_History_ShouldMaintain**: 验证对话历史维护
 - **AIAgent_WithProcessingStrategy_ShouldSelectAppropriately**: 测试策略自动选择
 - **AIAgent_MultipleToolCalls_ShouldExecuteInSequence**: 验证多个工具调用的顺序执行
 - **AIAgent_ErrorRecovery_ShouldContinueConversation**: 测试错误恢复后继续对话

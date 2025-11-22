@@ -25,14 +25,14 @@ public class BasicTestAgent : GAgentBase<TestAgentState>
         State.LastUpdated = Timestamp.FromDateTime(DateTime.UtcNow);
         return base.OnActivateAsync(ct);
     }
-    
+
     protected override Task OnDeactivateAsync(CancellationToken ct = default)
     {
         OnDeactivateCalled = true;
         return base.OnDeactivateAsync(ct);
     }
     
-    [EventHandler(Priority = 1)]
+    [EventHandler]
     public async Task HandleTestEvent(TestEvent evt)
     {
         HandleEventCallCount++;
@@ -41,15 +41,22 @@ public class BasicTestAgent : GAgentBase<TestAgentState>
         await Task.CompletedTask;
     }
     
-    [EventHandler(Priority = 2)]
+    [EventHandler]
     public async Task HandleTestCommand(TestCommand cmd)
     {
         State.Counter += 10;
-        if (cmd.Parameters.ContainsKey("name"))
+        if (cmd.Parameters.TryGetValue("name", out var parameter))
         {
-            State.Name = cmd.Parameters["name"];
+            State.Name = parameter;
         }
         await Task.CompletedTask;
+    }
+
+    [EventHandler]
+    public async Task ModifyStateAsync(Empty empty)
+    {
+        State.Counter = 42;
+        State.Name = "SingleGeneric";
     }
     
     [AllEventHandler]

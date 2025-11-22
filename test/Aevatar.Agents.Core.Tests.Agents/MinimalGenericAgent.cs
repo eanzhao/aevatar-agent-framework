@@ -1,3 +1,6 @@
+using Aevatar.Agents.Abstractions.Attributes;
+using Google.Protobuf.WellKnownTypes;
+
 namespace Aevatar.Agents.Core.Tests.Agents;
 
 /// <summary>
@@ -14,5 +17,11 @@ public class MinimalGenericAgent : GAgentBase<MinimalState, MinimalConfig>
     public override string GetDescription()
     {
         return $"MinimalAgent: {State.Value}";
+    }
+
+    [EventHandler]
+    public async Task ModifyStateAsync(Empty empty)
+    {
+        State.Value = 42;
     }
 }

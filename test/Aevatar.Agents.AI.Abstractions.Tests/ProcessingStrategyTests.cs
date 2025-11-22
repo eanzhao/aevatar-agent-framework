@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
+using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -81,7 +82,7 @@ public class ProcessingStrategyTests
             });
 
         // Act
-        var result = await strategy.ProcessAsync(context, null, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies, CancellationToken.None);
 
         // Assert
         result.ShouldNotBeEmpty();
@@ -113,7 +114,7 @@ public class ProcessingStrategyTests
             });
 
         // Act
-        var result = await strategy.ProcessAsync(context, null, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         result.ShouldContain("4");
@@ -131,12 +132,11 @@ public class ProcessingStrategyTests
             Question = "Complex philosophical question"
         };
 
-        var config = new AevatarAIEventHandlerAttribute();
         var dependencies = CreateTestDependencies();
         dependencies.Configuration.MaxChainOfAevatarThoughtSteps = 3;
 
         // Act
-        var result = await strategy.ProcessAsync(context, config, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         result.ShouldNotBeEmpty();
@@ -206,7 +206,7 @@ public class ProcessingStrategyTests
         strategy.OnObservationMade = obs => executionLog.Add($"Observation: {obs}");
 
         // Act
-        await strategy.ProcessAsync(context, null, dependencies);
+        await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         executionLog.Count.ShouldBeGreaterThan(2);
@@ -237,7 +237,7 @@ public class ProcessingStrategyTests
             });
 
         // Act
-        var result = await strategy.ProcessAsync(context, null, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         result.ShouldNotBeEmpty();
@@ -263,7 +263,7 @@ public class ProcessingStrategyTests
             });
 
         // Act
-        var result = await strategy.ProcessAsync(context, null, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         result.ShouldNotBeEmpty();
@@ -296,7 +296,7 @@ public class ProcessingStrategyTests
         dependencies.Configuration.MaxReActIterations = 3;
 
         // Act
-        await strategy.ProcessAsync(context, null, dependencies);
+        await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         iterationCount.ShouldBeLessThanOrEqualTo(3);
@@ -325,7 +325,7 @@ public class ProcessingStrategyTests
             });
 
         // Act
-        var result = await strategy.ProcessAsync(context, null, dependencies);
+        var result = await strategy.ProcessAsync(context, dependencies);
 
         // Assert
         observationCount.ShouldBe(2);
@@ -397,7 +397,6 @@ public class MockChainOfThoughtStrategy : IAevatarAIProcessingStrategy
 
     public async Task<string> ProcessAsync(
         AevatarAIContext context,
-        AevatarAIEventHandlerAttribute? config,
         AevatarAIStrategyDependencies dependencies,
         CancellationToken cancellationToken = default)
     {
@@ -471,7 +470,6 @@ public class MockReActStrategy : IAevatarAIProcessingStrategy
 
     public async Task<string> ProcessAsync(
         AevatarAIContext context,
-        AevatarAIEventHandlerAttribute? config,
         AevatarAIStrategyDependencies dependencies,
         CancellationToken cancellationToken = default)
     {

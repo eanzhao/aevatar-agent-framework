@@ -1,16 +1,15 @@
-using System.Threading;
-
 using System.Runtime.CompilerServices;
+using Google.Protobuf;
 
 [assembly: InternalsVisibleTo("Aevatar.Agents.Core.Tests")]
 [assembly: InternalsVisibleTo("Aevatar.Agents.AI.Core")]
+[assembly: InternalsVisibleTo("Aevatar.Agents.AI.Core.Tests")]
 
 namespace Aevatar.Agents.Core.StateProtection;
 
 /// <summary>
 /// Context tracker for State and Config protection mechanism.
 /// Tracks whether current execution is within an event handler or initialization context.
-/// 状态保护上下文跟踪器，用于确保State和Config只能在OnActivateAsync或事件处理器中被修改。
 /// </summary>
 internal static class StateProtectionContext
 {
@@ -18,12 +17,12 @@ internal static class StateProtectionContext
     /// AsyncLocal storage to track event handler execution context per async flow.
     /// This ensures thread-safe context tracking in async operations.
     /// </summary>
-    private static readonly AsyncLocal<bool> _isInEventHandler = new();
+    private static readonly AsyncLocal<bool> IsStateOrConfigModifiable = new();
 
     /// <summary>
     /// Gets whether current execution is within an event handler context.
     /// </summary>
-    public static bool IsInEventHandler => _isInEventHandler.Value;
+    public static bool IsModifiable => IsStateOrConfigModifiable.Value;
 
     /// <summary>
     /// Creates an event handler execution scope.
@@ -35,13 +34,13 @@ internal static class StateProtectionContext
 
         public EventHandlerScope()
         {
-            _previousValue = _isInEventHandler.Value;
-            _isInEventHandler.Value = true;
+            _previousValue = IsStateOrConfigModifiable.Value;
+            IsStateOrConfigModifiable.Value = true;
         }
 
         public void Dispose()
         {
-            _isInEventHandler.Value = _previousValue;
+            IsStateOrConfigModifiable.Value = _previousValue;
         }
     }
 
@@ -60,9 +59,9 @@ internal static class StateProtectionContext
     /// </summary>
     /// <param name="operationName">Name of the operation attempting to modify state</param>
     /// <exception cref="InvalidOperationException">Thrown when not in event handler context</exception>
-    public static void EnsureInEventHandler(string operationName = "State modification")
+    public static void EnsureModifiable(string operationName = "State modification")
     {
-        if (!IsInEventHandler)
+        if (!IsModifiable)
         {
             throw new InvalidOperationException(
                 $"{operationName} is not allowed outside of event handlers. " +
@@ -81,13 +80,13 @@ internal static class StateProtectionContext
 
         public InitializationScope()
         {
-            _previousValue = _isInEventHandler.Value;
-            _isInEventHandler.Value = true;
+            _previousValue = IsStateOrConfigModifiable.Value;
+            IsStateOrConfigModifiable.Value = true;
         }
 
         public void Dispose()
         {
-            _isInEventHandler.Value = _previousValue;
+            IsStateOrConfigModifiable.Value = _previousValue;
         }
     }
 

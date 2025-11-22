@@ -21,14 +21,14 @@ public static class AgentEventStoreInjector
             return;
 
         var agentType = agent.GetType();
-        
+
         // Find EventStore property (it's protected in GAgentBaseWithEventSourcing)
         var eventStoreProperty = agentType.GetProperty("EventStore",
-            BindingFlags.Instance | 
-            BindingFlags.NonPublic | 
+            BindingFlags.Instance |
+            BindingFlags.NonPublic |
             BindingFlags.Public);
-            
-        if (eventStoreProperty != null && 
+
+        if (eventStoreProperty != null &&
             eventStoreProperty.PropertyType == typeof(IEventStore) &&
             eventStoreProperty.CanWrite)
         {
@@ -54,20 +54,20 @@ public static class AgentEventStoreInjector
     /// </summary>
     /// <param name="agent">Agent instance</param>
     /// <returns>True if the agent has an EventStore property</returns>
-    public static bool HasEventStore(IGAgent agent)
+    public static bool HasEventStore(IGAgent? agent)
     {
         if (agent == null)
             return false;
 
         var agentType = agent.GetType();
-        
+
         // Check if agent has EventStore property (it's protected in GAgentBaseWithEventSourcing)
         var eventStoreProperty = agentType.GetProperty("EventStore",
-            BindingFlags.Instance | 
-            BindingFlags.NonPublic | 
+            BindingFlags.Instance |
+            BindingFlags.NonPublic |
             BindingFlags.Public);
-            
-        return eventStoreProperty != null && 
+
+        return eventStoreProperty != null &&
                eventStoreProperty.PropertyType == typeof(IEventStore) &&
                eventStoreProperty.CanWrite;
     }

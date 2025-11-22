@@ -14,26 +14,28 @@ public class ChatAgent : AIGAgentBase<ChatState, ChatConfig>
         await base.OnActivateAsync(ct);
 
         // Initialize State
-        if (string.IsNullOrEmpty(State.Id))
+        if (string.IsNullOrEmpty(CustomState.Id))
         {
-            State.Id = Id.ToString();
-            State.InteractionCount = 0;
+            CustomState.Id = Id.ToString();
+            CustomState.InteractionCount = 0;
         }
-        State.LastActiveAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        CustomState.LastActiveAt = Timestamp.FromDateTime(DateTime.UtcNow);
 
         // Initialize Config Defaults
-        if (string.IsNullOrEmpty(Config.WelcomeMessage))
+        if (string.IsNullOrEmpty(CustomConfig.WelcomeMessage))
         {
-            Config.WelcomeMessage = "Hello! I am your Aevatar Chat Agent.";
+            CustomConfig.WelcomeMessage = "Hello! I am your Aevatar Chat Agent.";
         }
-        if (string.IsNullOrEmpty(Config.Persona))
+
+        if (string.IsNullOrEmpty(CustomConfig.Persona))
         {
-            Config.Persona = "helpful assistant";
+            CustomConfig.Persona = "helpful assistant";
         }
 
         // Configure System Prompt based on Config
-        SystemPrompt = $"You are a {Config.Persona}. {Config.WelcomeMessage}";
-        Logger.LogInformation("ChatAgent {AgentId} activated with persona {Persona}", Id, Config.Persona);
+        SystemPrompt = $"You are a {CustomConfig.Persona}. {CustomConfig.WelcomeMessage}";
+        Logger.LogInformation("ChatAgent {AgentId} activated with persona {Persona}", Id, CustomConfig.Persona);
 
         await InitializeAsync("deepseek", cancellationToken: ct);
     }
@@ -44,27 +46,27 @@ public class ChatAgent : AIGAgentBase<ChatState, ChatConfig>
         Logger.LogInformation("Received message from {UserId}: {Message}", evt.UserId, evt.Message);
 
         // Update State
-        State.InteractionCount++;
-        State.LastActiveAt = Timestamp.FromDateTime(DateTime.UtcNow);
+        CustomState.InteractionCount++;
+        CustomState.LastActiveAt = Timestamp.FromDateTime(DateTime.UtcNow);
 
         // Use AI Capability (AIGAgentBase feature) with Streaming
-        var request = new ChatRequest 
-        { 
+        var request = new ChatRequest
+        {
             Message = evt.Message,
             RequestId = Guid.NewGuid().ToString()
         };
 
         var fullResponse = new System.Text.StringBuilder();
-        
+
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.Write($"\nAI > ");
-        
+
         await foreach (var token in ChatStreamAsync(request))
         {
             Console.Write(token);
             fullResponse.Append(token);
         }
-        
+
         Console.WriteLine();
         Console.ResetColor();
 
@@ -83,7 +85,6 @@ public class ChatAgent : AIGAgentBase<ChatState, ChatConfig>
 
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"Chat Agent ({State.InteractionCount} interactions)");
+        return Task.FromResult($"Chat Agent ({CustomState.InteractionCount} interactions)");
     }
 }
-

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Messages;
 
 namespace Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 
@@ -11,7 +13,7 @@ public class MockToolManager : IAevatarToolManager
     private readonly List<(string toolName, Dictionary<string, object> parameters)> _executionHistory = new();
     private bool _throwOnExecute;
     private Exception? _exceptionToThrow;
-    private object? _mockExecutionResult;
+    private string? _mockExecutionResult;
     
     public IReadOnlyList<(string toolName, Dictionary<string, object> parameters)> ExecutionHistory => _executionHistory;
     
@@ -26,7 +28,7 @@ public class MockToolManager : IAevatarToolManager
         _exceptionToThrow = exception;
     }
     
-    public void SetMockExecutionResult(object result)
+    public void SetMockExecutionResult(string result)
     {
         _mockExecutionResult = result;
     }
@@ -43,11 +45,11 @@ public class MockToolManager : IAevatarToolManager
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult<IReadOnlyList<ToolDefinition>>(_tools.Values.Where(t => t.IsEnabled).ToList());
     }
-    
+
     public Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        Aevatar.Agents.AI.ExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -62,8 +64,8 @@ public class MockToolManager : IAevatarToolManager
         {
             return Task.FromResult(new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Tool '{toolName}' not found",
+                IsSuccess = false,
+                ErrorMessage = $"Tool '{toolName}' not found",
                 ToolName = toolName
             });
         }
@@ -73,16 +75,16 @@ public class MockToolManager : IAevatarToolManager
         {
             return Task.FromResult(new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Tool '{toolName}' is disabled",
+                IsSuccess = false,
+                ErrorMessage = $"Tool '{toolName}' is disabled",
                 ToolName = toolName
             });
         }
         
         return Task.FromResult(new ToolExecutionResult
         {
-            Success = true,
-            Result = _mockExecutionResult ?? $"Mock result for {toolName}",
+            IsSuccess = true,
+            Content = _mockExecutionResult ?? $"Mock result for {toolName}",
             ToolName = toolName
         });
     }

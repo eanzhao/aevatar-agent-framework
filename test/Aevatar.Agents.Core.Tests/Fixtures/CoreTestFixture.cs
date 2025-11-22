@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Persistence;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Persistence;
 using Aevatar.Agents.Core.Tests.EventPublisher;
 
@@ -14,6 +15,7 @@ public class CoreTestFixture : IDisposable
     private IServiceProvider _serviceProvider;
     public IServiceProvider ServiceProvider => _serviceProvider;
     public TestEventPublisher EventPublisher { get; }
+    public IGAgentFactory GAgentFactory => _serviceProvider.GetRequiredService<IGAgentFactory>();
 
     public CoreTestFixture()
     {
@@ -24,6 +26,7 @@ public class CoreTestFixture : IDisposable
         var eventPublisher = new TestEventPublisher();
         EventPublisher = eventPublisher;
         services.AddSingleton<IEventPublisher>(eventPublisher);
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         // Allow derived classes to add their services
         ConfigureAdditionalServices(services);

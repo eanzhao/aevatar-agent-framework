@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions.Extensions;
 using Shouldly;
 using Aevatar.Agents.Core.Tests.Agents;
 using Google.Protobuf.WellKnownTypes;
@@ -99,32 +100,32 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
     {
         // Arrange
         var agent = new ConfigurableTestAgent();
-        
+
         // Inject both StateStore and ConfigStore
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
-        
+
         var configStore = _serviceProvider.GetRequiredService<IConfigStore<TestAgentConfig>>();
-    
+
         var existingConfig = new TestAgentConfig
         {
             AgentName = "PreExistingAgent",
             MaxRetries = 5,
             EnableLogging = false
         };
-    
+
         // Pre-save the configuration
         await configStore.SaveAsync(agent.GetType(), agent.Id, existingConfig);
-    
+
         // Act - Trigger HandleEventAsync which loads config
         var envelope = new EventEnvelope
         {
             Id = Guid.NewGuid().ToString(),
             Payload = Any.Pack(new TestEvent { EventId = "test-config-load" })
         };
-        
+
         await agent.HandleEventAsync(envelope);
-    
+
         // Assert - Config should be loaded from store
         agent.GetConfig().AgentName.ShouldBe("PreExistingAgent");
         agent.GetConfig().MaxRetries.ShouldBe(5);
@@ -233,20 +234,30 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
     #region Description Methods Tests
 
     [Fact(DisplayName = "Should get description synchronously")]
-    public void Should_Get_Description_Synchronously()
+    public async Task Should_Get_Description_Synchronously()
     {
         // Arrange
         var agent = new BasicTestAgent();
-        agent.GetState().Name = "TestName";
-        agent.GetState().Counter = 42;
+        await agent.ActivateAsync();
 
-        // Act
-        var description = agent.GetDescription();
+        {
+            // Act
+            var description = agent.GetDescription();
 
-        // Assert
-        description.ShouldNotBeNullOrEmpty();
-        description.ShouldContain("TestName");
-        description.ShouldContain("42");
+            // Assert
+            description.ShouldNotBeNullOrEmpty();
+            description.ShouldBe("TestAgent: TestAgent (Counter: 0)");
+        }
+
+        {
+            // Call event handler
+            await agent.HandleEventAsync(
+                new TestCommand { Parameters = { ["name"] = "AsyncTest" } }.CreateEventEnvelope());
+
+            // Assert
+            var description = agent.GetDescription();
+            description.ShouldBe("TestAgent: AsyncTest (Counter: 10)");
+        }
     }
 
     [Fact(DisplayName = "Should get description asynchronously")]
@@ -254,16 +265,26 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
     {
         // Arrange
         var agent = new BasicTestAgent();
-        agent.GetState().Name = "AsyncTest";
-        agent.GetState().Counter = 100;
+        await agent.ActivateAsync();
 
-        // Act
-        var description = await agent.GetDescriptionAsync();
+        {
+            // Act
+            var description = await agent.GetDescriptionAsync();
 
-        // Assert
-        description.ShouldNotBeNullOrEmpty();
-        description.ShouldContain("AsyncTest");
-        description.ShouldContain("100");
+            // Assert
+            description.ShouldNotBeNullOrEmpty();
+            description.ShouldBe("TestAgent: TestAgent (Counter: 0)");
+        }
+
+        {
+            // Call event handler
+            await agent.HandleEventAsync(
+                new TestCommand { Parameters = { ["name"] = "AsyncTest" } }.CreateEventEnvelope());
+
+            // Assert
+            var description = await agent.GetDescriptionAsync();
+            description.ShouldBe("TestAgent: AsyncTest (Counter: 10)");
+        }
     }
 
     [Fact(DisplayName = "Should provide default description")]
@@ -288,31 +309,29 @@ public class GAgentBaseTests(CoreTestFixture fixture) : IClassFixture<CoreTestFi
             ErrorMessage = "Description generation failed",
             ExceptionType = typeof(InvalidOperationException)
         };
-        
+
         // Act & Assert - InvalidOperationException
-        var exception = await Should.ThrowAsync<InvalidOperationException>(
-            async () => await agent.GetDescriptionAsync()
+        var exception = await Should.ThrowAsync<InvalidOperationException>(async () => await agent.GetDescriptionAsync()
         );
         exception.Message.ShouldBe("Description generation failed");
-        
+
         // Test with NotImplementedException
         agent.ExceptionType = typeof(NotImplementedException);
         agent.ErrorMessage = "Not implemented yet";
-        
-        var notImplException = await Should.ThrowAsync<NotImplementedException>(
-            async () => await agent.GetDescriptionAsync()
-        );
+
+        var notImplException =
+            await Should.ThrowAsync<NotImplementedException>(async () => await agent.GetDescriptionAsync()
+            );
         notImplException.Message.ShouldBe("Not implemented yet");
-        
+
         // Test with TimeoutException
         agent.ExceptionType = typeof(TimeoutException);
         agent.ErrorMessage = "Operation timed out";
-        
-        var timeoutException = await Should.ThrowAsync<TimeoutException>(
-            async () => await agent.GetDescriptionAsync()
+
+        var timeoutException = await Should.ThrowAsync<TimeoutException>(async () => await agent.GetDescriptionAsync()
         );
         timeoutException.Message.ShouldBe("Operation timed out");
-        
+
         // Test normal operation when not throwing
         agent.ShouldThrowInGetDescription = false;
         var description = await agent.GetDescriptionAsync();

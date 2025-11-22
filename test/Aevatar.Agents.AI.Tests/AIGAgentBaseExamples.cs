@@ -36,11 +36,11 @@ public partial class AIGAgentBaseExamples
             return Task.FromResult("Data analysis agent with visualization tools");
         }
 
-        protected override void ConfigureAI(AevatarAIAgentConfiguration config)
+        protected override void ConfigAI(AevatarAIAgentConfig config)
         {
             config.Model = "gpt-4";
-            config.Temperature = 0.3;  // Lower temperature for more deterministic analysis
-            config.MaxTokens = 4000;
+            config.Temperature = 0.3f;  // Lower temperature for more deterministic analysis
+            config.MaxOutputTokens = 4000;
         }
     }
 

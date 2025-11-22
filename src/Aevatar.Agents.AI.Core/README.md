@@ -49,7 +49,7 @@ public class CustomerSupportAgent : AevatarAIAgentBase<CustomerSupportState>
 ```csharp
 services.AddSingleton<IAevatarLLMProvider, SemanticKernelProvider>();
 services.AddSingleton<IAevatarPromptManager, FilePromptManager>();
-services.AddSingleton<IAevatarToolManager, DefaultToolManager>();
+services.AddSingleton<IAevatarToolManager, AevatarToolManager>();
 services.AddSingleton<IAevatarMemory, InMemoryAIMemory>();
 ```
 

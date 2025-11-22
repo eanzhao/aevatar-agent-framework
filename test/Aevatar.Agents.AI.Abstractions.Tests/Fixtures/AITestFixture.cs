@@ -8,6 +8,7 @@ using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Abstractions.Tests.Memory;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.Core.Tests.Fixtures;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

@@ -1,4 +1,5 @@
-using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Extensions;
 using EventSourcingDemo.Events;
 using Microsoft.Extensions.Logging;
 using Demo.Agents;
@@ -10,7 +11,7 @@ namespace EventSourcingDemo;
 /// 支持 EventSourcing 的银行账户 Agent
 /// 使用新的批量提交和纯函数式状态转换模式
 /// </summary>
-public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
+public class BankAccountAgent : GAgentBase<BankAccountState>
 {
     public override Task<string> GetDescriptionAsync()
     {
@@ -24,7 +25,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     /// </summary>
     public async Task CreateAccountAsync(string accountHolder, decimal initialBalance = 0)
     {
-        Logger?.LogInformation("Creating account for {Holder} with initial balance ${Balance}", 
+        Logger.LogInformation("Creating account for {Holder} with initial balance ${Balance}",
             accountHolder, initialBalance);
 
         var evt = new AccountCreated
@@ -32,7 +33,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
             AccountHolder = accountHolder,
             InitialBalance = (double)initialBalance
         };
-        
+
         // ✅ 新 API: RaiseEvent (暂存)
         RaiseEvent(evt, new Dictionary<string, string>
         {
@@ -43,7 +44,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         // ✅ 新 API: ConfirmEventsAsync (批量提交)
         await ConfirmEventsAsync();
 
-        Logger?.LogInformation("Account created successfully. Version: {Version}", GetCurrentVersion());
+        Logger.LogInformation("Account created successfully. Version: {Version}", GetCurrentVersion());
     }
 
     /// <summary>
@@ -61,7 +62,7 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         var evt = new MoneyDeposited
         {
             Amount = (double)amount,
-            Description = description ?? $"Deposit at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"
+            Description = description
         };
 
         // ✅ 新 API: RaiseEvent (暂存)
@@ -127,20 +128,20 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
         {
             IMessage evt = type.ToLower() switch
             {
-                "deposit" => new MoneyDeposited 
-                { 
-                    Amount = (double)amount, 
-                    Description = description 
+                "deposit" => new MoneyDeposited
+                {
+                    Amount = (double)amount,
+                    Description = description
                 },
-                "withdraw" => new MoneyWithdrawn 
-                { 
-                    Amount = (double)amount, 
-                    Description = description 
+                "withdraw" => new MoneyWithdrawn
+                {
+                    Amount = (double)amount,
+                    Description = description
                 },
                 _ => throw new ArgumentException($"Unknown transaction type: {type}")
             };
 
-            RaiseEvent(evt);  // 暂存，不立即提交
+            RaiseEvent(evt); // 暂存，不立即提交
         }
 
         // ✅ 一次性批量提交所有事件
@@ -158,12 +159,13 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
     protected override void TransitionState(BankAccountState state, IMessage evt)
     {
         Logger?.LogInformation("🔄 TransitionState called with event type: {EventType}", evt.GetType().Name);
-        Logger?.LogInformation("   Current state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
+        Logger?.LogInformation("   Current state: Balance=${Balance}, Transactions={Count}", state.Balance,
+            state.TransactionCount);
 
         switch (evt)
         {
             case AccountCreated created:
-                Logger?.LogInformation("   ✅ Matched AccountCreated: Holder={Holder}, InitialBalance={Balance}", 
+                Logger?.LogInformation("   ✅ Matched AccountCreated: Holder={Holder}, InitialBalance={Balance}",
                     created.AccountHolder, created.InitialBalance);
                 state.AccountHolder = created.AccountHolder;
                 state.Balance = created.InitialBalance;
@@ -186,12 +188,13 @@ public class BankAccountAgent : GAgentBaseWithEventSourcing<BankAccountState>
                 state.History.Add(
                     $"[{state.TransactionCount}] Withdrew ${withdrawn.Amount:F2} - {withdrawn.Description}");
                 break;
-                
+
             default:
                 Logger?.LogWarning("   ❌ Unknown event type in switch: {EventType}", evt.GetType().FullName);
                 break;
         }
 
-        Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", state.Balance, state.TransactionCount);
+        Logger?.LogInformation("   New state: Balance=${Balance}, Transactions={Count}", state.Balance,
+            state.TransactionCount);
     }
 }

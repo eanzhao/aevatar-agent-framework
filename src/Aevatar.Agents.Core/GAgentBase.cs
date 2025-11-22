@@ -3,6 +3,8 @@ using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -41,6 +43,7 @@ public abstract class GAgentBase : IGAgent
 
     // Event handler cache (type -> method list)
     private static readonly ConcurrentDictionary<Type, MethodInfo[]> HandlerCache = new();
+    private static readonly IEventHandlerDiscoverer DefaultDiscoverer = new ReflectionEventHandlerDiscoverer();
 
     // ============ Constructors ============
 
@@ -173,57 +176,21 @@ public abstract class GAgentBase : IGAgent
     public MethodInfo[] GetEventHandlers()
     {
         var type = GetType();
-        return HandlerCache.GetOrAdd(type, DiscoverEventHandlers);
+        return HandlerCache.GetOrAdd(type, _ =>
+        {
+            var handlers = GetEventHandlerDiscoverer().DiscoverEventHandlers(type);
+            Logger.LogDebug("Discovered {Count} event handlers for {Type}", handlers.Length, type.Name);
+            return handlers;
+        });
     }
 
     /// <summary>
-    /// Discover event handlers via reflection
+    /// Get the event handler discoverer to use.
+    /// Defaults to ReflectionEventHandlerDiscoverer.
     /// </summary>
-    private MethodInfo[] DiscoverEventHandlers(Type type)
+    protected virtual IEventHandlerDiscoverer GetEventHandlerDiscoverer()
     {
-        var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-        var handlers = methods
-            .Where(IsEventHandlerMethod)
-            .OrderBy(m => m.GetCustomAttribute<EventHandlerAttribute>()?.Priority ??
-                          m.GetCustomAttribute<AllEventHandlerAttribute>()?.Priority ??
-                          int.MaxValue)
-            .ToArray();
-
-        Logger.LogDebug("Discovered {Count} event handlers for {Type}", handlers.Length, type.Name);
-
-        return handlers;
-    }
-
-    /// <summary>
-    /// Determine if a method is an event handler (can be overridden by subclasses)
-    /// </summary>
-    protected virtual bool IsEventHandlerMethod(MethodInfo method)
-    {
-        var parameters = method.GetParameters();
-        if (parameters.Length != 1) return false;
-
-        var paramType = parameters[0].ParameterType;
-
-        // [EventHandler] marked methods, parameter must be IMessage
-        if (method.GetCustomAttribute<EventHandlerAttribute>() != null)
-        {
-            return typeof(IMessage).IsAssignableFrom(paramType);
-        }
-
-        // [AllEventHandler] marked methods, parameter must be EventEnvelope
-        if (method.GetCustomAttribute<AllEventHandlerAttribute>() != null)
-        {
-            return paramType == typeof(EventEnvelope);
-        }
-
-        // Convention-based handlers: method named HandleAsync or HandleEventAsync, parameter is IMessage
-        if (method.Name is "HandleAsync" or "HandleEventAsync")
-        {
-            return typeof(IMessage).IsAssignableFrom(paramType) && !paramType.IsAbstract;
-        }
-
-        return false;
+        return DefaultDiscoverer;
     }
 
     // ============ Event Handler Invocation ============
@@ -264,7 +231,7 @@ public abstract class GAgentBase : IGAgent
             {
                 var paramType = handler.GetParameters()[0].ParameterType;
 
-                // Check if should handle event
+                // Check if it should handle event
                 if (!ShouldHandleEvent(handler, envelope))
                 {
                     continue;
@@ -379,7 +346,7 @@ public abstract class GAgentBase : IGAgent
 
         // Create event handler scope to allow State modifications
         using var scope = StateProtectionContext.BeginEventHandlerScope();
-        
+
         try
         {
             var result = handler.Invoke(this, new[] { parameter });
@@ -437,8 +404,8 @@ public abstract class GAgentBase : IGAgent
                 return;
 
             // Build complete exception message including inner exceptions
-            var fullExceptionMessage = BuildFullExceptionMessage(exception);
-            
+            var fullExceptionMessage = ExceptionFormatter.BuildFullExceptionMessage(exception);
+
             var exceptionEvent = new EventHandlerExceptionEvent
             {
                 AgentId = Id.ToString(),
@@ -459,38 +426,6 @@ public abstract class GAgentBase : IGAgent
             Logger.LogError(ex, "Error publishing exception event");
         }
     }
-    
-    /// <summary>
-    /// Build a complete exception message including all inner exceptions
-    /// </summary>
-    private static string BuildFullExceptionMessage(Exception exception)
-    {
-        var messages = new List<string>();
-        var currentException = exception;
-        var level = 0;
-        
-        while (currentException != null && level < 10) // Limit depth to prevent infinite loops
-        {
-            if (level == 0)
-            {
-                messages.Add($"{currentException.GetType().Name}: {currentException.Message}");
-            }
-            else
-            {
-                messages.Add($" ---> {currentException.GetType().Name}: {currentException.Message}");
-            }
-            
-            currentException = currentException.InnerException;
-            level++;
-        }
-        
-        if (level >= 10 && currentException != null)
-        {
-            messages.Add(" ---> [Exception chain truncated]");
-        }
-        
-        return string.Join(Environment.NewLine, messages);
-    }
 
     /// <summary>
     /// Publish framework exception event
@@ -508,7 +443,7 @@ public abstract class GAgentBase : IGAgent
             {
                 AgentId = Id.ToString(),
                 Operation = operation,
-                ExceptionMessage = exception.Message,
+                ExceptionMessage = ExceptionFormatter.BuildFullExceptionMessage(exception),
                 StackTrace = exception.StackTrace ?? string.Empty,
                 Timestamp = TimestampHelper.GetUtcNow()
             };
@@ -530,7 +465,7 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     protected virtual Task OnActivateAsync(CancellationToken ct = default)
     {
-        Logger.LogDebug("Agent {Id} activated", Id);
+        Logger.LogDebug("Agent {Id} of type {AgentType} activated", Id, GetType().Name);
         return Task.CompletedTask;
     }
 

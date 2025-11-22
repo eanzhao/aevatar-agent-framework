@@ -1,4 +1,7 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.WithTool;
+using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Messages;
 using Microsoft.Extensions.AI;
 
 namespace Aevatar.Agents.AI.MEAI;
@@ -9,29 +12,7 @@ namespace Aevatar.Agents.AI.MEAI;
 /// </summary>
 internal class MEAIToolManager : IAevatarToolManager
 {
-    private readonly Dictionary<string, AITool> _aiTools = new();
     private readonly Dictionary<string, ToolDefinition> _toolDefinitions = new();
-    
-    /// <summary>
-    /// 注册Microsoft.Extensions.AI工具
-    /// </summary>
-    public void RegisterAITool(AITool aiTool)
-    {
-        if (aiTool != null)
-        {
-            var name = $"Tool_{_aiTools.Count}";
-            _aiTools[name] = aiTool;
-            
-            // Create corresponding ToolDefinition
-            var definition = new ToolDefinition
-            {
-                Name = name,
-                Description = "AI Tool",
-                Parameters = new ToolParameters()
-            };
-            _toolDefinitions[name] = definition;
-        }
-    }
     
     /// <inheritdoc />
     public Task RegisterToolAsync(
@@ -39,17 +20,6 @@ internal class MEAIToolManager : IAevatarToolManager
         CancellationToken cancellationToken = default)
     {
         _toolDefinitions[tool.Name] = tool;
-        
-        // Try to create a corresponding AITool if possible
-        // This is a simplified approach - real implementation might need more logic
-        Func<Dictionary<string, object?>, Task<object>> handler = async (args) =>
-        {
-            return $"Tool {tool.Name} executed";
-        };
-        
-        var aiTool = AIFunctionFactory.Create(handler);
-        _aiTools[tool.Name] = aiTool;
-        
         return Task.CompletedTask;
     }
 
@@ -60,56 +30,40 @@ internal class MEAIToolManager : IAevatarToolManager
         return Task.FromResult<IReadOnlyList<ToolDefinition>>(_toolDefinitions.Values.ToList());
     }
 
-    /// <inheritdoc />
     public async Task<ToolExecutionResult> ExecuteToolAsync(
         string toolName,
         Dictionary<string, object> parameters,
-        Aevatar.Agents.AI.ExecutionContext? context = null,
+        ToolExecutionContext? context = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Tool execution is simplified since ToolDefinition doesn't have ExecuteFunc
+            // Execute via ToolDefinition's ExecuteAsync if available
             if (_toolDefinitions.TryGetValue(toolName, out var definition))
             {
-                // Simplified execution
-                return new ToolExecutionResult
+                if (definition.ExecuteAsync != null)
                 {
-                    Success = true,
-                    Result = $"Tool {toolName} executed with {parameters.Count} parameters"
-                };
-            }
-            
-            // Try to execute via AITool if available
-            if (_aiTools.TryGetValue(toolName, out var aiTool))
-            {
-                // Convert parameters for AITool execution
-                var nullableParams = parameters.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => (object?)kvp.Value);
-                
-                // Invoke the AITool
-                var result = await Task.FromResult<object>($"Tool {toolName} invoked");
-                
-                return new ToolExecutionResult
-                {
-                    Success = true,
-                    Result = result
-                };
+                    var result = await definition.ExecuteAsync(parameters, context, cancellationToken);
+                    return new ToolExecutionResult
+                    {
+                        IsSuccess = true,
+                        Content = result?.ToString() ?? string.Empty
+                    };
+                }
             }
             
             return new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Tool {toolName} not found"
+                IsSuccess = false,
+                Content = $"Tool {toolName} not found or has no ExecuteAsync"
             };
         }
         catch (Exception ex)
         {
             return new ToolExecutionResult
             {
-                Success = false,
-                Error = $"Error executing tool {toolName}: {ex.Message}"
+                IsSuccess = false,
+                Content = $"Error executing tool {toolName}: {ex.Message}"
             };
         }
     }
@@ -128,23 +82,24 @@ internal class MEAIToolManager : IAevatarToolManager
                 Description = tool.Description,
                 Parameters = new Dictionary<string, AevatarParameterDefinition>()
             };
+            
+            // Convert ToolParameters to AevatarParameterDefinition
+            if (tool.Parameters?.Items != null)
+            {
+                foreach (var param in tool.Parameters.Items)
+                {
+                    func.Parameters[param.Key] = new AevatarParameterDefinition
+                    {
+                        Type = param.Value.Type ?? "string",
+                        Description = param.Value.Description ?? "",
+                        Required = param.Value.Required
+                    };
+                }
+            }
+            
             functions.Add(func);
         }
         
         return functions;
-    }
-    
-    /// <summary>
-    /// 获取所有注册的AITools
-    /// </summary>
-    public IReadOnlyList<AITool> GetAITools()
-    {
-        return _aiTools.Values.ToList();
-    }
-    
-    private ToolParameters ConvertToToolParameters(AITool aiTool)
-    {
-        // Simplified conversion since AITool doesn't have Metadata property
-        return new ToolParameters();
     }
 }

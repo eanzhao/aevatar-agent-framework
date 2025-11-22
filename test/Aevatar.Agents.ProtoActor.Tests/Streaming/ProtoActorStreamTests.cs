@@ -252,18 +252,23 @@ public class ProtoTestParentAgent : GAgentBase<Messages.TestState>
 public class ProtoTestChildAgent : GAgentBase<Messages.TestState>
 {
     public List<string> ReceivedMessages { get; } = new();
-    
-    public ProtoTestChildAgent(Guid id) : base(id) { }
-    public ProtoTestChildAgent() : base() { }
-    
-    public override Task<string> GetDescriptionAsync() => 
+
+    public ProtoTestChildAgent(Guid id) : base(id)
+    {
+    }
+
+    public ProtoTestChildAgent() : base()
+    {
+    }
+
+    public override Task<string> GetDescriptionAsync() =>
         Task.FromResult("Proto Test Child");
-    
+
     public async Task SendUpMessage(string message)
     {
         await PublishAsync(new ProtoTestEvent { Message = message }, EventDirection.Up);
     }
-    
+
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleEvent(ProtoTestEvent evt)
     {
@@ -271,5 +276,3 @@ public class ProtoTestChildAgent : GAgentBase<Messages.TestState>
         await Task.CompletedTask;
     }
 }
-
-// 注意：ProtoTestEvent 和 TestState 现在从 test_messages.proto 生成

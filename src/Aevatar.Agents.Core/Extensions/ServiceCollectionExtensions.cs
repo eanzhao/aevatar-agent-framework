@@ -56,7 +56,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<GAgentOptions>? configureOptions = null)
         where TAgent : GAgentBase<TState>
-        where TState : class, IMessage, new()
+        where TState : class, IMessage<TState>, new()
     {
         // Use provided config or fall back to default
         var options = configureOptions != null ? new GAgentOptions() : _defaultOptions ?? new GAgentOptions();

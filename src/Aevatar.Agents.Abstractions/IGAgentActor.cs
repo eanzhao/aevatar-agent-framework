@@ -3,71 +3,71 @@ using Google.Protobuf;
 namespace Aevatar.Agents.Abstractions;
 
 /// <summary>
-/// Agent Actor 运行时抽象接口
-/// 负责：层级关系管理、Stream 订阅、事件路由、生命周期管理
+/// Agent Actor runtime abstraction interface.
+/// Responsibilities: Hierarchy management, Stream subscription, Event routing, Lifecycle management.
 /// </summary>
 public interface IGAgentActor : IEventPublisher
 {
     /// <summary>
-    /// Actor 标识符（与关联的 Agent Id 相同）
+    /// Actor Identifier (same as the associated Agent Id).
     /// </summary>
     Guid Id { get; }
 
     /// <summary>
-    /// 获取关联的 Agent 实例
+    /// Get the associated Agent instance.
     /// </summary>
     IGAgent GetAgent();
 
-    // ============ 层级关系管理 ============
+    // ============ Hierarchy Management ============
 
     /// <summary>
-    /// 添加子 Agent
+    /// Add a child Agent.
     /// </summary>
     Task AddChildAsync(Guid childId, CancellationToken ct = default);
 
     /// <summary>
-    /// 移除子 Agent
+    /// Remove a child Agent.
     /// </summary>
     Task RemoveChildAsync(Guid childId, CancellationToken ct = default);
 
     /// <summary>
-    /// 设置父 Agent
+    /// Set the parent Agent.
     /// </summary>
     Task SetParentAsync(Guid parentId, CancellationToken ct = default);
 
     /// <summary>
-    /// 清除父 Agent
+    /// Clear the parent Agent.
     /// </summary>
     Task ClearParentAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// 获取所有子 Agent ID
+    /// Get all child Agent IDs.
     /// </summary>
     Task<IReadOnlyList<Guid>> GetChildrenAsync();
 
     /// <summary>
-    /// 获取父 Agent ID
+    /// Get the parent Agent ID.
     /// </summary>
     Task<Guid?> GetParentAsync();
 
-    // ============ 事件发布和路由 ============
+    // ============ Event Publishing and Routing ============
 
     /// <summary>
-    /// 处理接收到的事件
+    /// Handle received events.
     /// </summary>
-    /// <param name="envelope">事件信封</param>
-    /// <param name="ct">取消令牌</param>
+    /// <param name="envelope">Event envelope.</param>
+    /// <param name="ct">Cancellation token.</param>
     Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default);
 
-    // ============ 生命周期 ============
+    // ============ Lifecycle ============
 
     /// <summary>
-    /// 激活 Actor
+    /// Activate the Actor.
     /// </summary>
     Task ActivateAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// 停用 Actor
+    /// Deactivate the Actor.
     /// </summary>
     Task DeactivateAsync(CancellationToken ct = default);
 }
