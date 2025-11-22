@@ -1,14 +1,15 @@
-using Aevatar.Agents;
-using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Core;
-using Google.Protobuf;
+using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using System.Text;
-using Aevatar.Agents.AI;
+using Aevatar.Agents;
+using Google.Protobuf;
 
-namespace AIEventSourcingDemo;
+namespace LlmTornadoDemo;
 
 /// <summary>
 /// AI Assistant Agent with Event Sourcing

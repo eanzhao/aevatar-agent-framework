@@ -3,10 +3,10 @@ using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.AI.LLMTornado;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
-using AIEventSourcingDemo;
+using LlmTornadoDemo;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,7 +37,9 @@ var host = Host.CreateDefaultBuilder(args)
 
         // Configure LLM Providers
         services.Configure<LLMProvidersConfig>(config.GetSection("LLMProviders"));
-        services.AddSingleton<ILLMProviderFactory, MEAILLMProviderFactory>();
+        
+        // Register LlmTornado Factory
+        services.AddAevatarLLMTornado();
 
         // Configure Event Store (InMemory for demo)
         services.AddSingleton<IEventStore, InMemoryEventStore>();
@@ -55,7 +57,7 @@ var eventStore = host.Services.GetRequiredService<IEventStore>();
 var actorFactory = host.Services.GetRequiredService<IGAgentActorFactory>();
 
 logger.LogInformation("╔════════════════════════════════════════════╗");
-logger.LogInformation("║   AI Agent with Event Sourcing Demo       ║");
+logger.LogInformation("║   AI Agent with LlmTornado Demo           ║");
 logger.LogInformation("║   Pure Event-Driven Architecture          ║");
 logger.LogInformation("╚════════════════════════════════════════════╝\n");
 
