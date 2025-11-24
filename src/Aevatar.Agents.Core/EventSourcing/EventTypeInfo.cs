@@ -1,4 +1,3 @@
-using System;
 using Google.Protobuf;
 
 namespace Aevatar.Agents.Core.EventSourcing;
