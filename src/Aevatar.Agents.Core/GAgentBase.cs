@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Helpers;
 using Google.Protobuf.WellKnownTypes;
+using System.Linq;
 using Type = System.Type;
 
 namespace Aevatar.Agents.Core;
@@ -41,9 +42,85 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     protected ILogger Logger { get; set; } = NullLogger.Instance;
 
-    // Event handler cache (type -> method list)
-    private static readonly ConcurrentDictionary<Type, MethodInfo[]> HandlerCache = new();
+    // Event handler cache (type -> metadata list)
+    private static readonly ConcurrentDictionary<Type, EventHandlerMetadata[]> HandlerCache = new();
     private static readonly IEventHandlerDiscoverer DefaultDiscoverer = new ReflectionEventHandlerDiscoverer();
+
+    /// <summary>
+    /// Metadata for cached event handlers to avoid repeated reflection
+    /// </summary>
+    public class EventHandlerMetadata
+    {
+        public MethodInfo Method { get; }
+        public Type ParameterType { get; }
+        public bool IsAllEventHandler { get; }
+        public bool AllowSelfHandling { get; }
+        public Func<Any, IMessage>? Unpacker { get; }
+
+        public EventHandlerMetadata(MethodInfo method)
+        {
+            Method = method;
+            ParameterType = method.GetParameters()[0].ParameterType;
+
+            var allHandlerAttr = method.GetCustomAttribute<AllEventHandlerAttribute>();
+            var eventHandlerAttr = method.GetCustomAttribute<EventHandlerAttribute>();
+
+            IsAllEventHandler = allHandlerAttr != null;
+            AllowSelfHandling = eventHandlerAttr?.AllowSelfHandling ?? allHandlerAttr?.AllowSelfHandling ?? false;
+
+            // Pre-compile Unpack delegate for specific message types
+            if (!IsAllEventHandler && typeof(IMessage).IsAssignableFrom(ParameterType))
+            {
+                try
+                {
+                    MethodInfo? unpackMethodDef = null;
+                    bool isInstanceMethod = false;
+
+                    // 1. Try to find instance method Unpack<T>() first (as used in previous implementation)
+                    unpackMethodDef = typeof(Any).GetMethod("Unpack", Type.EmptyTypes);
+                    
+                    if (unpackMethodDef != null && unpackMethodDef.IsGenericMethod)
+                    {
+                        isInstanceMethod = true;
+                    }
+                    else
+                    {
+                        // 2. Fallback: Find Unpack<T> extension method dynamically
+                        unpackMethodDef = typeof(Any).Assembly
+                            .GetTypes()
+                            .SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
+                            .FirstOrDefault(m => m is { Name: "Unpack", IsGenericMethod: true } && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(Any));
+                    }
+
+                    if (unpackMethodDef != null)
+                    {
+                        var unpackMethod = unpackMethodDef.MakeGenericMethod(ParameterType);
+                        
+                        var anyParam = System.Linq.Expressions.Expression.Parameter(typeof(Any), "any");
+                        
+                        System.Linq.Expressions.MethodCallExpression call;
+                        if (isInstanceMethod)
+                        {
+                            call = System.Linq.Expressions.Expression.Call(anyParam, unpackMethod);
+                        }
+                        else
+                        {
+                            call = System.Linq.Expressions.Expression.Call(unpackMethod, anyParam);
+                        }
+
+                        var cast = System.Linq.Expressions.Expression.Convert(call, typeof(IMessage));
+                        var lambda = System.Linq.Expressions.Expression.Lambda<Func<Any, IMessage>>(cast, anyParam);
+                        Unpacker = lambda.Compile();
+                    }
+                }
+                catch (Exception)
+                {
+                    // Fallback or ignore if unpacker cannot be created
+                    Unpacker = null;
+                }
+            }
+        }
+    }
 
     // ============ Constructors ============
 
@@ -92,38 +169,33 @@ public abstract class GAgentBase : IGAgent
 
         foreach (var handler in handlers)
         {
-            var paramType = handler.GetParameters().FirstOrDefault()?.ParameterType;
-
-            if (paramType == null)
-                continue;
-
             // Skip EventEnvelope (AllEventHandler) if not requested
-            if (!includeAllEventHandler && paramType == typeof(EventEnvelope))
+            if (!includeAllEventHandler && handler.IsAllEventHandler)
                 continue;
 
             // Only include IMessage types
-            if (typeof(IMessage).IsAssignableFrom(paramType))
+            if (typeof(IMessage).IsAssignableFrom(handler.ParameterType))
             {
-                eventTypes.Add(paramType);
+                eventTypes.Add(handler.ParameterType);
             }
         }
 
         return Task.FromResult(eventTypes.ToList());
     }
 
-    public async Task ActivateAsync()
+    public async Task ActivateAsync(CancellationToken ct = default)
     {
         // Allow State modification during agent activation
         // This is necessary for initializing agent state before event processing begins
         using (StateProtectionContext.BeginInitializationScope())
         {
-            await OnActivateAsync();
+            await OnActivateAsync(ct);
         }
     }
 
-    public async Task DeactivateAsync()
+    public async Task DeactivateAsync(CancellationToken ct = default)
     {
-        await OnDeactivateAsync();
+        await OnDeactivateAsync(ct);
     }
 
     // ============ Event Publishing ============
@@ -171,16 +243,17 @@ public abstract class GAgentBase : IGAgent
     // ============ Event Handler Discovery ============
 
     /// <summary>
-    /// Get all event handler methods (cached)
+    /// Get all event handler metadata (cached)
     /// </summary>
-    public MethodInfo[] GetEventHandlers()
+    public EventHandlerMetadata[] GetEventHandlers()
     {
         var type = GetType();
         return HandlerCache.GetOrAdd(type, _ =>
         {
-            var handlers = GetEventHandlerDiscoverer().DiscoverEventHandlers(type);
-            Logger.LogDebug("Discovered {Count} event handlers for {Type}", handlers.Length, type.Name);
-            return handlers;
+            var methods = GetEventHandlerDiscoverer().DiscoverEventHandlers(type);
+            var metadata = methods.Select(m => new EventHandlerMetadata(m)).ToArray();
+            Logger.LogDebug("Discovered {Count} event handlers for {Type}", metadata.Length, type.Name);
+            return metadata;
         });
     }
 
@@ -229,8 +302,6 @@ public abstract class GAgentBase : IGAgent
         {
             try
             {
-                var paramType = handler.GetParameters()[0].ParameterType;
-
                 // Check if it should handle event
                 if (!ShouldHandleEvent(handler, envelope))
                 {
@@ -238,9 +309,9 @@ public abstract class GAgentBase : IGAgent
                 }
 
                 // AllEventHandler - pass EventEnvelope directly
-                if (handler.GetCustomAttribute<AllEventHandlerAttribute>() != null)
+                if (handler.IsAllEventHandler)
                 {
-                    await InvokeHandler(handler, envelope, ct);
+                    await InvokeHandler(handler.Method, envelope, ct);
                     handled = true;
                     continue;
                 }
@@ -248,53 +319,80 @@ public abstract class GAgentBase : IGAgent
                 // EventHandler - unpack Payload
                 if (envelope.Payload != null)
                 {
-                    object? message = null;
+                    IMessage? message = null;
                     try
                     {
-                        // Use reflection to call generic Unpack<T> method
-                        var unpackMethod = typeof(Any)
-                            .GetMethod("Unpack", Type.EmptyTypes)
-                            ?.MakeGenericMethod(paramType);
-
-                        if (unpackMethod != null)
+                        // Use pre-compiled Unpacker delegate if available
+                        if (handler.Unpacker != null)
                         {
-                            message = unpackMethod.Invoke(envelope.Payload, null);
-                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName}",
-                                message?.GetType().Name ?? "null", handler.Name);
+                            message = handler.Unpacker(envelope.Payload);
+                            Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using Unpacker",
+                                message?.GetType().Name ?? "null", handler.Method.Name);
+                        }
+                        else if (!handler.IsAllEventHandler && envelope.Payload != null)
+                        {
+                            Logger.LogWarning("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
+                            
+                            // Fallback: Try to unpack using reflection if Unpacker is missing
+                            try
+                            {
+                                // Find Unpack method dynamically
+                                var unpackMethod = typeof(Any).Assembly
+                                    .GetTypes()
+                                    .SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
+                                    .FirstOrDefault(m => m.Name == "Unpack" && m.IsGenericMethod && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(Any));
+                                    
+                                if (unpackMethod != null)
+                                {
+                                    var genericUnpack = unpackMethod.MakeGenericMethod(handler.ParameterType);
+                                    message = (IMessage?)genericUnpack.Invoke(null, new object[] { envelope.Payload });
+                                    Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using reflection fallback",
+                                        message?.GetType().Name ?? "null", handler.Method.Name);
+                                }
+                                else
+                                {
+                                    Logger.LogError("CRITICAL: Could not find Any.Unpack method via reflection for handler {HandlerName}", handler.Method.Name);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.LogWarning(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
                         // Unpack failed, possibly type mismatch, skip
-                        Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Name);
-                        continue;
+                        Logger.LogTrace(ex, "Failed to unpack event payload for handler {Handler}", handler.Method.Name);
                     }
 
-                    // Check if type matches and invoke handler
-                    if (message != null && paramType.IsInstanceOfType(message))
+                    if (message != null)
                     {
-                        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}",
-                            handler.Name, message.GetType().Name);
-                        await InvokeHandler(handler, message, ct);
+                        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", handler.Method.Name, message.GetType().Name);
+                        await InvokeHandler(handler.Method, message, ct);
                         handled = true;
                     }
                     else
                     {
-                        Logger.LogDebug(
-                            "Type mismatch: handler {HandlerName} expects {ExpectedType}, got {ActualType}",
-                            handler.Name, paramType.Name, message?.GetType().Name ?? "null");
+                         // Log why message is null if we expected it to work
+                         if (!handler.IsAllEventHandler)
+                         {
+                             var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {envelope.Payload.TypeUrl}";
+                             Logger.LogWarning(msg);
+                             Console.WriteLine($"[WARNING] {msg}");
+                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error handling event in {Handler}", handler.Name);
+                Logger.LogError(ex, "Error handling event in {Handler}", handler.Method.Name);
 
                 // Record exception metrics
-                AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Name}");
+                AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Method.Name}");
 
                 // Publish exception event
-                await PublishExceptionEventAsync(envelope, handler.Name, ex);
+                await PublishExceptionEventAsync(envelope, handler.Method.Name, ex);
 
                 // Continue processing other handlers
             }
@@ -318,17 +416,10 @@ public abstract class GAgentBase : IGAgent
     /// <summary>
     /// Determine if an event should be handled (can be used by subclasses)
     /// </summary>
-    protected bool ShouldHandleEvent(MethodInfo handler, EventEnvelope envelope)
+    private bool ShouldHandleEvent(EventHandlerMetadata handler, EventEnvelope envelope)
     {
-        var eventHandlerAttr = handler.GetCustomAttribute<EventHandlerAttribute>();
-        var allEventHandlerAttr = handler.GetCustomAttribute<AllEventHandlerAttribute>();
-
-        var allowSelfHandling = eventHandlerAttr?.AllowSelfHandling ??
-                                allEventHandlerAttr?.AllowSelfHandling ??
-                                false;
-
         // If self-handling is not allowed and publisher is self, skip
-        if (!allowSelfHandling && envelope.PublisherId == Id.ToString())
+        if (!handler.AllowSelfHandling && envelope.PublisherId == Id.ToString())
         {
             return false;
         }

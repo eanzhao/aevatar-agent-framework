@@ -40,7 +40,7 @@ public class OrleansAgentState
 /// 3. 管理 Orleans Streams 订阅
 /// 业务逻辑在 OrleansGAgentActor 中处理
 /// </summary>
-public class OrleansGAgentGrain : Grain, IStandardGAgentGrain
+public class OrleansGAgentGrain : Grain, IGAgentGrain
 {
     // Grain 持久化状态
     private readonly IPersistentState<OrleansAgentState> _grainState;

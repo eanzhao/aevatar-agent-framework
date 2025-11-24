@@ -28,11 +28,18 @@ public interface IGAgent
     /// Active current GAgent.
     /// </summary>
     /// <returns></returns>
-    Task ActivateAsync();
+    Task ActivateAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Deactive current GAgent.
     /// </summary>
     /// <returns></returns>
-    Task DeactivateAsync();
+    Task DeactivateAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Handle event envelope.
+    /// </summary>
+    /// <param name="envelope">Event envelope to handle</param>
+    /// <param name="ct">Cancellation token</param>
+    Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default);
 }

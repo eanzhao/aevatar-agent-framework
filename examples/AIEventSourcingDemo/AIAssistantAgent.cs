@@ -37,31 +37,6 @@ public class AIAssistantAgent : AIGAgentBase<AIAssistantState, AIAssistantConfig
     }
 
     /// <summary>
-    /// Initialize the assistant by raising an initialization event
-    /// </summary>
-    public async Task InitializeAssistantAsync(string name)
-    {
-        // Raise initialization event - state will be updated through event handler and TransitionState
-        RaiseEvent(new AssistantInitializedEvent
-        {
-            AssistantId = Id.ToString(),
-            Name = name,
-            CreatedAt = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        // Commit the initialization event
-        await ConfirmEventsAsync();
-    }
-
-    /// <summary>
-    /// Commit pending events (public wrapper)
-    /// </summary>
-    public async Task CommitEventsAsync()
-    {
-        await ConfirmEventsAsync();
-    }
-
-    /// <summary>
     /// System prompt for the AI assistant
     /// </summary>
     public override string SystemPrompt => $@"
@@ -87,9 +62,9 @@ Be concise but thorough.
         Console.WriteLine($"[DEBUG] Discovered {handlers.Length} event handlers:");
         foreach (var handler in handlers)
         {
-            Console.WriteLine($"[DEBUG]   - {handler.Name}");
+            Console.WriteLine($"[DEBUG]   - {handler.Method.Name}");
         }
-        
+
         CustomConfig.Personality = "Friendly and helpful AI assistant";
         CustomConfig.Capabilities.Add("General knowledge");
         CustomConfig.Capabilities.Add("Code assistance");
@@ -191,6 +166,7 @@ Be concise but thorough.
 
                 // Add timeout to prevent hanging
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                _conversationStartTimes[evt.ConversationId] = DateTime.UtcNow;
 
                 // Stream the response
                 await foreach (var chunk in ChatStreamAsync(chatRequest, cts.Token))
@@ -422,125 +398,6 @@ Be concise but thorough.
 
         // Commit the events to trigger state transitions
         await ConfirmEventsAsync();
-    }
-
-    /// <summary>
-    /// Handle incoming user messages (public API)
-    /// </summary>
-    public async Task<string> HandleUserMessageAsync(
-        string userId,
-        string message,
-        CancellationToken cancellationToken = default)
-    {
-        // Start new conversation if needed
-        if (string.IsNullOrEmpty(_currentConversationId))
-        {
-            _currentConversationId = Guid.NewGuid().ToString();
-            _currentMessageCount = 0;
-            _currentTokenCount = 0;
-        }
-
-        // Raise event for user message
-        RaiseEvent(new UserMessageReceived
-        {
-            UserId = userId,
-            Message = message,
-            ConversationId = _currentConversationId,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        _currentMessageCount++;
-
-        // Generate AI response
-        var chatRequest = CreateChatRequest(message);
-        var response = await ChatAsync(chatRequest, cancellationToken);
-
-        // Raise event for assistant response
-        var tokensUsed = response.Usage?.TotalTokens ?? 0;
-        _currentTokenCount += tokensUsed;
-
-        RaiseEvent(new AssistantResponseGenerated
-        {
-            Response = response.Content,
-            TokensUsed = tokensUsed,
-            ConfidenceScore = 0.95, // Could be calculated based on model metrics
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        // Commit events
-        await ConfirmEventsAsync(cancellationToken);
-
-        Logger.LogInformation(
-            "Processed message in conversation {ConversationId}. Messages: {MessageCount}, Tokens: {TokenCount}",
-            _currentConversationId, _currentMessageCount, _currentTokenCount);
-
-        return response.Content;
-    }
-
-    /// <summary>
-    /// Handle user feedback
-    /// </summary>
-    public async Task ProvideFeedbackAsync(
-        double satisfactionScore,
-        string? feedbackText = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrEmpty(_currentConversationId))
-        {
-            Logger?.LogWarning("No active conversation to provide feedback for");
-            return;
-        }
-
-        // Raise feedback event
-        RaiseEvent(new FeedbackReceived
-        {
-            ConversationId = _currentConversationId,
-            SatisfactionScore = satisfactionScore,
-            FeedbackText = feedbackText ?? "",
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        await ConfirmEventsAsync(cancellationToken);
-
-        Logger?.LogInformation(
-            "Received feedback for conversation {ConversationId}: Score {Score}",
-            _currentConversationId, satisfactionScore);
-    }
-
-    /// <summary>
-    /// Complete the current conversation
-    /// </summary>
-    public async Task CompleteConversationAsync(
-        string topic,
-        double finalSatisfaction,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrEmpty(_currentConversationId))
-        {
-            Logger?.LogWarning("No active conversation to complete");
-            return;
-        }
-
-        // Raise conversation completed event
-        RaiseEvent(new ConversationCompleted
-        {
-            ConversationId = _currentConversationId,
-            TotalMessages = _currentMessageCount,
-            TotalTokens = _currentTokenCount,
-            FinalSatisfaction = finalSatisfaction,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        });
-
-        await ConfirmEventsAsync(cancellationToken);
-
-        Logger?.LogInformation(
-            "Completed conversation {ConversationId}: {Messages} messages, {Tokens} tokens, Satisfaction: {Satisfaction}",
-            _currentConversationId, _currentMessageCount, _currentTokenCount, finalSatisfaction);
-
-        // Reset conversation context
-        _currentConversationId = null;
-        _currentMessageCount = 0;
-        _currentTokenCount = 0;
     }
 
     /// <summary>

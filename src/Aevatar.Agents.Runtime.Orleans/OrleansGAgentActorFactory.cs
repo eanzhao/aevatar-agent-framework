@@ -36,27 +36,22 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
                           ?? throw new InvalidOperationException($"Stream provider '{streamProviderName}' not found");
     }
 
-    protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
         _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
         // 使用标准 Grain (所有 Agent 都使用相同的 Grain)
-        var grain = _clusterClient.GetGrain<IStandardGAgentGrain>(id.ToString());
+        var grain = _clusterClient.GetGrain<IGAgentGrain>(id.ToString());
         _logger.LogDebug("Using Standard Grain for agent {Id}", id);
 
         // 创建 Orleans Actor (继承自 GAgentActorBase!)
         var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider, _streamingOptions);
 
-        LoggerInjector.InjectLogger(actor, _serviceProvider);
-
-        // 激活
-        await actor.ActivateAsync(ct);
-
-        _logger.LogInformation("Created and activated Orleans agent actor {Id} with grain type {GrainType}",
+        _logger.LogInformation("Created Orleans agent actor instance {Id} with grain type {GrainType}",
             id, grain.GetType().Name);
 
-        return actor;
+        return Task.FromResult<IGAgentActor>(actor);
     }
 }

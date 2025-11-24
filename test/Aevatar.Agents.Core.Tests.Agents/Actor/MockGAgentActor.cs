@@ -31,14 +31,14 @@ public class MockGAgentActor(IGAgent agent) : GAgentActorBase(agent)
         return Task.CompletedTask;
     }
 
-    public override async Task ActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         ActivateCallCount++;
         // Call Agent.ActivateAsync to set IsActivated = true
         await Agent.ActivateAsync();
     }
 
-    public override async Task DeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct)
     {
         DeactivateCallCount++;
         // Call Agent.DeactivateAsync to set IsActivated = false

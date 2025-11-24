@@ -84,7 +84,7 @@ Be concise but thorough.
         await base.OnActivateAsync(ct);
 
         // Log discovered event handlers
-        var handlers = GetEventHandlers();
+        var handlers = GetEventHandlerDiscoverer().DiscoverEventHandlers(GetType());
         Console.WriteLine($"[DEBUG] Discovered {handlers.Length} event handlers:");
         foreach (var handler in handlers)
         {

@@ -39,7 +39,7 @@ public class SimpleAutoLoggerActor : GAgentActorBase
         return Task.CompletedTask;
     }
 
-    public override async Task ActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         // 使用自动注入的 Logger
         Logger.LogInformation("Actor {ActorId} activated with agent type {AgentType}", 
@@ -48,7 +48,7 @@ public class SimpleAutoLoggerActor : GAgentActorBase
         await Task.CompletedTask;
     }
 
-    public override async Task DeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         // 使用自动注入的 Logger
         Logger.LogInformation("Actor {ActorId} deactivated", Id);

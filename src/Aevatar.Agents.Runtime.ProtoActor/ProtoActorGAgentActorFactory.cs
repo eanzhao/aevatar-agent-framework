@@ -30,7 +30,10 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
     /// <summary>
     /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
     /// </summary>
-    protected override async Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    /// <summary>
+    /// 为已存在的 Agent 实例创建 Actor（内部方法，供自动发现使用）
+    /// </summary>
+    protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
         CancellationToken ct = default)
     {
         _logger.LogDebug("[Factory] Creating ProtoActor Actor for Agent - Type: {AgentType}, Id: {Id}",
@@ -78,13 +81,8 @@ public class ProtoActorGAgentActorFactory : GAgentActorFactoryBase
             actorPid,
             _streamRegistry);
 
-        LoggerInjector.InjectLogger(actor, _serviceProvider);
+        _logger.LogInformation("Created ProtoActor agent actor instance {Id}", id);
 
-        // 激活
-        await actor.ActivateAsync(ct);
-
-        _logger.LogInformation("Created and activated ProtoActor agent actor {Id}", id);
-
-        return actor;
+        return Task.FromResult<IGAgentActor>(actor);
     }
 }
