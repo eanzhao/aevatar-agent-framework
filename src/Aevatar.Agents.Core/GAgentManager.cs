@@ -16,7 +16,6 @@ public class GAgentManager : IGAgentManager
     private readonly ILogger<GAgentManager> _logger;
     private readonly ConcurrentDictionary<Type, AgentTypeMetadata> _agentTypes = new();
     private readonly ConcurrentDictionary<Type, bool> _eventTypes = new();
-    private readonly object _lock = new();
 
     public GAgentManager(ILogger<GAgentManager> logger)
     {

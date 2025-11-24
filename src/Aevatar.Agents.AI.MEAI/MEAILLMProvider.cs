@@ -139,12 +139,25 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                             _logger.LogDebug("Found function call: {FunctionName} with {ArgCount} arguments",
                                 functionCall.Name, functionCall.Arguments?.Count ?? 0);
                            
+                            // Unwrap arguments if wrapped in "_" (artifact of AIFunctionFactory with Dictionary parameter)
+                            var arguments = functionCall.Arguments;
+                            if (arguments != null && arguments.Count == 1 && arguments.ContainsKey("_") && arguments["_"] is System.Text.Json.JsonElement wrappedElement && wrappedElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                _logger.LogDebug("Unwrapping arguments from '_' key");
+                                arguments = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(wrappedElement.GetRawText());
+                            }
+                            else if (arguments != null && arguments.Count == 1 && arguments.ContainsKey("_") && arguments["_"] is Dictionary<string, object?> wrappedDict)
+                            {
+                                 _logger.LogDebug("Unwrapping arguments from '_' key (Dictionary)");
+                                 arguments = wrappedDict;
+                            }
+
                             // Set AevatarFunctionCall to trigger tool execution in AIGAgentWithToolBase
                             result.AevatarFunctionCall = new AevatarFunctionCall
                             {
                                 Name = functionCall.Name,
-                                Arguments = functionCall.Arguments != null 
-                                    ? System.Text.Json.JsonSerializer.Serialize(functionCall.Arguments)
+                                Arguments = arguments != null 
+                                    ? System.Text.Json.JsonSerializer.Serialize(arguments)
                                     : "{}"
                             };
                             

@@ -18,7 +18,7 @@ public class ToolAwareConversationHistoryManager : ConversationHistoryManager
     /// <summary>
     /// Add tool call message to history.
     /// </summary>
-    public void AddToolCallMessage(AevatarFunctionCall functionCall)
+    public AevatarChatMessage AddToolCallMessage(AevatarFunctionCall functionCall)
     {
         if (functionCall == null)
             throw new ArgumentNullException(nameof(functionCall));
@@ -26,22 +26,26 @@ public class ToolAwareConversationHistoryManager : ConversationHistoryManager
         var toolCallMsg = new AevatarChatMessage
         {
             Role = AevatarChatRole.Assistant,
+            Content = $"Calling tool {functionCall.Name} with arguments: {functionCall.Arguments}",
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
             ToolCalls = { new ToolCall { ToolName = functionCall.Name, Arguments = functionCall.Arguments } }
         };
 
         History.Add(toolCallMsg);
+        return toolCallMsg;
     }
 
     /// <summary>
     /// Add tool result message to history.
     /// </summary>
-    public void AddToolResultMessage(string toolName, ToolExecutionResult result)
+    public AevatarChatMessage AddToolResultMessage(string toolName, ToolExecutionResult result)
     {
         if (string.IsNullOrEmpty(toolName))
             throw new ArgumentException("Tool name cannot be null or empty", nameof(toolName));
         if (result == null)
             throw new ArgumentNullException(nameof(result));
+
+        // Console.WriteLine($"[DEBUG] AddToolResultMessage: Tool={toolName}, Content={result.Content}");
 
         var toolResultMsg = new AevatarChatMessage
         {
@@ -58,5 +62,6 @@ public class ToolAwareConversationHistoryManager : ConversationHistoryManager
         };
 
         History.Add(toolResultMsg);
+        return toolResultMsg;
     }
 }

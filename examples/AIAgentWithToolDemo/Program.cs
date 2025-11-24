@@ -54,6 +54,9 @@ logger.LogInformation("║   AI Agent with Tool Support Demo         ║");
 logger.LogInformation("║   测试工具调用功能                          ║");
 logger.LogInformation("╚════════════════════════════════════════════╝\n");
 
+
+
+
 try
 {
     // ========================================================================
@@ -172,6 +175,7 @@ try
             ? msg.Content.Substring(0, 50) + "..." 
             : msg.Content ?? "[工具调用]";
         logger.LogInformation("  {Role}: {Preview}", role, preview);
+        // logger.LogInformation("  [DEBUG] Full Message: {Msg}", msg.ToString());
     }
 }
 catch (Exception ex)

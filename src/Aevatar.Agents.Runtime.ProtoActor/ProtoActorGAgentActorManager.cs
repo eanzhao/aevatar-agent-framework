@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
 using Microsoft.Extensions.Logging;
@@ -13,8 +14,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     private readonly IGAgentActorFactory _factory;
     private readonly IRootContext _rootContext;
     private readonly ILogger<ProtoActorGAgentActorManager> _logger;
-    private readonly Dictionary<Guid, IGAgentActor> _actors = new();
-    private readonly Lock _lock = new();
+    private readonly ConcurrentDictionary<Guid, IGAgentActor> _actors = new();
 
     public ProtoActorGAgentActorManager(
         IGAgentActorFactory factory,
@@ -36,10 +36,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
 
         var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
-        lock (_lock)
-        {
-            _actors[id] = actor;
-        }
+        _actors[id] = actor;
 
         _logger.LogInformation("Agent actor {Id} created and registered", id);
 
@@ -48,34 +45,21 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
 
     public Task<IGAgentActor?> GetActorAsync(Guid id)
     {
-        lock (_lock)
-        {
-            _actors.TryGetValue(id, out var actor);
-            return Task.FromResult(actor);
-        }
+        _actors.TryGetValue(id, out var actor);
+        return Task.FromResult(actor);
     }
 
     public Task<IReadOnlyList<IGAgentActor>> GetAllActorsAsync()
     {
-        lock (_lock)
-        {
-            return Task.FromResult<IReadOnlyList<IGAgentActor>>(_actors.Values.ToList());
-        }
+        return Task.FromResult<IReadOnlyList<IGAgentActor>>(_actors.Values.ToList());
     }
 
     public async Task DeactivateAndUnregisterAsync(Guid id, CancellationToken ct = default)
     {
-        IGAgentActor? actor;
-
-        lock (_lock)
+        if (!_actors.TryRemove(id, out var actor))
         {
-            if (!_actors.TryGetValue(id, out actor))
-            {
-                _logger.LogWarning("Actor {Id} not found for deactivation", id);
-                return;
-            }
-
-            _actors.Remove(id);
+            _logger.LogWarning("Actor {Id} not found for deactivation", id);
+            return;
         }
 
         _logger.LogInformation("Deactivating and unregistering actor {Id}", id);
@@ -84,13 +68,8 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
 
     public async Task DeactivateAllAsync(CancellationToken ct = default)
     {
-        List<IGAgentActor> actorsToDeactivate;
-
-        lock (_lock)
-        {
-            actorsToDeactivate = _actors.Values.ToList();
-            _actors.Clear();
-        }
+        var actorsToDeactivate = _actors.Values.ToList();
+        _actors.Clear();
 
         _logger.LogInformation("Deactivating all {Count} actors", actorsToDeactivate.Count);
 
@@ -99,18 +78,12 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
 
     public Task<bool> ExistsAsync(Guid id)
     {
-        lock (_lock)
-        {
-            return Task.FromResult(_actors.ContainsKey(id));
-        }
+        return Task.FromResult(_actors.ContainsKey(id));
     }
 
     public Task<int> GetCountAsync()
     {
-        lock (_lock)
-        {
-            return Task.FromResult(_actors.Count);
-        }
+        return Task.FromResult(_actors.Count);
     }
 
     #region 层级关系协调
@@ -171,14 +144,11 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     {
         var actors = new List<IGAgentActor>();
         
-        lock (_lock)
+        foreach (var id in ids)
         {
-            foreach (var id in ids)
+            if (_actors.TryGetValue(id, out var actor))
             {
-                if (_actors.TryGetValue(id, out var actor))
-                {
-                    actors.Add(actor);
-                }
+                actors.Add(actor);
             }
         }
         
@@ -188,88 +158,70 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     public Task<IReadOnlyList<IGAgentActor>> GetActorsByTypeAsync<TAgent>()
         where TAgent : IGAgent
     {
-        lock (_lock)
-        {
-            var actors = _actors.Values
-                .Where(a => a.GetAgent() is TAgent)
-                .ToList();
-            
-            return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
-        }
+        var actors = _actors.Values
+            .Where(a => a.GetAgent() is TAgent)
+            .ToList();
+        
+        return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
     }
 
     public Task<IReadOnlyList<IGAgentActor>> GetActorsByTypeNameAsync(string typeName)
     {
-        lock (_lock)
-        {
-            var actors = _actors.Values
-                .Where(a => a.GetAgent().GetType().Name == typeName)
-                .ToList();
-            
-            return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
-        }
+        var actors = _actors.Values
+            .Where(a => a.GetAgent().GetType().Name == typeName)
+            .ToList();
+        
+        return Task.FromResult<IReadOnlyList<IGAgentActor>>(actors);
     }
 
     public Task<int> GetCountByTypeAsync<TAgent>()
         where TAgent : IGAgent
     {
-        lock (_lock)
-        {
-            var count = _actors.Values.Count(a => a.GetAgent() is TAgent);
-            return Task.FromResult(count);
-        }
+        var count = _actors.Values.Count(a => a.GetAgent() is TAgent);
+        return Task.FromResult(count);
     }
 
     public Task<ActorHealthStatus> GetHealthStatusAsync(Guid id)
     {
-        lock (_lock)
+        if (!_actors.TryGetValue(id, out var actor))
         {
-            if (!_actors.TryGetValue(id, out var actor))
-            {
-                return Task.FromResult(new ActorHealthStatus
-                {
-                    Id = id,
-                    IsHealthy = false,
-                    ErrorMessage = "Actor not found"
-                });
-            }
-
             return Task.FromResult(new ActorHealthStatus
             {
                 Id = id,
-                IsHealthy = true,
-                LastActivityTime = DateTimeOffset.UtcNow
+                IsHealthy = false,
+                ErrorMessage = "Actor not found"
             });
         }
+
+        return Task.FromResult(new ActorHealthStatus
+        {
+            Id = id,
+            IsHealthy = true,
+            LastActivityTime = DateTimeOffset.UtcNow
+        });
     }
 
     public Task<ActorManagerStatistics> GetStatisticsAsync()
     {
-        lock (_lock)
-        {
-            var actorsByType = _actors.Values
-                .GroupBy(a => a.GetAgent().GetType().Name)
-                .ToDictionary(g => g.Key, g => g.Count());
+        var actorsByType = _actors.Values
+            .GroupBy(a => a.GetAgent().GetType().Name)
+            .ToDictionary(g => g.Key, g => g.Count());
 
-            return Task.FromResult(new ActorManagerStatistics
-            {
-                TotalActors = _actors.Count,
-                ActiveActors = _actors.Count,
-                ActorsByType = actorsByType
-            });
-        }
+        return Task.FromResult(new ActorManagerStatistics
+        {
+            TotalActors = _actors.Count,
+            ActiveActors = _actors.Count,
+            ActorsByType = actorsByType
+        });
     }
 
     #endregion
 
     private IGAgentActor GetRequiredActor(Guid id)
     {
-        lock (_lock)
+        if (_actors.TryGetValue(id, out var actor))
         {
-            if (_actors.TryGetValue(id, out var actor))
-            {
-                return actor;
-            }
+            return actor;
         }
 
         throw new InvalidOperationException($"Actor {id} is not registered in ProtoActor runtime.");

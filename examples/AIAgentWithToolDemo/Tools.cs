@@ -53,8 +53,31 @@ public class CalculatorTool : AevatarToolBase
         CancellationToken cancellationToken = default)
     {
         var operation = parameters["operation"].ToString();
-        var a = Convert.ToDouble(parameters["a"]);
-        var b = Convert.ToDouble(parameters["b"]);
+        double a, b;
+
+        if (parameters.ContainsKey("numbers") && parameters["numbers"] is System.Text.Json.JsonElement numbersElement && numbersElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            var numbers = System.Text.Json.JsonSerializer.Deserialize<double[]>(numbersElement.GetRawText());
+            if (numbers != null && numbers.Length >= 2)
+            {
+                a = numbers[0];
+                b = numbers[1];
+            }
+            else
+            {
+                throw new ArgumentException("numbers array must contain at least 2 numbers");
+            }
+        }
+        else if (parameters.ContainsKey("numbers") && parameters["numbers"] is List<object> numbersList)
+        {
+             a = Convert.ToDouble(numbersList[0]);
+             b = Convert.ToDouble(numbersList[1]);
+        }
+        else
+        {
+            a = Convert.ToDouble(parameters["a"]);
+            b = Convert.ToDouble(parameters["b"]);
+        }
 
         double result = operation switch
         {
