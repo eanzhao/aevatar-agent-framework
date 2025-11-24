@@ -4,6 +4,7 @@
     <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" Type="C#" />
     <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" Type="C#" />
     <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" Type="C#" />
+    <Project Path="agents\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" Type="C#" />
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" Type="C#" />
   </Folder>
   <Folder Name="/apps/" />
@@ -22,6 +23,7 @@
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" Type="C#" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" Type="C#" />
+    <Project Path="examples\MakerBaziDemo\MakerBaziDemo.csproj" Type="C#" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" Type="Classic C#" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />

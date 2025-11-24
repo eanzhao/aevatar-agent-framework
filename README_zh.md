@@ -492,8 +492,8 @@ message MyState { string id = 1; }
 message OrderPlacedEvent { }
 
 // ✅ 建立双向父子关系
-await child.SetParentAsync(parentId);
-await parent.AddChildAsync(childId);
+await ActorHierarchyCoordinator.LinkAsync(parentActor, childActor);
+await actorManager.LinkParentChildAsync(parentId, childId);
 
 // ✅ 使用正确的EventDirection
 await PublishAsync(reportEvent, EventDirection.Up);  // 子节点报告

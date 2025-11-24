@@ -56,8 +56,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGAgentActorManager, ProtoActorGAgentActorManager>();
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         services.AddSingleton<ProtoActorSubscriptionManager>();
-        services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;
     }

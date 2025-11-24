@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
 using Aevatar.Agents.TestBase;
 using Google.Protobuf;
@@ -100,8 +101,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         var parent = await factory.CreateGAgentActorAsync<OrleansTestAgent>(parentId);
         var child = await factory.CreateGAgentActorAsync<OrleansTestAgent>(childId);
 
-        await parent.AddChildAsync(childId);
-        await child.SetParentAsync(parentId);
+        await ActorHierarchyCoordinator.LinkAsync(parent, child);
 
         // Assert
         var childrenIds = await parent.GetChildrenAsync();
@@ -153,9 +153,13 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         var child2 = Guid.NewGuid();
         var child3 = Guid.NewGuid();
 
-        await actor1.AddChildAsync(child1);
-        await actor2.AddChildAsync(child2);
-        await actor2.AddChildAsync(child3);
+        var childActor1 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(child1);
+        var childActor2 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(child2);
+        var childActor3 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(child3);
+
+        await ActorHierarchyCoordinator.LinkAsync(actor1, childActor1);
+        await ActorHierarchyCoordinator.LinkAsync(actor2, childActor2);
+        await ActorHierarchyCoordinator.LinkAsync(actor2, childActor3);
 
         // Assert - Each actor maintains its own state
         var children1 = await actor1.GetChildrenAsync();

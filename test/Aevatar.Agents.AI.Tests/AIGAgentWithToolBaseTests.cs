@@ -22,7 +22,7 @@ public class AIGAgentWithToolBaseTests
         _mockLLMProvider = new Mock<IAevatarLLMProvider>();
         _mockToolManager = new Mock<IAevatarToolManager>();
         _mockEventPublisher = new Mock<IEventPublisher>();
-        
+
         _agent = new TestAgent(_mockLLMProvider.Object, _mockToolManager.Object);
         _agent.SetEventPublisher(_mockEventPublisher.Object);
         
@@ -141,7 +141,7 @@ public class AIGAgentWithToolBaseTests
         }
 
         public TestAgent(IAevatarLLMProvider llmProvider, IAevatarToolManager toolManager) 
-            : base(llmProvider, toolManager)
+            : base(toolManager)
         {
             // Initialize state manually for test
             // State and Config are initialized by base class

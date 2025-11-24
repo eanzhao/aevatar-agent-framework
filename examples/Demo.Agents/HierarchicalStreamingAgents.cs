@@ -198,17 +198,13 @@ public static class HierarchicalStreamingTestScenario
         var member3Id = Guid.NewGuid();
         var member3Actor = await actorManager.CreateAndRegisterAsync<TeamMemberAgent>(
             member3Id,
-            ct: default);
+            ct: CancellationToken.None);
         (member3Actor.GetAgent() as TeamMemberAgent)?.SetName("Charlie");
         
         // 建立父子关系（关键：这会触发子节点订阅父节点的stream）
-        await member1Actor.SetParentAsync(leaderId);
-        await member2Actor.SetParentAsync(leaderId);
-        await member3Actor.SetParentAsync(leaderId);
-        
-        await leaderActor.AddChildAsync(member1Id);
-        await leaderActor.AddChildAsync(member2Id);
-        await leaderActor.AddChildAsync(member3Id);
+        await actorManager.LinkParentChildAsync(leaderId, member1Id);
+        await actorManager.LinkParentChildAsync(leaderId, member2Id);
+        await actorManager.LinkParentChildAsync(leaderId, member3Id);
         
         logger.LogInformation("Team structure established: 1 leader, 3 members\n");
         

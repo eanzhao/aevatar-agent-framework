@@ -27,7 +27,7 @@ public class LocalGAgentActor : GAgentActorBase
 
     // ============ Hierarchy Management (Overrides) ============
 
-    public override async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
+    protected override async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
     {
         // If parent already exists, clear it first
         if (EventRouter.GetParent() != null)
@@ -154,7 +154,7 @@ public class LocalGAgentActor : GAgentActorBase
         }
     }
 
-    public override async Task ClearParentAsync(CancellationToken ct = default)
+    protected override async Task ClearParentAsync(CancellationToken ct = default)
     {
         // Call base method to clear parent
         await base.ClearParentAsync(ct);

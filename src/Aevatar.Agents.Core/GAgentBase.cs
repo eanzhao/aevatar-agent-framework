@@ -331,7 +331,7 @@ public abstract class GAgentBase : IGAgent
                         }
                         else if (!handler.IsAllEventHandler && envelope.Payload != null)
                         {
-                            Logger.LogWarning("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
+                            Logger.LogDebug("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
                             
                             // Fallback: Try to unpack using reflection if Unpacker is missing
                             try
@@ -356,7 +356,7 @@ public abstract class GAgentBase : IGAgent
                             }
                             catch (Exception ex)
                             {
-                                Logger.LogWarning(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
+                            Logger.LogDebug(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
                             }
                         }
                     }
@@ -377,9 +377,8 @@ public abstract class GAgentBase : IGAgent
                          // Log why message is null if we expected it to work
                          if (!handler.IsAllEventHandler)
                          {
-                             var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {envelope.Payload.TypeUrl}";
-                             Logger.LogWarning(msg);
-                             Console.WriteLine($"[WARNING] {msg}");
+                            var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {envelope.Payload.TypeUrl}";
+                            Logger.LogDebug(msg);
                          }
                     }
                 }

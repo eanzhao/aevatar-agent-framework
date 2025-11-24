@@ -42,7 +42,7 @@ public class ProtoActorGAgentActor : GAgentActorBase
 
     // ============ 层级关系管理（重写基类方法） ============
 
-    public override async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
+    protected override async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
     {
         // 如果已有父节点，先清除
         if (EventRouter.GetParent() != null)
@@ -98,7 +98,7 @@ public class ProtoActorGAgentActor : GAgentActorBase
         }
     }
 
-    public override async Task ClearParentAsync(CancellationToken ct = default)
+    protected override async Task ClearParentAsync(CancellationToken ct = default)
     {
         // 调用基类方法清除父节点
         await base.ClearParentAsync(ct);

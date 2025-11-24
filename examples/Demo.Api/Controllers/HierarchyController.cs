@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
@@ -55,8 +56,7 @@ public class HierarchyController : ControllerBase
                 var manager = await _agentFactory.CreateGAgentActorAsync<ManagerAgent>(managerId);
                 
                 // 设置CEO为父级
-                await manager.SetParentAsync(ceoId);
-                await ceo.AddChildAsync(managerId);
+                await ActorHierarchyCoordinator.LinkAsync(ceo, manager, _logger);
 
                 var department = new
                 {
@@ -71,8 +71,7 @@ public class HierarchyController : ControllerBase
                     var employee = await _agentFactory.CreateGAgentActorAsync<EmployeeAgent>(employeeId);
                     
                     // 设置经理为父级
-                    await employee.SetParentAsync(managerId);
-                    await manager.AddChildAsync(employeeId);
+                    await ActorHierarchyCoordinator.LinkAsync(manager, employee, _logger);
                     
                     ((List<Guid>)department.Employees).Add(employeeId);
                 }
@@ -188,12 +187,11 @@ public class HierarchyController : ControllerBase
             // 从旧父级移除
             if (oldParent != null)
             {
-                await oldParent.RemoveChildAsync(request.ChildId);
+                await ActorHierarchyCoordinator.UnlinkAsync(child, oldParent, _logger);
             }
 
             // 设置新父级
-            await child.SetParentAsync(request.NewParentId);
-            await newParent.AddChildAsync(request.ChildId);
+            await ActorHierarchyCoordinator.LinkAsync(newParent, child, _logger);
 
             return Ok(new
             {

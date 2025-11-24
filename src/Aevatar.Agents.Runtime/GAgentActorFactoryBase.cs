@@ -58,7 +58,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
 
         var agent = _agentFactory.CreateGAgent(id.Value, agentType, ct);
 
-        await agent.ActivateAsync();
+        await agent.ActivateAsync(ct);
 
         // Template Method Pattern:
         // 1. Create uninitialized actor instance (implemented by subclasses)

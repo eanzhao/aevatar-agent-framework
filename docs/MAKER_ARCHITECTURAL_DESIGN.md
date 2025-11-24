@@ -198,24 +198,56 @@ For any cognitive step (either *how to decompose* or *what is the answer*), the 
 
 ---
 
-## 4. Implementation Strategy
+## 4. 开发计划
 
-### Phase 1: Foundation
-*   Implement `.proto` definitions.
-*   Implement `MakerWorkerAgent` with a simple Semantic Kernel connection to OpenAI/Azure.
-*   Implement basic `MakerTaskAgent` that can accept a task and return a fixed string (mock logic).
+为实现论文级别的 MAKER 能力，开发工作将按阶段推进，每一阶段都有明确目标、核心任务与验收产物。
 
-### Phase 2: The Voting Engine
-*   Implement the `First-to-ahead-by-K` logic in `MakerTaskAgent`.
-*   Implement the "Canonicalization" logic (making sure "42" and "42.0" count as the same vote).
+### 阶段 0：基线梳理（1 周）
+- 目标：收敛现有 `MakerTaskAgent`/`MakerWorkerAgent` 行为，补齐文档与配置缺失。
+- 任务：
+  - 对照 `.proto` 与实现，校准字段含义、默认值、异常路径。
+  - 引入集成测试样例，确保现有投票/递归链路可跑通简单任务。
+- 产物：基线测试报告 + 稳定可运行的 Demo。
 
-### Phase 3: Recursion
-*   Implement the logic for parsing a decomposition plan (JSON) into child agents.
-*   Implement the `HandleChildEvent` logic to chain sub-tasks.
+### 阶段 1：递归与任务图增强（2 周）
+- 目标：支持“极致分解”所需的动态深度与任务图管理。
+- 任务：
+  - 引入 `DecompositionPolicy`，允许根据任务特征调整 `MaxDepth`、fan-out、孩子顺序。
+  - 为 `TaskAgentState` 增加上下文快照（父节点引用、步骤依赖、检查点）。
+  - 实现多阶段 compose：子任务完成后可触发新一轮分解或合成。
+- 产物：可视化的任务树追踪工具 + 支撑 >3 层递归的验收用例。
 
-### Phase 4: Red-Flagging
-*   Add logic to detect loops or stuck states.
-*   Add `HandleRedFlag` to escalate issues up the hierarchy.
+### 阶段 2：投票与裁判流水线（3 周）
+- 目标：落地 “first-to-ahead-by-K” 以及论文中的 `N=2^k-1` 多候选策略。
+- 任务：
+  - 抽象 `VoteSession` 组件，支持流式计票、领先即终止、并发候选补齐。
+  - 新增 `SolutionDiscriminatorAgent`、`CompositionDiscriminatorAgent`，专职聚类与语义等价性判定。
+  - 在 `MakerWorkerAgent` 中扩展 reviewer 角色，产生投票上下文（置信度、trace embedding）。
+- 产物：可配置的投票服务 + 单元测试覆盖领先判定、平票回退等场景。
+
+### 阶段 3：Red-Flagging 与去相关（2 周）
+- 目标：把“红旗”从告警升级为可恢复策略，降低相关性错误。
+- 任务：
+  - 构建 `RedFlagWatcher`，汇总各层信号（失败原因、token 超限、长尾投票）并触发策略。
+  - 支持 prompt/model 多样化：同一轮投票可自动切换 provider、temperature、工具链。
+  - 定义恢复流程：回退至上层分解、替换子树、或请求人工审查。
+- 产物：Red Flag playbook + 回放日志工具，验证可在 3 次失败内恢复。
+
+### 阶段 4：运行时扩展与观测（2 周）
+- 目标：支撑百万级步骤运行的可观测性、配额与调度。
+- 任务：
+  - 增加分布式计数器/指标（步骤编号、投票时长、LLM 成本）。
+  - 集成持久化队列或批处理器，保证长链路中断可恢复。
+  - 提供运营面板（Orleans Dashboard / Grafana）展示树状进度。
+- 产物：监控仪表盘 + 压测报告（展示吞吐与错误率）。
+
+### 阶段 5：验证与工具化（持续）
+- 目标：形成可复用的 MAKER 工具集与最佳实践。
+- 任务：
+  - 创建脚手架 CLI，快速生成 MAKER 任务模板、配置、可视化报告。
+  - 引入基准任务（Hanoi、乘法）并自动对比论文数据。
+  - 输出开发手册与 runbook，指导业务团队接入。
+- 产物：工具包发布 + 文档化指南。
 
 ---
 
