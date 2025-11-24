@@ -233,7 +233,7 @@ static async Task RunDemoAsync(IGAgentActorManager actorManager, ILogger logger)
         // Set up stream subscription: Consumer subscribes to Producer's stream
         Console.WriteLine("3. Setting up stream subscription...");
         logger.LogDebug("Setting up stream subscription: Consumer {ConsumerId} -> Producer {ProducerId}", consumerId, producerId);
-        await consumerActor.SetParentAsync(producerId);
+        await actorManager.LinkParentChildAsync(producerId, consumerId);
         Console.WriteLine($"   ✓ Consumer subscribed to Producer's stream (Orleans Kafka Stream)\n");
         logger.LogInformation("Consumer {ConsumerId} subscribed to Producer {ProducerId} stream", consumerId, producerId);
         

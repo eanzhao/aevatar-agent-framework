@@ -4,6 +4,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
+using Aevatar.Agents.Core.Hierarchy;
 
 namespace Demo.Api.Controllers;
 
@@ -112,8 +113,7 @@ public class StreamingController : ControllerBase
                 subscribers.Add(subscriber);
                 
                 // 建立父子关系（发布者为父）
-                await subscriber.SetParentAsync(publisherId);
-                await publisher.AddChildAsync(subscriberId);
+                await ActorHierarchyCoordinator.LinkAsync(publisher, subscriber, _logger);
             }
 
             _logger.LogInformation("Created Publisher {PublisherId} with {SubscriberCount} subscribers on {Runtime}", 
@@ -177,11 +177,8 @@ public class StreamingController : ControllerBase
             var leaf = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(leafId);
 
             // 建立层级关系
-            await middle.SetParentAsync(rootId);
-            await root.AddChildAsync(middleId);
-            
-            await leaf.SetParentAsync(middleId);
-            await middle.AddChildAsync(leafId);
+            await ActorHierarchyCoordinator.LinkAsync(root, middle, _logger);
+            await ActorHierarchyCoordinator.LinkAsync(middle, leaf, _logger);
 
             _logger.LogInformation("Created bidirectional stream hierarchy on {Runtime}", runtime);
 

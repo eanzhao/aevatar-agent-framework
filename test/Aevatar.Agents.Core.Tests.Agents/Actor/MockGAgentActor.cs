@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
+using System.Threading;
 
 namespace Aevatar.Agents.Core.Tests.Actor;
 
@@ -58,4 +59,17 @@ public class MockGAgentActor(IGAgent agent) : GAgentActorBase(agent)
     {
         return await Agent.GetDescriptionAsync();
     }
+
+    // Test helpers to expose hierarchy operations
+    public new Task SetParentAsync(Guid parentId, CancellationToken ct = default)
+        => base.SetParentAsync(parentId, ct);
+
+    public new Task ClearParentAsync(CancellationToken ct = default)
+        => base.ClearParentAsync(ct);
+
+    public new Task AddChildAsync(Guid childId, CancellationToken ct = default)
+        => base.AddChildAsync(childId, ct);
+
+    public new Task RemoveChildAsync(Guid childId, CancellationToken ct = default)
+        => base.RemoveChildAsync(childId, ct);
 }

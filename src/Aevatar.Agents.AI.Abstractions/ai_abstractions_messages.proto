@@ -188,6 +188,8 @@ message ChatRequest {
   string request_id = 3;
   int32 max_tokens = 4;
   double temperature = 5;
+  repeated string stop_sequences = 6;
+  string stage_hint = 7;
 }
 
 // Chat response

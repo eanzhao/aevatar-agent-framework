@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Hierarchy;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Runtime.Local;
@@ -204,6 +205,43 @@ public class LocalGAgentActorManager : IGAgentActorManager
 
     #endregion
 
+    #region 层级关系协调
+
+    public async Task LinkParentChildAsync(Guid parentId, Guid childId, CancellationToken ct = default)
+    {
+        var parent = GetRequiredActor(parentId);
+        var child = GetRequiredActor(childId);
+
+        _logger.LogInformation("Linking parent {ParentId} with child {ChildId}", parentId, childId);
+        await ActorHierarchyCoordinator.LinkAsync(parent, child, _logger, ct);
+    }
+
+    public async Task UnlinkParentChildAsync(Guid childId, Guid? parentId = null, CancellationToken ct = default)
+    {
+        var child = GetRequiredActor(childId);
+
+        Guid? resolvedParentId = parentId;
+        if (!resolvedParentId.HasValue)
+        {
+            resolvedParentId = await child.GetParentAsync();
+        }
+
+        IGAgentActor? parent = null;
+        if (resolvedParentId.HasValue)
+        {
+            parent = await GetActorAsync(resolvedParentId.Value);
+            if (parent == null)
+            {
+                _logger.LogWarning("Parent actor {ParentId} not found when unlinking child {ChildId}",
+                    resolvedParentId.Value, childId);
+            }
+        }
+
+        await ActorHierarchyCoordinator.UnlinkAsync(child, parent, _logger, ct);
+    }
+
+    #endregion
+
     #region 监控和诊断
 
     public Task<ActorHealthStatus> GetHealthStatusAsync(Guid id)
@@ -249,4 +287,18 @@ public class LocalGAgentActorManager : IGAgentActorManager
     }
 
     #endregion
+
+    private IGAgentActor GetRequiredActor(Guid id)
+    {
+        lock (_lock)
+        {
+            if (_actors.TryGetValue(id, out var actor))
+            {
+                _lastActivityTime[id] = DateTimeOffset.UtcNow;
+                return actor;
+            }
+        }
+
+        throw new InvalidOperationException($"Actor {id} is not registered in Local runtime.");
+    }
 }

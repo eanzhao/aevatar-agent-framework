@@ -3,6 +3,7 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
+using Aevatar.Agents.Core.Hierarchy;
 
 namespace Demo.Api.Controllers;
 
@@ -83,8 +84,7 @@ public class SimpleDemoController : ControllerBase
             var child = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(childId);
             
             // 建立层级关系
-            await child.SetParentAsync(parentId);
-            await parent.AddChildAsync(childId);
+            await ActorHierarchyCoordinator.LinkAsync(parent, child, _logger);
             
             _logger.LogInformation("Created hierarchy: Parent {ParentId} -> Child {ChildId} on {Runtime}", 
                 parentId, childId, runtime);
@@ -137,11 +137,8 @@ public class SimpleDemoController : ControllerBase
             var child2 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(child2Id);
             
             // 建立层级关系
-            await child1.SetParentAsync(rootId);
-            await root.AddChildAsync(child1Id);
-            
-            await child2.SetParentAsync(rootId);
-            await root.AddChildAsync(child2Id);
+            await ActorHierarchyCoordinator.LinkAsync(root, child1, _logger);
+            await ActorHierarchyCoordinator.LinkAsync(root, child2, _logger);
             
             _logger.LogInformation("Created tree structure on {Runtime}", runtime);
 
