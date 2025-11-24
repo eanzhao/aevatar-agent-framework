@@ -1,10 +1,7 @@
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.LLMTornadoExtension;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using LlmTornado;
-using LlmTornado.Code;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.LLMTornado;
 

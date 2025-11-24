@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using LlmTornado;
 using LlmTornado.Code;
 
-namespace Aevatar.Agents.AI.LLMTornadoExtension;
+namespace Aevatar.Agents.AI.LLMTornado;
 
 /// <summary>
 /// LlmTornado implementation of LLM Provider Factory
@@ -16,28 +16,30 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
 {
     private readonly IServiceProvider _serviceProvider;
 
-    public LLMTornadoProviderFactory(IOptions<LLMProvidersConfig> configuration, ILogger<LLMTornadoProviderFactory> logger, IServiceProvider serviceProvider)
+    public LLMTornadoProviderFactory(IOptions<LLMProvidersConfig> configuration,
+        ILogger<LLMTornadoProviderFactory> logger, IServiceProvider serviceProvider)
         : base(configuration, logger)
     {
         _serviceProvider = serviceProvider;
         RegisterProviders();
     }
 
-    public override IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig, CancellationToken cancellationToken = default)
+    public override IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig,
+        CancellationToken cancellationToken = default)
     {
         var config = new LlmTornadoConfig
         {
             ApiKey = providerConfig.ApiKey,
             Provider = ParseProvider(providerConfig.ProviderType)
         };
-        
+
         var api = new TornadoApi(new List<ProviderAuthentication>
         {
-            new ProviderAuthentication(config.Provider, config.ApiKey)
+            new(config.Provider, config.ApiKey)
         });
 
         var logger = _serviceProvider.GetRequiredService<ILogger<LLMTornadoProvider>>();
-        return new LLMTornadoProvider(api, config, logger);
+        return new LLMTornadoProvider(api, logger);
     }
 
     private LLmProviders ParseProvider(string providerType)
