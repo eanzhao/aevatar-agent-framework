@@ -11,8 +11,8 @@ using Aevatar.Agents.Abstractions;
 namespace Aevatar.Agents.Core.EventDeduplication;
 
 /// <summary>
-/// 基于MemoryCache的事件去重器
-/// 提供基于时间窗口的自动过期机制
+/// MemoryCache-based event deduplicator
+/// Provides automatic expiration mechanism based on time window
 /// </summary>
 public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
 {
@@ -22,7 +22,7 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
     private readonly Timer? _cleanupTimer;
     private readonly SemaphoreSlim _cleanupSemaphore = new(1, 1);
     
-    // 统计信息
+    // Statistics
     private long _totalEvents;
     private long _duplicateEvents;
     private DateTime? _lastCleanupTime;
@@ -34,16 +34,16 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
         _options = options ?? new DeduplicationOptions();
         _logger = logger ?? NullLogger<MemoryCacheEventDeduplicator>.Instance;
         
-        // 配置MemoryCache
+        // Configure MemoryCache
         var cacheOptions = new MemoryCacheOptions
         {
             SizeLimit = _options.MaxCachedEvents,
-            CompactionPercentage = 0.25 // 当达到限制时移除25%的项
+            CompactionPercentage = 0.25 // Remove 25% of items when limit is reached
         };
         
         _cache = new MemoryCache(cacheOptions);
         
-        // 设置自动清理定时器
+        // Set up automatic cleanup timer
         if (_options.EnableAutoCleanup)
         {
             _cleanupTimer = new Timer(
@@ -66,22 +66,22 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
 
         Interlocked.Increment(ref _totalEvents);
 
-        // 使用MemoryCache的原子操作
+        // Use atomic operations of MemoryCache
         var cacheEntryOptions = new MemoryCacheEntryOptions()
-            .SetSize(1) // 每个条目占用1个单位大小
+            .SetSize(1) // Each entry occupies 1 unit of size
             .SetSlidingExpiration(_options.EventExpiration)
             .SetPriority(CacheItemPriority.Normal);
 
-        // TryGetValue + Set 的原子操作
+        // Atomic operation of TryGetValue + Set
         if (_cache.TryGetValue(eventId, out _))
         {
-            // 事件已存在（重复）
+            // Event already exists (duplicate)
             Interlocked.Increment(ref _duplicateEvents);
             _logger.LogTrace("Duplicate event detected: {EventId}", eventId);
             return Task.FromResult(false);
         }
 
-        // 记录新事件
+        // Record new event
         _cache.Set(eventId, true, cacheEntryOptions);
         _logger.LogTrace("New event recorded: {EventId}", eventId);
         return Task.FromResult(true);
@@ -122,18 +122,18 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
         await _cleanupSemaphore.WaitAsync();
         try
         {
-            // MemoryCache会自动清理过期项，这里主要是更新统计信息
+            // MemoryCache automatically cleans up expired items, mainly updating statistics here
             _lastCleanupTime = DateTime.UtcNow;
             
-            // 强制压缩缓存以释放过期项（只有具体的MemoryCache类有此方法）
+            // Force compact cache to release expired items (only specific MemoryCache class has this method)
             if (_cache is MemoryCache memoryCache)
             {
-                memoryCache.Compact(0.1); // 压缩10%
+                memoryCache.Compact(0.1); // Compact 10%
             }
             
             _logger.LogDebug("Cache cleanup completed at {Time}", _lastCleanupTime);
             
-            return 0; // MemoryCache不提供清理数量的信息
+            return 0; // MemoryCache doesn't provide cleanup count information
         }
         finally
         {
@@ -160,14 +160,14 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
 
     public Task ResetAsync()
     {
-        // 清空缓存（Clear方法只在MemoryCache实现类中存在）
+        // Clear cache (Clear method only exists in MemoryCache implementation class)
         if (_cache is MemoryCache memoryCache)
         {
             memoryCache.Clear();
         }
         else
         {
-            // 如果不是MemoryCache实现，通过Dispose重新创建
+            // If not MemoryCache implementation, recreate via Dispose
             _cache.Dispose();
             var cacheOptions = new MemoryCacheOptions
             {
@@ -177,7 +177,7 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
             _cache = new MemoryCache(cacheOptions);
         }
         
-        // 重置统计
+        // Reset statistics
         _totalEvents = 0;
         _duplicateEvents = 0;
         _lastCleanupTime = null;
@@ -189,15 +189,15 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
 
     private long GetApproximateCacheSize()
     {
-        // MemoryCache不直接提供计数，这里返回估算值
-        // 基于已知的唯一事件数
+        // MemoryCache doesn't directly provide count, returning estimated value here
+        // Based on known unique event count
         return Math.Min(_totalEvents - _duplicateEvents, _options.MaxCachedEvents);
     }
 
     private long EstimateMemoryUsage()
     {
-        // 估算内存使用：每个事件ID约占用 (ID长度 + 开销) 字节
-        // 假设平均ID长度为36字节（GUID），加上缓存开销约100字节
+        // Estimate memory usage: each event ID takes approximately (ID length + overhead) bytes
+        // Assuming average ID length is 36 bytes (GUID), plus cache overhead about 100 bytes
         var estimatedBytesPerEntry = 136;
         return GetApproximateCacheSize() * estimatedBytesPerEntry;
     }
@@ -213,12 +213,12 @@ public class MemoryCacheEventDeduplicator : IEventDeduplicator, IDisposable
 }
 
 /// <summary>
-/// 事件去重器扩展方法
+/// Event deduplicator extension methods
 /// </summary>
 public static class EventDeduplicatorExtensions
 {
     /// <summary>
-    /// 使用去重器处理事件
+    /// Process event using deduplicator
     /// </summary>
     public static async Task<bool> ProcessEventAsync(
         this IEventDeduplicator deduplicator,
@@ -235,7 +235,7 @@ public static class EventDeduplicatorExtensions
     }
 
     /// <summary>
-    /// 批量处理事件（去重）
+    /// Batch process events (deduplication)
     /// </summary>
     public static async Task<int> ProcessEventsAsync(
         this IEventDeduplicator deduplicator,

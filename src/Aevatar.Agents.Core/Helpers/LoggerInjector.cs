@@ -7,16 +7,16 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Aevatar.Agents.Core.Helpers;
 
 /// <summary>
-/// Agent 和 Actor Logger 自动注入器
-/// 在创建 Agent 或 Actor 实例后自动注入 Logger
+/// Automatic Logger injector for Agent and Actor
+/// Automatically inject Logger after creating Agent or Actor instance
 /// </summary>
 public static class LoggerInjector
 {
     /// <summary>
-    /// 为 Agent 注入 Logger
+    /// Inject Logger for Agent
     /// </summary>
-    /// <param name="agent">Agent 实例</param>
-    /// <param name="serviceProvider">服务提供者</param>
+    /// <param name="agent">Agent instance</param>
+    /// <param name="serviceProvider">Service provider</param>
     public static void InjectLogger(IGAgent? agent, IServiceProvider serviceProvider)
     {
         if (agent == null)
@@ -24,45 +24,45 @@ public static class LoggerInjector
             
         var agentType = agent.GetType();
         
-        // 尝试从服务容器获取 ILoggerFactory
+        // Try to get ILoggerFactory from service container
         var loggerFactory = serviceProvider?.GetService<ILoggerFactory>();
         
         if (loggerFactory == null)
             return;
             
-        // 创建针对 Agent 类型的 Logger
+        // Create Logger for Agent type
         var logger = loggerFactory.CreateLogger(agentType) ?? NullLogger.Instance;
         
-        // 查找 Logger 属性
+        // Find Logger property
         var loggerProperty = FindLoggerProperty(agentType);
         
         if (loggerProperty != null && loggerProperty.CanWrite)
         {
             try
             {
-                // 检查当前值是否已经是非 NullLogger
+                // Check if current value is already a non-NullLogger
                 var currentValue = loggerProperty.GetValue(agent);
                 if (currentValue is ILogger currentLogger && 
                     currentLogger.GetType() != typeof(NullLogger) &&
                     currentLogger.GetType() != typeof(NullLogger<>))
                 {
-                    // 已经有有效的 Logger，不覆盖
+                    // Already has a valid Logger, don't overwrite
                     return;
                 }
                 
-                // 注入新的 Logger
+                // Inject new Logger
                 loggerProperty.SetValue(agent, logger);
             }
             catch
             {
-                // 忽略注入失败，Agent 仍可使用默认 Logger
+                // Ignore injection failure, Agent can still use default Logger
             }
         }
     }
     
     /// <summary>
-    /// 查找 Logger 属性
-    /// 支持 protected 和 public 属性
+    /// Find Logger property
+    /// Supports protected and public properties
     /// </summary>
     private static PropertyInfo? FindLoggerProperty(Type type)
     {
@@ -71,7 +71,7 @@ public static class LoggerInjector
             BindingFlags.Public | 
             BindingFlags.NonPublic;
             
-        // 查找名为 Logger 的 ILogger 类型属性
+        // Find ILogger type property named Logger
         var property = type.GetProperty("Logger", bindingFlags);
         
         if (property != null && typeof(ILogger).IsAssignableFrom(property.PropertyType))
@@ -79,7 +79,7 @@ public static class LoggerInjector
             return property;
         }
         
-        // 在基类中递归查找
+        // Recursively find in base class
         if (type.BaseType != null && type.BaseType != typeof(object))
         {
             return FindLoggerProperty(type.BaseType);
@@ -89,11 +89,11 @@ public static class LoggerInjector
     }
     
     /// <summary>
-    /// 创建并注入 Logger
-    /// 便捷方法，用于在已有 Logger 实例时直接注入
+    /// Create and inject Logger
+    /// Convenience method for direct injection when Logger instance already exists
     /// </summary>
-    /// <param name="agent">Agent 实例</param>
-    /// <param name="logger">Logger 实例</param>
+    /// <param name="agent">Agent instance</param>
+    /// <param name="logger">Logger instance</param>
     public static void InjectLogger(IGAgent agent, ILogger logger)
     {
         if (agent == null || logger == null)
@@ -110,16 +110,16 @@ public static class LoggerInjector
             }
             catch
             {
-                // 忽略注入失败
+                // Ignore injection failure
             }
         }
     }
 
     /// <summary>
-    /// 为 Actor 注入 Logger
+    /// Inject Logger for Actor
     /// </summary>
-    /// <param name="actor">Actor 实例</param>
-    /// <param name="serviceProvider">服务提供者</param>
+    /// <param name="actor">Actor instance</param>
+    /// <param name="serviceProvider">Service provider</param>
     public static void InjectLogger(IGAgentActor actor, IServiceProvider serviceProvider)
     {
         if (actor == null)
@@ -127,47 +127,47 @@ public static class LoggerInjector
 
         var actorType = actor.GetType();
 
-        // 尝试从服务容器获取 ILoggerFactory
+        // Try to get ILoggerFactory from service container
         var loggerFactory = serviceProvider?.GetService<ILoggerFactory>();
 
         if (loggerFactory == null)
             return;
 
-        // 创建针对 Actor 类型的 Logger
+        // Create Logger for Actor type
         var logger = loggerFactory.CreateLogger(actorType) ?? NullLogger.Instance;
 
-        // 查找 Logger 属性
+        // Find Logger property
         var loggerProperty = FindLoggerProperty(actorType);
 
         if (loggerProperty != null && loggerProperty.CanWrite)
         {
             try
             {
-                // 检查当前值是否已经是非 NullLogger
+                // Check if current value is already a non-NullLogger
                 var currentValue = loggerProperty.GetValue(actor);
                 if (currentValue is ILogger currentLogger &&
                     currentLogger.GetType() != typeof(NullLogger) &&
                     currentLogger.GetType() != typeof(NullLogger<>))
                 {
-                    // 已经有有效的 Logger，不覆盖
+                    // Already has a valid Logger, don't overwrite
                     return;
                 }
 
-                // 注入新的 Logger
+                // Inject new Logger
                 loggerProperty.SetValue(actor, logger);
             }
             catch
             {
-                // 忽略注入失败，Actor 仍可使用默认 Logger
+                // Ignore injection failure, Actor can still use default Logger
             }
         }
     }
 
     /// <summary>
-    /// 直接注入 Logger 到 Actor
+    /// Directly inject Logger to Actor
     /// </summary>
-    /// <param name="actor">Actor 实例</param>
-    /// <param name="logger">Logger 实例</param>
+    /// <param name="actor">Actor instance</param>
+    /// <param name="logger">Logger instance</param>
     public static void InjectLogger(IGAgentActor actor, ILogger logger)
     {
         if (actor == null || logger == null)
@@ -184,17 +184,17 @@ public static class LoggerInjector
             }
             catch
             {
-                // 忽略注入失败
+                // Ignore injection failure
             }
         }
     }
 
     /// <summary>
-    /// 通用的 Logger 注入方法
-    /// 支持任何具有 Logger 属性的对象
+    /// Generic Logger injection method
+    /// Supports any object with Logger property
     /// </summary>
-    /// <param name="target">目标对象</param>
-    /// <param name="serviceProvider">服务提供者</param>
+    /// <param name="target">Target object</param>
+    /// <param name="serviceProvider">Service provider</param>
     public static void InjectLogger(object target, IServiceProvider serviceProvider)
     {
         if (target == null)
@@ -202,38 +202,38 @@ public static class LoggerInjector
 
         var targetType = target.GetType();
 
-        // 尝试从服务容器获取 ILoggerFactory
+        // Try to get ILoggerFactory from service container
         var loggerFactory = serviceProvider?.GetService<ILoggerFactory>();
 
         if (loggerFactory == null)
             return;
 
-        // 创建针对目标类型的 Logger
+        // Create Logger for target type
         var logger = loggerFactory.CreateLogger(targetType) ?? NullLogger.Instance;
 
-        // 查找 Logger 属性
+        // Find Logger property
         var loggerProperty = FindLoggerProperty(targetType);
 
         if (loggerProperty != null && loggerProperty.CanWrite)
         {
             try
             {
-                // 检查当前值是否已经是非 NullLogger
+                // Check if current value is already a non-NullLogger
                 var currentValue = loggerProperty.GetValue(target);
                 if (currentValue is ILogger currentLogger &&
                     currentLogger.GetType() != typeof(NullLogger) &&
                     currentLogger.GetType() != typeof(NullLogger<>))
                 {
-                    // 已经有有效的 Logger，不覆盖
+                    // Already has a valid Logger, don't overwrite
                     return;
                 }
 
-                // 注入新的 Logger
+                // Inject new Logger
                 loggerProperty.SetValue(target, logger);
             }
             catch
             {
-                // 忽略注入失败
+                // Ignore injection failure
             }
         }
     }

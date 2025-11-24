@@ -3,13 +3,13 @@ using System.Diagnostics.Metrics;
 namespace Aevatar.Agents.Core.Observability;
 
 /// <summary>
-/// Agent 框架的性能指标
+/// Performance metrics for Agent framework
 /// </summary>
 public static class AgentMetrics
 {
     private static readonly Meter Meter = new("Aevatar.Agents", "1.0.0");
 
-    // 计数器
+    // Counters
     public static readonly Counter<long> EventsPublished = Meter.CreateCounter<long>(
         "aevatar.agents.events.published",
         description: "Total number of events published");
@@ -26,7 +26,7 @@ public static class AgentMetrics
         "aevatar.agents.exceptions",
         description: "Total number of exceptions occurred");
 
-    // 直方图（延迟）
+    // Histograms (Latency)
     public static readonly Histogram<double> EventHandlingLatency = Meter.CreateHistogram<double>(
         "aevatar.agents.event.handling.duration",
         unit: "ms",
@@ -37,7 +37,7 @@ public static class AgentMetrics
         unit: "ms",
         description: "Event publish duration in milliseconds");
 
-    // 可观测量需要提供回调函数
+    // ObservableGauge requires a callback function
     private static int _activeActorCount = 0;
     private static int _queueLength = 0;
 
@@ -52,7 +52,7 @@ public static class AgentMetrics
         description: "Current queue length");
 
     /// <summary>
-    /// 更新活跃 Actor 数量
+    /// Update active Actor count
     /// </summary>
     public static void UpdateActiveActorCount(int count)
     {
@@ -60,7 +60,7 @@ public static class AgentMetrics
     }
 
     /// <summary>
-    /// 更新队列长度
+    /// Update queue length
     /// </summary>
     public static void UpdateQueueLength(int length)
     {
@@ -68,7 +68,7 @@ public static class AgentMetrics
     }
 
     /// <summary>
-    /// 记录事件发布
+    /// Record event published
     /// </summary>
     public static void RecordEventPublished(string eventType, string agentId)
     {
@@ -77,7 +77,7 @@ public static class AgentMetrics
     }
 
     /// <summary>
-    /// 记录事件处理
+    /// Record event handled
     /// </summary>
     public static void RecordEventHandled(string eventType, string agentId, double latencyMs)
     {
@@ -90,7 +90,7 @@ public static class AgentMetrics
     }
 
     /// <summary>
-    /// 记录异常
+    /// Record exception
     /// </summary>
     public static void RecordException(string exceptionType, string agentId, string operation)
     {

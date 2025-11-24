@@ -6,8 +6,8 @@ using Aevatar.Agents.Abstractions;
 namespace Aevatar.Agents.Core.Subscription;
 
 /// <summary>
-/// 基础订阅管理器实现
-/// 提供统一的订阅管理、重试和健康检查机制
+/// Base subscription manager implementation
+/// Provides unified subscription management, retry, and health check mechanism
 /// </summary>
 public abstract class BaseSubscriptionManager : ISubscriptionManager
 {
@@ -40,7 +40,7 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
         {
             try
             {
-                // 调用具体实现创建订阅
+                // Call specific implementation to create subscription
                 var streamSubscription = await CreateStreamSubscriptionAsync(
                     parentId, childId, eventHandler, cancellationToken);
                 
@@ -61,7 +61,7 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
                 lastException = ex;
                 handle.RetryCount = attempt;
                 
-                // 检查是否应该重试
+                // Check if should retry
                 if (attempt <= retryPolicy.MaxRetries && retryPolicy.ShouldRetry(ex, attempt))
                 {
                     var delay = retryPolicy.GetDelay(attempt);
@@ -74,13 +74,13 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
                 }
                 else
                 {
-                    // 不应该重试，跳出循环
+                    // Should not retry, break loop
                     break;
                 }
             }
         }
         
-        // 所有重试都失败了
+        // All retries failed
         var errorMessage = $"Failed to create subscription after {retryPolicy.MaxRetries + 1} attempts";
         Logger.LogError(lastException, errorMessage);
         throw new InvalidOperationException(errorMessage, lastException);
@@ -93,16 +93,16 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
             return false;
         }
         
-        // 检查是否在管理列表中
+        // Check if in management list
         if (!_subscriptions.ContainsKey(subscription.SubscriptionId))
         {
             return false;
         }
         
-        // 调用具体实现检查健康状态
+        // Call specific implementation to check health status
         var isHealthy = await CheckStreamHealthAsync(subscription);
         
-        // 更新健康状态
+        // Update health status
         if (_subscriptions.TryGetValue(subscription.SubscriptionId, out var handle))
         {
             handle.IsHealthy = isHealthy;
@@ -133,15 +133,15 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
         
         try
         {
-            // 先尝试清理旧连接
+            // Try cleaning up old connection first
             if (handle.StreamSubscription != null)
             {
                 await handle.StreamSubscription.UnsubscribeAsync();
             }
             
-            // 重新创建订阅
-            // 注意：这里需要保存原始的eventHandler，但目前的设计中没有保存
-            // 实际使用时可能需要在SubscriptionHandle中保存eventHandler
+            // Recreate subscription
+            // Note: Need to save original eventHandler, but current design doesn't save it
+            // In actual use, may need to save eventHandler in SubscriptionHandle
             await ReconnectStreamAsync(handle, cancellationToken);
             
             handle.IsHealthy = true;
@@ -202,7 +202,7 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
     }
 
     /// <summary>
-    /// 创建流订阅（由具体运行时实现）
+    /// Create stream subscription (implemented by specific runtime)
     /// </summary>
     protected abstract Task<IMessageStreamSubscription?> CreateStreamSubscriptionAsync(
         Guid parentId,
@@ -211,19 +211,19 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// 检查流健康状态（由具体运行时实现）
+    /// Check stream health status (implemented by specific runtime)
     /// </summary>
     protected abstract Task<bool> CheckStreamHealthAsync(ISubscriptionHandle subscription);
 
     /// <summary>
-    /// 重连流（由具体运行时实现）
+    /// Reconnect stream (implemented by specific runtime)
     /// </summary>
     protected abstract Task ReconnectStreamAsync(
         SubscriptionHandle handle,
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// 内部订阅句柄实现
+    /// Internal subscription handle implementation
     /// </summary>
     protected class SubscriptionHandle : ISubscriptionHandle
     {
@@ -248,12 +248,12 @@ public abstract class BaseSubscriptionManager : ISubscriptionManager
 }
 
 /// <summary>
-/// 订阅管理器扩展方法
+/// Subscription manager extension methods
 /// </summary>
 public static class SubscriptionManagerExtensions
 {
     /// <summary>
-    /// 订阅并自动管理健康状态
+    /// Subscribe and automatically manage health status
     /// </summary>
     public static async Task<ISubscriptionHandle> SubscribeWithHealthCheckAsync(
         this ISubscriptionManager manager,
@@ -266,7 +266,7 @@ public static class SubscriptionManagerExtensions
         var subscription = await manager.SubscribeWithRetryAsync(
             parentId, childId, eventHandler, cancellationToken: cancellationToken);
 
-        // 启动健康检查任务
+        // Start health check task
         _ = Task.Run(async () =>
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -281,7 +281,7 @@ public static class SubscriptionManagerExtensions
                     }
                     catch
                     {
-                        // 重连失败，下次再试
+                        // Reconnection failed, try again next time
                     }
                 }
             }
@@ -291,7 +291,7 @@ public static class SubscriptionManagerExtensions
     }
 
     /// <summary>
-    /// 批量取消订阅
+    /// Batch unsubscribe
     /// </summary>
     public static async Task UnsubscribeAllAsync(
         this ISubscriptionManager manager,

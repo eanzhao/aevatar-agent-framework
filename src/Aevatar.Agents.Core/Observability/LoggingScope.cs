@@ -3,13 +3,13 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core.Observability;
 
 /// <summary>
-/// 日志作用域辅助类
-/// 提供结构化日志支持
+/// Logging scope helper class
+/// Provides structured logging support
 /// </summary>
 public static class LoggingScope
 {
     /// <summary>
-    /// 创建 Agent 操作的日志作用域
+    /// Create logging scope for Agent operation
     /// </summary>
     public static IDisposable CreateAgentScope(
         ILogger logger,
@@ -35,7 +35,7 @@ public static class LoggingScope
     }
 
     /// <summary>
-    /// 创建事件处理的日志作用域
+    /// Create logging scope for event handling
     /// </summary>
     public static IDisposable CreateEventHandlingScope(
         ILogger logger,
@@ -60,7 +60,7 @@ public static class LoggingScope
     }
 
     /// <summary>
-    /// 空的 Disposable（当 BeginScope 返回 null 时使用）
+    /// Empty Disposable (used when BeginScope returns null)
     /// </summary>
     private class NoOpDisposable : IDisposable
     {

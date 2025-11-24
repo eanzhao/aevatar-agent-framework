@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.Core.Factory;
 
 /// <summary>
-/// 简单的自动发现工厂提供者
-/// 自动为所有 Agent 创建工厂，无需手动注册
+/// Simple auto-discovery factory provider
+/// Automatically creates factories for all Agents without manual registration
 /// </summary>
 public class DefaultGAgentActorFactoryProvider : IGAgentActorFactoryProvider
 {

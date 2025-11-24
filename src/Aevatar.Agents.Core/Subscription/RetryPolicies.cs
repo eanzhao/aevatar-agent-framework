@@ -4,7 +4,7 @@ using Aevatar.Agents.Abstractions;
 namespace Aevatar.Agents.Core.Subscription;
 
 /// <summary>
-/// 固定间隔重试策略
+/// Fixed interval retry policy
 /// </summary>
 public class FixedIntervalRetryPolicy : IRetryPolicy
 {
@@ -30,13 +30,13 @@ public class FixedIntervalRetryPolicy : IRetryPolicy
 
     protected virtual bool IsTransientException(Exception exception)
     {
-        // 可以根据具体异常类型判断是否是瞬时错误
+        // Can determine if it's a transient error based on specific exception type
         return exception is not ArgumentException and not InvalidOperationException;
     }
 }
 
 /// <summary>
-/// 指数退避重试策略
+/// Exponential backoff retry policy
 /// </summary>
 public class ExponentialBackoffRetryPolicy : IRetryPolicy
 {
@@ -64,13 +64,13 @@ public class ExponentialBackoffRetryPolicy : IRetryPolicy
 
     public TimeSpan GetDelay(int attemptNumber)
     {
-        // 计算指数退避延迟
+        // Calculate exponential backoff delay
         var exponentialDelay = _initialDelay.TotalMilliseconds * Math.Pow(_backoffMultiplier, attemptNumber - 1);
         
-        // 限制最大延迟
+        // Limit maximum delay
         var delayMs = Math.Min(exponentialDelay, _maxDelay.TotalMilliseconds);
         
-        // 添加抖动以避免重试风暴
+        // Add jitter to avoid retry storms
         if (UseJitter)
         {
             delayMs = delayMs * (0.5 + _jitter.NextDouble() * 0.5);
@@ -86,20 +86,20 @@ public class ExponentialBackoffRetryPolicy : IRetryPolicy
 
     protected virtual bool IsTransientException(Exception exception)
     {
-        // 判断是否是瞬时错误
+        // Determine if it's a transient error
         return exception switch
         {
             TimeoutException => true,
             OperationCanceledException => false,
             ArgumentException => false,
             InvalidOperationException => false,
-            _ => true // 默认认为是瞬时错误
+            _ => true // Default assumption is transient error
         };
     }
 }
 
 /// <summary>
-/// 线性退避重试策略
+/// Linear backoff retry policy
 /// </summary>
 public class LinearBackoffRetryPolicy : IRetryPolicy
 {
@@ -136,7 +136,7 @@ public class LinearBackoffRetryPolicy : IRetryPolicy
 }
 
 /// <summary>
-/// 无重试策略
+/// No retry policy
 /// </summary>
 public class NoRetryPolicy : IRetryPolicy
 {
@@ -154,12 +154,12 @@ public class NoRetryPolicy : IRetryPolicy
 }
 
 /// <summary>
-/// 重试策略工厂
+/// Retry policy factory
 /// </summary>
 public static class RetryPolicyFactory
 {
     /// <summary>
-    /// 创建默认重试策略（指数退避）
+    /// Create default retry policy (exponential backoff)
     /// </summary>
     public static IRetryPolicy CreateDefault()
     {
@@ -167,7 +167,7 @@ public static class RetryPolicyFactory
     }
 
     /// <summary>
-    /// 创建固定间隔重试策略
+    /// Create fixed interval retry policy
     /// </summary>
     public static IRetryPolicy CreateFixedInterval(int maxRetries = 3, TimeSpan? interval = null)
     {
@@ -175,7 +175,7 @@ public static class RetryPolicyFactory
     }
 
     /// <summary>
-    /// 创建指数退避重试策略
+    /// Create exponential backoff retry policy
     /// </summary>
     public static IRetryPolicy CreateExponentialBackoff(
         int maxRetries = 5,
@@ -187,7 +187,7 @@ public static class RetryPolicyFactory
     }
 
     /// <summary>
-    /// 创建线性退避重试策略
+    /// Create linear backoff retry policy
     /// </summary>
     public static IRetryPolicy CreateLinearBackoff(
         int maxRetries = 4,
@@ -198,7 +198,7 @@ public static class RetryPolicyFactory
     }
 
     /// <summary>
-    /// 创建无重试策略
+    /// Create no retry policy
     /// </summary>
     public static IRetryPolicy CreateNoRetry()
     {

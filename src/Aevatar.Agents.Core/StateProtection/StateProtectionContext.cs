@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Google.Protobuf;
 
 [assembly: InternalsVisibleTo("Aevatar.Agents.Core.Tests")]
 [assembly: InternalsVisibleTo("Aevatar.Agents.AI.Core")]

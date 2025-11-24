@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace Aevatar.Agents.Core.Helpers;
 
 /// <summary>
