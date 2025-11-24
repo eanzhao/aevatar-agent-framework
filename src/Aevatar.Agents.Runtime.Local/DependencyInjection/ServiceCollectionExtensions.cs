@@ -1,5 +1,4 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Runtime.Local.Subscription;
@@ -29,8 +28,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<LocalMessageStreamRegistry>();
         services.AddSingleton<LocalSubscriptionManager>();
 
-        services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+        services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 
         return services;
     }

@@ -1,38 +1,30 @@
+using Aevatar.Agents.Abstractions.EventRouting;
 using Aevatar.Agents.Abstractions.EventSourcing;
 
 namespace Aevatar.Agents.Abstractions;
 
 /// <summary>
-/// GAgent configuration options
-/// Used in Composition Root to configure GAgent behavior
+/// Global store registration options for the Aevatar Agent system.
 /// </summary>
 public class GAgentOptions
 {
     /// <summary>
-    /// StateStore factory function
-    /// Creates IStateStore instance for specific GAgent
+    /// Optional override for the <c>IStateStore&lt;&gt;</c> implementation. Must be an open generic type.
     /// </summary>
-    public Func<IServiceProvider, object>? StateStore { get; set; }
+    public Type? StateStoreType { get; set; }
 
     /// <summary>
-    /// Whether to enable EventSourcing
-    /// If enabled, StateStore should be EventSourcingStateStore
+    /// Optional override for the <c>IConfigStore&lt;&gt;</c> implementation. Must be an open generic type.
     /// </summary>
-    public bool EnableEventSourcing { get; set; }
+    public Type? ConfigStoreType { get; set; }
 
     /// <summary>
-    /// EventStore factory (required for EventSourcing)
+    /// Optional override for <see cref="IEventStore"/>.
     /// </summary>
-    public Func<IServiceProvider, IEventStore>? EventStore { get; set; }
+    public Type? EventStoreType { get; set; }
 
     /// <summary>
-    /// Snapshot strategy (used by EventSourcing)
+    /// Optional override for <see cref="IEventRouterStore"/>.
     /// </summary>
-    // TODO: Add ISnapshotStrategy interface
-    // public EventSourcing.ISnapshotStrategy? SnapshotStrategy { get; set; }
-
-    /// <summary>
-    /// Snapshot interval (used by EventSourcing, default 100 events)
-    /// </summary>
-    public int SnapshotInterval { get; set; } = 100;
+    public Type? EventRouterStoreType { get; set; }
 }

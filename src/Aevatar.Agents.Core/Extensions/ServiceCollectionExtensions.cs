@@ -1,9 +1,15 @@
-using System.Collections.Concurrent;
+using System.Linq;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.EventRouting;
+using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Abstractions.Persistence;
+using Aevatar.Agents.Core.DependencyInjection;
+using Aevatar.Agents.Core.EventRouting;
+using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Factory;
 using Aevatar.Agents.Core.Persistence;
-using Google.Protobuf;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Aevatar.Agents.Core.Extensions;
 
@@ -12,81 +18,124 @@ namespace Aevatar.Agents.Core.Extensions;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
-    private static readonly ConcurrentDictionary<Type, object> _stateStoreCache = new();
-    private static GAgentOptions? _defaultOptions;
-
     /// <summary>
-    /// Configure default state store for all agents
-    /// Must be called before ConfigGAgent
+    /// Registers the core services required by the Aevatar Agent framework and exposes a fluent builder.
     /// </summary>
-    public static IServiceCollection ConfigGAgentStateStore(
+    public static IAevatarBuilder AddAevatarAgentSystem(
         this IServiceCollection services,
-        Action<GAgentOptions> configureOptions)
+        Action<IAevatarBuilder>? configure = null)
     {
-        if (configureOptions == null)
-            throw new ArgumentNullException(nameof(configureOptions));
-
-        var options = new GAgentOptions();
-        configureOptions(options);
-
-        // Validate
-        if (options.StateStore == null && !options.EnableEventSourcing)
-        {
-            throw new InvalidOperationException(
-                "Must specify StateStore or enable EventSourcing. " +
-                "Example: options.StateStore = _ => new InMemoryStateStore()");
-        }
-
-        if (options is { EnableEventSourcing: true, EventStore: null })
-        {
-            throw new InvalidOperationException(
-                "EnableEventSourcing is true but EventStore is not configured. " +
-                "Use services.AddSingleton<IEventStore>(...) to register IEventStore.");
-        }
-
-        _defaultOptions = options;
-        return services;
+        return AddAevatarAgentSystem(services, configureStores: null, configure);
     }
 
     /// <summary>
-    /// Configure a specific GAgent
-    /// Uses default state store if not explicitly configured
+    /// Registers the core services required by the Aevatar Agent framework and exposes a fluent builder.
+    /// Allows overriding store implementations through <see cref="GAgentOptions"/>.
     /// </summary>
-    public static IServiceCollection ConfigGAgent<TAgent, TState>(
+    public static IAevatarBuilder AddAevatarAgentSystem(
         this IServiceCollection services,
-        Action<GAgentOptions>? configureOptions = null)
-        where TAgent : GAgentBase<TState>
-        where TState : class, IMessage<TState>, new()
+        Action<GAgentOptions>? configureStores,
+        Action<IAevatarBuilder>? configure = null)
     {
-        // Use provided config or fall back to default
-        var options = configureOptions != null ? new GAgentOptions() : _defaultOptions ?? new GAgentOptions();
+        ArgumentNullException.ThrowIfNull(services);
 
-        if (configureOptions != null)
+        var options = new GAgentOptions();
+        configureStores?.Invoke(options);
+
+        services.TryAddSingleton<IGAgentManager, GAgentManager>();
+        services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+
+        RegisterStateStore(services, options);
+        RegisterConfigStore(services, options);
+        RegisterEventStore(services, options);
+        RegisterEventRouterStore(services, options);
+
+        var builder = new AevatarBuilder(services);
+        configure?.Invoke(builder);
+
+        return builder;
+    }
+
+    private static void RegisterStateStore(IServiceCollection services, GAgentOptions options)
+    {
+        if (options.StateStoreType != null)
         {
-            configureOptions(options);
+            EnsureOpenGeneric(nameof(options.StateStoreType), typeof(IStateStore<>), options.StateStoreType);
+            services.Replace(ServiceDescriptor.Singleton(typeof(IStateStore<>), options.StateStoreType));
+        }
+        else
+        {
+            services.TryAddSingleton(typeof(IStateStore<>), typeof(InMemoryStateStore<>));
+        }
+    }
+
+    private static void RegisterConfigStore(IServiceCollection services, GAgentOptions options)
+    {
+        if (options.ConfigStoreType != null)
+        {
+            EnsureOpenGeneric(nameof(options.ConfigStoreType), typeof(IConfigStore<>), options.ConfigStoreType);
+            services.Replace(ServiceDescriptor.Singleton(typeof(IConfigStore<>), options.ConfigStoreType));
+        }
+        else
+        {
+            services.TryAddSingleton(typeof(IConfigStore<>), typeof(InMemoryConfigStore<>));
+        }
+    }
+
+    private static void RegisterEventStore(IServiceCollection services, GAgentOptions options)
+    {
+        if (options.EventStoreType != null)
+        {
+            EnsureConcrete(nameof(options.EventStoreType), typeof(IEventStore), options.EventStoreType);
+            services.Replace(ServiceDescriptor.Singleton(typeof(IEventStore), options.EventStoreType));
+        }
+        else
+        {
+            services.TryAddSingleton<IEventStore, InMemoryEventStore>();
+        }
+    }
+
+    private static void RegisterEventRouterStore(IServiceCollection services, GAgentOptions options)
+    {
+        if (options.EventRouterStoreType != null)
+        {
+            EnsureConcrete(nameof(options.EventRouterStoreType), typeof(IEventRouterStore),
+                options.EventRouterStoreType);
+            services.Replace(ServiceDescriptor.Singleton(typeof(IEventRouterStore), options.EventRouterStoreType));
+        }
+        else
+        {
+            services.TryAddSingleton<IEventRouterStore, InMemoryEventRouterStore>();
+        }
+    }
+
+    private static void EnsureOpenGeneric(string optionName, Type expectedInterface, Type candidate)
+    {
+        if (!candidate.IsGenericTypeDefinition)
+        {
+            throw new ArgumentException($"{optionName} must be an open generic type.");
         }
 
-        // If no StateStore configured, use InMemory as default
-        if (options.StateStore == null && !options.EnableEventSourcing)
+        var genericInterfaces = candidate.GetInterfaces()
+            .Concat(candidate.IsInterface ? new[] { candidate } : Array.Empty<Type>())
+            .Where(t => t.IsGenericType && t.GetGenericTypeDefinition() == expectedInterface);
+
+        if (!genericInterfaces.Any())
         {
-            options.StateStore = _ => new InMemoryStateStore<TState>();
+            throw new ArgumentException($"{optionName} must implement {expectedInterface.FullName}.");
+        }
+    }
+
+    private static void EnsureConcrete(string optionName, Type expectedInterface, Type candidate)
+    {
+        if (candidate.IsAbstract || candidate.IsInterface)
+        {
+            throw new ArgumentException($"{optionName} must be a concrete type.");
         }
 
-        // Register IStateStore<TState>
-        if (options.StateStore != null)
+        if (!expectedInterface.IsAssignableFrom(candidate))
         {
-            services.AddSingleton<IStateStore<TState>>(sp =>
-            {
-                // Use cached instance to avoid creating multiple instances
-                return (IStateStore<TState>)_stateStoreCache.GetOrAdd(
-                    typeof(TState),
-                    _ => options.StateStore!(sp));
-            });
+            throw new ArgumentException($"{optionName} must implement {expectedInterface.FullName}.");
         }
-
-        // Register agent type for DI
-        services.AddTransient<TAgent>();
-
-        return services;
     }
 }
