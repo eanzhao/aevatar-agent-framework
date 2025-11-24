@@ -49,8 +49,10 @@ public class AIGAgentFactory : IGAgentFactory
         }
         else
         {
-            agent = (IGAgent)Activator.CreateInstance(agentType)!;
-            // Set ID for agents created with parameterless constructor
+            // Use ActivatorUtilities to support Dependency Injection (e.g. IConfiguration)
+            agent = (IGAgent)ActivatorUtilities.CreateInstance(_serviceProvider, agentType);
+            
+            // Set ID for agents created with parameterless constructor or DI
             // This allows recovery scenarios without requiring ID constructor
             if (agent is GAgentBase baseAgent)
             {
@@ -61,6 +63,7 @@ public class AIGAgentFactory : IGAgentFactory
         LoggerInjector.InjectLogger(agent, _serviceProvider);
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+        AIAgentToolManagerInjector.InjectToolManager(agent, _serviceProvider);
 
         // Will be replaced when this agent is wrapped by an actor.
         AgentEventPublisherInjector.InjectEventPublisher(agent, NullEventPublisher.Instance);

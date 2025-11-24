@@ -1,9 +1,11 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.EventRouting;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
 using AIEventSourcingDemo;
@@ -41,6 +43,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         // Configure Event Store (InMemory for demo)
         services.AddSingleton<IEventStore, InMemoryEventStore>();
+        services.AddSingleton<IEventRouterStore, InMemoryEventRouterStore>();
 
         // Register Agent Factories
         services.AddAevatarLocalRuntime();

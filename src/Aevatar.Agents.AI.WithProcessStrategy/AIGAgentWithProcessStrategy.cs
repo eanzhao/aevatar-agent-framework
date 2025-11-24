@@ -110,10 +110,7 @@ Strategy Decision:";
     /// 使用依赖注入初始化新实例
     /// </summary>
     protected AIGAgentWithProcessStrategy(
-        IAevatarLLMProvider llmProvider,
-        IAevatarToolManager toolManager,
-        IAevatarAIProcessingStrategyFactory strategyFactory,
-        ILogger? logger = null) : base(llmProvider, toolManager, logger)
+        IAevatarAIProcessingStrategyFactory strategyFactory)
     {
         _strategyFactory = strategyFactory ?? throw new ArgumentNullException(nameof(strategyFactory));
         _strategies = InitializeStrategies();

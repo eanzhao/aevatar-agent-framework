@@ -4,6 +4,8 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Tools;
 using Aevatar.Agents.Runtime.Local;
 using MCPToolDemo;
 using Microsoft.Extensions.Configuration;
@@ -35,6 +37,7 @@ var host = Host.CreateDefaultBuilder(args)
         // Configure LLM Providers
         services.Configure<LLMProvidersConfig>(config.GetSection("LLMProviders"));
         services.AddSingleton<ILLMProviderFactory, MEAILLMProviderFactory>();
+        services.AddTransient<IAevatarToolManager, AevatarToolManager>();
 
         // Register Agent Factories
         services.AddAevatarLocalRuntime();

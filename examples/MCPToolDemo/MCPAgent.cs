@@ -4,8 +4,10 @@ using Aevatar.Agents.AI.WithTool;
 using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.MCP.Configuration;
 using Microsoft.Extensions.Logging;
-// For IMessage
-using Microsoft.Extensions.Logging.Abstractions; // For Timestamp
+using System.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using System.Text;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 
 namespace MCPToolDemo;
 
@@ -14,59 +16,161 @@ namespace MCPToolDemo;
 /// </summary>
 public class MCPAgent : AIGAgentWithToolBase<AevatarAIAgentState>
 {
-    public MCPAgent() : base()
+    private readonly IConfiguration _configuration;
+
+    public MCPAgent(IConfiguration configuration) : base()
     {
-        // Force initialization
-        _ = ToolManager;
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
     protected override async Task RegisterToolsAsync()
     {
         Logger?.LogInformation("🔧 Starting tool registration...");
 
-        // 1. Register local tool
+        var context7Config = _configuration.GetSection("Context7");
+        var context7McpUrl = context7Config["McpUrl"];
+        var context7ApiUrl = context7Config["ApiUrl"];
+        var context7ApiKey = context7Config["ApiKey"];
+
+        // 0. Register local tool
         await RegisterToolAsync(new TimeTool(), Logger);
         Logger?.LogInformation("✅ Registered local tool: TimeTool");
 
-        // 2. Register custom MCP server
+        // 1. Stdio (Docker) - Filesystem Server
         try
         {
-            Logger?.LogInformation("🚀 Registering Simple MCP Server...");
-            
-            var demoDir = Directory.GetCurrentDirectory();
-            var config = new MCPServerConfig
-            {
-                Name = "simple-demo",
-                TransportType = MCPTransportType.Stdio,
-                Command = "node",
-                Arguments = new List<string> { "simple-mcp-server.mjs" },
-                WorkingDirectory = demoDir
-            };
-            
-            await ToolManager.RegisterMCPServerAsync(
-                "simple-demo",
-                await MCPClientWrapper.CreateAsync(config, NullLogger<MCPClientWrapper>.Instance)
+            Logger?.LogInformation("🐳 Attempting to connect to Docker MCP Server...");
+            var dockerConfig = MCPServerConfig.CreateDockerConfig(
+                imageName: "mcp/server-filesystem:latest", // Ensure you have this image or similar
+                args: new List<string> { "/tmp" },
+                name: "Docker Filesystem MCP"
             );
-            
-            Logger?.LogInformation("✅ Registered Simple MCP Server");
+            // Note: Docker execution requires docker installed and running
+            var dockerClient = await MCPClientWrapper.CreateAsync(dockerConfig, Logger);
+            await ToolManager.RegisterMCPServerAsync("docker-fs", dockerClient, dockerConfig, Logger);
+            Logger?.LogInformation("✅ Registered Docker MCP Server");
         }
         catch (Exception ex)
         {
-            Logger?.LogError(ex, "❌ Failed to register MCP Server");
+            Logger?.LogWarning("⚠️ Skipping Docker MCP demo: {Message}", ex.Message);
         }
-        
+
+        // 2. Custom Stream - Manual Process Management (Context7 docker)
+        try
+        {
+            if (string.IsNullOrWhiteSpace(context7ApiKey))
+            {
+                Logger?.LogInformation("ℹ️ Context7 API key not configured, skipping stream-based demo.");
+            }
+            else
+            {
+                Logger?.LogInformation("🔄 Attempting to connect to Stream-based MCP Server (via Context7 docker)...");
+
+                var processStartInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                processStartInfo.ArgumentList.Add("run");
+                processStartInfo.ArgumentList.Add("-i");
+                processStartInfo.ArgumentList.Add("--rm");
+                processStartInfo.ArgumentList.Add("context7-mcp");
+                processStartInfo.Environment["CONTEXT7_API_KEY"] = context7ApiKey;
+                if (!string.IsNullOrWhiteSpace(context7ApiUrl))
+                {
+                    processStartInfo.Environment["CONTEXT7_API_URL"] = context7ApiUrl;
+                }
+
+                var process = Process.Start(processStartInfo);
+                if (process != null)
+                {
+                    if (process.HasExited)
+                    {
+                        var errorOutput = process.StandardError?.ReadToEnd() ?? "No error output";
+                        throw new InvalidOperationException(
+                            $"Stream MCP docker exited immediately. Output: {errorOutput}");
+                    }
+
+                    var streamConfig = new MCPServerConfig
+                    {
+                        Name = "Context7 Stream MCP",
+                        TransportType = MCPTransportType.Stream,
+                        TimeoutMs = 10000 // Short timeout for demo
+                    };
+
+                    var stdoutStream = process.StandardOutput.BaseStream;
+                    var stdinStream = process.StandardInput.BaseStream;
+
+                    Logger?.LogDebug("Process stdout readable: {Readable}, stdin writable: {Writable}",
+                        stdoutStream.CanRead,
+                        stdinStream.CanWrite);
+
+                    if (!stdinStream.CanWrite)
+                    {
+                        var errorOutput = process.HasExited
+                            ? process.StandardError?.ReadToEnd() ?? "No error output"
+                            : "Process still running";
+                        throw new InvalidOperationException(
+                            $"Stream MCP stdin stream is not writable. Details: {errorOutput}");
+                    }
+
+                    var streamClient = await MCPClientWrapper.CreateFromStreamsAsync(
+                        stdoutStream,
+                        stdinStream,
+                        streamConfig,
+                        Logger
+                    );
+
+                    await ToolManager.RegisterMCPServerAsync("stream-context7", streamClient, streamConfig, Logger);
+                    Logger?.LogInformation("✅ Registered Context7 Stream MCP Server");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning("⚠️ Skipping Stream MCP demo: {Message}", ex.Message);
+        }
+
+        // 3. Context7 HTTP MCP Server
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(context7McpUrl) && !string.IsNullOrWhiteSpace(context7ApiKey))
+            {
+                Logger?.LogInformation("🌐 Attempting to connect to Context7 MCP Server...");
+                
+                var httpConfig = MCPServerConfig.CreateHttpConfig(
+                    serverUrl: context7McpUrl,
+                    name: "Context7 MCP",
+                    authToken: context7ApiKey
+                );
+                
+                var httpClient = await MCPClientWrapper.CreateAsync(httpConfig, Logger);
+                await ToolManager.RegisterMCPServerAsync("context7", httpClient, httpConfig, Logger);
+                Logger?.LogInformation("✅ Registered Context7 MCP Server");
+            }
+            else
+            {
+                Logger?.LogInformation("ℹ️ Context7 configuration not found, skipping HTTP MCP demo.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning("⚠️ Skipping Context7 MCP demo: {Message}", ex.Message);
+        }
+
         var tools = await GetRegisteredToolsAsync();
         Logger?.LogInformation("🎉 Tool registration complete! Total tools: {Count}", tools.Count);
     }
 
-    public override string SystemPrompt => @"
-You are a helpful AI assistant with access to tools.
-
-You have access to:
-1. Time tool: Can get the current time.
-
-If the user asks for the time, use the get_current_time tool.
-
-Please be concise and helpful.
-";
+    protected override string BuildToolAwareSystemPrompt(IReadOnlyList<ToolDefinition> tools)
+    {
+        var builder = new StringBuilder(base.BuildToolAwareSystemPrompt(tools));
+        builder.AppendLine();
+        builder.AppendLine("When interacting with MCP servers (filesystem, Context7, etc.), prefer invoking the relevant tool before responding to the user.");
+        return builder.ToString();
+    }
 }

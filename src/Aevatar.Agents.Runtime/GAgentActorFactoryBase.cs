@@ -60,13 +60,24 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
 
         await agent.ActivateAsync();
 
-        return await CreateActorForAgentAsync(agent, id.Value, ct);
+        // Template Method Pattern:
+        // 1. Create uninitialized actor instance (implemented by subclasses)
+        var actor = await CreateActorInstanceAsync(agent, id.Value, ct);
+
+        // 2. Inject dependencies (Logger, EventRouterFactory)
+        LoggerInjector.InjectLogger(actor, _serviceProvider);
+        EventRouterFactoryInjector.InjectEventRouterFactory(actor, _serviceProvider);
+
+        // 3. Activate actor (starts streams, loads state, etc.)
+        await actor.ActivateAsync(ct);
+
+        return actor;
     }
 
     /// <summary>
-    /// 为已存在的 Agent 实例创建 Actor 包装器
-    /// 由子类实现具体的包装逻辑
+    /// Create an uninitialized Actor instance for the Agent
+    /// Subclasses should only create the instance, dependency injection and activation are handled by the base class
     /// </summary>
-    protected abstract Task<IGAgentActor> CreateActorForAgentAsync(IGAgent agent, Guid id,
+    protected abstract Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
         CancellationToken ct = default);
 }

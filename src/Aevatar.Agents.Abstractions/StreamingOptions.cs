@@ -14,7 +14,7 @@ public class StreamingOptions
     /// <summary>
     /// Stream provider name (e.g., "StreamProvider", "Aevatar")
     /// </summary>
-    public string StreamProviderName { get; set; } = "StreamProvider";
+    public string StreamProviderName { get; set; } = "AevatarAgents";
     
     /// <summary>
     /// Enable custom stream namespace per agent type

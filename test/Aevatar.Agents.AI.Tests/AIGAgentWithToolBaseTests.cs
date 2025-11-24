@@ -94,7 +94,7 @@ public class AIGAgentWithToolBaseTests
 
         _mockToolManager
             .Setup(m => m.GetAvailableToolsAsync())
-            .ReturnsAsync(new List<ToolDefinition> { new ToolDefinition { Name = "GetTime" } });
+            .ReturnsAsync(new List<ToolDefinition> { new() { Name = "GetTime" } });
 
         await _agent.InitializeAsync("test-provider");
 

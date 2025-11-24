@@ -310,7 +310,7 @@ src/
 ├── Aevatar.Agents.AI.Core/                # AI核心实现
 │   ├── AIGAgentBase<TState>
 │   ├── Tool系统，Strategy
-│   └── ConversationExtensions
+│   └── ConversationHistoryManager（含 ToolAwareConversationHistoryManager）
 │
 └── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI集成
     ├── MEAIGAgentBase<TState>

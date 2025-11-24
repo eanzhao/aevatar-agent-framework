@@ -130,7 +130,7 @@ public class OrleansGAgentActor : GAgentActorBase
     /// <summary>
     /// 激活 Actor - 订阅 Orleans Stream
     /// </summary>
-    public override async Task ActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct)
     {
         Logger.LogInformation("Activating Orleans Actor {ActorId}", Id);
 
@@ -184,7 +184,7 @@ public class OrleansGAgentActor : GAgentActorBase
     /// <summary>
     /// 停用 Actor - 取消订阅并清理资源
     /// </summary>
-    public override async Task DeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("Deactivating Orleans Actor {ActorId}", Id);
 

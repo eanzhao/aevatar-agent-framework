@@ -16,13 +16,13 @@ public class ToolExecutionCoordinator
 {
     private readonly IAevatarToolManager _toolManager;
     private readonly IAevatarLLMProvider _llmProvider;
-    private readonly ConversationHistoryManager _historyManager;
+    private readonly ToolAwareConversationHistoryManager _historyManager;
     private readonly ILogger? _logger;
 
     public ToolExecutionCoordinator(
         IAevatarToolManager toolManager,
         IAevatarLLMProvider llmProvider,
-        ConversationHistoryManager historyManager,
+        ToolAwareConversationHistoryManager historyManager,
         ILogger? logger = null)
     {
         _toolManager = toolManager ?? throw new ArgumentNullException(nameof(toolManager));

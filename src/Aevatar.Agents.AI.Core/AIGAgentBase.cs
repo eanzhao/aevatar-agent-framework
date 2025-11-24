@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -41,6 +42,25 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     /// System prompt for the AI agent.
     /// </summary>
     public virtual string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
+
+    [field: AllowNull, MaybeNull]
+    protected ConversationHistoryManager ConversationHistory =>
+        field ??= CreateConversationHistoryManager();
+
+    protected virtual ConversationHistoryManager CreateConversationHistoryManager()
+    {
+        return new ConversationHistoryManager(State.History);
+    }
+
+    protected virtual void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
+    {
+        ConversationHistory.AddMessage(content, role, name);
+    }
+
+    protected virtual void AddMessageToHistory(AevatarChatMessage message)
+    {
+        ConversationHistory.AddMessage(message);
+    }
 
     /// <summary>
     /// Gets the LLM provider.
@@ -295,7 +315,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     {
         return new AevatarLLMRequest
         {
-            SystemPrompt = SystemPrompt,
+            SystemPrompt = GetEffectiveSystemPrompt(),
             Messages = new List<AevatarChatMessage>
             {
                 new()
@@ -306,6 +326,16 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
             },
             Settings = GetLLMSettings(request)
         };
+    }
+
+    /// <summary>
+    /// Determine the effective system prompt, preferring configuration override.
+    /// </summary>
+    protected virtual string? GetEffectiveSystemPrompt()
+    {
+        return !string.IsNullOrWhiteSpace(Config.SystemPrompt)
+            ? Config.SystemPrompt
+            : SystemPrompt;
     }
 
     /// <summary>

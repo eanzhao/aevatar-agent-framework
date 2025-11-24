@@ -45,30 +45,30 @@ public class EventHandlerTests(CoreTestFixture fixture) : IClassFixture<CoreTest
 
         // Assert
         var eventHandlerMethods = handlers
-            .Where(h => h.GetCustomAttribute<EventHandlerAttribute>() != null)
+            .Where(h => h.Method.GetCustomAttribute<EventHandlerAttribute>() != null)
             .ToArray();
 
         eventHandlerMethods.Length.ShouldBeGreaterThan(0);
 
         // Verify specific handlers
-        eventHandlerMethods.Any(h => h.Name == "HandleTestEvent").ShouldBeTrue();
-        eventHandlerMethods.Any(h => h.Name == "HandleTestCommand").ShouldBeTrue();
+        eventHandlerMethods.Any(h => h.Method.Name == "HandleTestEvent").ShouldBeTrue();
+        eventHandlerMethods.Any(h => h.Method.Name == "HandleTestCommand").ShouldBeTrue();
     }
 
     [Fact(DisplayName = "Should find handlers by naming convention")]
     public void Should_Find_Handlers_By_Naming_Convention()
     {
         // Arrange
-        var agent = new ConventionBasedAgent();
+        var conventionAgent = new ConventionBasedAgent();
 
         // Act
-        var handlers = agent.GetEventHandlers();
+        var handlers = conventionAgent.GetEventHandlers();
 
         // Assert
         handlers.ShouldNotBeNull();
 
         // Should find HandleAsync and HandleEventAsync
-        var handlerNames = handlers.Select(h => h.Name).ToArray();
+        var handlerNames = handlers.Select(h => h.Method.Name).ToArray();
         handlerNames.ShouldContain("HandleAsync");
         handlerNames.ShouldContain("HandleEventAsync");
 

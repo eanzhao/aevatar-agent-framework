@@ -49,10 +49,10 @@ public class ProtoActorGAgentActor : GAgentActorBase
         {
             await ClearParentAsync(ct);
         }
-        
+
         // 调用基类方法设置父节点
         await base.SetParentAsync(parentId, ct);
-        
+
         // 订阅父节点的stream
         var parentStream = _streamRegistry.GetStream(parentId);
         if (parentStream != null)
@@ -60,7 +60,7 @@ public class ProtoActorGAgentActor : GAgentActorBase
             // 注意：事件类型过滤功能已废弃
             // 因为Protobuf不支持继承，无法在类型层面进行有效过滤
             // 所有事件过滤应在Agent的事件处理器内部基于事件内容进行
-            
+
             // 创建过滤器：过滤掉自己发布的事件
             Func<EventEnvelope, bool>? combinedFilter = envelope =>
             {
@@ -69,10 +69,10 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 {
                     return false;
                 }
-                
+
                 return true;
             };
-            
+
             // Agent订阅父节点的stream，接收组内广播的事件
             _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
@@ -80,7 +80,8 @@ public class ProtoActorGAgentActor : GAgentActorBase
                     // 从父stream接收到的事件，只需要处理，不需要继续传播
                     // 因为这个事件已经在父stream中广播了
                     // 通过反射调用Agent的HandleEventAsync
-                    var handleMethod = Agent.GetType().GetMethod("HandleEventAsync", new[] { typeof(EventEnvelope), typeof(CancellationToken) });
+                    var handleMethod = Agent.GetType().GetMethod("HandleEventAsync",
+                        new[] { typeof(EventEnvelope), typeof(CancellationToken) });
                     if (handleMethod != null)
                     {
                         var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
@@ -92,16 +93,16 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 },
                 combinedFilter,
                 ct);
-            
+
             Logger.LogDebug("Agent {AgentId} subscribed to parent {ParentId} stream", Id, parentId);
         }
     }
-    
+
     public override async Task ClearParentAsync(CancellationToken ct = default)
     {
         // 调用基类方法清除父节点
         await base.ClearParentAsync(ct);
-        
+
         // 取消订阅父节点的stream
         if (_parentStreamSubscription != null)
         {
@@ -142,20 +143,20 @@ public class ProtoActorGAgentActor : GAgentActorBase
 
     // ============ 生命周期 ============
 
-    public override async Task ActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct)
     {
         Console.WriteLine($"ProtoActorGAgentActor.ActivateAsync called for agent {Id}");
         Logger.LogInformation("Activating agent {AgentId}", Id);
 
         // 订阅自己的 Stream
         await _myStream.SubscribeAsync<EventEnvelope>(
-            async envelope => 
+            async envelope =>
             {
                 try
                 {
                     Console.WriteLine($"ProtoActor {Id} received event {envelope.Id} from stream");
                     Logger.LogDebug("ProtoActor {AgentId} received event {EventId} from stream", Id, envelope.Id);
-                    await HandleEventAsync(envelope, ct);
+                    await EventRouter.RouteEventAsync(envelope, ct);
                     Logger.LogDebug("ProtoActor {AgentId} handled event {EventId}", Id, envelope.Id);
                     Console.WriteLine($"ProtoActor {Id} handled event {envelope.Id}");
                 }
@@ -166,48 +167,29 @@ public class ProtoActorGAgentActor : GAgentActorBase
                     throw;
                 }
             },
+            null, // No filter needed for self stream
             ct);
 
-        // 调用 Agent 的激活回调
-        var activateMethod = Agent.GetType().GetMethod("OnActivateAsync");
-        if (activateMethod != null)
-        {
-            var task = activateMethod.Invoke(Agent, new object[] { ct }) as Task;
-            if (task != null)
-            {
-                await task;
-            }
-        }
-        
+        Logger.LogInformation("ProtoActorGAgentActor {Id} activated and subscribed to stream", Id);
+
         // 更新活跃 Actor 计数
         var count = Interlocked.Increment(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
         Logger.LogDebug("Active actor count: {Count}", count);
     }
 
-    public override async Task DeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct)
     {
         Logger.LogInformation("Deactivating agent {AgentId}", Id);
 
-        // 调用 Agent 的停用回调
-        var deactivateMethod = Agent.GetType().GetMethod("OnDeactivateAsync");
-        if (deactivateMethod != null)
-        {
-            var task = deactivateMethod.Invoke(Agent, new object[] { ct }) as Task;
-            if (task != null)
-            {
-                await task;
-            }
-        }
-
         // 停止 Proto.Actor
         _rootContext.Send(_actorPid, new Stop());
-        
+
         // 从 Registry 中移除 Agent，以允许后续重新创建相同 ID 的 Actor
         _streamRegistry.Remove(Id);
 
         Logger.LogDebug("Agent {AgentId} removed from registry", Id);
-        
+
         // 更新活跃 Actor 计数
         var count = Interlocked.Decrement(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);

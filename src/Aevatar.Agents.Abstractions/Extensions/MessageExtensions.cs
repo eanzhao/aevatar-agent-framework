@@ -5,37 +5,36 @@ using Google.Protobuf.WellKnownTypes;
 namespace Aevatar.Agents.Abstractions.Extensions;
 
 /// <summary>
-/// 提供对消息操作的扩展方法
+/// Provides extension methods for message operations.
 /// </summary>
 public static class MessageExtensions
 {
     /// <summary>
-    /// 确定事件信封是否包含指定类型的有效负载
+    /// Cache for MessageDescriptor to avoid reflection or repeated instantiation.
     /// </summary>
-    public static bool HasPayload<T>(this EventEnvelope envelope) where T : IMessage, new()
+    /// <typeparam name="T">The message type.</typeparam>
+    private static class DescriptorCache<T> where T : IMessage, new()
     {
-        // 使用静态反射获取Descriptor
-        var descriptor = typeof(T).GetProperty("Descriptor",
-            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        public static readonly Google.Protobuf.Reflection.MessageDescriptor Descriptor;
 
-        if (descriptor != null)
+        static DescriptorCache()
         {
-            var descriptorValue = descriptor.GetValue(null);
-            if (descriptorValue != null && envelope.Payload != null)
-            {
-                var isMethod = envelope.Payload.GetType().GetMethod("Is", new[] { descriptorValue.GetType() });
-                if (isMethod != null)
-                {
-                    return (bool)(isMethod.Invoke(envelope.Payload, new[] { descriptorValue }) ?? false);
-                }
-            }
+            // Create a temporary instance to get the descriptor.
+            // This runs only once per type T.
+            Descriptor = new T().Descriptor;
         }
-
-        return false;
     }
 
     /// <summary>
-    /// 从事件信封中解包指定类型的有效负载
+    /// Determines whether the event envelope contains a payload of the specified type.
+    /// </summary>
+    public static bool HasPayload<T>(this EventEnvelope envelope) where T : IMessage, new()
+    {
+        return envelope.Payload != null && envelope.Payload.Is(DescriptorCache<T>.Descriptor);
+    }
+
+    /// <summary>
+    /// Unpacks the payload of the specified type from the event envelope.
     /// </summary>
     public static T? UnpackPayload<T>(this EventEnvelope envelope) where T : IMessage, new()
     {
@@ -48,7 +47,7 @@ public static class MessageExtensions
     }
 
     /// <summary>
-    /// 创建带有指定负载的事件信封
+    /// Creates an event envelope with the specified payload.
     /// </summary>
     public static EventEnvelope CreateEventEnvelope<T>(this T payload, long version = 1) where T : IMessage
     {

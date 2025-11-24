@@ -25,27 +25,17 @@ public abstract class GAgentActorBase : IGAgentActor
     // Improved event deduplication mechanism
     protected IEventDeduplicator EventDeduplicator { get; set; }
 
+    // EventRouter factory for creating EventRouter with DI support
+    // Internal to allow EventRouterFactoryInjector to replace it
+    internal EventRouterFactory _eventRouterFactory = new();
+
     /// <summary>
     /// Logger property - supports automatic injection
     /// </summary>
     protected ILogger Logger
     {
         get => _logger;
-        set
-        {
-            _logger = value ?? NullLogger.Instance;
-            // Update EventRouter's Logger
-            if (EventRouter != null)
-            {
-                // EventRouter is readonly, needs to be recreated
-                EventRouter = new EventRouter(
-                    Agent.Id,
-                    SendEventToActorAsync,
-                    SendToSelfAsync,
-                    _logger
-                );
-            }
-        }
+        set => _logger = value ?? NullLogger.Instance;
     }
 
     // ============ Constructor ============
@@ -57,8 +47,14 @@ public abstract class GAgentActorBase : IGAgentActor
     {
         Agent = agent ?? throw new ArgumentNullException(nameof(agent));
 
-        // Create event router
-        EventRouter = new EventRouter(
+        // Note: EventRouterFactory should be injected by EventRouterFactoryInjector
+        // before EventRouter is created. The factory injection happens in Actor factories.
+        // EventRouter creation is deferred to after factory injection via a lazy pattern
+        // or we create it with default factory here and recreate if needed.
+
+        // For now, create EventRouter with default factory (no DI)
+        // It will be recreated if factory is injected later
+        EventRouter = _eventRouterFactory.CreateEventRouter(
             agent.Id,
             SendEventToActorAsync,
             SendToSelfAsync,
@@ -77,6 +73,20 @@ public abstract class GAgentActorBase : IGAgentActor
 
         // Use AgentEventPublisherInjector to inject EventPublisher
         AgentEventPublisherInjector.InjectEventPublisher(agent, this);
+    }
+
+    /// <summary>
+    /// Initialize EventRouter with current factory
+    /// Called after EventRouterFactory is injected to recreate EventRouter with DI support
+    /// </summary>
+    private void InitializeEventRouter()
+    {
+        EventRouter = _eventRouterFactory.CreateEventRouter(
+            Agent.Id,
+            SendEventToActorAsync,
+            SendToSelfAsync,
+            _logger
+        );
     }
 
     // ============ IGAgentActor Implementation ============
@@ -254,35 +264,15 @@ public abstract class GAgentActorBase : IGAgentActor
     {
         try
         {
-            // Let Agent process the event
-            var agentType = Agent.GetType();
-            Logger.LogDebug("ProcessEventAsync: Agent type is {AgentType}", agentType.Name);
-
-            var handleMethod = agentType.GetMethod("HandleEventAsync",
-                [typeof(EventEnvelope), typeof(CancellationToken)]);
-            if (handleMethod != null)
-            {
-                Logger.LogDebug("ProcessEventAsync: Found HandleEventAsync on {AgentType}", agentType.Name);
-                var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
-                if (task != null)
-                {
-                    await task;
-                    Logger.LogDebug("ProcessEventAsync: HandleEventAsync completed for event {EventId}", envelope.Id);
-                }
-                else
-                {
-                    Logger.LogWarning("ProcessEventAsync: HandleEventAsync did not return a Task");
-                }
-            }
-            else
-            {
-                Logger.LogWarning("ProcessEventAsync: HandleEventAsync not found on {AgentType}", agentType.Name);
-            }
+            // Directly call Agent's HandleEventAsync method (no reflection needed)
+            await Agent.HandleEventAsync(envelope, ct);
+            Logger.LogDebug("ProcessEventAsync: HandleEventAsync completed for event {EventId}", envelope.Id);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error handling event {EventId} in agent {AgentId}",
                 envelope.Id, Id);
+            throw;
         }
     }
 
@@ -301,19 +291,40 @@ public abstract class GAgentActorBase : IGAgentActor
     /// <summary>
     /// Activate Actor
     /// </summary>
-    public virtual async Task ActivateAsync(CancellationToken ct = default)
+    public async Task ActivateAsync(CancellationToken ct = default)
     {
-        await Agent.ActivateAsync();
+        // Reinitialize EventRouter with the injected factory (if any)
+        // This ensures EventRouter uses the DI-injected store
+        InitializeEventRouter();
+
+        Logger.LogInformation("Activating agent actor {Id}", Id);
+
+        await Agent.ActivateAsync(ct);
 
         // Load persisted hierarchy (if store is configured)
         await EventRouter.LoadHierarchyAsync(ct);
+
+        // Call derived class activation logic
+        await OnActivateAsync(ct);
     }
+
+    /// <summary>
+    /// Derived classes should override this method to perform specific activation logic
+    /// </summary>
+    protected virtual Task OnActivateAsync(CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
     /// Deactivate Actor
     /// </summary>
-    public virtual async Task DeactivateAsync(CancellationToken ct = default)
+    public async Task DeactivateAsync(CancellationToken ct = default)
     {
-        await Agent.DeactivateAsync();
+        await Agent.DeactivateAsync(ct);
+
+        await OnDeactivateAsync(ct);
     }
+
+    /// <summary>
+    /// Derived classes should override this method to perform specific deactivation logic
+    /// </summary>
+    protected virtual Task OnDeactivateAsync(CancellationToken ct) => Task.CompletedTask;
 }
