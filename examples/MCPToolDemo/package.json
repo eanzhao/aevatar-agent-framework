@@ -1,0 +1,13 @@
+{
+    "name": "mcp-demo-server",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Simple MCP server for Aevatar demo",
+    "main": "simple-mcp-server.mjs",
+    "scripts": {
+        "start": "node simple-mcp-server.mjs"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^0.6.0"
+    }
+}

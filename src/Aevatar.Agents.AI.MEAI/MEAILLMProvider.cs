@@ -123,10 +123,40 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 (int?)response.Usage?.TotalTokenCount)
         };
 
-        // Note: Function calling handling depends on the specific ChatClient implementation
-        // Tools have been added to ChatOptions, but the current IChatClient.GetResponseAsync
-        // may not expose function calls in a standardized way. This needs further investigation
-        // based on the actual ChatClient implementation being used (e.g., DeepSeekChatClient)
+        // Check if response contains function/tool calls
+        // Microsoft.Extensions.AI puts tool calls in response.Messages[].Contents
+        if (response.Messages?.Count > 0)
+        {
+            foreach (var message in response.Messages)
+            {
+                if (message.Contents?.Count > 0)
+                {
+                    foreach (var content in message.Contents)
+                    {
+                        if (content is FunctionCallContent functionCall)
+                        {
+                            _logger.LogDebug("Found function call: {FunctionName} with {ArgCount} arguments",
+                                functionCall.Name, functionCall.Arguments?.Count ?? 0);
+                           
+                            // Set AevatarFunctionCall to trigger tool execution in AIGAgentWithToolBase
+                            result.AevatarFunctionCall = new AevatarFunctionCall
+                            {
+                                Name = functionCall.Name,
+                                Arguments = functionCall.Arguments != null 
+                                    ? System.Text.Json.JsonSerializer.Serialize(functionCall.Arguments)
+                                    : "{}"
+                            };
+                            
+                            // Also set content for logging
+                            result.Content = string.Format(ToolConstants.FunctionCalledMessageFormat, functionCall.Name);
+                            
+                            // Only handle the first function call for now
+                            return result;
+                        }
+                    }
+                }
+            }
+        }
 
         return result;
     }

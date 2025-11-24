@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
@@ -6,6 +7,7 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Aevatar.Agents.AI.WithTool.Tools;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,7 +61,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// <summary>
     /// Initializes a new instance of the AIGAgentWithToolBase class.
     /// </summary>
-    protected AIGAgentWithToolBase() : base()
+    protected AIGAgentWithToolBase()
     {
         InitializeManagers();
     }
@@ -130,10 +132,75 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         await ToolManager.RegisterToolAsync(toolDefinition);
     }
 
+    #region MCP Server Registration (requires Aevatar.Agents.AI.WithTool.MCP package)
+
+    /// <summary>
+    /// Register an MCP server via npx (Node.js).
+    /// </summary>
+    /// <param name="packageName">NPM package name (e.g., "@modelcontextprotocol/server-github")</param>
+    /// <param name="serverName">Optional server name for identification</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <example>
+    /// <code>
+    /// protected override async Task RegisterToolsAsync()
+    /// {
+    ///     // Register GitHub MCP server
+    ///     await RegisterMCPServerViaNpxAsync("@modelcontextprotocol/server-github");
+    /// }
+    /// </code>
+    /// </example>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    protected async Task RegisterMCPServerViaNpxAsync(
+        string packageName,
+        string? serverName = null,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureToolManagerInitialized();
+        
+        await ToolManager.RegisterMCPServerViaNpxAsync(
+            packageName, 
+            serverName, 
+            Logger, 
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Register an MCP server via uvx (Python).
+    /// Requires: Aevatar.Agents.AI.WithTool.MCP package reference.
+    /// </summary>
+    /// <param name="packageName">Python package name</param>
+    /// <param name="serverName">Optional server name for identification</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <example>
+    /// <code>
+    /// protected override async Task RegisterToolsAsync()
+    /// {
+    ///     // Register Python MCP server
+    ///     await RegisterMCPServerViaUvxAsync("mcp-server-github");
+    /// }
+    /// </code>
+    /// </example>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    protected async Task RegisterMCPServerViaUvxAsync(
+        string packageName,
+        string? serverName = null,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureToolManagerInitialized();
+
+        await ToolManager.RegisterMCPServerViaUvxAsync(
+            packageName, 
+            serverName, 
+            Logger, 
+            cancellationToken);
+    }
+
+    #endregion
+
     /// <summary>
     /// Get list of registered tools asynchronously.
     /// </summary>
-    protected async Task<IReadOnlyList<ToolDefinition>> GetRegisteredToolsAsync()
+    public async Task<IReadOnlyList<ToolDefinition>> GetRegisteredToolsAsync()
     {
         if (_toolManager == null)
             return [];
