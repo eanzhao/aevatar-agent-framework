@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Aevatar.BusinessServer</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Aevatar.BusinessServer.MongoDB\Aevatar.BusinessServer.MongoDB.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.Application.Tests\Aevatar.BusinessServer.Application.Tests.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="EphemeralMongo.Core" />
+    <PackageReference Include="EphemeralMongo6.runtime.linux-x64" />
+    <PackageReference Include="EphemeralMongo6.runtime.osx-x64" />
+    <PackageReference Include="EphemeralMongo6.runtime.win-x64" />
+  </ItemGroup>
+
+</Project>

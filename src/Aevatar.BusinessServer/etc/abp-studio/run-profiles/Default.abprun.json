@@ -1,0 +1,13 @@
+﻿{
+  "applications": {
+    "Aevatar.BusinessServer.Web": {
+      "type": "dotnet-project",
+      "launchUrl": "https://localhost:44345",
+      "path": "../../../src/Aevatar.BusinessServer.Web/Aevatar.BusinessServer.Web.csproj",
+      "kubernetesService": ".*-web$",
+      "execution": {
+        "order": 2
+      }
+    }
+  }
+}
