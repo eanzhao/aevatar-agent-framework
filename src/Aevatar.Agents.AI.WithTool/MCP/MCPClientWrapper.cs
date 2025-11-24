@@ -5,7 +5,10 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using System.Text.Json;
+using System.Net.Http;
+using System.IO;
 
+// ReSharper disable InconsistentNaming
 namespace Aevatar.Agents.AI.WithTool.MCP;
 
 /// <summary>
@@ -15,10 +18,10 @@ namespace Aevatar.Agents.AI.WithTool.MCP;
 public class MCPClientWrapper : IMCPClient
 {
     private readonly McpClient _client;
-    private readonly ILogger<MCPClientWrapper>? _logger;
+    private readonly ILogger? _logger;
     private readonly MCPServerConfig _config;
 
-    private MCPClientWrapper(McpClient client, MCPServerConfig config, ILogger<MCPClientWrapper>? logger = null)
+    private MCPClientWrapper(McpClient client, MCPServerConfig config, ILogger? logger = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -30,21 +33,23 @@ public class MCPClientWrapper : IMCPClient
     /// </summary>
     public static async Task<MCPClientWrapper> CreateAsync(
         MCPServerConfig config,
-        ILogger<MCPClientWrapper>? logger = null,
+        ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        logger?.LogInformation("Creating MCP client for server: {ServerName} ({TransportType})", 
+        logger?.LogInformation("Creating MCP client for server: {ServerName} ({TransportType})",
             config.Name, config.TransportType);
 
         try
         {
             // Create appropriate transport based on config
-            var transport = config.TransportType switch
+            IClientTransport transport = config.TransportType switch
             {
                 MCPTransportType.Stdio => CreateStdioTransport(config, logger),
-                MCPTransportType.Http => throw new NotImplementedException("HTTP transport not yet implemented"),
+                MCPTransportType.Http => CreateHttpTransport(config, logger),
+                MCPTransportType.Stream => throw new NotSupportedException(
+                    "Stream transport must be created via CreateFromStreamsAsync"),
                 _ => throw new NotSupportedException($"Transport type {config.TransportType} is not supported")
             };
 
@@ -69,6 +74,48 @@ public class MCPClientWrapper : IMCPClient
     }
 
     /// <summary>
+    /// Creates and connects an MCP client wrapper from custom streams.
+    /// Useful for SSH, Named Pipes, or other custom transports.
+    /// </summary>
+    public static async Task<MCPClientWrapper> CreateFromStreamsAsync(
+        Stream inputStream,
+        Stream outputStream,
+        MCPServerConfig config,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(inputStream);
+        ArgumentNullException.ThrowIfNull(outputStream);
+        ArgumentNullException.ThrowIfNull(config);
+
+        logger?.LogInformation("Creating MCP client from custom streams for server: {ServerName}", config.Name);
+
+        try
+        {
+            var transport = new StreamClientTransport(inputStream, outputStream);
+
+            // Create client options
+            var options = new McpClientOptions
+            {
+                InitializationTimeout = TimeSpan.FromMilliseconds(config.TimeoutMs)
+            };
+
+            // Create and connect the client
+            var client = await McpClient.CreateAsync(transport, options, cancellationToken: cancellationToken);
+
+            logger?.LogInformation("Successfully connected to MCP server via custom streams: {ServerName}",
+                config.Name);
+
+            return new MCPClientWrapper(client, config, logger);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Failed to create MCP client from streams for server: {ServerName}", config.Name);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Creates a stdio transport for local MCP servers (npx/uvx).
     /// </summary>
     private static StdioClientTransport CreateStdioTransport(MCPServerConfig config, ILogger? logger)
@@ -76,7 +123,7 @@ public class MCPClientWrapper : IMCPClient
         if (string.IsNullOrWhiteSpace(config.Command))
             throw new ArgumentException("Command is required for Stdio transport", nameof(config));
 
-        logger?.LogDebug("Creating stdio transport: {Command} {Arguments}", 
+        logger?.LogDebug("Creating stdio transport: {Command} {Arguments}",
             config.Command, string.Join(" ", config.Arguments ?? []));
 
         var options = new StdioClientTransportOptions
@@ -84,10 +131,59 @@ public class MCPClientWrapper : IMCPClient
             Name = config.Name,
             Command = config.Command,
             Arguments = config.Arguments?.ToArray() ?? [],
-            WorkingDirectory = config.WorkingDirectory
+            WorkingDirectory = config.WorkingDirectory,
+            EnvironmentVariables = (config.Environment?
+                                        .Where(e => e.Value != null)
+                                        .ToDictionary(e => e.Key, e => e.Value!)
+                                    ?? new Dictionary<string, string>())!
         };
 
         return new StdioClientTransport(options);
+    }
+
+    /// <summary>
+    /// Creates an HTTP transport for remote MCP servers.
+    /// </summary>
+    private static HttpClientTransport CreateHttpTransport(MCPServerConfig config, ILogger? logger)
+    {
+        if (string.IsNullOrWhiteSpace(config.ServerUrl))
+            throw new ArgumentException("ServerUrl is required for HTTP transport", nameof(config));
+
+        logger?.LogDebug("Creating HTTP transport: {Url}", config.ServerUrl);
+
+        var options = new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(config.ServerUrl)
+        };
+
+        // Prepare headers
+        var headers = new Dictionary<string, string>();
+
+        // Add default headers from config
+        if (config.Headers != null)
+        {
+            foreach (var header in config.Headers)
+            {
+                if (!string.IsNullOrWhiteSpace(header.Key) && !string.IsNullOrWhiteSpace(header.Value))
+                {
+                    headers[header.Key] = header.Value;
+                }
+            }
+        }
+
+        // Add Auth token if present
+        if (!string.IsNullOrWhiteSpace(config.AuthToken))
+        {
+            headers["Authorization"] = $"Bearer {config.AuthToken}";
+        }
+
+        // Only set AdditionalHeaders if we have any
+        if (headers.Count > 0)
+        {
+            options.AdditionalHeaders = headers;
+        }
+
+        return new HttpClientTransport(options);
     }
 
     /// <inheritdoc />
@@ -97,15 +193,11 @@ public class MCPClientWrapper : IMCPClient
         {
             _logger?.LogDebug("Listing tools from MCP server: {ServerName}", _config.Name);
 
-            var tools = await _client.ListToolsAsync();
+            var tools = await _client.ListToolsAsync(cancellationToken: cancellationToken);
 
-            var mcpTools = new List<MCPToolDefinition>();
-            foreach (var tool in tools)
-            {
-                mcpTools.Add(ConvertToMCPToolDefinition(tool));
-            }
+            var mcpTools = tools.Select(ConvertToMCPToolDefinition).ToList();
 
-            _logger?.LogInformation("Retrieved {Count} tools from MCP server: {ServerName}", 
+            _logger?.LogInformation("Retrieved {Count} tools from MCP server: {ServerName}",
                 mcpTools.Count, _config.Name);
 
             return mcpTools;
@@ -125,21 +217,21 @@ public class MCPClientWrapper : IMCPClient
     {
         try
         {
-            _logger?.LogDebug("Calling MCP tool: {ToolName} on server: {ServerName}", 
+            _logger?.LogDebug("Calling MCP tool: {ToolName} on server: {ServerName}",
                 toolName, _config.Name);
 
-            var result = await _client.CallToolAsync(toolName, parameters);
+            var result = await _client.CallToolAsync(toolName, parameters, cancellationToken: cancellationToken);
 
             var mcpResult = ConvertToMCPToolResult(result);
 
-            _logger?.LogDebug("MCP tool call completed: {ToolName}, Success: {IsSuccess}", 
+            _logger?.LogDebug("MCP tool call completed: {ToolName}, Success: {IsSuccess}",
                 toolName, mcpResult.IsSuccess);
 
             return mcpResult;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error calling MCP tool: {ToolName} on server: {ServerName}", 
+            _logger?.LogError(ex, "Error calling MCP tool: {ToolName} on server: {ServerName}",
                 toolName, _config.Name);
 
             return new MCPToolResult
@@ -219,7 +311,7 @@ public class MCPClientWrapper : IMCPClient
             {
                 mcpSchema.Properties = new Dictionary<string, MCPPropertySchema>();
                 var props = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(propsElement.GetRawText());
-                
+
                 if (props != null)
                 {
                     foreach (var (key, value) in props)
@@ -296,7 +388,7 @@ public class MCPClientWrapper : IMCPClient
 
         // Get text content blocks
         var textBlocks = result.Content.OfType<TextContentBlock>().ToList();
-        
+
         if (textBlocks.Count > 0)
             return string.Join("\n", textBlocks.Select(b => b.Text));
 
@@ -316,7 +408,7 @@ public class MCPClientWrapper : IMCPClient
     public async ValueTask DisposeAsync()
     {
         _logger?.LogDebug("Disposing MCP client for server: {ServerName}", _config.Name);
-        
+
         if (_client is IAsyncDisposable asyncDisposable)
         {
             await asyncDisposable.DisposeAsync();

@@ -100,7 +100,7 @@ public class MCPToolAdapter
                 // Call MCP server
                 var mcpResult = await _mcpClient.CallToolAsync(toolName, mcpParameters, cancellationToken);
 
-                // Convert result to AevatarAIToolResult
+                // Convert result to AevatarAIToolResult.cs
                 var result = mcpResult.IsSuccess
                     ? AevatarAIToolResult.CreateSuccess(mcpResult.Content)
                     : AevatarAIToolResult.CreateFailure(mcpResult.Error ?? "Unknown error");

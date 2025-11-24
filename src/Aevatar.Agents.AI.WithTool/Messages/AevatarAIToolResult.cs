@@ -1,3 +1,4 @@
+using Aevatar.Agents.AI.WithTool.Messages;
 using Google.Protobuf.WellKnownTypes;
 
 namespace Aevatar.Agents.AI.WithTool.Messages;

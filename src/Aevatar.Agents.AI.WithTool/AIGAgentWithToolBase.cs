@@ -1,18 +1,18 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Aevatar.Agents.AI.WithTool.Tools;
-using Microsoft.Extensions.DependencyInjection;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aevatar.Agents.AI.WithTool;
 
@@ -28,8 +28,8 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     #region Fields
 
     private IAevatarToolManager? _toolManager;
-    private ConversationHistoryManager? _historyManager;
     private ToolExecutionCoordinator? _executionCoordinator;
+    private ToolAwareConversationHistoryManager? _toolHistoryManager;
 
     #endregion
 
@@ -50,9 +50,18 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
                 // Actually, EnsureToolManagerInitialized no longer calls RegisterTools, so it's safe(r).
                 EnsureToolManagerInitialized();
             }
+
             return _toolManager!;
         }
+        set
+        {
+            _toolManager = value ?? throw new ArgumentNullException(nameof(value));
+            UpdateActiveToolsInState();
+        }
     }
+
+    protected ToolAwareConversationHistoryManager ToolHistoryManager =>
+        _toolHistoryManager ??= (ToolAwareConversationHistoryManager)ConversationHistory;
 
     #endregion
 
@@ -63,19 +72,15 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     /// </summary>
     protected AIGAgentWithToolBase()
     {
-        InitializeManagers();
     }
 
     /// <summary>
     /// Initializes a new instance with dependency injection.
     /// </summary>
     protected AIGAgentWithToolBase(
-        IAevatarLLMProvider llmProvider,
-        IAevatarToolManager toolManager,
-        ILogger? logger = null)
+        IAevatarToolManager toolManager)
     {
         _toolManager = toolManager ?? throw new ArgumentNullException(nameof(toolManager));
-        InitializeManagers();
     }
 
     /// <summary>
@@ -88,6 +93,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         await base.InitializeAsync(providerName, configAI, cancellationToken);
         await RegisterToolsAsync();
+        await UpdateToolAwareSystemPromptAsync(cancellationToken);
     }
 
     /// <summary>
@@ -100,6 +106,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         await base.InitializeAsync(providerConfig, configAI, cancellationToken);
         await RegisterToolsAsync();
+        await UpdateToolAwareSystemPromptAsync(cancellationToken);
     }
 
     #endregion
@@ -130,6 +137,47 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
         var toolDefinition = tool.CreateToolDefinition(context, logger ?? Logger);
         await ToolManager.RegisterToolAsync(toolDefinition);
+        await UpdateToolAwareSystemPromptAsync();
+    }
+
+    /// <summary>
+    /// Update the system prompt based on currently registered tools.
+    /// </summary>
+    protected virtual async Task UpdateToolAwareSystemPromptAsync(CancellationToken cancellationToken = default)
+    {
+        var tools = await GetRegisteredToolsAsync();
+        SystemPrompt = BuildToolAwareSystemPrompt(tools);
+    }
+
+    /// <summary>
+    /// Build the tool-aware system prompt description. Derived classes can override to customize instructions.
+    /// </summary>
+    protected virtual string BuildToolAwareSystemPrompt(IReadOnlyList<ToolDefinition> tools)
+    {
+        var builder = new StringBuilder();
+
+        builder.AppendLine("You are a helpful AI assistant with access to callable tools.");
+        builder.AppendLine();
+
+        if (tools.Count > 0)
+        {
+            builder.AppendLine("Available tools:");
+            foreach (var tool in tools)
+            {
+                builder.AppendLine($"- {tool.Name}: {tool.Description}");
+            }
+        }
+        else
+        {
+            builder.AppendLine("No tools are currently available.");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(
+            "When a question can be answered more accurately or efficiently with a tool, call the most relevant tool before responding.");
+        builder.AppendLine("Always provide concise and helpful final responses.");
+
+        return builder.ToString();
     }
 
     #region MCP Server Registration (requires Aevatar.Agents.AI.WithTool.MCP package)
@@ -156,11 +204,11 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         CancellationToken cancellationToken = default)
     {
         EnsureToolManagerInitialized();
-        
+
         await ToolManager.RegisterMCPServerViaNpxAsync(
-            packageName, 
-            serverName, 
-            Logger, 
+            packageName,
+            serverName,
+            Logger,
             cancellationToken);
     }
 
@@ -189,9 +237,9 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         EnsureToolManagerInitialized();
 
         await ToolManager.RegisterMCPServerViaUvxAsync(
-            packageName, 
-            serverName, 
-            Logger, 
+            packageName,
+            serverName,
+            Logger,
             cancellationToken);
     }
 
@@ -237,17 +285,15 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         // Default implementation creates a AevatarToolManager
         // Use a null logger for now, can be enhanced later
-        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<AevatarToolManager>.Instance;
+        var logger = NullLogger<AevatarToolManager>.Instance;
         return new AevatarToolManager(logger);
     }
 
-    /// <summary>
-    /// Initialize history manager and execution coordinator.
-    /// </summary>
-    private void InitializeManagers()
+    protected override ConversationHistoryManager CreateConversationHistoryManager()
     {
-        _historyManager = new ConversationHistoryManager(State.History);
-        // Coordinator will be initialized when needed (requires LLMProvider)
+        var manager = new ToolAwareConversationHistoryManager(State.History);
+        _toolHistoryManager = manager;
+        return manager;
     }
 
     /// <summary>
@@ -257,13 +303,10 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         if (_executionCoordinator == null)
         {
-            if (_historyManager == null)
-                throw new InvalidOperationException("History manager not initialized");
-
             _executionCoordinator = new ToolExecutionCoordinator(
                 ToolManager,
                 LLMProvider,
-                _historyManager,
+                ToolHistoryManager,
                 Logger);
         }
 
@@ -389,7 +432,7 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
     {
         var llmRequest = new AevatarLLMRequest
         {
-            SystemPrompt = SystemPrompt,
+            SystemPrompt = GetEffectiveSystemPrompt(),
             Settings = GetLLMSettings(request),
             Messages = new List<AevatarChatMessage>()
         };
@@ -481,25 +524,6 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
         {
             toolCall.Arguments[arg.Key.ToString()] = arg.Value?.ToString() ?? string.Empty;
         }
-    }
-
-    /// <summary>
-    /// Add message to conversation history.
-    /// </summary>
-    protected void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
-    {
-        if (_historyManager == null)
-            throw new InvalidOperationException("History manager not initialized");
-
-        _historyManager.AddMessage(content, role, name);
-    }
-
-    protected void AddMessageToHistory(AevatarChatMessage msg)
-    {
-        if (_historyManager == null)
-            throw new InvalidOperationException("History manager not initialized");
-
-        _historyManager.AddMessage(msg);
     }
 
     /// <summary>
