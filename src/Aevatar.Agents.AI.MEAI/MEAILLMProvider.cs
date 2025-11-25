@@ -8,9 +8,9 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+// ReSharper disable InconsistentNaming
 namespace Aevatar.Agents.AI.MEAI;
 
-// ReSharper disable InconsistentNaming
 public sealed class MEAILLMProvider : AevatarLLMProviderBase
 {
     private readonly IChatClient _chatClient;
@@ -37,7 +37,13 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     }
 
     /// <summary>
-    /// Build chat messages from request.
+    /// Maps Aevatar chat role to Microsoft.Extensions.AI chat role.
+    /// </summary>
+    private static ChatRole MapToMEAIChatRole(AevatarChatRole role) =>
+        role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant;
+
+    /// <summary>
+    /// Builds chat messages from request.
     /// </summary>
     private List<ChatMessage> BuildChatMessages(AevatarLLMRequest request)
     {
@@ -50,9 +56,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         {
             foreach (var msg in request.Messages)
             {
-                messages.Add(new ChatMessage(
-                    msg.Role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant,
-                    msg.Content));
+                messages.Add(new ChatMessage(MapToMEAIChatRole(msg.Role), msg.Content));
             }
         }
 
@@ -97,22 +101,14 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         foreach (var func in functions)
         {
             var schema = ConvertParametersToJsonSchema(func.Parameters);
-            
+
             // Create custom AIFunction with our schema and handler
             var aiFunc = new DelegatingAIFunction(
                 func.Name,
                 func.Description,
                 schema,
-                async (args, ct) =>
-                {
-                    var dict = new Dictionary<string, object?>();
-                    foreach (var kvp in args)
-                    {
-                        dict[kvp.Key] = kvp.Value;
-                    }
-                    return await Task.FromResult(string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name));
-                });
-            
+                (_, _) => Task.FromResult<object>(string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name)));
+
             aiTools.Add(aiFunc);
         }
 
@@ -174,6 +170,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 {
                     enumArray.Add(val);
                 }
+
                 property["enum"] = enumArray;
             }
 
@@ -196,13 +193,74 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     }
 
     /// <summary>
-    /// Create AevatarLLMResponse from Microsoft.Extensions.AI ChatResponse.
+    /// Unwraps function arguments that may be wrapped in a "_" key.
+    /// This handles an artifact of AIFunctionFactory with Dictionary parameters.
+    /// </summary>
+    private IDictionary<string, object?>? UnwrapFunctionArguments(IDictionary<string, object?>? arguments)
+    {
+        if (arguments == null || arguments.Count != 1 || !arguments.TryGetValue("_", out var wrappedValue))
+            return arguments;
+
+        if (wrappedValue is JsonElement wrappedElement &&
+            wrappedElement.ValueKind == JsonValueKind.Object)
+        {
+            _logger.LogDebug("Unwrapping arguments from '_' key (JsonElement)");
+            return JsonSerializer.Deserialize<Dictionary<string, object?>>(wrappedElement.GetRawText());
+        }
+
+        if (wrappedValue is Dictionary<string, object?> wrappedDict)
+        {
+            _logger.LogDebug("Unwrapping arguments from '_' key (Dictionary)");
+            return wrappedDict;
+        }
+
+        return arguments;
+    }
+
+    /// <summary>
+    /// Processes function calls from the chat response and creates an AevatarFunctionCall if found.
+    /// </summary>
+    private AevatarFunctionCall? ProcessFunctionCalls(Microsoft.Extensions.AI.ChatResponse response)
+    {
+        if (response.Messages?.Count == 0)
+            return null;
+
+        foreach (var message in response.Messages!)
+        {
+            if (message.Contents?.Count == 0)
+                continue;
+
+            foreach (var content in message.Contents!)
+            {
+                if (content is not FunctionCallContent functionCall)
+                    continue;
+
+                _logger.LogDebug("Found function call: {FunctionName} with {ArgCount} arguments",
+                    functionCall.Name, functionCall.Arguments?.Count ?? 0);
+
+                var unwrappedArguments = UnwrapFunctionArguments(functionCall.Arguments);
+
+                return new AevatarFunctionCall
+                {
+                    Name = functionCall.Name,
+                    Arguments = unwrappedArguments != null
+                        ? JsonSerializer.Serialize(unwrappedArguments)
+                        : "{}"
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Creates AevatarLLMResponse from Microsoft.Extensions.AI ChatResponse.
     /// </summary>
     private AevatarLLMResponse CreateAevatarLLMResponse(Microsoft.Extensions.AI.ChatResponse response)
     {
         var result = new AevatarLLMResponse
         {
-            Content = response.Text ?? string.Empty,
+            Content = response.Text,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete,
             Usage = CreateTokenUsage(
@@ -211,52 +269,11 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 (int?)response.Usage?.TotalTokenCount)
         };
 
-        // Check if response contains function/tool calls
-        // Microsoft.Extensions.AI puts tool calls in response.Messages[].Contents
-        if (response.Messages?.Count > 0)
+        var functionCall = ProcessFunctionCalls(response);
+        if (functionCall != null)
         {
-            foreach (var message in response.Messages)
-            {
-                if (message.Contents?.Count > 0)
-                {
-                    foreach (var content in message.Contents)
-                    {
-                        if (content is FunctionCallContent functionCall)
-                        {
-                            _logger.LogDebug("Found function call: {FunctionName} with {ArgCount} arguments",
-                                functionCall.Name, functionCall.Arguments?.Count ?? 0);
-                           
-                            // Unwrap arguments if wrapped in "_" (artifact of AIFunctionFactory with Dictionary parameter)
-                            var arguments = functionCall.Arguments;
-                            if (arguments != null && arguments.Count == 1 && arguments.ContainsKey("_") && arguments["_"] is System.Text.Json.JsonElement wrappedElement && wrappedElement.ValueKind == System.Text.Json.JsonValueKind.Object)
-                            {
-                                _logger.LogDebug("Unwrapping arguments from '_' key");
-                                arguments = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(wrappedElement.GetRawText());
-                            }
-                            else if (arguments != null && arguments.Count == 1 && arguments.ContainsKey("_") && arguments["_"] is Dictionary<string, object?> wrappedDict)
-                            {
-                                 _logger.LogDebug("Unwrapping arguments from '_' key (Dictionary)");
-                                 arguments = wrappedDict;
-                            }
-
-                            // Set AevatarFunctionCall to trigger tool execution in AIGAgentWithToolBase
-                            result.AevatarFunctionCall = new AevatarFunctionCall
-                            {
-                                Name = functionCall.Name,
-                                Arguments = arguments != null 
-                                    ? System.Text.Json.JsonSerializer.Serialize(arguments)
-                                    : "{}"
-                            };
-                            
-                            // Also set content for logging
-                            result.Content = string.Format(ToolConstants.FunctionCalledMessageFormat, functionCall.Name);
-                            
-                            // Only handle the first function call for now
-                            return result;
-                        }
-                    }
-                }
-            }
+            result.AevatarFunctionCall = functionCall;
+            result.Content = string.Format(ToolConstants.FunctionCalledMessageFormat, functionCall.Name);
         }
 
         return result;
@@ -267,30 +284,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     {
         _logger.LogDebug("Generating streaming response using MEAI provider: {Model}", _config.Model);
 
-        var messages = new List<ChatMessage>();
-
-        if (!string.IsNullOrEmpty(request.SystemPrompt))
-            messages.Add(new ChatMessage(ChatRole.System, request.SystemPrompt));
-
-        if (request.Messages.Count > 0)
-        {
-            foreach (var msg in request.Messages)
-            {
-                messages.Add(new ChatMessage(
-                    msg.Role == AevatarChatRole.User ? ChatRole.User : ChatRole.Assistant,
-                    msg.Content));
-            }
-        }
-
-        if (!string.IsNullOrEmpty(request.UserPrompt))
-            messages.Add(new ChatMessage(ChatRole.User, request.UserPrompt));
-
-        var options = new ChatOptions
-        {
-            Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
-            MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
-            ModelId = _config.Model
-        };
+        var messages = BuildChatMessages(request);
+        var options = BuildChatOptions(request);
 
         await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
@@ -310,6 +305,11 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
     }
 
+    /// <summary>
+    /// Extracts streaming text from chat update using reflection.
+    /// Uses reflection to maintain resilience against Microsoft.Extensions.AI SDK changes.
+    /// Attempts multiple property paths: TextDelta, Text, Message.Text, and Message.Content collection.
+    /// </summary>
     private static string ExtractStreamingText(object chatUpdate)
     {
         if (chatUpdate == null)
@@ -317,13 +317,11 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return string.Empty;
         }
 
-        var type = chatUpdate.GetType();
-
-        // Try TextDelta or Text via reflection to stay resilient to SDK changes
-        var text = type.GetProperty("TextDelta")?.GetValue(chatUpdate) as string;
+        // Try TextDelta or Text properties directly
+        var text = StreamingPropertyCache.GetValue(chatUpdate, "TextDelta") as string;
         if (string.IsNullOrEmpty(text))
         {
-            text = type.GetProperty("Text")?.GetValue(chatUpdate) as string;
+            text = StreamingPropertyCache.GetValue(chatUpdate, "Text") as string;
         }
 
         if (!string.IsNullOrEmpty(text))
@@ -331,22 +329,21 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return text;
         }
 
-        // Try Message.Text
-        var message = type.GetProperty("Message")?.GetValue(chatUpdate);
+        // Try Message.Text property
+        var message = StreamingPropertyCache.GetValue(chatUpdate, "Message");
         if (message == null)
         {
             return string.Empty;
         }
 
-        var messageType = message.GetType();
-        text = messageType.GetProperty("Text")?.GetValue(message) as string;
+        text = StreamingPropertyCache.GetValue(message, "Text") as string;
         if (!string.IsNullOrEmpty(text))
         {
             return text;
         }
 
-        // Try aggregating message.Content (collection of parts)
-        var content = messageType.GetProperty("Content")?.GetValue(message) as System.Collections.IEnumerable;
+        // Aggregate text from Message.Content collection
+        var content = StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable;
         if (content == null)
         {
             return string.Empty;
@@ -356,8 +353,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         foreach (var part in content)
         {
             if (part == null) continue;
-            var partType = part.GetType();
-            var partText = partType.GetProperty("Text")?.GetValue(part) as string;
+            var partText = StreamingPropertyCache.GetValue(part, "Text") as string;
             if (!string.IsNullOrEmpty(partText))
             {
                 sb.Append(partText);
@@ -365,16 +361,5 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         }
 
         return sb.ToString();
-    }
-
-    public Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new AevatarModelInfo
-        {
-            Name = _config.Model,
-            MaxTokens = _config.MaxTokens,
-            SupportsStreaming = _config.EnableStreaming,
-            SupportsFunctions = true // MEAI supports tools/functions
-        });
     }
 }
