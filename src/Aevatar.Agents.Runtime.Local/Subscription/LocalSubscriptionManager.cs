@@ -30,8 +30,8 @@ public class LocalSubscriptionManager : BaseSubscriptionManager
         Logger.LogDebug("Creating Local stream subscription: Child {ChildId} -> Parent {ParentId}",
             childId, parentId);
         
-        // 获取父节点的stream
-        var parentStream = _streamRegistry.GetOrCreateStream(parentId);
+        // 获取父节点的stream（不自动创建，以便在stream不存在时触发重试）
+        var parentStream = _streamRegistry.GetStream(parentId);
         
         if (parentStream == null)
         {
