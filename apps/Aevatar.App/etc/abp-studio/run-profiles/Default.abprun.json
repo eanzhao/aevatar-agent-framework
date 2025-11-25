@@ -1,0 +1,13 @@
+﻿{
+  "applications": {
+    "Aevatar.App.HttpApi.Host": {
+      "type": "dotnet-project",
+      "launchUrl": "https://localhost:44345",
+      "path": "../src/Aevatar.App.HttpApi.Host/Aevatar.App.HttpApi.Host.csproj",
+      "kubernetesService": ".*-web$",
+      "execution": {
+        "order": 2
+      }
+    }
+  }
+}

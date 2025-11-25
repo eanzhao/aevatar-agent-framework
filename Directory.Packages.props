@@ -54,7 +54,7 @@
     <PackageVersion Include="Azure.Identity" Version="1.13.1" />
     <PackageVersion Include="LlmTornado" Version="3.8.23" />
     <!-- MongoDB -->
-    <PackageVersion Include="MongoDB.Driver" Version="3.0.0" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.3.0" />
     <!-- OpenTelemetry -->
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.10.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.11.0-beta.1" />
