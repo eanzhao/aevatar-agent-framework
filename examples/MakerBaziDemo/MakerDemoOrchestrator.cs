@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Maker;
 using Aevatar.Agents.Core.Hierarchy;
+using Aevatar.Agents.Maker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

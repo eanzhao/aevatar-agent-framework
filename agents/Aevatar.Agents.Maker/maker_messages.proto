@@ -82,6 +82,10 @@ message TaskAgentConfig {
     bool enforce_micro_steps = 10;
     // Allow task agent to act as self worker
     bool enable_self_worker = 11;
+    // Automatically create/link MakerTaskAgent children when recursion is triggered
+    bool auto_link_children = 12;
+    // Desired minimum number of child agents kept linked for recursion
+    int32 child_pool_size = 13;
 }
 
 // ==============================

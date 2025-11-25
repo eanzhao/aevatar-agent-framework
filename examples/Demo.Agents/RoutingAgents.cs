@@ -1,6 +1,6 @@
 using Aevatar.Agents;
-using Aevatar.Agents.Core;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Core;
 using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;

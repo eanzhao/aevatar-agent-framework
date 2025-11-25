@@ -1,13 +1,13 @@
+using System.Diagnostics;
+using System.Text;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.MCP.Configuration;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
-using System.Text;
-using Aevatar.Agents.AI.WithTool.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace MCPToolDemo;
 

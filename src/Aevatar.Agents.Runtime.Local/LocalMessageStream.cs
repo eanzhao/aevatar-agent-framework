@@ -1,5 +1,5 @@
-using System.Threading.Channels;
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 

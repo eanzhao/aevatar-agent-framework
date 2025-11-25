@@ -67,16 +67,16 @@ MAKER 系统通过以下三个核心支柱，旨在实现百万步级别的“�
 
 *   **基类**: `AIGAgentBase<TaskAgentState, TaskAgentConfig>`
 *   **职责**:
-    *   **状态机**: 跟踪任务处于 `ASSESSING`（评估）、`DECOMPOSING`（分解）、`VOTING`（投票）还是 `COMPLETED`（完成）阶段。
-    *   **票箱管理**: 维护从 Worker 收到的提案的持久化计数。
-    *   **递归管理**: 如果选择分解，则通过 `GAgentFactory` 孵化并监督子 `MakerTaskAgent`。
+    *   **状态机**: 实际编码阶段为 `PHASE_ASSESSING_COMPLEXITY → PHASE_WAITING_FOR_PROPOSALS → PHASE_EXECUTING_CHILDREN/PHASE_COMPLETED/PHASE_FAILED`。
+    *   **票箱管理**: 维护 Worker 提案的计数与内容（`vote_tallies`/`candidate_content`）。
+    *   **递归管理**: 当需要分解时向下游发布 `AssignTaskEvent`，并依赖 `ActorHierarchyCoordinator` 事先链接的子 `MakerTaskAgent`。
     *   **流中枢**: 向 Worker 发布任务（Down stream），并向上级汇报结果（Up stream）。
 
 #### B. MakerWorkerAgent (计算单元)
 
 这是“计算单元”。在生产系统中，这可以是一个共享 Token 桶的 Agent 池。
 
-*   **基类**: `AIGAgentBase<WorkerAgentState, WorkerAgentConfig>`
+*   **基类**: `AIGAgentBase<WorkerAgentState, WorkerAgentConfig>`（通过 `Microsoft.Extensions.AI` Provider 调用 LLM）
 *   **职责**:
     *   **分解者角色 (Decomposer)**: 给定任务描述，输出 JSON 格式的子任务列表。
     *   **解题者角色 (Solver)**: 给定原子任务，输出直接答案。
@@ -193,8 +193,8 @@ message TaskOutcomeEvent {
 ### 3.2 递归流程 (The Recursion Flow)
 
 1.  **启动**: `MakerTaskAgent` 对一个 **分解计划**（例如：“步骤1：获取数据，步骤2：处理数据”）达成共识。
-2.  **孵化**: 
-    *   Agent 使用 `GAgentFactory` 为步骤 1 和步骤 2 创建子 `MakerTaskAgent`。
+2.  **孵化 / 链接**: 
+    *   父 Agent 通过 `EventDirection.Down` 发布 `AssignTaskEvent`，并依赖 `ActorHierarchyCoordinator.LinkAsync` 预先建立的子 `MakerTaskAgent`。
     *   示例 ID: `parent-step1`, `parent-step2`。
 3.  **执行**:
     *   发送 `AssignTaskEvent` 给子 Agent 1。
@@ -211,7 +211,7 @@ message TaskOutcomeEvent {
 
 ### 第一阶段：基础建设
 *   实现 `.proto` 定义。
-*   实现 `MakerWorkerAgent`，包含连接 OpenAI/Azure 的简单 Semantic Kernel 逻辑。
+*   实现 `MakerWorkerAgent`，基于 `Microsoft.Extensions.AI`（MEAI）Provider 连接 OpenAI/Azure。
 *   实现基础的 `MakerTaskAgent`，能接收任务并返回固定字符串（Mock 逻辑）。
 
 ### 第二阶段：投票引擎

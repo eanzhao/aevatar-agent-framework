@@ -1,6 +1,6 @@
+using System.Threading;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.EventRouting;
-using System.Threading;
 
 namespace Aevatar.Agents.Core.Tests.Actor;
 

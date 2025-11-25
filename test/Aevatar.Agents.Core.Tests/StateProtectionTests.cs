@@ -1,10 +1,10 @@
-using Xunit;
-using FluentAssertions;
 using System;
 using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Core.StateProtection;
 using Aevatar.Agents.Core.Tests.Agents;
-using Aevatar.Agents.Abstractions.Attributes;
+using FluentAssertions;
+using Xunit;
 
 namespace Aevatar.Agents.Core.Tests;
 

@@ -1,12 +1,12 @@
 using Aevatar.Agents;
-using Aevatar.Agents.Core;
-using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Microsoft.Extensions.Logging;
+using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.EventSourcing;
+using Demo.Agents;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Demo.Agents;
+using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 

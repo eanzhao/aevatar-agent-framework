@@ -15,9 +15,6 @@
     <!-- Azure OpenAI SDK -->
     <PackageReference Include="Azure.AI.OpenAI" />
     
-    <!-- OpenAI SDK -->
-    <PackageReference Include="OpenAI" />
-    
     <!-- Azure Identity for authentication -->
     <PackageReference Include="Azure.Identity" />
     

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using System.Threading.Channels;
 
 namespace Aevatar.Agents.Core.EventSourcing;
 

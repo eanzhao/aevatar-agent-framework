@@ -1,12 +1,12 @@
+using System.IO;
+using System.Net.Http;
+using System.Text.Json;
 using Aevatar.Agents.AI.WithTool.MCP.Abstractions;
 using Aevatar.Agents.AI.WithTool.MCP.Configuration;
 using Aevatar.Agents.AI.WithTool.MCP.Models;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
-using System.Text.Json;
-using System.Net.Http;
-using System.IO;
 
 // ReSharper disable InconsistentNaming
 namespace Aevatar.Agents.AI.WithTool.MCP;

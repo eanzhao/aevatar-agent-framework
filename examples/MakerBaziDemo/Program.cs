@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Maker;
 using Aevatar.Agents.Runtime.Local;
 using MakerBaziDemo;
 
@@ -15,6 +16,7 @@ builder.Services.AddSingleton<MakerDemoOrchestrator>();
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
+builder.Services.AddSingleton<IMakerChildLinker, MakerChildLinker>();
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

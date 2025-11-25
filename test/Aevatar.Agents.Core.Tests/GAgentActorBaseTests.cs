@@ -1,10 +1,10 @@
-using Shouldly;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
-using Google.Protobuf.WellKnownTypes;
-using Aevatar.Agents.Core.Tests.Fixtures;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Tests.Actor;
+using Aevatar.Agents.Core.Tests.Fixtures;
+using Google.Protobuf.WellKnownTypes;
+using Shouldly;
 using Xunit.Abstractions;
 
 namespace Aevatar.Agents.Core.Tests;

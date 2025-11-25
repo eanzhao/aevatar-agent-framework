@@ -10,8 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans;
 using Orleans.Hosting;
-using Orleans.TestingHost;
 using Orleans.Serialization;
+using Orleans.TestingHost;
 
 namespace Aevatar.Agents.TestBase;
 

@@ -1,7 +1,7 @@
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
 using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 namespace Demo.Api.Extensions;
 

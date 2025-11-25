@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
@@ -28,6 +29,13 @@ public class MakerTaskAgent : AIGAgentBase<TaskAgentState, TaskAgentConfig>
     };
 
     private readonly SemaphoreSlim _voteLock = new(1, 1);
+    private readonly IMakerChildLinker? _childLinker;
+    private bool _childLinkerWarningLogged;
+
+    public MakerTaskAgent(IMakerChildLinker? childLinker = null)
+    {
+        _childLinker = childLinker;
+    }
 
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
@@ -114,6 +122,11 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         if (CustomConfig.WorkerStopSequences.Count == 0)
         {
             CustomConfig.WorkerStopSequences.Add("<END>");
+        }
+
+        if (CustomConfig.ChildPoolSize <= 0)
+        {
+            CustomConfig.ChildPoolSize = 2;
         }
     }
 
@@ -535,6 +548,8 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             CustomState.ChildAgentIds.Clear();
             CustomState.ChildResults.Clear();
 
+            await EnsureChildAgentsAsync(steps.Count, ct);
+
             CustomState.Phase = TaskAgentState.Types.Phase.ExecutingChildren;
             await LaunchChildAssignmentsAsync(steps, ct);
         }
@@ -578,6 +593,47 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
                 }
             }, EventDirection.Down, ct);
         }
+    }
+
+    private bool ShouldAutoLinkChildren()
+    {
+        return CustomConfig.AutoLinkChildren || CustomConfig.ChildPoolSize > 0;
+    }
+
+    private async Task EnsureChildAgentsAsync(int requiredSteps, CancellationToken ct)
+    {
+        if (!ShouldAutoLinkChildren())
+        {
+            return;
+        }
+
+        if (_childLinker == null)
+        {
+            if (!_childLinkerWarningLogged)
+            {
+                Logger.LogWarning("Auto child linking requested but IMakerChildLinker is not registered.");
+                _childLinkerWarningLogged = true;
+            }
+            return;
+        }
+
+        if (EventPublisher is not IGAgentActor parentActor)
+        {
+            if (!_childLinkerWarningLogged)
+            {
+                Logger.LogWarning("Auto child linking requested but hosting actor reference is unavailable.");
+                _childLinkerWarningLogged = true;
+            }
+            return;
+        }
+
+        var desiredCount = CustomConfig.ChildPoolSize > 0
+            ? CustomConfig.ChildPoolSize
+            : requiredSteps;
+
+        desiredCount = Math.Max(1, desiredCount);
+
+        await _childLinker.EnsureChildPoolAsync(parentActor, desiredCount, ct);
     }
 
     private async Task RaiseRedFlagAsync(string reason)

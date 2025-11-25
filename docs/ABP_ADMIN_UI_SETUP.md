@@ -2,188 +2,109 @@
 
 ## 概述
 
-本文档说明如何为 Aevatar.Agents.AuthServer 项目添加 ABP Framework 的后端管理界面（基于 LeptonX Lite 主题）。
+本文档说明如何为 `src/Aevatar.BusinessServer/src/Aevatar.AuthServer` 中现有的 **Aevatar.AuthServer** 项目维护 ABP Framework 的后端管理界面（基于 LeptonX Lite 主题）。请注意：
+
+- 仓库已经内置 AuthServer（见 `AuthServerModule.cs` 与 `Aevatar.AuthServer.csproj`），以下内容用于校验/更新；
+- 所有包版本通过 `Directory.Packages.props` 统一管理，当前稳定版本为 **ABP 9.3.1**；
+- 如果未来创建单独的 AuthServer 变体，请保持命名与路径与当前实现一致，避免出现过时的 `Aevatar.Agents.AuthServer` 路径。
 
 ## 一、NuGet 包配置
 
 ### 1.1 更新 `Directory.Packages.props`
 
-在 `Directory.Packages.props` 中添加以下 ABP 包版本（版本 8.2.1 与现有包保持一致）：
+`Directory.Packages.props` 已集中声明 ABP 9.3.1 版本。若需校验或同步，请确认以下片段存在（节选自文件尾部）：
 
 ```xml
 <!-- ABP Framework - Admin UI Packages -->
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.Libs" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Account.Web" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Account.Application" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Account.HttpApi" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Identity.Application" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Identity.Web" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Localization" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.UI.Navigation" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Auditing" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.BackgroundJobs" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Caching" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.OpenIddict.AspNetCore" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.OpenIddict.Domain" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.OpenIddict.MongoDB" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.OpenIddict.ExtensionGrantTypes" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.Identity.MongoDB" Version="8.2.1" />
-<PackageVersion Include="Volo.Abp.PermissionManagement.MongoDB" Version="8.2.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="4.3.1" />
+<PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.Account.Web.OpenIddict" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.Identity.Web" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.TenantManagement.Web" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.FeatureManagement.Web" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.OpenIddict.MongoDB" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.Identity.MongoDB" Version="9.3.1" />
+<PackageVersion Include="Volo.Abp.PermissionManagement.MongoDB" Version="9.3.1" />
 <PackageVersion Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.0" />
 ```
 
-### 1.2 更新 `Aevatar.Agents.AuthServer.csproj`
+若需要新增包，请保持注释段落与版本号风格一致，避免与集中式版本管理冲突。
 
-在项目文件中添加包引用：
+### 1.2 校验 `Aevatar.AuthServer.csproj`
+
+当前项目文件位于 `src/Aevatar.BusinessServer/src/Aevatar.AuthServer/Aevatar.AuthServer.csproj`，核心引用已经拆分为三组（项目引用 + 核心 ABP + UI）。节选如下：
 
 ```xml
+<!-- Project References (共享业务模块) -->
 <ItemGroup>
-  <!-- Existing packages -->
-  <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-  <PackageReference Include="Volo.Abp.Core" />
-  <PackageReference Include="Volo.Abp.Ddd.Domain" />
-  <PackageReference Include="Volo.Abp.AutoMapper" />
-  
-  <!-- ABP Admin UI packages -->
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Bootstrap" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Bundling" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared" />
-  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.Libs" />
-  <PackageReference Include="Volo.Abp.Account.Web" />
-  <PackageReference Include="Volo.Abp.Account.Application" />
-  <PackageReference Include="Volo.Abp.Account.HttpApi" />
-  <PackageReference Include="Volo.Abp.Identity.Application" />
-  <PackageReference Include="Volo.Abp.Identity.HttpApi" />
-  <PackageReference Include="Volo.Abp.Identity.Web" />
-  <PackageReference Include="Volo.Abp.PermissionManagement.Application" />
-  <PackageReference Include="Volo.Abp.PermissionManagement.HttpApi" />
-  <PackageReference Include="Volo.Abp.PermissionManagement.Web" />
+  <ProjectReference Include="..\Aevatar.BusinessServer.Domain\Aevatar.BusinessServer.Domain.csproj" />
+  <ProjectReference Include="..\Aevatar.BusinessServer.Application\Aevatar.BusinessServer.Application.csproj" />
+  <ProjectReference Include="..\Aevatar.BusinessServer.MongoDB\Aevatar.BusinessServer.MongoDB.csproj" />
+  <ProjectReference Include="..\Aevatar.BusinessServer.HttpApi\Aevatar.BusinessServer.HttpApi.csproj" />
+</ItemGroup>
+
+<!-- Core ABP Framework -->
+<ItemGroup>
+  <PackageReference Include="Volo.Abp.Autofac" />
   <PackageReference Include="Volo.Abp.AspNetCore.Serilog" />
-  <PackageReference Include="Volo.Abp.Localization" />
-  <PackageReference Include="Volo.Abp.UI.Navigation" />
-  <PackageReference Include="Volo.Abp.Auditing" />
-  <PackageReference Include="Volo.Abp.BackgroundJobs" />
-  <PackageReference Include="Volo.Abp.Caching" />
-  <PackageReference Include="Volo.Abp.OpenIddict.AspNetCore" />
-  <PackageReference Include="Volo.Abp.OpenIddict.Domain" />
-  <PackageReference Include="Volo.Abp.OpenIddict.MongoDB" />
-  <PackageReference Include="Volo.Abp.OpenIddict.ExtensionGrantTypes" />
-  <PackageReference Include="Volo.Abp.Identity.MongoDB" />
-  <PackageReference Include="Volo.Abp.PermissionManagement.MongoDB" />
-  <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
+  <PackageReference Include="Volo.Abp.Swashbuckle" />
+</ItemGroup>
+
+<!-- UI & Web (AuthServer 前端) -->
+<ItemGroup>
+  <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" />
+  <PackageReference Include="Volo.Abp.Account.Web.OpenIddict" />
+  <PackageReference Include="Volo.Abp.Identity.Web" />
+  <PackageReference Include="Volo.Abp.TenantManagement.Web" />
+  <PackageReference Include="Volo.Abp.FeatureManagement.Web" />
+  <PackageReference Include="Volo.Abp.PermissionManagement.Web" />
 </ItemGroup>
 ```
 
+若需要追加其它 ABP Web 模块，请放入对应 `ItemGroup`，并确保 `Directory.Packages.props` 已提供版本。
+
 ## 二、Module 配置
 
-### 2.1 创建/更新 `AevatarAgentsAuthServerModule.cs`
+### 2.1 `AuthServerModule.cs`
 
-在 `src/Aevatar.Agents.AuthServer/` 目录下创建或更新 Module 文件：
+`AuthServerModule` 已位于 `src/Aevatar.BusinessServer/src/Aevatar.AuthServer/AuthServerModule.cs`，负责注册 UI、OpenIddict 以及 BusinessServer 共享模块。关键结构如下（节选）：
 
 ```csharp
-using Volo.Abp;
-using Volo.Abp.Account;
-using Volo.Abp.Account.Web;
-using Volo.Abp.AspNetCore.Mvc.Libs;
-using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
-using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
-using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
-using Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared;
-using Volo.Abp.AspNetCore.Serilog;
-using Volo.Abp.Auditing;
-using Volo.Abp.Authorization;
-using Volo.Abp.Autofac;
-using Volo.Abp.BackgroundJobs;
-using Volo.Abp.Caching;
-using Volo.Abp.Identity;
-using Volo.Abp.Identity.MongoDB;
-using Volo.Abp.Localization;
-using Volo.Abp.Modularity;
-using Volo.Abp.OpenIddict;
-using Volo.Abp.OpenIddict.MongoDB;
-using Volo.Abp.OpenIddict.ExtensionGrantTypes;
-using Volo.Abp.PermissionManagement;
-using Volo.Abp.PermissionManagement.MongoDB;
-using Volo.Abp.UI.Navigation.Urls;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Mvc;
-using StackExchange.Redis;
-using Aevatar.Agents.AuthServer.Grants;
-
-namespace Aevatar.Agents.AuthServer;
-
 [DependsOn(
     typeof(AbpAutofacModule),
-    typeof(AbpAccountWebOpenIddictModule),
-    typeof(AbpAccountApplicationModule),
-    typeof(AbpAccountHttpApiModule),
-    typeof(AbpAspNetCoreMvcUiLeptonXLiteThemeModule),
     typeof(AbpAspNetCoreSerilogModule),
-    typeof(AbpIdentityApplicationModule),
-    typeof(AbpIdentityHttpApiModule),
+    typeof(AbpSwashbuckleModule),
+    typeof(BusinessServerMongoDbModule),
+    typeof(BusinessServerApplicationModule),
+    typeof(BusinessServerHttpApiModule),
+    typeof(AbpAspNetCoreMvcUiLeptonXLiteThemeModule),
+    typeof(AbpAccountWebOpenIddictModule),
     typeof(AbpIdentityWebModule),
-    typeof(AbpPermissionManagementApplicationModule),
-    typeof(AbpPermissionManagementHttpApiModule),
-    typeof(AbpPermissionManagementWebModule),
-    typeof(AbpOpenIddictMongoDbModule),
-    typeof(AbpIdentityMongoDbModule),
-    typeof(AbpPermissionManagementMongoDbModule),
-    typeof(AbpAuthorizationModule),
-    typeof(AbpOpenIddictDomainModule),
-    typeof(AevatarAgentsAuthServerGrantsModule) // 你的 Grants 模块
+    typeof(AbpTenantManagementWebModule),
+    typeof(AbpFeatureManagementWebModule),
+    typeof(AbpPermissionManagementWebModule)
 )]
-public class AevatarAgentsAuthServerModule : AbpModule
+public class AuthServerModule : AbpModule
 {
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
-        
-        // OpenIddict 配置
+
         PreConfigure<OpenIddictBuilder>(builder =>
         {
             builder.AddServer(options =>
             {
                 options.UseAspNetCore().DisableTransportSecurityRequirement();
-                options.SetIssuer(new Uri(configuration["AuthServer:IssuerUri"] ?? "https://localhost:44300"));
-                
-                // 证书配置
-                var useProductionCert = configuration.GetValue<bool>("OpenIddict:Certificate:UseProductionCertificate");
-                var certPath = configuration["OpenIddict:Certificate:CertificatePath"] ?? "openiddict.pfx";
-                var certPassword = configuration["OpenIddict:Certificate:CertificatePassword"] ?? "00000000-0000-0000-0000-000000000000";
-                
-                if (useProductionCert && File.Exists(certPath))
-                {
-                    PreConfigure<AbpOpenIddictAspNetCoreOptions>(options =>
-                    {
-                        options.AddDevelopmentEncryptionAndSigningCertificate = false;
-                    });
-                    options.AddProductionEncryptionAndSigningCertificate(certPath, certPassword);
-                }
-                
-                options.DisableAccessTokenEncryption();
-                
-                // Token 过期时间配置
-                int.TryParse(configuration["ExpirationHour"], out int expirationHour);
-                if (expirationHour > 0)
-                {
-                    options.SetAccessTokenLifetime(DateTime.Now.AddHours(expirationHour) - DateTime.Now);
-                }
+                options.SetIssuer(new Uri(configuration["AuthServer:Authority"]
+                    ?? configuration["App:SelfUrl"]
+                    ?? "https://localhost:44320"));
             });
-            
+
             builder.AddValidation(options =>
             {
                 options.AddAudiences("Aevatar");
@@ -191,179 +112,75 @@ public class AevatarAgentsAuthServerModule : AbpModule
                 options.UseAspNetCore();
             });
         });
-        
-        // 扩展授权类型配置（如果需要）
-        PreConfigure<OpenIddictServerBuilder>(builder =>
+
+        PreConfigure<AbpOpenIddictAspNetCoreOptions>(options =>
         {
-            builder.Configure(openIddictServerOptions =>
-            {
-                // 添加自定义 Grant Types
-                // openIddictServerOptions.GrantTypes.Add("signature");
-            });
+            options.AddDevelopmentEncryptionAndSigningCertificate = true;
         });
     }
-    
-    public override void ConfigureServices(ServiceConfigurationContext context)
-    {
-        var configuration = context.Services.GetConfiguration();
-        
-        // MVC 库配置
-        Configure<AbpMvcLibsOptions>(options =>
-        {
-            options.CheckLibs = false;
-        });
-        
-        // 本地化配置
-        Configure<AbpLocalizationOptions>(options =>
-        {
-            // 添加语言支持
-            options.Languages.Add(new LanguageInfo("en", "en", "English"));
-            options.Languages.Add(new LanguageInfo("zh-Hans", "zh-Hans", "简体中文"));
-            // 可以添加更多语言...
-        });
-        
-        // 资源打包配置
-        Configure<AbpBundlingOptions>(options =>
-        {
-            options.StyleBundles.Configure(
-                LeptonXLiteThemeBundles.Styles.Global,
-                bundle => { bundle.AddFiles("/global-styles.css"); }
-            );
-        });
-        
-        // 审计配置
-        Configure<AbpAuditingOptions>(options =>
-        {
-            options.ApplicationName = "AuthServer";
-            options.IsEnabled = false; // 根据需要启用
-        });
-        
-        // 应用 URL 配置
-        Configure<AppUrlOptions>(options =>
-        {
-            options.Applications["MVC"].RootUrl = configuration["App:SelfUrl"] ?? "https://localhost:44300";
-            options.Applications["Angular"].RootUrl = configuration["App:ClientUrl"] ?? "https://localhost:4200";
-        });
-        
-        // 后台作业配置
-        Configure<AbpBackgroundJobOptions>(options => 
-        { 
-            options.IsJobExecutionEnabled = false; 
-        });
-        
-        // 分布式缓存配置
-        Configure<AbpDistributedCacheOptions>(options => 
-        { 
-            options.KeyPrefix = "Aevatar:"; 
-        });
-        
-        // Redis 数据保护配置
-        var redisConnectionString = configuration["Redis:Configuration"];
-        if (!string.IsNullOrEmpty(redisConnectionString))
-        {
-            var redis = ConnectionMultiplexer.Connect(redisConnectionString);
-            context.Services
-                .AddDataProtection()
-                .PersistKeysToStackExchangeRedis(redis, "Aevatar-DataProtection-Keys")
-                .SetApplicationName("AevatarAuthServer");
-        }
-        
-        // 健康检查
-        context.Services.AddHealthChecks();
-        
-        // MVC 选项配置
-        Configure<MvcOptions>(options =>
-        {
-            // 可以添加自定义约定
-        });
-    }
-    
-    public override void OnApplicationInitialization(ApplicationInitializationContext context)
-    {
-        var app = context.GetApplicationBuilder();
-        var env = context.GetEnvironment();
-        
-        if (env.IsDevelopment())
-        {
-            app.UseDeveloperExceptionPage();
-        }
-        
-        app.UseAbpRequestLocalization();
-        
-        if (!env.IsDevelopment())
-        {
-            app.UseErrorPage();
-        }
-        
-        app.UseHealthChecks("/health");
-        app.UseCorrelationId();
-        app.UseStaticFiles();
-        app.UseRouting();
-        app.UseAuthentication();
-        app.UseAbpOpenIddictValidation();
-        app.UseUnitOfWork();
-        app.UseAuthorization();
-        app.UseAuditing();
-        app.UseAbpSerilogEnrichers();
-        app.UseConfiguredEndpoints();
-    }
-}
 ```
+
+`ConfigureServices` 通过私有方法拆分关注点，重点关注以下几处：
+
+- `ConfigureBundles()` 向 `LeptonXLiteThemeBundles` 注入 `/global-styles.css` 与 `/libs/timeago/timeago-compat.js`；
+- `ConfigureNavigationServices()` 注册 `AuthServerMenuContributor`，确保 UI 菜单展示；
+- `ConfigureSwaggerServices()` 打开 `/swagger`；
+- `Configure<PermissionManagementOptions>` 启用动态权限管理；
+- `ConfigureAuthentication()` 开启动态 Claims；
+- `ConfigureVirtualFileSystem()` 允许嵌入式资源 (`wwwroot` + Razor)。
+
+`OnApplicationInitialization` 则与 `Program.cs` 保持一致，依次启用：
+
+- `UseForwardedHeaders`（容器化/反向代理必备）；
+- `UseAbpRequestLocalization()`、`UseAuthentication()`、`UseAbpOpenIddictValidation()` 等标准中间件；
+- Swagger UI (`/swagger/v1/swagger.json`)；
+- `UseConfiguredEndpoints()`。
+
+如需扩展（例如新增自定义 Grant Type），建议直接在 `AuthServerModule` 中扩展对应 `PreConfigure`/`Configure` 段落，并保持与 BusinessServer 共享模块一致。
 
 ## 三、Program.cs 配置
 
 ### 3.1 更新 `Program.cs`
 
-确保 `Program.cs` 使用 ABP 的 WebApplication 模式：
+`Program.cs`（路径同上）已经符合 ABP 官方模板并输出文件日志，可直接复用：
 
 ```csharp
-using Serilog;
-using Serilog.Events;
-using Microsoft.Extensions.Configuration;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Hosting;
-using Aevatar.Agents.AuthServer;
-
-namespace Aevatar.Agents.AuthServer;
+namespace Aevatar.AuthServer;
 
 public class Program
 {
     public static async Task<int> Main(string[] args)
     {
         Log.Logger = new LoggerConfiguration()
+#if DEBUG
             .MinimumLevel.Debug()
+#else
+            .MinimumLevel.Information()
+#endif
             .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
             .Enrich.FromLogContext()
+            .WriteTo.Async(c => c.File("Logs/logs.txt"))
             .WriteTo.Async(c => c.Console())
             .CreateLogger();
-        
+
         try
         {
-            Log.Information("Starting Aevatar.Agents.AuthServer.");
-            
+            Log.Information("Starting Aevatar.AuthServer.");
             var builder = WebApplication.CreateBuilder(args);
-            
-            builder.Host
-                .AddAppSettingsSecretsJson()
+            builder.Host.AddAppSettingsSecretsJson()
                 .UseAutofac()
                 .UseSerilog();
-            
-            await builder.AddApplicationAsync<AevatarAgentsAuthServerModule>();
-            
+
+            await builder.AddApplicationAsync<AuthServerModule>();
             var app = builder.Build();
             await app.InitializeApplicationAsync();
             await app.RunAsync();
-            
             return 0;
         }
         catch (Exception ex)
         {
-            if (ex is HostAbortedException)
-            {
-                throw;
-            }
-            
-            Log.Fatal(ex, "Aevatar AuthServer terminated unexpectedly!");
+            Log.Fatal(ex, "Aevatar.AuthServer terminated unexpectedly!");
             return 1;
         }
         finally
@@ -377,6 +194,8 @@ public class Program
 ## 四、配置文件
 
 ### 4.1 `appsettings.json` 配置示例
+
+实际文件位于 `src/Aevatar.BusinessServer/src/Aevatar.AuthServer/appsettings.json`，关键字段如下：
 
 ```json
 {
@@ -413,7 +232,7 @@ public class Program
 
 ### 5.2 项目文件配置
 
-确保 `Aevatar.Agents.AuthServer.csproj` 包含：
+确保 `Aevatar.AuthServer.csproj` 包含：
 
 ```xml
 <PropertyGroup>
@@ -429,34 +248,25 @@ public class Program
 
 ## 六、依赖模块
 
-### 6.1 创建 `AevatarAgentsAuthServerGrantsModule`
+### 6.1 自定义 Grant（可选）
 
-如果还没有创建，需要在 `Aevatar.Agents.AuthServer.Grants` 项目中创建：
+当前仓库未包含单独的 “Grants” 模块；所有 OpenIddict 配置都在 `AuthServerModule.PreConfigureServices` 中完成。如果需要扩展授权类型，可在该方法内调用：
 
 ```csharp
-using Volo.Abp.Modularity;
-
-namespace Aevatar.Agents.AuthServer.Grants;
-
-[DependsOn(
-    typeof(AbpOpenIddictExtensionGrantTypesModule)
-)]
-public class AevatarAgentsAuthServerGrantsModule : AbpModule
+PreConfigure<OpenIddictServerBuilder>(builder =>
 {
-    // 配置扩展授权类型
-}
+    builder.Configure(options =>
+    {
+        options.GrantTypes.Add("custom_grant");
+    });
+});
 ```
+
+若你更倾向于独立模块，也可以新建 `Aevatar.AuthServer.Grants` 项目，并在 `AuthServerModule` 的 `[DependsOn]` 中引用，但请确保依赖 `AbpOpenIddictExtensionGrantTypesModule`。
 
 ## 七、MongoDB 模块依赖
 
-如果使用 MongoDB，需要确保有对应的 MongoDB 模块：
-
-```csharp
-// 在 AevatarAgentsAuthServerModule 的 DependsOn 中已包含：
-// typeof(AbpOpenIddictMongoDbModule)
-// typeof(AbpIdentityMongoDbModule)
-// typeof(AbpPermissionManagementMongoDbModule)
-```
+如果使用 MongoDB，需要确保相关模块已经引用。`AuthServerModule` 目前通过 `BusinessServerMongoDbModule` 间接注册仓储，同时 `Directory.Packages.props` 中也包含 `Volo.Abp.OpenIddict.MongoDB` / `Volo.Abp.Identity.MongoDB` / `Volo.Abp.PermissionManagement.MongoDB`。若拆分为独立解决方案，请记得同步这些依赖。
 
 ## 八、总结
 
@@ -478,7 +288,7 @@ public class AevatarAgentsAuthServerGrantsModule : AbpModule
 
 ## 十、验证步骤
 
-1. 运行项目：`dotnet run --project src/Aevatar.Agents.AuthServer`
+1. 运行项目：`dotnet run --project src/Aevatar.BusinessServer/src/Aevatar.AuthServer`
 2. 访问管理界面：`https://localhost:44300`
 3. 使用默认管理员账户登录（需要在数据库迁移时创建）
 4. 验证各个管理功能是否正常

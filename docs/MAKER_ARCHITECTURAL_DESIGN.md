@@ -58,16 +58,16 @@ This agent acts as the "frontal lobe" of a specific sub-task. It does not "think
 
 *   **Base Class**: `AIGAgentBase<TaskAgentState, TaskAgentConfig>`
 *   **Responsibilities**:
-    *   **State Machine**: Tracks if the task is in `ANALYZING`, `DECOMPOSING`, `VOTING`, or `COMPLETED` phase.
-    *   **Vote Counting**: Maintains a persistent tally of proposals received from workers.
-    *   **Recursion Management**: Spawns and supervises child `MakerTaskAgent`s if decomposition is chosen.
-    *   **Stream Hub**: Publishes tasks to workers (Down) and reports results to parents (Up).
+    *   **State Machine**: Drives the protobuf phases `PHASE_ASSESSING_COMPLEXITY → PHASE_WAITING_FOR_PROPOSALS → PHASE_EXECUTING_CHILDREN/PHASE_COMPLETED/PHASE_FAILED`.
+    *   **Vote Counting**: Maintains `vote_tallies`/`candidate_content` inside persisted state.
+    *   **Recursion Management**: Emits `AssignTaskEvent` downstream; actual child `MakerTaskAgent` actors must be pre-linked via `ActorHierarchyCoordinator` (or orchestrators provision them ahead of time).
+    *   **Stream Hub**: Publishes tasks to workers (Down) and reports results to parents (Up) using `EventDirection`.
 
 #### B. MakerWorkerAgent
 
 This agent acts as the "compute unit". In a production system, this could be a pool of agents sharing a token bucket.
 
-*   **Base Class**: `AIGAgentBase<WorkerAgentState, WorkerAgentConfig>`
+*   **Base Class**: `AIGAgentBase<WorkerAgentState, WorkerAgentConfig>`（backed by `Microsoft.Extensions.AI` providers）
 *   **Responsibilities**:
     *   **Decomposer Role**: Given a task description, outputs a JSON list of sub-tasks.
     *   **Solver Role**: Given an atomic task, outputs the direct answer.
@@ -184,9 +184,9 @@ For any cognitive step (either *how to decompose* or *what is the answer*), the 
 ### 3.2 The Recursion Flow
 
 1.  **Start**: `MakerTaskAgent` reaches consensus on a **Decomposition Plan** (e.g., "Step 1: Fetch Data, Step 2: Process").
-2.  **Spawn**: 
-    *   Agent uses `GAgentFactory` to create child `MakerTaskAgent`s for Step 1 and Step 2.
-    *   Example IDs: `parent-step1`, `parent-step2`.
+2.  **Spawn / Link**: 
+    *   The parent publishes `AssignTaskEvent` **Down** and expects additional `MakerTaskAgent` actors to be linked as children (via `ActorHierarchyCoordinator.LinkAsync`).
+    *   Orchestrators (e.g., the Bazi demo) are responsible for provisioning those child actors up front; IDs typically follow `parent-step1`, `parent-step2`, etc.
 3.  **Execute**:
     *   Send `AssignTaskEvent` to Child 1.
     *   Wait for `TaskOutcomeEvent` from Child 1.

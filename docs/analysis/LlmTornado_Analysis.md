@@ -73,13 +73,13 @@
 
 ## 5. 深度集成策略：Aevatar.Agents.AI.LLMTornado
 
-用户提出的 "创建一个 `Aevatar.Agents.AI.LLMTornado` 项目与 `MEAI` 平行" 是一个非常具有战略价值的架构决策。
+`Aevatar.Agents.AI.LLMTornado` 已经在 `src/Aevatar.Agents.AI.LLMTornado` 成功落地，实现了与 MEAI 并行的 LLM Provider。
 
 ### 5.1 架构可行性
-Aevatar 的设计已经通过 `IAevatarLLMProvider` 接口解耦了具体的 LLM 实现。
-*   **现状**: `Aevatar.Agents.AI.MEAI` 项目实现了 `IAevatarLLMProvider`，底层使用 `Microsoft.Extensions.AI`。
-*   **扩展**: 完全可以创建 `Aevatar.Agents.AI.LLMTornado` 项目，同样实现 `IAevatarLLMProvider`，但底层使用 `LlmTornado`。
-*   **共存**: 开发者可以在 `Program.cs` 中通过依赖注入自由选择使用 MEAI 还是 LLMTornado，甚至在同一个系统中混用（例如 Agent A 用 MEAI 调 OpenAI，Agent B 用 LLMTornado 调 Claude）。
+Aevatar 通过 `IAevatarLLMProvider` 接口解耦了具体实现，目前共有两条主线：
+*   **MEAI 现状**: `Aevatar.Agents.AI.MEAI` 依托 `Microsoft.Extensions.AI`，适合遵循官方生态。
+*   **LLMTornado 实现**: `LLMTornadoProvider`（见 `LLMTornadoProvider.cs`）同样实现 `IAevatarLLMProvider`，内部使用 `TornadoApi` 进行 `ChatCompletion`/`StreamChat` 映射。
+*   **共存**: 通过依赖注入即可在 `Program.cs` 中选择 `services.AddAevatarLLMTornado()` 或 MEAI 注册，两者可以在同一应用内混用（例如不同 Agent 使用不同 Provider）。
 
 ### 5.2 集成 LLMTornado 带来的额外价值 (Beyond More Models)
 
@@ -103,7 +103,7 @@ Aevatar 的设计已经通过 `IAevatarLLMProvider` 接口解耦了具体的 LLM
 
 ### 5.3 推荐路线图
 1.  **保持 MEAI 为核心**: 继续以 MEAI 为默认推荐，因为它是 .NET 生态的标准，兼容性最好。
-2.  **引入 LLMTornado 作为扩展包**: 发布 `Aevatar.Agents.AI.LLMTornado` NuGet 包。
+2.  **使用现有 LLMTornado 扩展包**: `Aevatar.Agents.AI.LLMTornado` 已封装好 Provider，通过 `services.AddAevatarLLMTornado(...)` 即可接入。
 3.  **场景化推荐**:
     *   需要 **Claude / Cohere / Groq** 原生支持 -> 用 LLMTornado。
     *   需要 **MCP 工具链** -> 用 LLMTornado。

@@ -1,9 +1,9 @@
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
-using EventSourcingDemo.Events;
-using Microsoft.Extensions.Logging;
 using Demo.Agents;
+using EventSourcingDemo.Events;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
 
 namespace EventSourcingDemo;
 
