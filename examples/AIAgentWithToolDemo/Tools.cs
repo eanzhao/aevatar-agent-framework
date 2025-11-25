@@ -1,166 +1,149 @@
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
-using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace AIAgentWithToolDemo;
 
+// ============================================
+// Calculator Tool - Strongly-typed implementation
+// ============================================
+
 /// <summary>
-/// 简单的计算器工具，用于演示 Tool 的使用
+/// Calculator tool input parameters
 /// </summary>
-public class CalculatorTool : AevatarToolBase
+public record CalculatorInput
+{
+    /// <summary>
+    /// Operation type
+    /// </summary>
+    [Required(ErrorMessage = "operation parameter is required")]
+    [Description("Operation type: add, subtract, multiply, divide")]
+    [JsonPropertyName("operation")]
+    public required string Operation { get; init; }
+    
+    /// <summary>
+    /// Numbers to operate on
+    /// </summary>
+    [Required(ErrorMessage = "numbers parameter is required")]
+    [MinLength(2, ErrorMessage = "At least two numbers are required")]
+    [Description("Array of numbers to operate on, must contain at least two numbers")]
+    [JsonPropertyName("numbers")]
+    public required double[] Numbers { get; init; }
+}
+
+/// <summary>
+/// Calculator tool
+/// Uses strongly-typed parameters with automatic validation and conversion
+/// </summary>
+public class CalculatorTool : TypedAevatarToolBase<CalculatorInput, Struct>
 {
     public override string Name => "calculator";
+    
+    public override string Description => "Perform mathematical calculations including addition, subtraction, multiplication, and division";
+    
+    public override ToolCategory Category => ToolCategory.Utility;
 
-    public override string Description => "执行数学计算，支持加减乘除";
-
-    public override ToolCategory Category => ToolCategory.Custom;
-
-    public override ToolParameters CreateParameters()
-    {
-        return new ToolParameters
-        {
-            Items = new Dictionary<string, ToolParameter>
-            {
-                ["operation"] = new ToolParameter
-                {
-                    Type = "string",
-                    Description = "操作类型: add, subtract, multiply, divide",
-                    Required = true,
-                    Enum = new List<object> { "add", "subtract", "multiply", "divide" }
-                },
-                ["a"] = new ToolParameter
-                {
-                    Type = "number",
-                    Description = "第一个数字",
-                    Required = true
-                },
-                ["b"] = new ToolParameter
-                {
-                    Type = "number",
-                    Description = "第二个数字",
-                    Required = true
-                }
-            },
-            Required = new[] { "operation", "a", "b" }
-        };
-    }
-
-    public override async Task<IMessage> ExecuteAsync(
-        Dictionary<string, object> parameters,
+    protected override async Task<Struct> ExecuteTypedAsync(
+        CalculatorInput input,
         ToolContext context,
         ILogger? logger,
         CancellationToken cancellationToken = default)
     {
-        var operation = parameters["operation"].ToString();
-        double a, b;
-
-        if (parameters.ContainsKey("numbers") && parameters["numbers"] is System.Text.Json.JsonElement numbersElement && numbersElement.ValueKind == System.Text.Json.JsonValueKind.Array)
-        {
-            var numbers = System.Text.Json.JsonSerializer.Deserialize<double[]>(numbersElement.GetRawText());
-            if (numbers != null && numbers.Length >= 2)
-            {
-                a = numbers[0];
-                b = numbers[1];
-            }
-            else
-            {
-                throw new ArgumentException("numbers array must contain at least 2 numbers");
-            }
-        }
-        else if (parameters.ContainsKey("numbers") && parameters["numbers"] is List<object> numbersList)
-        {
-             a = Convert.ToDouble(numbersList[0]);
-             b = Convert.ToDouble(numbersList[1]);
-        }
-        else
-        {
-            a = Convert.ToDouble(parameters["a"]);
-            b = Convert.ToDouble(parameters["b"]);
-        }
-
-        double result = operation switch
+        // Directly use strongly-typed parameters - no need to handle JsonElement or Dictionary!
+        var a = input.Numbers[0];
+        var b = input.Numbers[1];
+        
+        var result = input.Operation.ToLower() switch
         {
             "add" => a + b,
             "subtract" => a - b,
             "multiply" => a * b,
-            "divide" => b != 0 ? a / b : throw new InvalidOperationException("除数不能为0"),
-            _ => throw new ArgumentException($"不支持的操作: {operation}")
+            "divide" => b != 0 ? a / b : throw new InvalidOperationException("Division by zero"),
+            _ => throw new ArgumentException($"Unsupported operation: {input.Operation}")
         };
-
-        logger?.LogInformation("🧮 计算器执行: {A} {Op} {B} = {Result}", 
-            a, operation, b, result);
-
+        
+        logger?.LogInformation("🧮 Calculator executed: {A} {Op} {B} = {Result}", 
+            a, input.Operation, b, result);
+        
         await Task.CompletedTask;
-
-        // 返回 Protobuf 消息
+        
+        // Return Protobuf message
         return new Struct
         {
             Fields =
             {
                 ["result"] = Value.ForNumber(result),
-                ["expression"] = Value.ForString($"{a} {operation} {b} = {result}")
+                ["expression"] = Value.ForString($"{a} {input.Operation} {b} = {result}")
             }
         };
     }
 }
 
+// ============================================
+// Weather Tool - Strongly-typed implementation
+// ============================================
+
 /// <summary>
-/// 天气查询工具（模拟）
+/// Weather query tool input parameters
 /// </summary>
-public class WeatherTool : AevatarToolBase
+public record WeatherInput
 {
+    /// <summary>
+    /// City name to query
+    /// </summary>
+    [Required(ErrorMessage = "city parameter is required")]
+    [Description("City name to query weather for, e.g.: Beijing, Shanghai, Shenzhen")]
+    [JsonPropertyName("city")]
+    public required string City { get; init; }
+}
+
+/// <summary>
+/// Weather query tool (simulated)
+/// Demonstrates how to use strongly-typed parameters
+/// </summary>
+public class WeatherTool : TypedAevatarToolBase<WeatherInput, Struct>
+{
+    private static readonly Random Random = new();
+    
+    private static readonly string[] Conditions = 
+    { 
+        "Sunny", "Cloudy", "Overcast", "Light Rain", "Moderate Rain", "Heavy Rain", "Thunderstorm", "Snow" 
+    };
+
     public override string Name => "get_weather";
+    
+    public override string Description => "Get weather information for a specified city (simulated data)";
+    
+    public override ToolCategory Category => ToolCategory.Information;
 
-    public override string Description => "获取指定城市的天气信息";
-
-    public override ToolCategory Category => ToolCategory.Custom;
-
-    public override ToolParameters CreateParameters()
-    {
-        return new ToolParameters
-        {
-            Items = new Dictionary<string, ToolParameter>
-            {
-                ["city"] = new ToolParameter
-                {
-                    Type = "string",
-                    Description = "城市名称",
-                    Required = true
-                }
-            },
-            Required = new[] { "city" }
-        };
-    }
-
-    public override async Task<IMessage> ExecuteAsync(
-        Dictionary<string, object> parameters,
+    protected override async Task<Struct> ExecuteTypedAsync(
+        WeatherInput input,
         ToolContext context,
         ILogger? logger,
         CancellationToken cancellationToken = default)
     {
-        var city = parameters["city"].ToString();
-
-        // 模拟天气数据
-        var random = new Random();
-        var temperature = random.Next(15, 30);
-        var conditions = new[] { "晴", "多云", "阴", "小雨" };
-        var condition = conditions[random.Next(conditions.Length)];
-
-        logger?.LogInformation("🌤️ 天气查询: {City} - {Temp}°C, {Condition}", 
-            city, temperature, condition);
-
-        await Task.Delay(100, cancellationToken); // 模拟API调用延迟
-
-        // 返回 Protobuf 消息
+        // Simulate weather data
+        var temperature = Random.Next(15, 35);
+        var condition = Conditions[Random.Next(Conditions.Length)];
+        
+        logger?.LogInformation("🌤️ Weather query: {City} - {Temp}°C, {Condition}", 
+            input.City, temperature, condition);
+        
+        await Task.CompletedTask;
+        
+        // Return structured weather data
         return new Struct
         {
             Fields =
             {
-                ["city"] = Value.ForString(city ?? ""),
+                ["city"] = Value.ForString(input.City),
                 ["temperature"] = Value.ForNumber(temperature),
                 ["condition"] = Value.ForString(condition),
-                ["message"] = Value.ForString($"{city}的天气: {condition}，温度 {temperature}°C")
+                ["message"] = Value.ForString($"{input.City} weather: {condition}, {temperature}°C")
             }
         };
     }

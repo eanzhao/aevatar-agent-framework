@@ -90,6 +90,8 @@ public class ToolExecutionCoordinator
     /// </summary>
     private Dictionary<string, object> ParseToolArguments(string argumentsJson)
     {
+        _logger?.LogWarning("[DEBUG] ParseToolArguments received: {Arguments}", argumentsJson);
+
         if (string.IsNullOrWhiteSpace(argumentsJson))
             return new Dictionary<string, object>();
 

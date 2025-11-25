@@ -1,17 +1,38 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Abstractions.EventSourcing;
+using System.Reflection;
+using Microsoft.Extensions.AI;
+using AIAgentWithToolDemo;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
-using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.AI.MEAI;
-using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
-using AIAgentWithToolDemo;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+
+// REFLECTION DEBUG START
+Console.WriteLine("Inspecting AIFunctionFactory:");
+foreach (var method in typeof(AIFunctionFactory).GetMethods(BindingFlags.Public | BindingFlags.Static))
+{
+    Console.WriteLine($"  {method.Name}({string.Join(", ", method.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))})");
+}
+
+Console.WriteLine("\nInspecting AIFunction:");
+foreach (var ctor in typeof(AIFunction).GetConstructors())
+{
+    Console.WriteLine($"  ctor({string.Join(", ", ctor.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))})");
+}
+
+foreach (var prop in typeof(AIFunction).GetProperties())
+{
+        Console.WriteLine($"  Prop: {prop.PropertyType.Name} {prop.Name}");
+}
+// REFLECTION DEBUG END
+
+// 1. 配置依赖注入
+var services = new ServiceCollection();
 
 // ============================================================================
 // Build Host with Dependency Injection

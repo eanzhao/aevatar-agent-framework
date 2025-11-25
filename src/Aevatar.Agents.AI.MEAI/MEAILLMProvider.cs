@@ -5,6 +5,8 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Aevatar.Agents.AI.MEAI;
 
@@ -94,18 +96,103 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         var aiTools = new List<AITool>();
         foreach (var func in functions)
         {
-            var aiFunc = AIFunctionFactory.Create((Func<Dictionary<string, object?>, Task<object>>)Handler, func.Name,
-                func.Description);
+            var schema = ConvertParametersToJsonSchema(func.Parameters);
+            
+            // Create custom AIFunction with our schema and handler
+            var aiFunc = new DelegatingAIFunction(
+                func.Name,
+                func.Description,
+                schema,
+                async (args, ct) =>
+                {
+                    var dict = new Dictionary<string, object?>();
+                    foreach (var kvp in args)
+                    {
+                        dict[kvp.Key] = kvp.Value;
+                    }
+                    return await Task.FromResult(string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name));
+                });
+            
             aiTools.Add(aiFunc);
-            continue;
-
-            // Create function tool with placeholder handler
-            // Actual execution happens in ToolManager
-            async Task<object> Handler(Dictionary<string, object?> _) =>
-                string.Format(ToolConstants.FunctionCalledMessageFormat, func.Name);
         }
 
         return aiTools;
+    }
+
+    /// <summary>
+    /// Custom AIFunction implementation that wraps our handler and exposes custom JsonSchema
+    /// </summary>
+    private sealed class DelegatingAIFunction : AIFunction
+    {
+        private readonly Func<IReadOnlyDictionary<string, object?>, CancellationToken, Task<object>> _handler;
+        private readonly string _name;
+        private readonly string _description;
+        private readonly JsonElement _jsonSchema;
+
+        public DelegatingAIFunction(
+            string name,
+            string description,
+            JsonElement jsonSchema,
+            Func<IReadOnlyDictionary<string, object?>, CancellationToken, Task<object>> handler)
+        {
+            _handler = handler;
+            _name = name;
+            _description = description;
+            _jsonSchema = jsonSchema;
+        }
+
+        public override string Name => _name;
+        public override string Description => _description;
+        public override JsonElement JsonSchema => _jsonSchema;
+
+        protected override async ValueTask<object?> InvokeCoreAsync(
+            AIFunctionArguments arguments,
+            CancellationToken cancellationToken)
+        {
+            return await _handler(arguments, cancellationToken);
+        }
+    }
+
+    private static JsonElement ConvertParametersToJsonSchema(Dictionary<string, AevatarParameterDefinition> parameters)
+    {
+        var properties = new JsonObject();
+        var required = new JsonArray();
+
+        foreach (var param in parameters)
+        {
+            var paramDef = param.Value;
+            var property = new JsonObject
+            {
+                ["type"] = paramDef.Type,
+                ["description"] = paramDef.Description
+            };
+
+            if (paramDef.Enum != null && paramDef.Enum.Count > 0)
+            {
+                var enumArray = new JsonArray();
+                foreach (var val in paramDef.Enum)
+                {
+                    enumArray.Add(val);
+                }
+                property["enum"] = enumArray;
+            }
+
+            properties[param.Key] = property;
+
+            if (paramDef.Required)
+            {
+                required.Add(param.Key);
+            }
+        }
+
+        var schema = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = properties,
+            ["required"] = required
+        };
+
+        return JsonSerializer.Deserialize<JsonElement>(schema.ToJsonString());
     }
 
     /// <summary>
