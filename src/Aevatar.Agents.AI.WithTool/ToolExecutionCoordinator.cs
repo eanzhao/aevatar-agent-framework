@@ -45,15 +45,20 @@ public class ToolExecutionCoordinator
         _logger?.LogDebug("Executing tool: {ToolName}", functionCall.Name);
 
         // 1. Add tool call to history
-        _historyManager.AddToolCallMessage(functionCall);
+        var toolCallMsg = _historyManager.AddToolCallMessage(functionCall);
 
         // 2. Execute tool
         var result = await ExecuteToolAsync(functionCall, cancellationToken);
 
         // 3. Add tool result to history
-        _historyManager.AddToolResultMessage(functionCall.Name, result);
+        var toolResultMsg = _historyManager.AddToolResultMessage(functionCall.Name, result);
 
         // 4. Generate final LLM response with tool result
+        // IMPORTANT: We must add the tool call and result to the current request messages
+        // so the LLM knows the tool has been executed and sees the result.
+        llmRequest.Messages.Add(toolCallMsg);
+        llmRequest.Messages.Add(toolResultMsg);
+
         var finalResponse = await _llmProvider.GenerateAsync(llmRequest, cancellationToken);
 
         // 5. Add assistant response to history
@@ -85,6 +90,8 @@ public class ToolExecutionCoordinator
     /// </summary>
     private Dictionary<string, object> ParseToolArguments(string argumentsJson)
     {
+        _logger?.LogWarning("[DEBUG] ParseToolArguments received: {Arguments}", argumentsJson);
+
         if (string.IsNullOrWhiteSpace(argumentsJson))
             return new Dictionary<string, object>();
 
@@ -104,7 +111,8 @@ public class ToolExecutionCoordinator
                     JsonValueKind.True => true,
                     JsonValueKind.False => false,
                     JsonValueKind.Null => null!,
-                    _ => kvp.Value.ToString()
+                    // For arrays and objects, keep the JsonElement so tools can parse them as needed
+                    _ => kvp.Value
                 };
             }
             return result;

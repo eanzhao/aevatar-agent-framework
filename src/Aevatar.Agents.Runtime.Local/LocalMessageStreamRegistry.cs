@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Aevatar.Agents.Runtime.Local;
 
 /// <summary>
@@ -6,24 +8,14 @@ namespace Aevatar.Agents.Runtime.Local;
 /// </summary>
 public class LocalMessageStreamRegistry
 {
-    private readonly Dictionary<Guid, LocalMessageStream> _streams = new();
-    private readonly Lock _lock = new();
+    private readonly ConcurrentDictionary<Guid, LocalMessageStream> _streams = new();
 
     /// <summary>
     /// 获取或创建 Agent 的 Stream
     /// </summary>
     public LocalMessageStream GetOrCreateStream(Guid agentId, int capacity = 1000)
     {
-        lock (_lock)
-        {
-            if (!_streams.TryGetValue(agentId, out var stream))
-            {
-                stream = new LocalMessageStream(agentId, capacity);
-                _streams[agentId] = stream;
-            }
-
-            return stream;
-        }
+        return _streams.GetOrAdd(agentId, _ => new LocalMessageStream(agentId, capacity));
     }
 
     /// <summary>
@@ -31,10 +23,7 @@ public class LocalMessageStreamRegistry
     /// </summary>
     public bool StreamExists(Guid agentId)
     {
-        lock (_lock)
-        {
-            return _streams.ContainsKey(agentId);
-        }
+        return _streams.ContainsKey(agentId);
     }
 
     /// <summary>
@@ -42,13 +31,9 @@ public class LocalMessageStreamRegistry
     /// </summary>
     public void RemoveStream(Guid agentId)
     {
-        lock (_lock)
+        if (_streams.TryRemove(agentId, out var stream))
         {
-            if (_streams.TryGetValue(agentId, out var stream))
-            {
-                stream.Stop();
-                _streams.Remove(agentId);
-            }
+            stream.Stop();
         }
     }
 
@@ -57,10 +42,7 @@ public class LocalMessageStreamRegistry
     /// </summary>
     public LocalMessageStream? GetStream(Guid agentId)
     {
-        lock (_lock)
-        {
-            _streams.TryGetValue(agentId, out var stream);
-            return stream;
-        }
+        _streams.TryGetValue(agentId, out var stream);
+        return stream;
     }
 }

@@ -1,4 +1,6 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.ProtoActor.Tests.Messages;
@@ -34,6 +36,7 @@ public class ProtoActorStreamTests : IDisposable
         services.AddSingleton<ProtoActorMessageStreamRegistry>();
         services.AddSingleton<ProtoActorGAgentActorFactory>();
         services.AddGAgentActorFactoryProvider();  // 添加工厂提供者
+        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();  // 添加Agent工厂
         
         _serviceProvider = services.BuildServiceProvider();
         _factory = _serviceProvider.GetRequiredService<ProtoActorGAgentActorFactory>();

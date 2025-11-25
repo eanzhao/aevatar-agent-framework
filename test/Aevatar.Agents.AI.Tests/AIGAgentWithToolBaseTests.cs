@@ -93,7 +93,7 @@ public class AIGAgentWithToolBaseTests
             .ReturnsAsync(new ToolExecutionResult { IsSuccess = true, Content = "12:00" });
 
         _mockToolManager
-            .Setup(m => m.GetAvailableToolsAsync())
+            .Setup(m => m.GetAvailableToolsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<ToolDefinition> { new() { Name = "GetTime" } });
 
         await _agent.InitializeAsync("test-provider");

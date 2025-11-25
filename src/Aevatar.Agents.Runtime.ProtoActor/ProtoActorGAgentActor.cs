@@ -74,17 +74,17 @@ public class ProtoActorGAgentActor : GAgentActorBase
             };
 
             // Agent订阅父节点的stream，接收组内广播的事件
-            _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
+            _parentStreamSubscription = await parentStream.SubscribeAsync(
                 async envelope =>
                 {
                     // 从父stream接收到的事件，只需要处理，不需要继续传播
                     // 因为这个事件已经在父stream中广播了
                     // 通过反射调用Agent的HandleEventAsync
                     var handleMethod = Agent.GetType().GetMethod("HandleEventAsync",
-                        new[] { typeof(EventEnvelope), typeof(CancellationToken) });
+                        [typeof(EventEnvelope), typeof(CancellationToken)]);
                     if (handleMethod != null)
                     {
-                        var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
+                        var task = handleMethod.Invoke(Agent, [envelope, ct]) as Task;
                         if (task != null)
                         {
                             await task;
@@ -156,7 +156,9 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 {
                     Console.WriteLine($"ProtoActor {Id} received event {envelope.Id} from stream");
                     Logger.LogDebug("ProtoActor {AgentId} received event {EventId} from stream", Id, envelope.Id);
-                    await EventRouter.RouteEventAsync(envelope, ct);
+                    // Directly handle the event instead of routing it again to avoid infinite loop
+                    // RouteEventAsync would call SendToSelfAsync which produces to stream again
+                    await Agent.HandleEventAsync(envelope, ct);
                     Logger.LogDebug("ProtoActor {AgentId} handled event {EventId}", Id, envelope.Id);
                     Console.WriteLine($"ProtoActor {Id} handled event {envelope.Id}");
                 }
