@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
+using Aevatar.BusinessServer.HttpApi.Host.Extensions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
@@ -49,6 +50,15 @@ public class BusinessServerHttpApiHostModule : AbpModule
         ConfigureAuthentication(context, configuration);
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
+        
+        // Configure Agent Runtime (Local or Orleans)
+        ConfigureAgentRuntime(context, configuration);
+    }
+
+    private void ConfigureAgentRuntime(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        // Add Agent Runtime based on configuration
+        context.Services.AddAgentRuntime(configuration);
     }
 
     private void ConfigureConventionalControllers()

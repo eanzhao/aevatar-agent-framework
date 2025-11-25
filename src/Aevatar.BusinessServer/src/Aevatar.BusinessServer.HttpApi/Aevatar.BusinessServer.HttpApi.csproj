@@ -3,13 +3,19 @@
   <Import Project="..\..\common.props" />
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Aevatar.BusinessServer</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.BusinessServer.Application.Contracts\Aevatar.BusinessServer.Application.Contracts.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.Application\Aevatar.BusinessServer.Application.csproj" />
+  </ItemGroup>
+
+  <!-- Aevatar Agent Framework -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
