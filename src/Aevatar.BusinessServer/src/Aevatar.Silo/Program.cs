@@ -6,10 +6,18 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Serilog;
 using MongoDB.Driver;
 using Aevatar.Silo.Extensions;
 using Aevatar.BusinessServer.Agents.Agents; // CRITICAL: Reference to force assembly load
+using Aevatar.Agents.Runtime.Orleans.Extensions;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Persistence.MongoDB;
+using Aevatar.Agents.Runtime.Orleans.EventSourcing;
+using Aevatar.Agents.Runtime.Orleans.MongoDB;
+using Aevatar.Agents.Orleans.MongoDB;
 
 namespace Aevatar.Silo;
 
@@ -76,25 +84,39 @@ public class Program
             })
             .ConfigureServices((context, services) =>
             {
-                // Add health checks
                 services.AddOrleansHealthChecks();
                 
-                // Register MongoDB client (if needed by application services)
+                // MongoDB configuration
                 var mongoConnectionString = context.Configuration.GetConnectionString("MongoDB") 
                     ?? "mongodb://localhost:27017/AevatarBusiness";
-                services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoConnectionString));
-                services.AddSingleton(sp =>
-                {
-                    var client = sp.GetRequiredService<IMongoClient>();
-                    var databaseName = context.Configuration.GetSection("Storage")
-                        .GetValue("DatabaseName", "AevatarBusiness");
-                    return client.GetDatabase(databaseName);
-                });
-
-                // Ensure Grains assembly is loaded for Orleans type discovery
-                _ = typeof(SimpleBusinessAgent);
+                var databaseName = context.Configuration.GetSection("Storage")
+                    .GetValue("DatabaseName", "AevatarBusiness");
                 
-                Log.Information("✅ Application services configured");
+                services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoConnectionString));
+                services.AddSingleton<IMongoDatabase>(sp => 
+                    sp.GetRequiredService<IMongoClient>().GetDatabase(databaseName));
+                
+                // MongoDB Event Repository for EventStore
+                services.AddSingleton<IEventRepository>(sp => new MongoEventRepository(
+                    sp.GetRequiredService<IMongoClient>(),
+                    new MongoEventRepositoryOptions
+                    {
+                        DatabaseName = databaseName,
+                        CollectionName = "agent_events",
+                        EnableDetailedLogging = true
+                    },
+                    sp.GetRequiredService<ILogger<MongoEventRepository>>()));
+
+                // Aevatar Agent System with MongoDB stores
+                services.AddAevatarAgentSystem(options =>
+                {
+                    options.StateStoreType = typeof(MongoDBStateStore<>);
+                    options.ConfigStoreType = typeof(MongoDbConfigStore<>);
+                    options.EventRouterStoreType = typeof(MongoDBEventRouterStore);
+                    options.EventStoreType = typeof(OrleansEventStore);
+                }, builder => builder.UseOrleansRuntime());
+                
+                Log.Information("✅ Aevatar Agent System configured with MongoDB stores");
             });
     }
 }

@@ -10,7 +10,9 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.EventRouting;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Business.Server;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
@@ -98,15 +100,9 @@ public class MultiTopicBenchmark
             options.DefaultStreamNamespace = streamNamespace;  // Type-specific namespace!
         });
 
-        // Register factory provider
-        services.AddGAgentActorFactoryProvider();
-        
-        // Register IGAgentFactory for creating agent instances
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
-        
-        // Register IGAgentActorFactory for Orleans runtime
-        services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
-        services.AddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
+        // Use new AddAevatarAgentSystem with Orleans runtime
+        // Default uses InMemory stores, can be overridden via GAgentOptions
+        services.AddAevatarAgentSystem(builder => builder.UseOrleansRuntime());
 
         var serviceProvider = services.BuildServiceProvider();
         var manager = serviceProvider.GetRequiredService<IGAgentActorManager>();
@@ -167,16 +163,14 @@ public class MultiTopicBenchmark
         var typeAAgents = results.AgentsByType["TypeA"];
         foreach (var agentInfo in typeAAgents)
         {
-            await agentInfo.Actor.SetParentAsync(publisherA.Id);
-            await publisherA.AddChildAsync(agentInfo.AgentId);
+            await ActorHierarchyCoordinator.LinkAsync(publisherA, agentInfo.Actor, _logger);
         }
         Console.WriteLine($"   ✅ Type A subscribed to PublisherA ({typeAAgents.Count} agents)");
         
         var typeBAgents = results.AgentsByType["TypeB"];
         foreach (var agentInfo in typeBAgents)
         {
-            await agentInfo.Actor.SetParentAsync(publisherB.Id);
-            await publisherB.AddChildAsync(agentInfo.AgentId);
+            await ActorHierarchyCoordinator.LinkAsync(publisherB, agentInfo.Actor, _logger);
         }
         Console.WriteLine($"   ✅ Type B subscribed to PublisherB ({typeBAgents.Count} agents)");
         Console.WriteLine($"   ✅ Subscriptions established in {sw.ElapsedMilliseconds}ms\n");
@@ -318,8 +312,7 @@ public class MultiTopicBenchmark
         
         foreach (var agentInfo in typeAAgents)
         {
-            await agentInfo.Actor.SetParentAsync(publisher.Id);
-            await publisher.AddChildAsync(agentInfo.AgentId);
+            await ActorHierarchyCoordinator.LinkAsync(publisher, agentInfo.Actor, _logger);
         }
         
         results.SubscribedAgents = typeAAgents.Count;
@@ -394,16 +387,14 @@ public class MultiTopicBenchmark
         var typeAAgents = results.AgentsByType["TypeA"];
         foreach (var agentInfo in typeAAgents)
         {
-            await agentInfo.Actor.SetParentAsync(publisherA.Id);
-            await publisherA.AddChildAsync(agentInfo.AgentId);
+            await ActorHierarchyCoordinator.LinkAsync(publisherA, agentInfo.Actor, _logger);
         }
         Console.WriteLine($"   ✅ Type A subscribed to PublisherA ({typeAAgents.Count} agents)");
         
         var typeBAgents = results.AgentsByType["TypeB"];
         foreach (var agentInfo in typeBAgents)
         {
-            await agentInfo.Actor.SetParentAsync(publisherB.Id);
-            await publisherB.AddChildAsync(agentInfo.AgentId);
+            await ActorHierarchyCoordinator.LinkAsync(publisherB, agentInfo.Actor, _logger);
         }
         Console.WriteLine($"   ✅ Type B subscribed to PublisherB ({typeBAgents.Count} agents)");
         Console.WriteLine($"   ✅ Subscriptions established in {sw.ElapsedMilliseconds}ms\n");

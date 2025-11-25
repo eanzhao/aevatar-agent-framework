@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Aevatar.BusinessServer.Agents.Agents;
 using Business.Server;
 using Google.Protobuf.WellKnownTypes;
@@ -170,15 +172,8 @@ class Program
             options.DefaultStreamNamespace = "AevatarAgents";
         });
 
-        // Register factory provider
-        services.AddGAgentActorFactoryProvider();
-        
-        // Register IGAgentFactory for creating agent instances
-        services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
-        
-        // Register IGAgentActorFactory for Orleans runtime
-        services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
-        services.AddSingleton<IGAgentActorManager, OrleansGAgentActorManager>();
+        // Use new AddAevatarAgentSystem with Orleans runtime
+        services.AddAevatarAgentSystem(builder => builder.UseOrleansRuntime());
 
         var serviceProvider = services.BuildServiceProvider();
         return serviceProvider.GetRequiredService<IGAgentActorManager>();
@@ -254,12 +249,10 @@ class Program
         Console.WriteLine($"   Parent: {parentId}");
         Console.WriteLine($"   Child: {childId}");
         
-        // Set up relationship
+        // Set up relationship using ActorHierarchyCoordinator
         Console.WriteLine($"   Setting up parent-child relationship...");
-        await child.SetParentAsync(parentId);
-        Console.WriteLine($"   ✓ Child.SetParentAsync(parent) completed");
-        await parent.AddChildAsync(childId);
-        Console.WriteLine($"   ✓ Parent.AddChildAsync(child) completed");
+        await ActorHierarchyCoordinator.LinkAsync(parent, child);
+        Console.WriteLine($"   ✓ Parent-child relationship established using ActorHierarchyCoordinator");
         Console.WriteLine($"   Waiting for stream subscription...");
         await Task.Delay(1000); // Wait for subscription to establish
         

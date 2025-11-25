@@ -50,5 +50,18 @@ public static class AevatarBuilderStorageExtensions
 
         return builder;
     }
+
+    /// <summary>
+    /// Configures all stores to use in-memory implementations.
+    /// </summary>
+    public static IAevatarBuilder UseInMemoryStores(this IAevatarBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder
+            .UseInMemoryStateStore()
+            .UseInMemoryConfigStore()
+            .UseInMemoryEventStore();
+    }
 }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.BusinessServer.Agents.Agents;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -184,9 +185,8 @@ public class AgentDemoController : AbpControllerBase
             var parentActor = await _actorManager.GetActorAsync(pId);
             if (parentActor == null) return NotFound($"Parent agent {parentId} not found");
 
-            // Establish bidirectional relationship
-            await childActor.SetParentAsync(pId);
-            await parentActor.AddChildAsync(cId);
+            // Establish bidirectional relationship using ActorHierarchyCoordinator
+            await ActorHierarchyCoordinator.LinkAsync(parentActor, childActor, _logger);
             
             _logger.LogInformation("✅ Parent-child relationship established: {Child} -> {Parent}", childId, parentId);
             return Ok(new { message = $"Child {childId} now has parent {parentId}" });

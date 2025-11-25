@@ -54,6 +54,8 @@
     <ProjectReference Include="../../../Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="../../../Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
     <ProjectReference Include="../../../Aevatar.Agents.Runtime.Orleans/Aevatar.Agents.Runtime.Orleans.csproj" />
+    <ProjectReference Include="../../../Aevatar.Agents.Persistence.MongoDB/Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <ProjectReference Include="../../../Aevatar.Agents.Runtime.Orleans.MongoDB/Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     
     <!-- Business Server Projects -->
     <ProjectReference Include="..\Aevatar.BusinessServer.Domain\Aevatar.BusinessServer.Domain.csproj" />
