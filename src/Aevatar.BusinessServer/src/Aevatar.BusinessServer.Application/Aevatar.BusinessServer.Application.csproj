@@ -3,7 +3,7 @@
   <Import Project="..\..\common.props" />
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Aevatar.BusinessServer</RootNamespace>
   </PropertyGroup>
@@ -20,6 +20,20 @@
     <PackageReference Include="Volo.Abp.Account.Application" />
     <PackageReference Include="Volo.Abp.Identity.Application" />
     <PackageReference Include="Volo.Abp.TenantManagement.Application" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!-- Aevatar Agent Framework -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.BusinessServer.Agents\Aevatar.BusinessServer.Agents.csproj" />
+  </ItemGroup>
+
+  <!-- Protobuf -->
+  <ItemGroup>
+    <!-- <Protobuf Include="Protos\business_agent.proto" GrpcServices="None" /> -->
   </ItemGroup>
 
 </Project>
