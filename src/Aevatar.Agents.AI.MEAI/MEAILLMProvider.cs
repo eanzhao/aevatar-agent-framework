@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.WithTool;
@@ -193,17 +194,77 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         await foreach (var chatUpdate in _chatClient.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
-            if (!string.IsNullOrEmpty(chatUpdate.Text))
+            var chunk = ExtractStreamingText(chatUpdate);
+            if (string.IsNullOrEmpty(chunk))
             {
-                yield return new AevatarLLMToken
-                {
-                    Content = chatUpdate.Text,
-                    IsComplete = false
-                };
+                continue;
             }
+
+            yield return new AevatarLLMToken
+            {
+                Content = chunk,
+                IsComplete = false
+            };
         }
 
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
+    }
+
+    private static string ExtractStreamingText(object chatUpdate)
+    {
+        if (chatUpdate == null)
+        {
+            return string.Empty;
+        }
+
+        var type = chatUpdate.GetType();
+
+        // Try TextDelta or Text via reflection to stay resilient to SDK changes
+        var text = type.GetProperty("TextDelta")?.GetValue(chatUpdate) as string;
+        if (string.IsNullOrEmpty(text))
+        {
+            text = type.GetProperty("Text")?.GetValue(chatUpdate) as string;
+        }
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        // Try Message.Text
+        var message = type.GetProperty("Message")?.GetValue(chatUpdate);
+        if (message == null)
+        {
+            return string.Empty;
+        }
+
+        var messageType = message.GetType();
+        text = messageType.GetProperty("Text")?.GetValue(message) as string;
+        if (!string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        // Try aggregating message.Content (collection of parts)
+        var content = messageType.GetProperty("Content")?.GetValue(message) as System.Collections.IEnumerable;
+        if (content == null)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        foreach (var part in content)
+        {
+            if (part == null) continue;
+            var partType = part.GetType();
+            var partText = partType.GetProperty("Text")?.GetValue(part) as string;
+            if (!string.IsNullOrEmpty(partText))
+            {
+                sb.Append(partText);
+            }
+        }
+
+        return sb.ToString();
     }
 
     public Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)

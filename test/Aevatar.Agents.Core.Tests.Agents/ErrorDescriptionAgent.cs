@@ -45,6 +45,3 @@ public class ErrorDescriptionAgent : GAgentBase<TestAgentState>
         return $"ErrorDescriptionAgent: {State.Name}";
     }
 }
-
-
-

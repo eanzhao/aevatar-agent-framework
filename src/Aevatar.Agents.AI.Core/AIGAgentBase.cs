@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
@@ -313,7 +315,13 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     protected virtual AevatarLLMRequest BuildLLMRequest(
         ChatRequest request)
     {
-        return new AevatarLLMRequest
+        var settings = GetLLMSettings(request);
+        if (request.StopSequences.Count > 0)
+        {
+            settings.StopSequences = request.StopSequences.ToList();
+        }
+
+        var llmRequest = new AevatarLLMRequest
         {
             SystemPrompt = GetEffectiveSystemPrompt(),
             Messages = new List<AevatarChatMessage>
@@ -324,8 +332,18 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
                     Content = request.Message
                 }
             },
-            Settings = GetLLMSettings(request)
+            Settings = settings
         };
+
+        if (!string.IsNullOrWhiteSpace(request.StageHint))
+        {
+            llmRequest.Context = new Dictionary<string, object>
+            {
+                ["stage_hint"] = request.StageHint!
+            };
+        }
+
+        return llmRequest;
     }
 
     /// <summary>

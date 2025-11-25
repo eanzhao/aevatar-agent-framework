@@ -119,12 +119,14 @@ public class CounterAgent : GAgentBase<CounterState>
 
 // 3. Create and Use
 var services = new ServiceCollection().AddLogging(b => b.AddConsole());
-services.AddSingleton<LocalGAgentActorFactory>();
-services.AddSingleton<LocalGAgentActorManager>();
-services.AddSingleton<LocalMessageStreamRegistry>();
+
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseLocalRuntime();
+});
 
 var sp = services.BuildServiceProvider();
-var factory = sp.GetRequiredService<LocalGAgentActorFactory>();
+var factory = sp.GetRequiredService<IGAgentActorFactory>();
 
 var actor = await factory.CreateGAgentActorAsync<CounterAgent>(Guid.NewGuid());
 await actor.PublishEventAsync(new EventEnvelope
@@ -132,6 +134,20 @@ await actor.PublishEventAsync(new EventEnvelope
     Id = Guid.NewGuid().ToString(),
     Payload = Any.Pack(new IncrementEvent { Amount = 5 })
 });
+```
+
+Need to swap the default in-memory stores for your own persistence? Pass `GAgentOptions` when bootstrapping:
+
+```csharp
+services.AddAevatarAgentSystem(options =>
+    {
+        options.StateStoreType = typeof(MyStateStore<>);         // open generic
+        options.EventStoreType = typeof(MyEventStore);           // concrete type
+    },
+    builder =>
+    {
+        builder.UseLocalRuntime();
+    });
 ```
 
 Run `examples/SimpleDemo/` for a complete example.

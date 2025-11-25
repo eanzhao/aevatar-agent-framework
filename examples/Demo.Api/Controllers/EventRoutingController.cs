@@ -4,6 +4,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
+using Aevatar.Agents.Core.Hierarchy;
 
 namespace Demo.Api.Controllers;
 
@@ -50,8 +51,7 @@ public class EventRoutingController : ControllerBase
                 // 建立链式关系
                 if (i > 0)
                 {
-                    await agent.SetParentAsync(agentIds[i - 1]);
-                    await agents[i - 1].AddChildAsync(agentId);
+                    await ActorHierarchyCoordinator.LinkAsync(agents[i - 1], agent, _logger);
                 }
             }
 
@@ -123,14 +123,9 @@ public class EventRoutingController : ControllerBase
             var logger = await _agentFactory.CreateGAgentActorAsync<LoggerAgent>(loggerId);
 
             // 建立关系：Router -> Filter -> Processor/Logger
-            await filter.SetParentAsync(routerId);
-            await router.AddChildAsync(filterId);
-            
-            await processor.SetParentAsync(filterId);
-            await filter.AddChildAsync(processorId);
-            
-            await logger.SetParentAsync(filterId);
-            await filter.AddChildAsync(loggerId);
+            await ActorHierarchyCoordinator.LinkAsync(router, filter, _logger);
+            await ActorHierarchyCoordinator.LinkAsync(filter, processor, _logger);
+            await ActorHierarchyCoordinator.LinkAsync(filter, logger, _logger);
 
             _logger.LogInformation("Created filtering pipeline on {Runtime}", runtime);
 
@@ -222,8 +217,7 @@ public class EventRoutingController : ControllerBase
                 receivers.Add(receiver);
                 
                 // 设置广播者为父级
-                await receiver.SetParentAsync(broadcasterId);
-                await broadcaster.AddChildAsync(receiverId);
+                await ActorHierarchyCoordinator.LinkAsync(broadcaster, receiver, _logger);
             }
 
             _logger.LogInformation("Created broadcaster with {ReceiverCount} receivers on {Runtime}", 

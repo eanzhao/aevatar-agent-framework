@@ -3,6 +3,7 @@ using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Core.Internal;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,7 +15,7 @@ namespace Aevatar.Agents.Core;
 /// Base class for Agent Actor
 /// Provides standard implementation of event propagation logic
 /// </summary>
-public abstract class GAgentActorBase : IGAgentActor
+public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
 {
     // ============ Fields ============
 
@@ -97,22 +98,28 @@ public abstract class GAgentActorBase : IGAgentActor
 
     // ============ Hierarchy Management ============
 
-    public virtual async Task AddChildAsync(Guid childId, CancellationToken ct = default)
+    protected internal virtual async Task AddChildAsync(Guid childId, CancellationToken ct = default)
     {
         await EventRouter.AddChildAsync(childId, ct);
     }
 
-    public virtual async Task RemoveChildAsync(Guid childId, CancellationToken ct = default)
+    public async Task RegisterAsync(Guid childId, CancellationToken ct = default)
+    {
+        await EventRouter.AddChildAsync(childId, ct);
+        
+    }
+
+    protected internal virtual async Task RemoveChildAsync(Guid childId, CancellationToken ct = default)
     {
         await EventRouter.RemoveChildAsync(childId, ct);
     }
 
-    public virtual async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
+    protected internal virtual async Task SetParentAsync(Guid parentId, CancellationToken ct = default)
     {
         await EventRouter.SetParentAsync(parentId, ct);
     }
 
-    public virtual async Task ClearParentAsync(CancellationToken ct = default)
+    protected internal virtual async Task ClearParentAsync(CancellationToken ct = default)
     {
         await EventRouter.ClearParentAsync(ct);
     }
@@ -126,6 +133,22 @@ public abstract class GAgentActorBase : IGAgentActor
     {
         return Task.FromResult(EventRouter.GetParent());
     }
+
+    #region IActorHierarchyOperations Explicit Implementation
+
+    async Task IActorHierarchyOperations.AddChildAsync(Guid childId, CancellationToken ct)
+        => await AddChildAsync(childId, ct);
+
+    async Task IActorHierarchyOperations.RemoveChildAsync(Guid childId, CancellationToken ct)
+        => await RemoveChildAsync(childId, ct);
+
+    async Task IActorHierarchyOperations.SetParentAsync(Guid parentId, CancellationToken ct)
+        => await SetParentAsync(parentId, ct);
+
+    async Task IActorHierarchyOperations.ClearParentAsync(CancellationToken ct)
+        => await ClearParentAsync(ct);
+
+    #endregion
 
     // ============ Event Publishing (IEventPublisher Implementation) ============
 

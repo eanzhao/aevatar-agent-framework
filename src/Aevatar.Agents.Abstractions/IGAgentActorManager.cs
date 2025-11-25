@@ -86,6 +86,20 @@ public interface IGAgentActorManager
         where TAgent : IGAgent;
     
     #endregion
+
+    #region 层级关系协调
+
+    /// <summary>
+    /// 将指定的子 Actor 加入到父 Actor 名下，内部会同时更新双方的 EventRouter。
+    /// </summary>
+    Task LinkParentChildAsync(Guid parentId, Guid childId, CancellationToken ct = default);
+
+    /// <summary>
+    /// 解除父子关系。如果没有提供 parentId，将自动查询子节点当前父节点后再解除。
+    /// </summary>
+    Task UnlinkParentChildAsync(Guid childId, Guid? parentId = null, CancellationToken ct = default);
+
+    #endregion
     
     #region 监控和诊断
     

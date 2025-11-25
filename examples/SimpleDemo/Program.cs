@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core.Factory;
+using Aevatar.Agents.Core.DependencyInjection;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Demo.Agents;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,12 +17,10 @@ services.AddLogging(builder =>
     builder.SetMinimumLevel(LogLevel.Information);
 });
 
-// 注册 Local 运行时工厂
-services.AddSingleton<LocalGAgentActorFactory>();
-services.AddSingleton<IGAgentActorFactory>(sp => sp.GetRequiredService<LocalGAgentActorFactory>());
-
-// 注册AutoDiscoveryProvider用于Agent实例化
-services.AddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseLocalRuntime();
+});
 
 var serviceProvider = services.BuildServiceProvider();
 

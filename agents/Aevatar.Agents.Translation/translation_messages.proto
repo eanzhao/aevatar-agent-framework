@@ -31,5 +31,3 @@ message FileTranslatedEvent {
     string error_message = 5;
     google.protobuf.Timestamp timestamp = 6;
 }
-
-

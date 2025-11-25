@@ -22,14 +22,9 @@ public class Program
         // Create service collection
         var services = new ServiceCollection();
 
-        // Configure state store (using InMemory for demo)
-        services.ConfigGAgentStateStore(options =>
-        {
-            options.StateStore = _ => new InMemoryStateStore<CounterState>();
-        });
-
-        // Register the agent
-        services.ConfigGAgent<CounterAgent, CounterState>();
+        // Configure agent system with default in-memory stores
+        var builder = services.AddAevatarAgentSystem();
+        builder.UseLocalRuntime();
 
         // Register logging
         services.AddLogging(builder =>
@@ -37,11 +32,6 @@ public class Program
             builder.AddConsole();
             builder.SetMinimumLevel(LogLevel.Debug);
         });
-
-        // Register Local runtime
-        services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
-        services.AddSingleton<IGAgentManager, GAgentManager>();
-        services.AddGAgentActorFactoryProvider();
 
         // Build service provider
         var serviceProvider = services.BuildServiceProvider();

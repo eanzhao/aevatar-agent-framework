@@ -18,30 +18,11 @@ public interface IGAgentActor : IEventPublisher
     /// </summary>
     IGAgent GetAgent();
 
-    // ============ Hierarchy Management ============
+    // ============ Hierarchy Inspection ============
 
     /// <summary>
-    /// Add a child Agent.
-    /// </summary>
-    Task AddChildAsync(Guid childId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Remove a child Agent.
-    /// </summary>
-    Task RemoveChildAsync(Guid childId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Set the parent Agent.
-    /// </summary>
-    Task SetParentAsync(Guid parentId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Clear the parent Agent.
-    /// </summary>
-    Task ClearParentAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// Get all child Agent IDs.
+    /// Get all child Agent IDs. Hierarchy mutations should be performed via ActorHierarchyCoordinator
+    /// or IGAgentActorManager.LinkParentChildAsync to keep parent/child routers in sync.
     /// </summary>
     Task<IReadOnlyList<Guid>> GetChildrenAsync();
 
