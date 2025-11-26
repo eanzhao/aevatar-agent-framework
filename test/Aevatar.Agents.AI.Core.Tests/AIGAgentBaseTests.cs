@@ -54,6 +54,20 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
     }
 
     [Fact]
+    [DisplayName("Initialize should configure embedding generator when available")]
+    public async Task Initialize_ShouldConfigureEmbeddingGenerator()
+    {
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
+
+        await agent.InitializeAsync("openai-provider");
+
+        agent.HasEmbeddings.Should().BeTrue();
+        var embedding = await agent.GenerateEmbeddingForTestAsync("embedding-test");
+        embedding.Should().NotBeNull();
+        embedding!.Vector.Length.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     [DisplayName("Initialize with custom config should override defaults")]
     public async Task Initialize_WithCustomConfig_ShouldOverride()
     {

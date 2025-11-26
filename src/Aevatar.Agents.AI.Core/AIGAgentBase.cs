@@ -5,10 +5,12 @@ using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 // ReSharper disable InconsistentNaming
@@ -26,7 +28,10 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
     protected IAevatarLLMProvider? _llmProvider;
     protected bool _isInitialized;
-    protected ILLMProviderFactory LLMProviderFactory { get; set; }
+    protected ILLMProviderFactory LLMProviderFactory { get; set; } = default!;
+    protected IAIAgentEmbeddingFactory? EmbeddingFactory { get; set; }
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
+    private LLMProviderConfig? _activeProviderConfig;
 
     #endregion
 
@@ -77,6 +82,13 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
             return _llmProvider!;
         }
     }
+
+    protected bool HasEmbeddingGenerator => _embeddingGenerator != null;
+    protected LLMProviderConfig? ActiveProviderConfig => _activeProviderConfig;
+
+    protected IEmbeddingGenerator<string, Embedding<float>> EmbeddingGenerator =>
+        _embeddingGenerator ?? throw new InvalidOperationException(
+            "Embedding generator is not configured. Ensure LLM provider Embeddings settings are provided and IAIAgentEmbeddingFactory is registered.");
 
     #endregion
 
@@ -134,8 +146,12 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
         await InitializeStateAndConfigAsync(configAI, cancellationToken);
 
+        _activeProviderConfig = LLMProviderFactory.GetProviderConfig(providerName);
+
         // Create LLM Provider from factory using provider name
         _llmProvider = await CreateLLMProviderFromFactoryAsync(providerName, cancellationToken);
+
+        await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
 
         _isInitialized = true;
 
@@ -162,8 +178,12 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
         await InitializeStateAndConfigAsync(configAI, cancellationToken);
 
+        _activeProviderConfig = providerConfig;
+
         // Create LLM Provider from custom config
         _llmProvider = await CreateLLMProviderFromConfigAsync(providerConfig, cancellationToken);
+
+        await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
 
         _isInitialized = true;
 
@@ -210,6 +230,130 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
         // Create provider from config using factory
         return LLMProviderFactory.CreateProvider(providerConfig, cancellationToken);
+    }
+
+    #endregion
+
+    #region Embeddings
+
+    protected bool TryGetEmbeddingGenerator(
+        [NotNullWhen(true)] out IEmbeddingGenerator<string, Embedding<float>>? generator)
+    {
+        generator = _embeddingGenerator;
+        return generator != null;
+    }
+
+    protected virtual async Task InitializeEmbeddingGeneratorAsync(
+        LLMProviderConfig? providerConfig,
+        CancellationToken cancellationToken)
+    {
+        if (providerConfig == null ||
+            providerConfig.Embeddings is not { Enabled: true })
+        {
+            return;
+        }
+
+        if (EmbeddingFactory == null)
+        {
+            Logger.LogDebug("EmbeddingFactory not available, skipping embedding initialization for provider {Provider}",
+                providerConfig.Name);
+            return;
+        }
+
+        try
+        {
+            var generator = await EmbeddingFactory.CreateAsync(providerConfig, cancellationToken);
+            if (generator != null)
+            {
+                _embeddingGenerator = generator;
+                Logger.LogInformation("Embedding generator initialized for provider {Provider}", providerConfig.Name);
+            }
+            else
+            {
+                Logger.LogDebug("EmbeddingFactory returned null for provider {Provider}", providerConfig.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to initialize embedding generator for provider {Provider}", providerConfig.Name);
+        }
+    }
+
+    protected virtual async Task<IReadOnlyList<Embedding<float>>> GenerateEmbeddingsAsync(
+        IEnumerable<string> inputs,
+        EmbeddingGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_embeddingGenerator == null)
+            throw new InvalidOperationException(
+                "Embedding generator is not configured. Ensure Embeddings settings exist in the provider configuration.");
+
+        var generationOptions = options ?? BuildDefaultEmbeddingOptions();
+        var embeddings = await _embeddingGenerator.GenerateAsync(inputs, generationOptions, cancellationToken);
+        return embeddings;
+    }
+
+    protected virtual async Task<Embedding<float>?> GenerateEmbeddingAsync(
+        string input,
+        EmbeddingGenerationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var embeddings = await GenerateEmbeddingsAsync(new[] { input }, options, cancellationToken);
+        return embeddings.Count > 0 ? embeddings[0] : null;
+    }
+
+    protected virtual EmbeddingGenerationOptions BuildDefaultEmbeddingOptions()
+    {
+        var options = new EmbeddingGenerationOptions();
+        if (_activeProviderConfig?.Embeddings != null)
+        {
+            if (!string.IsNullOrWhiteSpace(_activeProviderConfig.Embeddings.Model))
+            {
+                options.ModelId = _activeProviderConfig.Embeddings.Model;
+            }
+            else if (!string.IsNullOrWhiteSpace(_activeProviderConfig.Model))
+            {
+                options.ModelId = _activeProviderConfig.Model;
+            }
+
+            if (_activeProviderConfig.Embeddings.Dimensions.HasValue)
+            {
+                options.Dimensions = _activeProviderConfig.Embeddings.Dimensions;
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(_activeProviderConfig?.Model))
+        {
+            options.ModelId = _activeProviderConfig.Model;
+        }
+
+        return options;
+    }
+
+    protected static double CosineSimilarity(Embedding<float> left, Embedding<float> right)
+    {
+        var leftSpan = left.Vector.Span;
+        var rightSpan = right.Vector.Span;
+
+        if (leftSpan.Length != rightSpan.Length)
+            throw new InvalidOperationException("Embedding dimensions must match to calculate cosine similarity.");
+
+        double dot = 0;
+        double magLeft = 0;
+        double magRight = 0;
+
+        for (var i = 0; i < leftSpan.Length; i++)
+        {
+            var l = leftSpan[i];
+            var r = rightSpan[i];
+            dot += l * r;
+            magLeft += l * l;
+            magRight += r * r;
+        }
+
+        if (magLeft == 0 || magRight == 0)
+            return 0;
+
+        return dot / (Math.Sqrt(magLeft) * Math.Sqrt(magRight));
     }
 
     #endregion

@@ -73,6 +73,11 @@ public class AIGAgentFactory : IGAgentFactory
             AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
         }
 
+        if (AIAgentEmbeddingFactoryInjector.HasEmbeddingFactory(agent))
+        {
+            AIAgentEmbeddingFactoryInjector.InjectEmbeddingFactory(agent, _serviceProvider);
+        }
+
         if (AgentEventStoreInjector.HasEventStore(agent))
         {
             AgentEventStoreInjector.InjectEventStore(agent, _serviceProvider);

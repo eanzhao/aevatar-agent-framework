@@ -75,6 +75,19 @@ public class LLMProviderFactoryBaseTests : IClassFixture<AITestFixture>
     }
 
     [Fact]
+    [DisplayName("GetProviderConfig should expose embedding settings")]
+    public void GetProviderConfig_ShouldExposeEmbeddingConfig()
+    {
+        var factory = _fixture.GetService<ILLMProviderFactory>();
+        var config = factory.GetProviderConfig("openai-provider");
+
+        config.ShouldNotBeNull();
+        config.Embeddings.ShouldNotBeNull();
+        config.Embeddings!.Model.ShouldBe("text-embedding-3-small");
+        config.Embeddings.Dimensions.ShouldBe(512);
+    }
+
+    [Fact]
     [DisplayName("Multiple factories should share the same configuration")]
     public void MultipleFactories_ShouldShareConfiguration()
     {

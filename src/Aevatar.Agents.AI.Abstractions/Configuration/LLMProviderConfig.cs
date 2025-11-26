@@ -63,6 +63,11 @@ public class LLMProviderConfig
     /// 提供商特定设置
     /// </summary>
     public Dictionary<string, object> ProviderSpecificSettings { get; set; } = new();
+
+    /// <summary>
+    /// Embedding 通道配置（可选）
+    /// </summary>
+    public LLMEmbeddingConfig? Embeddings { get; set; }
 }
 
 /// <summary>
@@ -108,4 +113,51 @@ public class LLMProvidersConfig
     /// 提供商字典（key: 提供商名称, value: 配置）
     /// </summary>
     public Dictionary<string, LLMProviderConfig> Providers { get; set; } = new();
+}
+
+/// <summary>
+/// Embedding 配置，用于驱动 IEmbeddingGenerator
+/// </summary>
+public class LLMEmbeddingConfig
+{
+    /// <summary>
+    /// 是否启用 Embedding 通道（默认 true）
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Embedding 提供商类型（OpenAI, AzureOpenAI, Ollama 等）。
+    /// 若未指定，默认沿用主配置的 ProviderType。
+    /// </summary>
+    public string? ProviderType { get; set; }
+
+    /// <summary>
+    /// Embedding 模型名称（OpenAI 场景）
+    /// </summary>
+    public string? Model { get; set; }
+
+    /// <summary>
+    /// Embedding 部署名称（Azure OpenAI 场景）
+    /// </summary>
+    public string? DeploymentName { get; set; }
+
+    /// <summary>
+    /// 可覆盖的 Endpoint
+    /// </summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>
+    /// 可覆盖的 API Key
+    /// </summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// 维度（部分模型需要手动指定）
+    /// </summary>
+    public int? Dimensions { get; set; }
+
+    /// <summary>
+    /// 提供商特定扩展字段
+    /// </summary>
+    public Dictionary<string, object> ProviderSpecificSettings { get; set; } = new();
 }

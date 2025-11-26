@@ -52,6 +52,23 @@ public abstract class LLMProviderFactoryBase : ILLMProviderFactory
         return Providers.ContainsKey(providerName);
     }
 
+    public LLMProviderConfig GetProviderConfig(string providerName)
+    {
+        if (string.IsNullOrWhiteSpace(providerName))
+            throw new ArgumentNullException(nameof(providerName));
+
+        if (ProviderConfigs.TryGetValue(providerName, out var config))
+            return config;
+
+        throw new KeyNotFoundException(
+            $"Provider config '{providerName}' not found. Available providers: {string.Join(", ", ProviderConfigs.Keys)}");
+    }
+
+    public LLMProviderConfig GetDefaultProviderConfig()
+    {
+        return GetProviderConfig(Config.Default);
+    }
+
     public abstract IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig,
         CancellationToken cancellationToken = default);
 

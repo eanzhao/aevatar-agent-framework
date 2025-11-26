@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Azure;
 using Azure.AI.OpenAI;
+using Aevatar.Agents.AI.MEAI.Internal;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -54,7 +55,7 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
         var clientOptions = new OpenAIClientOptions
         {
-            ClientLoggingOptions = CreateClientLoggingOptions()
+            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider)
         };
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint))
@@ -73,7 +74,7 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
         var clientOptions = new AzureOpenAIClientOptions
         {
-            ClientLoggingOptions = CreateClientLoggingOptions()
+            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider)
         };
 
         var azureClient = new AzureOpenAIClient(
@@ -82,25 +83,5 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
             clientOptions);
 
         return azureClient.GetChatClient(config.DeploymentName ?? config.Model).AsIChatClient();
-    }
-
-    private ClientLoggingOptions CreateClientLoggingOptions()
-    {
-        var loggingOptions = new ClientLoggingOptions
-        {
-            LoggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>(),
-            EnableLogging = true,
-            EnableMessageLogging = true,
-            EnableMessageContentLogging = true,
-            MessageContentSizeLimit = 64 * 1024
-        };
-
-        loggingOptions.AllowedHeaderNames.Add("Content-Type");
-        loggingOptions.AllowedHeaderNames.Add("Accept");
-        loggingOptions.AllowedHeaderNames.Add("Content-Length");
-        loggingOptions.AllowedHeaderNames.Add("x-ms-request-id");
-        loggingOptions.AllowedQueryParameters.Add("api-version");
-
-        return loggingOptions;
     }
 }

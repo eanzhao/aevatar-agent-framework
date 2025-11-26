@@ -278,6 +278,13 @@ public class MyAgentState  // 手动定义的类无法正确序列化
 >
 > 详细规则请查看 [全能指南 - 序列化](docs/AEVATAR_FRAMEWORK_GUIDE.md#defining-state--events-protobuf)
 
+## 🧠 Embedding 通道
+
+- `LLMProviderConfig` 新增 `Embeddings` 节点，描述 `model/deployment/apiKey/endpoint/dimensions` 等向量模型参数。配置缺失或未显式启用时，Agent 将不具备向量能力。这是遵循 **"Pay for what you use"** 原则，避免未声明的外部依赖初始化带来的资源开销。
+- `IAIAgentEmbeddingFactory` 负责把配置翻译成 `IEmbeddingGenerator<string, Embedding<float>>`（默认实现 `MEAIEmbeddingFactory` 使用 Microsoft.Extensions.AI OpenAI/Azure SDK，并复用统一的 `ClientLoggingOptions`）。
+- `AIGAgentBase` 在 `InitializeAsync` 时读取 `Embeddings` 配置并注入生成器，提供 `GenerateEmbeddingAsync`、`GenerateEmbeddingsAsync` 与 `CosineSimilarity` 等受保护 API，方便派生 Agent 做记忆召回、工具排序等语义操作。
+- `AIGAgentFactory` 会自动注入 `IAIAgentEmbeddingFactory`（类似 LLM Provider Factory），因此业务 Agent 只需声明 `LLMProviders:Providers:<name>:Embeddings` 即可获得统一的 embedding 管道。
+
 ## 🔌 消息流 (Streaming)
 
 每个 Agent 拥有独立的消息流，支持异步消息传递和背压控制。
