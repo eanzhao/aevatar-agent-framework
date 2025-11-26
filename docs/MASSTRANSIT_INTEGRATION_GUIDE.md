@@ -2,38 +2,49 @@
 
 ## 1. 架构与原理
 
-MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kafka, RabbitMQ）的事件流支持，替代了默认的内存或 Orleans Stream 实现。
+MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kafka, RabbitMQ）的事件流支持，采用**插件化架构**设计，使核心逻辑与底层传输解耦。
 
-### 核心组件
+### 核心组件架构
 
-1.  **IMessageStreamProvider (抽象层)**
-    *   定义了获取 `IMessageStream` 的标准接口。
-    *   允许 Runtime（如 Orleans, ProtoActor）动态选择不同的流实现。
+该架构采用“依赖倒置”原则，插件不直接依赖运行时，而是通过抽象接口进行交互。
 
-2.  **MassTransitMessageStream (实现层)**
-    *   实现了 `IMessageStream` 接口。
-    *   **发送 (Produce)**：将 `EventEnvelope` 序列化为 `byte[]`，包装在 `ByteArrayMessage` 中，通过 MassTransit 发送到消息队列。
-    *   **接收 (Subscribe)**：并不直接监听队列，而是注册一个本地回调。
+1.  **公共层 (Plugins.MassTransit)**
+    *   **`MassTransitMessageStreamProvider`**: 负责创建和管理流实例。
+    *   **`StreamMessageDispatcher`**: MassTransit 的消费者（Consumer）。负责监听消息队列，收到消息后，根据 `StreamId` 将消息分发给内存中的 `IMessageStream`。
+    *   **关键机制**: 如果内存中找不到对应的 Stream（意味着 Actor 未激活），Dispatcher 会调用 `IStreamNotFoundHandler` 尝试唤醒 Actor。
 
-3.  **StreamMessageDispatcher (分发器)**
-    *   这是 MassTransit 的 `IConsumer<ByteArrayMessage>`。
-    *   它是一个**单例消费者**，监听指定 Topic/Queue 的所有消息。
-    *   **职责**：收到消息后，根据 `StreamId` 查找内存中对应的 `MassTransitMessageStream` 实例，并将消息分发给该 Stream 的订阅者（即具体的 Agent Actor）。
+2.  **抽象层 (Abstractions)**
+    *   **`IStreamNotFoundHandler`**: 定义了“当消息到达但接收者不在家时该怎么办”的策略接口。
+
+3.  **运行时适配层 (Runtime Adaptation)**
+    *   **Orleans Runtime**: 实现了 `OrleansStreamNotFoundHandler`。利用 Virtual Actor 特性，通过 `GrainFactory.GetGrain(...).ActivateAsync()` 自动唤醒 Grain。
+    *   **Local Runtime**: 实现了 `LocalStreamNotFoundHandler`。由于 Local Runtime 是内存模型，不支持自动唤醒（除非手动创建），因此该 Handler 主要负责记录警告日志或抛出异常以触发重试。
 
 ### 数据流向图 (跨 Agent 通信)
 
 ```mermaid
 graph TD
-    A[Sender Agent] -->|Publish| B(OrleansGAgentActor)
+    A[Sender Agent] -->|Publish| B(GAgentActor)
     B -->|ProduceAsync| C[MassTransitMessageStream]
     C -->|Serialize| D[ByteArrayMessage]
     D -->|MassTransit Producer| E((Kafka / RabbitMQ))
     
     E -->|MassTransit Consumer| F[StreamMessageDispatcher]
-    F -->|Dispatch by StreamId| G[MassTransitMessageStream]
-    G -->|Deserialize| H[EventEnvelope]
-    H -->|HandleEventAsync| I(OrleansGAgentActor)
-    I -->|ProcessEvent| J[Receiver Agent]
+    F -->|Dispatch by StreamId| G{Stream Exists?}
+    
+    G -->|Yes| H[MassTransitMessageStream]
+    G -->|No| I[IStreamNotFoundHandler]
+    
+    I -->|Orleans Mode| J[OrleansStreamNotFoundHandler]
+    J -->|Activate| K(Orleans Grain)
+    K -->|Register Stream| H
+    
+    I -->|Local Mode| L[LocalStreamNotFoundHandler]
+    L -->|Log Warning / Error| M[End / Retry]
+    
+    H -->|Deserialize| N[EventEnvelope]
+    N -->|HandleEventAsync| O(GAgentActor)
+    O -->|ProcessEvent| P[Receiver Agent]
 ```
 
 ---
@@ -68,97 +79,123 @@ await sender.PublishEventAsync(new MyEvent(), EventDirection.Down);
 
 ---
 
-## 3. Silo 集成指南
+## 3. Runtime 集成指南
 
-要在 Orleans Silo 中启用 MassTransit Stream，请按照以下步骤操作。
+### 通用步骤 (适用于所有 Runtime)
 
-### 第一步：添加依赖
+1.  **引用插件**:
+    ```xml
+    <ProjectReference Include="..\..\..\src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
+    ```
 
-在 Silo 项目（如 `Aevatar.Silo`）中引用插件项目：
+2.  **配置 appsettings.json**:
+    ```json
+    {
+      "MessageStream": {
+        "Provider": "MassTransit",
+        "Runtime": {
+          "Orleans": "MassTransit",
+          "Local": "MassTransit"
+        }
+      },
+      "MassTransit": {
+        "Stream": {
+          "TopicPrefix": "agent-events",
+          "Topics": ["AevatarAgents-Shared", "AevatarAgents-TypeA"], // 多 Topic 支持
+          "TransportType": "Kafka",
+          "RuntimeName": "Default",
+          "Kafka": {
+            "BootstrapServers": "localhost:9092",
+            "ConsumerGroupId": "aevatar-agents-group"
+          }
+        }
+      }
+    }
+    ```
 
-```xml
-<ProjectReference Include="..\..\..\src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
-```
+### Orleans Runtime 集成
 
-### 第二步：注册服务
-
-在 `Program.cs` 或 `Startup.cs` 中注册插件：
+在 `Program.cs` 中：
 
 ```csharp
-using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
-
-// ...
-
 host.ConfigureServices((context, services) =>
 {
-    // 1. 注册 MassTransit Stream 插件
-    // 这会自动读取配置并注册 MassTransit, Rider (Kafka) 等
+    // 1. 注册 MassTransit 插件 (包含 Kafka Rider 等)
     services.AddMassTransitStreamPlugin(context.Configuration);
 
-    // 2. 添加 Aevatar Agent System
+    // 2. 注册 Aevatar Agent (Orleans)
+    // 内部会自动注册 OrleansStreamNotFoundHandler
     services.AddAevatarAgentSystem(builder =>
     {
-        // 3. 使用 Orleans Runtime，并传入配置
-        // Runtime 内部会根据配置决定使用哪个 Stream Provider
         builder.UseOrleansRuntime(context.Configuration);
     });
 });
 ```
 
-### 第三步：配置文件 (appsettings.json)
+### Local Runtime 集成
 
-需要配置两部分：`MessageStream`（选择提供者）和 `MassTransit`（具体参数）。
+在 `Program.cs` 中：
 
-```json
-{
-  "MessageStream": {
-    "Provider": "MassTransit",  // 全局默认使用 MassTransit
-    "Runtime": {
-      "Orleans": "MassTransit"  // 显式指定 Orleans Runtime 使用 MassTransit
-    }
-  },
-  "MassTransit": {
-    "Stream": {
-      "TopicPrefix": "agent-events",
-      "TransportType": "Kafka",     // 可选: InMemory, Kafka, RabbitMQ
-      "RuntimeName": "OrleansSilo", // 用于区分不同节点的消费者组或队列名
-      "Kafka": {
-        "BootstrapServers": "localhost:9092",
-        "ConsumerGroupId": "aevatar-agents-group"
-      },
-      "RabbitMQ": {
-        "Host": "localhost",
-        "Username": "guest",
-        "Password": "guest"
-      }
-    }
-  }
-}
+```csharp
+// 1. 注册 MassTransit 插件
+services.AddMassTransitStreamPlugin(configuration);
+
+// 2. 注册 Aevatar Local Runtime
+// 内部会自动注册 LocalStreamNotFoundHandler
+services.AddAevatarLocalRuntime();
 ```
 
-### 关键配置项说明
-
-*   **`MessageStream:Provider`**: 控制默认行为。设为 `Default` 则使用原生的 Orleans Streams，设为 `MassTransit` 则启用插件。
-*   **`TransportType`**: 
-    *   `InMemory`: 仅用于单机测试，无法跨进程通信。
-    *   `Kafka`: 生产环境推荐，支持高吞吐。
-    *   `RabbitMQ`: 另一种可靠的消息队列选择。
-*   **`RuntimeName`**: 在 Kafka 模式下影响 ConsumerGroup 命名，在 RabbitMQ 下影响 Queue 命名，确保不同服务的名称唯一性。
+**注意**: Local Runtime 是内存模型。如果 MassTransit 收到一条消息，但对应的 Agent 没有在内存中被创建（`CreateAndRegisterAsync`），`LocalStreamNotFoundHandler` 会抛出异常并触发 Kafka 重试。**在 Local 模式下使用 MassTransit，必须确保接收方 Agent 已经启动。**
 
 ---
 
-## 4. 常见问题排查
+## 4. 验证与测试工具
+
+为了验证集成效果，框架提供了专门的测试工具。
+
+### 1. Local Runtime 验证工具
+
+位于 `apps/Aevatar.App/src/Aevatar.App.LocalTest`。
+
+**功能**：
+*   验证 Local Stream (In-Memory) 的基本功能。
+*   验证 MassTransit Kafka 模式下的连接、发送和接收。
+*   验证 Agent 不在内存时的异常处理机制。
+
+**运行方式**：
+```bash
+cd apps/Aevatar.App
+./test-local.sh
+```
+
+### 2. 性能基准测试 (Orleans vs MassTransit)
+
+位于 `apps/Aevatar.App/benchmarks`。
+
+**功能**：
+*   对比 Orleans Stream Kafka 与 MassTransit Kafka 的吞吐量和延迟。
+*   验证 Shared Topic (多消费者竞争) 场景下的正确性。
+*   验证自动唤醒 (Auto-Activation) 机制。
+
+**运行方式**：
+```bash
+cd apps/Aevatar.App/benchmarks
+./run-benchmark-comparison.sh
+```
+
+---
+
+## 5. 常见问题排查
 
 1.  **收不到消息？**
     *   检查 Kafka/RabbitMQ 服务是否正常。
-    *   检查 `TopicPrefix` 是否一致。
-    *   检查是否触发了自我保护机制（自己发给自己且未开启 `AllowSelfHandling`）。
+    *   检查 `TopicPrefix` 和 `Topics` 配置是否覆盖了目标 Topic。
+    *   **Orleans**: 检查是否大量 `No stream found` 日志转为正常日志（说明自动唤醒工作正常）。
+    *   **Local**: 检查是否有 `Local Agent ... not active` 警告。
 
-2.  **无法解析消息类型？**
-    *   MassTransit 插件传输的是 Protobuf 的 `Any` 类型。
-    *   确保发送方和接收方都引用了相同的 Protobuf 定义程序集。
-    *   日志中如果有 `TypeUrl` 正确但 Handler 未触发的情况，通常是 `GAgentBase` 的事件分发逻辑问题，而非传输问题。
+2.  **Kafka Consumer Group 冲突？**
+    *   MassTransit 插件目前为每个 Topic 创建独立的 Endpoint，使用**同一个 ConsumerGroupId**。
+    *   **优化建议**: 在生产环境高并发场景下，建议使用 `UsePartitioner` 确保同一个 Agent (StreamId) 的消息顺序性（插件已默认开启）。
 
-3.  **Kafka 连接报错？**
-    *   检查 `BootstrapServers` 地址。
-    *   开发环境下，插件已默认设置 `SecurityProtocol = Plaintext` 以避免 SASL 错误。生产环境可能需要通过 `MassTransitStreamOptions` 扩展更多安全配置。
+3.  **Benchmark 丢包？**
+    *   如果使用 Shared Topic，确保 Consumer 能够处理并发竞争。插件已引入 `IStreamNotFoundHandler` 彻底解决了因 Actor 未激活导致的丢包问题。

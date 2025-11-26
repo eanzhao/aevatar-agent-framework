@@ -21,13 +21,22 @@ public static class ServiceCollectionExtensions
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAevatarLocalRuntime(this IServiceCollection services)
     {
-        services.AddSingleton<LocalGAgentActorFactory>();
-        services.AddSingleton<IGAgentActorFactory>(provider =>
+        // 注册工厂
+        services.TryAddSingleton<LocalGAgentActorFactory>();
+        services.TryAddSingleton<IGAgentActorFactory>(provider =>
             provider.GetRequiredService<LocalGAgentActorFactory>());
-        services.AddSingleton<IGAgentActorManager, LocalGAgentActorManager>();
-        services.AddSingleton<LocalMessageStreamRegistry>();
-        services.AddSingleton<LocalSubscriptionManager>();
 
+        // 注册管理器
+        services.TryAddSingleton<IGAgentActorManager, LocalGAgentActorManager>();
+        
+        // 注册 Local 特有的组件
+        services.TryAddSingleton<LocalMessageStreamRegistry>();
+        services.TryAddSingleton<LocalSubscriptionManager>();
+
+        // 注册 MassTransit 支持所需的 Handler (即使它只是抛出异常)
+        services.TryAddSingleton<IStreamNotFoundHandler, LocalStreamNotFoundHandler>();
+
+        // 注册默认工厂提供者 (如果未注册)
         services.TryAddSingleton<IGAgentActorFactoryProvider, DefaultGAgentActorFactoryProvider>();
         services.TryAddSingleton<IGAgentFactory, AIGAgentFactory>();
 
