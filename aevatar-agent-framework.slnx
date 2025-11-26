@@ -23,8 +23,7 @@
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" Type="C#" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" Type="C#" />
-    <Project Path="examples\MakerBaziDemo\MakerBaziDemo.csproj" Type="C#" />
-    <Project Path="examples\MakerPaperSummaryDemo\MakerPaperSummaryDemo.csproj" Type="Classic C#" />
+    <Project Path="examples\MakerProjectsDemo\MakerProjectsDemo.csproj" Type="C#" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" Type="Classic C#" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="C#" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
