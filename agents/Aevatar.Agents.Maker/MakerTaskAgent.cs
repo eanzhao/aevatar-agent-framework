@@ -33,6 +33,10 @@ public partial class MakerTaskAgent : AIGAgentBase<TaskAgentState, TaskAgentConf
     private bool _selfWorkerInitialized;
     private bool _childLinkerWarningLogged;
 
+    public MakerTaskAgent() : this(null)
+    {
+    }
+
     public MakerTaskAgent(IMakerChildLinker? childLinker)
     {
         _childLinker = childLinker;
@@ -168,4 +172,13 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         var phase = CustomState.Phase.ToString();
         return Task.FromResult($"MAKER Task ({phase}) - depth {CustomState.CurrentDepth}");
     }
+
+    public void EnableExternalConsensus()
+    {
+        CustomConfig.UseConsensusAgent = true;
+    }
+
+    public bool IsExternalConsensusEnabled => CustomConfig.UseConsensusAgent;
+
+    public string? ProviderName => CustomConfig.ProviderName;
 }

@@ -109,9 +109,16 @@ Your goal is to oversee the creation of a comprehensive summary of the paper pro
             final.AppendLine($"# Summary: {PaperContent.Title}");
             final.AppendLine();
 
-            var childByStep = CustomState.ChildResults
-                .OrderBy(kvp => kvp.Key)
-                .ToDictionary(kvp => ExtractStepCode(kvp.Key), kvp => CleanSectionText(kvp.Value));
+        var childByStep = CustomState.ChildResults
+            .OrderBy(kvp => kvp.Key)
+            .Select(kvp => new KeyValuePair<string, string>(
+                ExtractStepCode(kvp.Key),
+                CleanSectionText(kvp.Value)))
+            .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value))
+            .GroupBy(kvp => kvp.Key)
+            .ToDictionary(
+                grp => grp.Key,
+                grp => string.Join("\n\n", grp.Select(entry => entry.Value)));
 
             var appended = new HashSet<string>();
 
@@ -127,14 +134,15 @@ Your goal is to oversee the creation of a comprehensive summary of the paper pro
                 appended.Add(normalized);
             }
 
-            foreach (var kvp in childByStep)
+        foreach (var kvp in childByStep)
             {
                 if (appended.Contains(kvp.Key))
                 {
                     continue;
                 }
 
-                AppendSection(final, kvp.Key, $"Additional Analysis {kvp.Key}", kvp.Value);
+            var displayId = kvp.Key.Split('/').LastOrDefault() ?? kvp.Key;
+            AppendSection(final, kvp.Key, $"Additional Analysis {displayId}", kvp.Value);
             }
 
             var summary = final.ToString();
@@ -172,7 +180,7 @@ Your goal is to oversee the creation of a comprehensive summary of the paper pro
 
         builder.AppendLine(heading.Trim());
         builder.AppendLine();
-        builder.AppendLine(content);
+        builder.AppendLine(content.Trim());
         builder.AppendLine();
     }
 
@@ -183,9 +191,18 @@ Your goal is to oversee the creation of a comprehensive summary of the paper pro
             return string.Empty;
         }
 
-        var segments = taskId.Split(':', StringSplitOptions.RemoveEmptyEntries);
-        var lastSegment = segments.LastOrDefault() ?? taskId;
-        return NormalizeStepId(lastSegment);
+        var segments = taskId.Split(':', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1) // skip root id
+            .Select(NormalizeStepId)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+
+        if (segments.Count == 0)
+        {
+            return NormalizeStepId(taskId);
+        }
+
+        return string.Join("/", segments);
     }
 
     private static string NormalizeStepId(string? raw)

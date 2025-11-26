@@ -114,7 +114,8 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
             {
                 RequestId = evt.RequestId,
                 Content = responseContent,
-                ReasoningTrace = $"role={role};worker={CustomState.WorkerId}"
+            ReasoningTrace = $"role={role};worker={CustomState.WorkerId}",
+            TaskId = evt.TaskId
             }, EventDirection.Up);
         }
         catch (System.Threading.Channels.ChannelClosedException)
@@ -167,12 +168,12 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
                 continue;
             }
 
-            var safeChunk = chunk.ReplaceLineEndings(" ").Replace("|", "/").Trim();
+            var safeChunk = chunk.ReplaceLineEndings(" ").Replace("|", "/");
             builder.Append(safeChunk);
-            // Logger.LogInformation("WORKER_STREAM|{WorkerId}|{RequestId}|{Chunk}",
-            //    CustomState.WorkerId,
-            //    evt.RequestId,
-            //    safeChunk);
+            Logger.LogInformation("WORKER_STREAM|{WorkerId}|{RequestId}|{Chunk}",
+               CustomState.WorkerId,
+               evt.RequestId,
+               safeChunk);
         }
 
         var content = builder.ToString().Trim();

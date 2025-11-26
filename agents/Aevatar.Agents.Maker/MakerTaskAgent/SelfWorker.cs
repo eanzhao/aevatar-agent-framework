@@ -1,6 +1,11 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Messages;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Maker;
 
@@ -30,33 +35,34 @@ public partial class MakerTaskAgent
     {
         await EnsureSelfWorkerInitializedAsync(ct);
 
-        var request = new ChatRequest
-        {
-            Message = prompt,
-            RequestId = $"{evt.RequestId}:self",
-            Temperature = 0.2,
-            MaxTokens = evt.MaxOutputTokens > 0 ? Math.Max(evt.MaxOutputTokens, 1000) : 1000
-        };
-
-        foreach (var seq in evt.StopSequences)
-        {
-            request.StopSequences.Add(seq);
-        }
-
-        if (!string.IsNullOrWhiteSpace(evt.StageHint))
-        {
-            request.StageHint = evt.StageHint;
-        }
-
+        var llmRequest = BuildSelfWorkerRequest(prompt, evt);
         var builder = new StringBuilder();
-        await foreach (var chunk in ChatStreamAsync(request, ct))
-        {
-            if (string.IsNullOrWhiteSpace(chunk))
-            {
-                continue;
-            }
 
-            builder.Append(chunk);
+        var enumerator = LLMProvider.GenerateStreamAsync(llmRequest, ct).GetAsyncEnumerator(ct);
+        try
+        {
+            while (await enumerator.MoveNextAsync())
+            {
+                var chunk = enumerator.Current;
+                if (!string.IsNullOrWhiteSpace(chunk.Content))
+                {
+                    var safeChunk = chunk.Content.ReplaceLineEndings(" ").Replace("|", "/");
+                    builder.Append(chunk.Content);
+                    Logger.LogInformation("WORKER_STREAM|{WorkerId}|{RequestId}|{Chunk}",
+                        Id.ToString(),
+                        evt.RequestId,
+                        safeChunk);
+                }
+
+                if (chunk.IsComplete)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            await enumerator.DisposeAsync();
         }
 
         return builder.ToString().Trim();
@@ -93,6 +99,47 @@ public partial class MakerTaskAgent
         {
             _selfWorkerInitLock.Release();
         }
+    }
+
+    private AevatarLLMRequest BuildSelfWorkerRequest(string prompt, GenerateProposalEvent evt)
+    {
+        var maxTokens = evt.MaxOutputTokens > 0 ? Math.Max(evt.MaxOutputTokens, 1000) : 1000;
+
+        var settings = new AevatarLLMSettings
+        {
+            Temperature = 0.2f,
+            MaxTokens = maxTokens,
+            ModelId = Config.Model
+        };
+
+        var request = new AevatarLLMRequest
+        {
+            SystemPrompt = SystemPrompt,
+            Settings = settings,
+            Messages = new List<AevatarChatMessage>
+            {
+                new()
+                {
+                    Role = AevatarChatRole.User,
+                    Content = prompt
+                }
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(evt.StageHint))
+        {
+            request.Context = new Dictionary<string, object>
+            {
+                ["stage_hint"] = evt.StageHint!
+            };
+        }
+
+        if (evt.StopSequences.Count > 0)
+        {
+            request.Settings.StopSequences = evt.StopSequences.ToList();
+        }
+
+        return request;
     }
 }
 

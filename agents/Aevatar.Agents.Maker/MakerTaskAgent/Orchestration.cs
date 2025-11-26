@@ -22,6 +22,8 @@ public partial class MakerTaskAgent
         Logger.LogInformation("Task {TaskId} requesting {FanOut} proposals for {RequestId} ({Type})",
             CustomState.TaskId, CustomState.ActiveRequestId, fanOut, eventType);
 
+        await StartConsensusAsync(generationType, ct);
+
         var maxTokens = CustomConfig.WorkerResponseTokenLimit > 0
             ? CustomConfig.WorkerResponseTokenLimit
             : 256;
@@ -37,7 +39,8 @@ public partial class MakerTaskAgent
                 Type = eventType,
                 MaxOutputTokens = maxTokens,
                 StageHint = stageHint,
-                StopSequences = { stopSequences }
+                StopSequences = { stopSequences },
+                TaskId = CustomState.TaskId
             }, EventDirection.Down, ct);
         }
     }

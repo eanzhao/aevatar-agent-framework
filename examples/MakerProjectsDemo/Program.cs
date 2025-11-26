@@ -56,23 +56,17 @@ app.MapGet("/api/projects/{projectId}/snapshot", (string projectId, MakerProject
 app.MapGet("/api/projects/{projectId}/timeline", (string projectId, MakerProjectsService service) =>
     Results.Json(service.GetTimeline(projectId)));
 
+// New Endpoints for Artifacts
+app.MapGet("/api/projects/{projectId}/files", (string projectId, MakerProjectsService service) => 
+    Results.Json(service.GetRunFiles(projectId)));
+app.MapGet("/api/projects/{projectId}/files/{fileName}", async (string projectId, string fileName, MakerProjectsService service) => 
+{
+    var content = await service.GetRunFileContent(projectId, fileName);
+    return content is null ? Results.NotFound() : Results.Text(content, "application/json");
+});
+
 app.Run();
 
-_ = Task.Run(async () =>
-{
-    await Task.Delay(1500);
-    try
-    {
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = "http://localhost:5001",
-            UseShellExecute = true
-        });
-    }
-    catch
-    {
-    }
-});
 
 static void ConfigureConfiguration(ConfigurationManager config)
 {
@@ -81,4 +75,3 @@ static void ConfigureConfiguration(ConfigurationManager config)
         .AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
 }
-

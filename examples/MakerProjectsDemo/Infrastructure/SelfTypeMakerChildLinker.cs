@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
@@ -9,14 +10,17 @@ namespace MakerProjectsDemo.Infrastructure;
 public sealed class SelfTypeMakerChildLinker : IMakerChildLinker
 {
     private readonly IGAgentActorFactory _actorFactory;
+    private readonly IGAgentActorManager _actorManager;
     private readonly ILogger<SelfTypeMakerChildLinker> _logger;
     private readonly MethodInfo _factoryMethod;
 
     public SelfTypeMakerChildLinker(
         IGAgentActorFactory actorFactory,
+        IGAgentActorManager actorManager,
         ILogger<SelfTypeMakerChildLinker> logger)
     {
         _actorFactory = actorFactory;
+        _actorManager = actorManager;
         _logger = logger;
         _factoryMethod = typeof(IGAgentActorFactory)
             .GetMethod(nameof(IGAgentActorFactory.CreateGAgentActorAsync)) ??
@@ -31,6 +35,17 @@ public sealed class SelfTypeMakerChildLinker : IMakerChildLinker
         desiredChildCount = Math.Max(1, desiredChildCount);
 
         var existingChildren = await parentActor.GetChildrenAsync();
+        foreach (var childId in existingChildren)
+        {
+            var childActor = await _actorManager.GetActorAsync(childId);
+            if (childActor == null)
+            {
+                continue;
+            }
+
+            await EnableExternalConsensusAsync(childActor, ct);
+        }
+
         var missing = desiredChildCount - existingChildren.Count;
         if (missing <= 0)
         {
@@ -53,6 +68,7 @@ public sealed class SelfTypeMakerChildLinker : IMakerChildLinker
         for (var i = 0; i < missing; i++)
         {
             var childActor = await CreateActorAsync(parentType, ct);
+            await EnableExternalConsensusAsync(childActor, ct);
             await ActorHierarchyCoordinator.LinkAsync(parentActor, childActor, _logger, ct);
         }
     }
@@ -63,6 +79,45 @@ public sealed class SelfTypeMakerChildLinker : IMakerChildLinker
         var task = (Task<IGAgentActor>) (method.Invoke(_actorFactory, new object?[] { Guid.NewGuid(), ct })
                                          ?? throw new InvalidOperationException("Failed to create actor."));
         return task;
+    }
+
+    private async Task EnableExternalConsensusAsync(IGAgentActor candidate, CancellationToken ct)
+    {
+        if (candidate.GetAgent() is not MakerTaskAgent taskAgent)
+        {
+            return;
+        }
+
+        taskAgent.EnableExternalConsensus();
+        await EnsureConsensusAgentAsync(candidate, ct);
+    }
+
+    private async Task EnsureConsensusAgentAsync(IGAgentActor taskActor, CancellationToken ct)
+    {
+        if (taskActor.GetAgent() is not MakerTaskAgent taskAgent || !taskAgent.IsExternalConsensusEnabled)
+        {
+            return;
+        }
+
+        var children = await taskActor.GetChildrenAsync();
+        foreach (var childId in children)
+        {
+            var childActor = await _actorManager.GetActorAsync(childId);
+            if (childActor?.GetAgent() is MakerConsensusAgent existing)
+            {
+                await existing.EnsureProviderInitializedAsync(taskAgent.ProviderName, ct);
+                return;
+            }
+        }
+
+        var consensusActor = await _actorFactory.CreateGAgentActorAsync<MakerConsensusAgent>(Guid.NewGuid(), ct);
+        await ActorHierarchyCoordinator.LinkAsync(taskActor, consensusActor, _logger, ct);
+        if (consensusActor.GetAgent() is MakerConsensusAgent consensusAgent)
+        {
+            await consensusAgent.EnsureProviderInitializedAsync(taskAgent.ProviderName, ct);
+        }
+        _logger.LogInformation("Linked MakerConsensusAgent {ConsensusId} to task {TaskId}",
+            consensusActor.Id, taskActor.Id);
     }
 }
 

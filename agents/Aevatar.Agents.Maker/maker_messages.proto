@@ -100,6 +100,8 @@ message TaskAgentConfig {
     int32 child_pool_size = 13;
     // Threshold for semantic clustering (0.0-1.0, default ~0.95)
     float semantic_similarity_threshold = 14;
+    // Use dedicated consensus agent instead of embedded logic
+    bool use_consensus_agent = 15;
 }
 
 // ==============================
@@ -144,12 +146,14 @@ message GenerateProposalEvent {
     int32 max_output_tokens = 4;
     repeated string stop_sequences = 5;
     string stage_hint = 6;
+    string task_id = 7;
 }
 
 message ProposalReceivedEvent {
     string request_id = 1;
     string content = 2;
     string reasoning_trace = 3;
+    string task_id = 4;
 }
 
 message TaskOutcomeEvent {
@@ -163,6 +167,51 @@ message RedFlagRaisedEvent {
     string task_id = 1;
     string reason = 2;
     int32 attempt = 3;
+}
+
+// ==============================
+// Consensus Agent State & Events
+// ==============================
+
+message TaskConsensusState {
+    string task_id = 1;
+    string request_id = 2;
+    int32 total_votes = 3;
+    map<string, int32> vote_tallies = 4;
+    map<string, string> candidate_content = 5;
+    map<string, TaskAgentState.VoteCluster> vote_clusters = 6;
+    string leader_hash = 7;
+    int32 leader_votes = 8;
+    int32 runner_up_votes = 9;
+    TaskAgentState.GenerationRequestType generation_type = 10;
+    int32 consensus_threshold_k = 11;
+    float semantic_similarity_threshold = 12;
+    int32 max_candidate_wait = 13;
+    int32 max_attempts = 14;
+    int32 proposal_attempts = 15;
+    bool has_reached_consensus = 16;
+}
+
+message StartConsensusEvent {
+    string task_id = 1;
+    string request_id = 2;
+    TaskAgentState.GenerationRequestType generation_type = 3;
+    int32 consensus_threshold_k = 4;
+    float semantic_similarity_threshold = 5;
+    int32 max_candidate_wait = 6;
+    int32 max_attempts = 7;
+}
+
+message ConsensusResultEvent {
+    string task_id = 1;
+    string request_id = 2;
+    bool success = 3;
+    string winning_hash = 4;
+    string winning_content = 5;
+    int32 leader_votes = 6;
+    int32 runner_up_votes = 7;
+    TaskAgentState.GenerationRequestType generation_type = 8;
+    string failure_reason = 9;
 }
 
 

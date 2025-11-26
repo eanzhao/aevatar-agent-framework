@@ -45,10 +45,11 @@ We translate the MAKER concepts into the Aevatar Agent Framework's actor model. 
 
 ### 2.1 System Overview
 
-The system is composed of two primary agent types:
+The system is composed of three primary agent types:
 
-1.  **`MakerTaskAgent` (The Manager)**: Stateful. Represents a node in the task tree. Responsible for lifecycle, state management, and consensus logic.
-2.  **`MakerWorkerAgent` (The Worker)**: Stateless (conceptually). A wrapper around the LLM API. Responsible for raw generation (Thinking) and evaluation.
+1.  **`MakerTaskAgent` (The Manager)**: Stateful. Represents a node in the task tree. Responsible for lifecycle, recursion orchestration, and coordinating other sub-agents.
+2.  **`MakerConsensusAgent` (The Arbiter)**: Dedicated vote counter. Listens to `ProposalReceivedEvent`, performs semantic clustering, and emits `ConsensusResultEvent` once the first-to-ahead-by-K rule is satisfied (or fails fast on repeated stalemates).
+3.  **`MakerWorkerAgent` (The Worker)**: Stateless (conceptually). A wrapper around the LLM API. Responsible for raw generation (Thinking) and evaluation.
 
 ### 2.2 Agent Designs
 

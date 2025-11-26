@@ -59,13 +59,20 @@ public sealed class TimelineLoggerProvider : ILoggerProvider
                 return;
             }
 
+            var message = formatter(state, exception);
             var projectId = _contextAccessor.CurrentProjectId;
+            
+            // DEBUG: Always print to console to verify generation
+            if (message.Contains("WORKER_STREAM"))
+            {
+                Console.WriteLine($"[STREAM-DEBUG] Proj:{projectId ?? "NULL"} | {message}");
+            }
+
             if (string.IsNullOrWhiteSpace(projectId))
             {
                 return;
             }
 
-            var message = formatter(state, exception);
             _hub.GetStore(projectId).Append(logLevel.ToString(), _category, message);
         }
     }
@@ -79,4 +86,3 @@ public sealed class TimelineLoggerProvider : ILoggerProvider
         }
     }
 }
-

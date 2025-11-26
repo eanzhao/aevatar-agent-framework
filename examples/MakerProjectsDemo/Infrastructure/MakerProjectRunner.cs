@@ -98,6 +98,20 @@ public sealed class MakerProjectRunner : IMakerProjectRunner
 
             var taskActor = await _spec.TaskFactory(factory, cancellationToken);
 
+            var supportActors = new List<IGAgentActor>();
+            if (taskActor.GetAgent() is MakerTaskAgent rootTaskAgent)
+            {
+                rootTaskAgent.EnableExternalConsensus();
+                var consensusActor =
+                    await factory.CreateGAgentActorAsync<MakerConsensusAgent>(Guid.NewGuid(), cancellationToken);
+                await ActorHierarchyCoordinator.LinkAsync(taskActor, consensusActor, _logger, cancellationToken);
+                if (consensusActor.GetAgent() is MakerConsensusAgent consensusAgent)
+                {
+                    await consensusAgent.EnsureProviderInitializedAsync(rootTaskAgent.ProviderName, cancellationToken);
+                }
+                supportActors.Add(consensusActor);
+            }
+
             var workers = new List<IGAgentActor>();
             for (var i = 0; i < _spec.WorkerCount; i++)
             {
@@ -120,6 +134,11 @@ public sealed class MakerProjectRunner : IMakerProjectRunner
             foreach (var worker in workers)
             {
                 await worker.DeactivateAsync(cancellationToken);
+            }
+
+            foreach (var support in supportActors)
+            {
+                await support.DeactivateAsync(cancellationToken);
             }
 
             await taskActor.DeactivateAsync(cancellationToken);

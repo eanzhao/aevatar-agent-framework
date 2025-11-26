@@ -306,7 +306,7 @@ public partial class MakerTaskAgent
         var entries = CustomState.ChildResults
             .OrderBy(pair => pair.Key)
             .Take(maxEntries)
-            .Select(pair => $"{pair.Key}: {BuildPreview(pair.Value)}");
+            .Select(pair => $"{pair.Key}: {MakerConsensusMath.BuildPreview(pair.Value, VotePreviewLength)}");
 
         var digest = string.Join(" | ", entries);
         if (CustomState.ChildResults.Count > maxEntries)

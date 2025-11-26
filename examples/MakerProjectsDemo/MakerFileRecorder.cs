@@ -133,7 +133,7 @@ public class MakerFileRecorder : IMakerRunRecorder
         // Goal: Sequential naming within the folder.
         // Filename: {GlobalSeq}_{Type}_{ShortId}.json
 
-        var seq = _sequenceCounters.AddOrUpdate(runId, 1, (_, c) => c + 1);
+        var seq = _sequenceCounters.AddOrUpdate(dir, 1, (_, c) => c + 1);
 
         // Clean up Type/Suffix redundancy
         // type is usually "Proposal" or "Consensus"

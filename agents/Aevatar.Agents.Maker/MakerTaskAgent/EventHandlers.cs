@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Microsoft.Extensions.AI;
 using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.Abstractions;
@@ -63,6 +64,12 @@ public partial class MakerTaskAgent
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleProposalReceivedAsync(ProposalReceivedEvent evt)
     {
+        if (CustomConfig.UseConsensusAgent)
+        {
+            await PublishAsync(evt, EventDirection.Down);
+            return;
+        }
+
         try
         {
             if (string.IsNullOrWhiteSpace(CustomState.ActiveRequestId) ||
@@ -73,7 +80,7 @@ public partial class MakerTaskAgent
                 return;
             }
 
-            var canonical = Canonicalize(evt.Content);
+            var canonical = MakerConsensusMath.Canonicalize(evt.Content);
             Embedding<float>? embedding = null;
 
             try
@@ -82,7 +89,8 @@ public partial class MakerTaskAgent
             }
             catch (Exception ex)
             {
-                Logger.LogWarning("Failed to generate embedding for proposal: {Message}. Falling back to exact match.", ex.Message);
+                Logger.LogWarning("Failed to generate embedding for proposal: {Message}. Falling back to exact match.",
+                    ex.Message);
             }
 
             await _voteLock.WaitAsync();
@@ -93,7 +101,7 @@ public partial class MakerTaskAgent
                     return;
                 }
 
-                var contentHash = ComputeHash(canonical);
+                var contentHash = MakerConsensusMath.ComputeHash(canonical);
                 var tally = CustomState.VoteTallies.TryGetValue(contentHash, out var current)
                     ? current + 1
                     : 1;
@@ -163,7 +171,7 @@ public partial class MakerTaskAgent
                     maxSimilarity,
                     targetCluster.VoteCount,
                     totalVotes,
-                    BuildPreview(canonical));
+                    MakerConsensusMath.BuildPreview(canonical, VotePreviewLength));
 
                 if (HasConsensus(out var leaderHash, out var leaderVotes, out var runnerUpVotes))
                 {
@@ -178,14 +186,16 @@ public partial class MakerTaskAgent
                             leaderVotes,
                             runnerUpVotes,
                             totalVotes,
-                            BuildPreview(leaderContent));
+                            MakerConsensusMath.BuildPreview(leaderContent, VotePreviewLength));
 
                         await OnConsensusReachedAsync(leaderContent, CancellationToken.None);
                     }
                     else
                     {
-                        Logger.LogError("Task {TaskId} consensus reached on hash {Hash} but cluster is missing!", CustomState.TaskId, leaderHash);
+                        Logger.LogError("Task {TaskId} consensus reached on hash {Hash} but cluster is missing!",
+                            CustomState.TaskId, leaderHash);
                     }
+
                     return;
                 }
 
@@ -215,7 +225,8 @@ public partial class MakerTaskAgent
                     }
                     else
                     {
-                        var description = BuildTaskDescription(CustomState.OriginalGoal, CustomState.ActiveGenerationType);
+                        var description =
+                            BuildTaskDescription(CustomState.OriginalGoal, CustomState.ActiveGenerationType);
                         await RequestWorkerFanOutAsync(description, CustomState.ActiveGenerationType,
                             CancellationToken.None);
                     }
@@ -235,6 +246,31 @@ public partial class MakerTaskAgent
             Logger.LogError(ex, "Error handling event in HandleProposalReceivedAsync");
             throw;
         }
+    }
+
+    [EventHandler(AllowSelfHandling = true)]
+    public async Task HandleConsensusResultAsync(ConsensusResultEvent evt)
+    {
+        if (!CustomConfig.UseConsensusAgent)
+        {
+            return;
+        }
+
+        if (!string.Equals(evt.TaskId, CustomState.TaskId, StringComparison.Ordinal) ||
+            !string.Equals(evt.RequestId, CustomState.ActiveRequestId, StringComparison.Ordinal))
+        {
+            Logger.LogDebug("Ignoring consensus result for request {RequestId}", evt.RequestId);
+            return;
+        }
+
+        if (!evt.Success)
+        {
+            await HandleConsensusFailureAsync(evt, CancellationToken.None);
+            return;
+        }
+
+        CustomState.PreferredPlanHash = evt.WinningHash;
+        await OnConsensusReachedAsync(evt.WinningContent, CancellationToken.None);
     }
 
     [EventHandler(AllowSelfHandling = true)]
@@ -285,7 +321,8 @@ public partial class MakerTaskAgent
         }
         catch (System.Threading.Channels.ChannelClosedException)
         {
-            Logger.LogDebug("Task {TaskId} tried to publish outcome but channel is closed (Agent deactivating).", CustomState.TaskId);
+            Logger.LogDebug("Task {TaskId} tried to publish outcome but channel is closed (Agent deactivating).",
+                CustomState.TaskId);
         }
         catch (Exception ex)
         {
@@ -302,38 +339,52 @@ public partial class MakerTaskAgent
     }
 
     [EventHandler(AllowSelfHandling = true)]
-    public async Task HandleSelfGenerateProposalAsync(GenerateProposalEvent evt)
+    public virtual Task HandleSelfGenerateProposalAsync(GenerateProposalEvent evt)
     {
         if (!CustomConfig.EnableSelfWorker)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         if (string.IsNullOrWhiteSpace(CustomState.ActiveRequestId) ||
             !string.Equals(CustomState.ActiveRequestId, evt.RequestId, StringComparison.Ordinal))
         {
-            return;
+            return Task.CompletedTask;
         }
 
         if (!_selfHandledRequests.TryAdd(evt.RequestId, 0))
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        var prompt = BuildSelfWorkerPrompt(evt);
-        var response = await RunSelfWorkerAsync(prompt, evt, CancellationToken.None);
-        if (string.IsNullOrWhiteSpace(response))
+        // Run in background so we don't block the event processing loop
+        _ = Task.Run(async () =>
         {
-            Logger.LogWarning("Self worker produced empty proposal for task {TaskId}", CustomState.TaskId);
-            return;
-        }
+            try
+            {
+                var prompt = BuildSelfWorkerPrompt(evt);
+                var response = await RunSelfWorkerAsync(prompt, evt, CancellationToken.None);
+                if (!string.IsNullOrWhiteSpace(response))
+                {
+                    await PublishAsync(new ProposalReceivedEvent
+                    {
+                        RequestId = evt.RequestId,
+                        Content = response,
+                        ReasoningTrace = $"role=self:{evt.Type};task={CustomState.TaskId}"
+                    }, EventDirection.Up);
+                }
+                else
+                {
+                    Logger.LogWarning("Self worker produced empty proposal for task {TaskId}", CustomState.TaskId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error in self-worker execution");
+            }
+        });
 
-        await PublishAsync(new ProposalReceivedEvent
-        {
-            RequestId = evt.RequestId,
-            Content = response,
-            ReasoningTrace = $"role=self:{evt.Type};task={CustomState.TaskId}"
-        }, EventDirection.Up);
+        return Task.CompletedTask;
     }
 }
 

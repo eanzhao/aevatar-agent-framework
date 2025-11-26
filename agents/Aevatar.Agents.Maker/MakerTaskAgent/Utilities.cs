@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -69,38 +68,6 @@ public partial class MakerTaskAgent
         }
 
         return steps;
-    }
-
-    private static string Canonicalize(string content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = content.Trim();
-        return trimmed;
-    }
-
-    private static string ComputeHash(string canonicalContent)
-    {
-        using var sha = SHA256.Create();
-        var bytes = Encoding.UTF8.GetBytes(canonicalContent);
-        var hashBytes = sha.ComputeHash(bytes);
-        return Convert.ToHexString(hashBytes);
-    }
-
-    private static string BuildPreview(string? content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return "[empty]";
-        }
-
-        var normalized = content.ReplaceLineEndings(" ").Trim();
-        return normalized.Length <= VotePreviewLength
-            ? normalized
-            : normalized[..VotePreviewLength] + "...";
     }
 
     private static string GetHashPrefix(string hash)
