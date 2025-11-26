@@ -21,6 +21,7 @@ using Orleans.Providers.MongoDB.Configuration;
 using Orleans.Serialization;
 using Orleans.Streams.Kafka.Config;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Aevatar.App.PerformanceTests;
 
@@ -32,12 +33,17 @@ class Program
         Console.WriteLine("====================================");
         Console.WriteLine();
         
-        // Check which benchmark to run
-        var runMultiTopic = args.Length > 0 && args[0].ToLower() == "multitopic";
+        // Parse args
+        var runMultiTopic = args.Any(a => a.ToLower() == "multitopic");
+        var providerArg = args.FirstOrDefault(a => a.StartsWith("--provider="))?.Split('=')[1] ?? "Orleans";
+        
+        Console.WriteLine($"🔍 Mode: {(runMultiTopic ? "Multi-Topic Benchmark" : "Standard Benchmark")}");
+        Console.WriteLine($"🔍 Stream Provider: {providerArg}");
+        Console.WriteLine();
 
-        var host = await SetupOrleansClientAsync();
+        var host = await SetupOrleansClientAsync(providerArg);
         var client = host.Services.GetRequiredService<IClusterClient>();
-        var actorManager = await SetupActorManagerAsync(client);
+        var actorManager = await SetupActorManagerAsync(client, providerArg);
 
         try
         {
@@ -45,7 +51,7 @@ class Program
             {
                 // Run multi-topic comparison benchmark
                 var logger = host.Services.GetRequiredService<ILogger<Program>>();
-                var benchmark = new MultiTopicBenchmark(client, logger);
+                var benchmark = new MultiTopicBenchmark(client, logger, providerArg);
                 
                 Console.WriteLine("🔬 TRUE Single-Topic vs Multi-Topic Comparison");
                 Console.WriteLine("===============================================\n");
@@ -85,7 +91,7 @@ class Program
         }
     }
 
-    static async Task<IHost> SetupOrleansClientAsync()
+    static async Task<IHost> SetupOrleansClientAsync(string provider)
     {
         Console.WriteLine("⚙️  Setting up Orleans Client...");
         
@@ -101,45 +107,53 @@ class Program
                     options.ServiceId = "aevatar-service";
                 });
 
-                // Use Kafka Stream to match Silo configuration
-                clientBuilder.AddKafka("Default")
-                    .WithOptions(kafkaOptions =>
-                    {
-                        kafkaOptions.BrokerList = new List<string> { "localhost:9092" };
-                        kafkaOptions.ConsumerGroupId = "aevatar-client-consumers";
-                        kafkaOptions.ConsumeMode = Orleans.Streams.Kafka.Config.ConsumeMode.LastCommittedMessage;
-                        
-                        // Configure benchmark topics (must match Silo configuration)
-                        var benchmarkTopics = new[]
+                // ONLY configure Orleans Stream Kafka if provider is "Orleans"
+                if (provider == "Orleans")
+                {
+                    Console.WriteLine("   • Configuring Orleans Kafka Stream Client...");
+                    clientBuilder.AddKafka("Default")
+                        .WithOptions(kafkaOptions =>
                         {
-                            "AevatarAgents-Shared",
-                            "AevatarAgents-TypeA",
-                            "AevatarAgents-TypeB",
-                            "AevatarAgents-TypeC",
-                            "AevatarAgents-TypeD",
-                            "AevatarAgents-TypeE"
-                        };
-                        
-                        foreach (var topic in benchmarkTopics)
-                        {
-                            kafkaOptions.AddTopic(topic, new TopicCreationConfig
+                            kafkaOptions.BrokerList = new List<string> { "localhost:9092" };
+                            kafkaOptions.ConsumerGroupId = "aevatar-client-consumers";
+                            kafkaOptions.ConsumeMode = Orleans.Streams.Kafka.Config.ConsumeMode.LastCommittedMessage;
+                            
+                            // Configure benchmark topics (must match Silo configuration)
+                            var benchmarkTopics = new[]
+                            {
+                                "AevatarAgents-Shared",
+                                "AevatarAgents-TypeA",
+                                "AevatarAgents-TypeB",
+                                "AevatarAgents-TypeC",
+                                "AevatarAgents-TypeD",
+                                "AevatarAgents-TypeE"
+                            };
+                            
+                            foreach (var topic in benchmarkTopics)
+                            {
+                                kafkaOptions.AddTopic(topic, new TopicCreationConfig
+                                {
+                                    AutoCreate = true,
+                                    Partitions = 8,
+                                    ReplicationFactor = 1
+                                });
+                            }
+                            
+                            // Add default topic
+                            kafkaOptions.AddTopic("agent-events", new TopicCreationConfig
                             {
                                 AutoCreate = true,
                                 Partitions = 8,
                                 ReplicationFactor = 1
                             });
-                        }
-                        
-                        // Add default topic
-                        kafkaOptions.AddTopic("agent-events", new TopicCreationConfig
-                        {
-                            AutoCreate = true,
-                            Partitions = 8,
-                            ReplicationFactor = 1
-                        });
-                    })
-                    .AddJson()
-                    .Build();
+                        })
+                        .AddJson()
+                        .Build();
+                }
+                else
+                {
+                     Console.WriteLine("   • Skipping Orleans Kafka Stream Client (Using MassTransit)...");
+                }
 
                 clientBuilder.ConfigureServices(services =>
                 {
@@ -158,8 +172,11 @@ class Program
         return host;
     }
 
-    static async Task<IGAgentActorManager> SetupActorManagerAsync(IClusterClient client)
+    static async Task<IGAgentActorManager> SetupActorManagerAsync(IClusterClient client, string provider)
     {
+        // NOTE: This initial manager is just for standard tests. 
+        // MultiTopicBenchmark creates its own managers internally.
+        
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
         services.AddSingleton(client);

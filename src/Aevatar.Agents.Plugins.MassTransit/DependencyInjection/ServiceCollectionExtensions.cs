@@ -1,13 +1,21 @@
 using Aevatar.Agents.Abstractions;
 using MassTransit;
+using MassTransit.RabbitMqTransport;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Extensions.Logging; // Added for ILogger
 
 namespace Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// 添加 MassTransit Message Stream 插件支持
+    /// </summary>
     public static IServiceCollection AddMassTransitStreamPlugin(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -68,21 +76,56 @@ public static class ServiceCollectionExtensions
                             // Explicitly set security protocol to Plaintext to avoid SASL warnings/errors on local dev
                             k.SecurityProtocol = Confluent.Kafka.SecurityProtocol.Plaintext;
 
-                            // Configure Topic Subscription
-                            k.TopicEndpoint<ByteArrayMessage>(
-                                options.TopicPrefix, 
-                                options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group", 
-                                e =>
+                            // Collect all topics to subscribe to
+                            var topicsToSubscribe = new HashSet<string>();
+                            
+                            // Always add the default TopicPrefix
+                            if (!string.IsNullOrEmpty(options.TopicPrefix))
+                            {
+                                topicsToSubscribe.Add(options.TopicPrefix);
+                            }
+                            
+                            // Add additional topics from configuration
+                            if (options.Topics != null)
+                            {
+                                foreach (var t in options.Topics)
                                 {
-                                    System.Console.WriteLine($"DEBUG: Configuring Topic Endpoint: {options.TopicPrefix} for Group: {options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group"}");
-                                    e.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
-                                    e.CreateIfMissing(t => 
+                                    if (!string.IsNullOrEmpty(t))
                                     {
-                                        t.NumPartitions = 1;
-                                        t.ReplicationFactor = 1;
+                                        topicsToSubscribe.Add(t);
+                                    }
+                                }
+                            }
+
+                            System.Console.WriteLine($"DEBUG: Subscribing to {topicsToSubscribe.Count} topics: {string.Join(", ", topicsToSubscribe)}");
+
+                            foreach (var topic in topicsToSubscribe)
+                            {
+                                // Configure Topic Subscription for each topic
+                                k.TopicEndpoint<ByteArrayMessage>(
+                                    topic, 
+                                    options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group", 
+                                    e =>
+                                    {
+                                        System.Console.WriteLine($"DEBUG: Configuring Topic Endpoint: {topic} for Group: {options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group"}");
+                                        e.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
+                                        
+                                        // Optimize Concurrency & Prefetch (Phase 2 Optimization)
+                                        e.UseConcurrencyLimit(50); // Increase concurrency
+                                        e.PrefetchCount = 200;     // Increase prefetch
+                                        
+                                    // Optimize Checkpoint (Batch Commit)
+                                    e.CheckpointInterval = TimeSpan.FromSeconds(5);
+                                    e.CheckpointMessageCount = 100;
+                                    
+                                    e.CreateIfMissing(t =>
+                                        {
+                                            t.NumPartitions = 8; // Match Orleans default
+                                            t.ReplicationFactor = 1;
+                                        });
+                                        e.ConfigureConsumer<StreamMessageDispatcher>(context);
                                     });
-                                    e.ConfigureConsumer<StreamMessageDispatcher>(context);
-                                });
+                            }
                         });
                     });
                     break;

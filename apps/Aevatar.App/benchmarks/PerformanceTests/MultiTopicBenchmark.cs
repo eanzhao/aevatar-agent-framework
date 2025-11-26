@@ -13,39 +13,32 @@ using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
 using Aevatar.Agents.Runtime.Orleans.Extensions;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Aevatar.Agents.Plugins.MassTransit;
 using Business.Server;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Orleans;
+using MassTransit;
 
 namespace Aevatar.App.PerformanceTests;
 
 /// <summary>
 /// Multi-Topic Multi-Agent Benchmark
-/// Tests TRUE multi-topic Orleans Stream behavior
-/// 
-/// TRUE Multi-Topic Architecture:
-/// - Each agent type uses a different Stream Namespace
-/// - TypeA → "AevatarAgents-TypeA" → Kafka Topic "AevatarAgents-TypeA"
-/// - TypeB → "AevatarAgents-TypeB" → Kafka Topic "AevatarAgents-TypeB"
-/// - etc.
-/// 
-/// Test Scenario:
-/// - 5 different agent types (Type A, B, C, D, E)
-/// - 20 agents per type (total 100 agents) - reduced to avoid MongoDB connection pool issues
-/// - Each type has its own Kafka topic
-/// - Verify true topic isolation at Kafka level
+/// Tests TRUE multi-topic Orleans Stream behavior vs MassTransit
 /// </summary>
 public class MultiTopicBenchmark
 {
     private readonly Dictionary<string, IGAgentActorManager> _actorManagersByType;
     private readonly ILogger _logger;
     private readonly IClusterClient _clusterClient;
+    private readonly string _providerName;
     
     // Test configuration
     private const int AGENT_TYPES = 5;
-    private const int AGENTS_PER_TYPE = 20;  // Reduced from 100 to avoid MongoDB connection pool issues
+    private const int AGENTS_PER_TYPE = 20;
     
     // Scenario configuration
     private int _messagesPerType = 100;  // Can be adjusted per test
@@ -60,10 +53,11 @@ public class MultiTopicBenchmark
         { "TypeE", "AevatarAgents-TypeE" }
     };
     
-    public MultiTopicBenchmark(IClusterClient clusterClient, ILogger logger)
+    public MultiTopicBenchmark(IClusterClient clusterClient, ILogger logger, string providerName)
     {
         _clusterClient = clusterClient;
         _logger = logger;
+        _providerName = providerName;
         _actorManagersByType = new Dictionary<string, IGAgentActorManager>();
     }
     
@@ -93,19 +87,54 @@ public class MultiTopicBenchmark
         services.AddSingleton<IGrainFactory>(_clusterClient);
         services.AddSingleton<IClusterClient>(_clusterClient);
 
-        // Configure with type-specific namespace
-        services.Configure<Aevatar.Agents.StreamingOptions>(options =>
+        // Configure based on provider
+        if (_providerName == "MassTransit")
         {
-            options.StreamProviderName = "Default";
-            options.DefaultStreamNamespace = streamNamespace;  // Type-specific namespace!
-        });
+            // Build in-memory config for MassTransit
+            var configBuilder = new ConfigurationBuilder();
+            configBuilder.AddInMemoryCollection(new Dictionary<string, string>
+            {
+                ["MessageStream:Provider"] = "MassTransit",
+                ["MassTransit:Stream:TransportType"] = "Kafka",
+                // Use the streamNamespace as the TopicPrefix to achieve multi-topic isolation
+                ["MassTransit:Stream:TopicPrefix"] = streamNamespace, 
+                ["MassTransit:Stream:RuntimeName"] = "BenchmarkClient-" + Guid.NewGuid().ToString("N"),
+                ["MassTransit:Stream:Kafka:BootstrapServers"] = "localhost:9092",
+                ["MassTransit:Stream:Kafka:ConsumerGroupId"] = "benchmark-client-consumers"
+            });
+            var configuration = configBuilder.Build();
+            services.AddSingleton<IConfiguration>(configuration);
+
+            services.Configure<MessageStreamProviderOptions>(options =>
+            {
+                options.Provider = "MassTransit";
+            });
+
+            // Add MassTransit Plugin
+            services.AddMassTransitStreamPlugin(configuration);
+        }
+        else
+        {
+            // Default Orleans Stream configuration
+            services.Configure<Aevatar.Agents.StreamingOptions>(options =>
+            {
+                options.StreamProviderName = "Default";
+                options.DefaultStreamNamespace = streamNamespace;  // Type-specific namespace!
+            });
+        }
 
         // Use new AddAevatarAgentSystem with Orleans runtime
-        // Default uses InMemory stores, can be overridden via GAgentOptions
         services.AddAevatarAgentSystem(builder => builder.UseOrleansRuntime());
 
         var serviceProvider = services.BuildServiceProvider();
         var manager = serviceProvider.GetRequiredService<IGAgentActorManager>();
+        
+        // If MassTransit, start the bus
+        if (_providerName == "MassTransit")
+        {
+            var busControl = serviceProvider.GetRequiredService<IBusControl>();
+            await busControl.StartAsync();
+        }
         
         // Important: Wait a bit to avoid overwhelming the system
         await Task.Delay(100);
@@ -738,4 +767,3 @@ public class TypedAgent : GAgentBase<TypedAgentState>
 }
 
 // Note: TypedAgentState is generated from typed_agent.proto
-

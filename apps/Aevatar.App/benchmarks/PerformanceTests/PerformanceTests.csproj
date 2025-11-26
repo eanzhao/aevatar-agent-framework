@@ -8,11 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../src/Aevatar.App.Agents/Aevatar.App.Agents.csproj" />
+    <ProjectReference Include="../../src/Aevatar.App.Agents/Aevatar.App.Agents.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans/Aevatar.Agents.Runtime.Orleans.csproj" />
+    <ProjectReference Include="../../../../src/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +23,8 @@
     <PackageReference Include="Microsoft.Orleans.Serialization.Protobuf" />
     <PackageReference Include="Orleans.Providers.MongoDB" />
     <PackageReference Include="Orleans.Streams.Kafka" />
+    <PackageReference Include="MassTransit" />
+    <PackageReference Include="MassTransit.Kafka" />
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
   </ItemGroup>
