@@ -18,6 +18,7 @@ using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 
 namespace Aevatar.Silo;
 
@@ -79,7 +80,7 @@ public class Program
                 webBuilder.ConfigureKestrel(options =>
                 {
                     // Health check endpoint port
-                    options.ListenAnyIP(8080);
+                    options.ListenAnyIP(8081);
                 });
             })
             .ConfigureServices((context, services) =>
@@ -106,6 +107,12 @@ public class Program
                         EnableDetailedLogging = true
                     },
                     sp.GetRequiredService<ILogger<MongoEventRepository>>()));
+
+                // Configure MessageStreamProviderOptions
+                services.Configure<MessageStreamProviderOptions>(context.Configuration.GetSection("MessageStream"));
+
+                // MassTransit Stream Plugin
+                services.AddMassTransitStreamPlugin(context.Configuration);
 
                 // Aevatar Agent System with MongoDB stores
                 services.AddAevatarAgentSystem(options =>
