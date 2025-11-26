@@ -28,7 +28,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
     protected IAevatarLLMProvider? _llmProvider;
     protected bool _isInitialized;
-    protected ILLMProviderFactory LLMProviderFactory { get; set; } = default!;
+    protected ILLMProviderFactory LLMProviderFactory { get; set; }
     protected IAIAgentEmbeddingFactory? EmbeddingFactory { get; set; }
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private LLMProviderConfig? _activeProviderConfig;
@@ -247,8 +247,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         LLMProviderConfig? providerConfig,
         CancellationToken cancellationToken)
     {
-        if (providerConfig == null ||
-            providerConfig.Embeddings is not { Enabled: true })
+        if (providerConfig is not { Embeddings.Enabled: true })
         {
             return;
         }

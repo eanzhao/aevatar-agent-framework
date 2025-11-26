@@ -9,30 +9,35 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Maker;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace MakerBaziDemo;
+namespace MakerPaperSummaryDemo;
 
-public sealed class MakerDemoOrchestrator
+public sealed class PaperSummaryOrchestrator
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MakerTimelineStore _timeline;
-    private readonly ILogger<MakerDemoOrchestrator> _logger;
+    private readonly ILogger<PaperSummaryOrchestrator> _logger;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly object _syncRoot = new();
 
     private Task? _currentRun;
     private string? _currentRunId;
     private MakerSnapshotDto _latestSnapshot = MakerSnapshotDto.Empty;
     private List<string> _activeWorkerIds = new();
+    private CancellationTokenSource? _runCts;
 
-    public MakerDemoOrchestrator(
+    public PaperSummaryOrchestrator(
         IServiceScopeFactory scopeFactory,
         MakerTimelineStore timeline,
-        ILogger<MakerDemoOrchestrator> logger)
+        ILogger<PaperSummaryOrchestrator> logger,
+        IHostApplicationLifetime appLifetime)
     {
         _scopeFactory = scopeFactory;
         _timeline = timeline;
         _logger = logger;
+        _appLifetime = appLifetime;
     }
 
     public async Task<MakerRunResponse> StartRunAsync(CancellationToken cancellationToken = default)
@@ -49,7 +54,11 @@ public sealed class MakerDemoOrchestrator
             _timeline.Append("info", "orchestrator", $"启动 { _currentRunId }");
             _latestSnapshot = MakerSnapshotDto.Empty with { Status = "running", RunId = _currentRunId };
 
-            _currentRun = Task.Run(() => ExecuteRunAsync(_currentRunId, cancellationToken), cancellationToken);
+            _runCts?.Dispose();
+            _runCts = CancellationTokenSource.CreateLinkedTokenSource(_appLifetime.ApplicationStopping);
+            var runToken = _runCts.Token;
+
+            _currentRun = Task.Run(() => ExecuteRunAsync(_currentRunId, runToken), CancellationToken.None);
             return MakerRunResponse.Started(_currentRunId);
         }
     }
@@ -71,46 +80,36 @@ public sealed class MakerDemoOrchestrator
 
             // If child linking is registered, use it to pre-provision child actors for recursion
             var childLinker = scope.ServiceProvider.GetService<IMakerChildLinker>();
-            if (childLinker != null)
-            {
-                // Linker registration is handled by DI
-            }
 
             var taskId = Guid.NewGuid();
-            var taskActor = await factory.CreateGAgentActorAsync<BaziMakerTaskAgent>(taskId, cancellationToken);
+            var taskActor = await factory.CreateGAgentActorAsync<PaperSummaryTaskAgent>(taskId, cancellationToken);
             
-            // Create workers from DI so they get deps injected
+            // Create 5 workers as requested
             var workers = new List<IGAgentActor>();
-            for (var i = 0; i < 4; i++)
+            for (var i = 0; i < 5; i++)
             {
-                // Similar to TaskAgent, we create via factory. 
-                // BaziMakerWorkerAgent has no explicit ctor requirements so Activator works.
-                var worker = await factory.CreateGAgentActorAsync<BaziMakerWorkerAgent>(Guid.NewGuid(), cancellationToken);
+                var worker = await factory.CreateGAgentActorAsync<PaperSummaryWorkerAgent>(Guid.NewGuid(), cancellationToken);
                 await ActorHierarchyCoordinator.LinkAsync(taskActor, worker, _logger, cancellationToken);
                 workers.Add(worker);
             }
             _activeWorkerIds = workers.Select(w => w.Id.ToString()).ToList();
 
-            var profile = BaziProfile.CreateDemoProfile();
-            _timeline.Append("info", "profile", $"主题：{profile.FocusTopic}");
+            _timeline.Append("info", "profile", $"Task: Summarize Paper '{PaperContent.Title}'");
 
-            var goal = BaziGoalBuilder.BuildGoal(profile);
-            var runtimeTaskId = $"bazi-root-{Guid.NewGuid():N}";
+            var runtimeTaskId = $"paper-root-{Guid.NewGuid():N}";
 
             await taskActor.PublishEventAsync(new AssignTaskEvent
             {
                 TaskId = runtimeTaskId,
-                GoalDescription = goal,
+                GoalDescription = $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.",
                 CurrentDepth = 0,
                 ContextVariables =
                 {
-                    { "analysis_topic", "bazi_report" },
-                    { "birth_city", profile.Birthplace },
-                    { "lunar_day", profile.LunarDayStemBranch }
+                    { "analysis_topic", "paper_summary" }
                 }
             }, EventDirection.Down, cancellationToken);
 
-            var taskAgent = (BaziMakerTaskAgent)taskActor.GetAgent();
+            var taskAgent = (PaperSummaryTaskAgent)taskActor.GetAgent();
             await ObserveAsync(taskAgent, cancellationToken);
 
             foreach (var worker in workers)
@@ -121,6 +120,10 @@ public sealed class MakerDemoOrchestrator
             await taskActor.DeactivateAsync(cancellationToken);
 
             _timeline.Append("info", "orchestrator", "运行结束");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _timeline.Append("warning", "orchestrator", "运行被取消。");
         }
         catch (Exception ex)
         {
@@ -134,11 +137,13 @@ public sealed class MakerDemoOrchestrator
                 _currentRun = null;
                 _latestSnapshot = _latestSnapshot with { Status = "idle" };
                 _activeWorkerIds = new List<string>();
+                _runCts?.Dispose();
+                _runCts = null;
             }
         }
     }
 
-    private async Task ObserveAsync(BaziMakerTaskAgent agent, CancellationToken cancellationToken)
+    private async Task ObserveAsync(PaperSummaryTaskAgent agent, CancellationToken cancellationToken)
     {
         var sw = Stopwatch.StartNew();
         while (!cancellationToken.IsCancellationRequested)
@@ -162,7 +167,14 @@ public sealed class MakerDemoOrchestrator
                 break;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
         }
     }
 
@@ -182,27 +194,14 @@ public sealed class MakerDemoOrchestrator
         {
              try 
              {
-                 // Naive append for demo purposes. In prod, use a proper stream writer or logger.
-                 // We infer the file path from run ID logic (but here we need to store it or reconstruct it)
-                 // Or we just assume the Orchestrator holds the file path state?
-                 // Let's reconstruct it: we need the RUNTIME TASK ID, which is state.TaskId.
-                 // Wait, runId is different from runtimeTaskId.
-                 // We need to store outputFile path in a field.
-                 // But ExecuteRunAsync is async and local variable.
-                 // Let's just assume we write to "runs/{date}/{runId}/trace.jsonl"
-                 
                  var date = DateTime.UtcNow.ToString("yyyyMMdd");
                  var dir = Path.Combine("runs", date, _currentRunId);
+                 Directory.CreateDirectory(dir);
                  var file = Path.Combine(dir, "trace.jsonl");
                  
-                 // Only write if file exists (created by ExecuteRunAsync) or we create it?
-                 // ExecuteRunAsync creates it.
-                 
-                 if (File.Exists(file))
-                 {
-                     var line = System.Text.Json.JsonSerializer.Serialize(snapshot);
-                     File.AppendAllText(file, line + "\n");
-                 }
+                 // Only write if we have something meaningful or just keep appending
+                 var line = System.Text.Json.JsonSerializer.Serialize(snapshot);
+                 File.AppendAllText(file, line + "\n");
              }
              catch {}
         }
@@ -323,4 +322,3 @@ public sealed record MakerSnapshotDto
     public sealed record PlannedStepDto(string StepId, string Description);
     public sealed record VoteClusterDto(string Id, string Content, int Votes, int Variants);
 }
-

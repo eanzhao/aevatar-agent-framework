@@ -52,11 +52,23 @@ message TaskAgentState {
 
     int32 proposal_attempts = 18;
     google.protobuf.Timestamp last_updated_at = 19;
+
+    // Micro-Steps State
     repeated string micro_objectives = 20;
     repeated string micro_summaries = 21;
     int32 micro_cursor = 22;
     bool micro_mode_active = 23;
     string micro_current_objective = 24;
+
+    // Semantic Voting
+    message VoteCluster {
+        string cluster_id = 1; // Hash of the representative content
+        string representative_content = 2;
+        repeated float representative_embedding = 3;
+        int32 vote_count = 4;
+        repeated string variant_hashes = 5;
+    }
+    map<string, VoteCluster> vote_clusters = 25;
 }
 
 message TaskAgentConfig {
@@ -86,6 +98,8 @@ message TaskAgentConfig {
     bool auto_link_children = 12;
     // Desired minimum number of child agents kept linked for recursion
     int32 child_pool_size = 13;
+    // Threshold for semantic clustering (0.0-1.0, default ~0.95)
+    float semantic_similarity_threshold = 14;
 }
 
 // ==============================

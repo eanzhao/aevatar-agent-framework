@@ -2,8 +2,8 @@
 
 MAKER Agents bring the Massively Decomposed Agentic Processes paradigm into the Aevatar ecosystem. The package contains two collaborating agents:
 
-- **`MakerTaskAgent`** – Supervises a single goal, orchestrates voting, recursion, and red-flag detection.
-- **`MakerWorkerAgent`** – Produces decompositions or atomic answers by calling the configured LLM provider.
+- **`MakerTaskAgent`** - Supervises a single goal, orchestrates voting, recursion, and red-flag detection.
+- **`MakerWorkerAgent`** - Produces decompositions or atomic answers by calling the configured LLM provider.
 
 Both agents are implemented with `AIGAgentBase<TState, TConfig>` and follow the full protobuf-first contract.
 
@@ -12,19 +12,19 @@ Both agents are implemented with `AIGAgentBase<TState, TConfig>` and follow the 
 - **State Types**: `TaskAgentState`, `WorkerAgentState`
 - **Config Types**: `TaskAgentConfig`, `WorkerAgentConfig`
 - **Events**:
-  - `AssignTaskEvent` – Parent/clients assign work to a task agent.
-  - `GenerateProposalEvent` – Task agent broadcasts worker requests (DOWN).
-  - `ProposalReceivedEvent` – Worker responses bubble up (UP) for voting.
-  - `TaskOutcomeEvent` – Child task results propagate upwards.
-  - `RedFlagRaisedEvent` – Signals consensus failure or unexpected loops.
+  - `AssignTaskEvent` - Parent/clients assign work to a task agent.
+  - `GenerateProposalEvent` - Task agent broadcasts worker requests (DOWN).
+  - `ProposalReceivedEvent` - Worker responses bubble up (UP) for voting.
+  - `TaskOutcomeEvent` - Child task results propagate upwards.
+  - `RedFlagRaisedEvent` - Signals consensus failure or unexpected loops.
 
 The agents rely on the existing stream hierarchy. Typical topology:
 
 ```
 MakerTaskAgent (parent)
- ├─ MakerWorkerAgent #1
- ├─ MakerWorkerAgent #2
- └─ MakerWorkerAgent #N
+|- MakerWorkerAgent #1
+|- MakerWorkerAgent #2
+\- MakerWorkerAgent #N
 ```
 
 Recursion is achieved when a `MakerTaskAgent` publishes `AssignTaskEvent` messages Downstream while other `MakerTaskAgent` instances run as children.

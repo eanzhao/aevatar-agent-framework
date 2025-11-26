@@ -53,7 +53,7 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
 """;
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken ct)
+    protected async Task EnsureInitializedAsync(CancellationToken ct)
     {
         if (_isInitialized)
         {
@@ -85,38 +85,50 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
     }
 
     [EventHandler(AllowSelfHandling = true)]
-    public async Task HandleGenerateProposalAsync(GenerateProposalEvent evt)
+    public virtual async Task HandleGenerateProposalAsync(GenerateProposalEvent evt)
     {
-        await EnsureInitializedAsync(CancellationToken.None);
-
-        CustomState.TotalRequests++;
-        CustomState.LastRequestAt = Timestamp.FromDateTime(DateTime.UtcNow);
-
-        var (prompt, role) = BuildPrompt(evt);
-        CustomState.ActiveRole = role;
-
-        Logger.LogInformation("Worker {WorkerId} generating {Role} proposal for request {RequestId}",
-            CustomState.WorkerId, role, evt.RequestId);
-
-        var chatRequest = BuildChatRequest(evt, prompt);
-        var responseContent = await GenerateResponseWithStreamAsync(chatRequest, evt);
-
-        Logger.LogInformation(
-            "Worker {WorkerId} finished {Role} proposal for request {RequestId}. Preview={Preview}",
-            CustomState.WorkerId,
-            role,
-            evt.RequestId,
-            BuildPreview(responseContent));
-
-        await PublishAsync(new ProposalReceivedEvent
+        try
         {
-            RequestId = evt.RequestId,
-            Content = responseContent,
-            ReasoningTrace = $"role={role};worker={CustomState.WorkerId}"
-        }, EventDirection.Up);
+            await EnsureInitializedAsync(CancellationToken.None);
+
+            CustomState.TotalRequests++;
+            CustomState.LastRequestAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+            var (prompt, role) = BuildPrompt(evt);
+            CustomState.ActiveRole = role;
+
+            Logger.LogInformation("Worker {WorkerId} generating {Role} proposal for request {RequestId}",
+                CustomState.WorkerId, role, evt.RequestId);
+
+            var chatRequest = BuildChatRequest(evt, prompt);
+            var responseContent = await GenerateResponseWithStreamAsync(chatRequest, evt);
+
+            Logger.LogInformation(
+                "Worker {WorkerId} finished {Role} proposal for request {RequestId}. Preview={Preview}",
+                CustomState.WorkerId,
+                role,
+                evt.RequestId,
+                BuildPreview(responseContent));
+
+            await PublishAsync(new ProposalReceivedEvent
+            {
+                RequestId = evt.RequestId,
+                Content = responseContent,
+                ReasoningTrace = $"role={role};worker={CustomState.WorkerId}"
+            }, EventDirection.Up);
+        }
+        catch (System.Threading.Channels.ChannelClosedException)
+        {
+            Logger.LogDebug("Worker {WorkerId} tried to publish result but channel is closed (Agent deactivating).", CustomState.WorkerId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling event in HandleGenerateProposalAsync");
+            throw;
+        }
     }
 
-    private ChatRequest BuildChatRequest(GenerateProposalEvent evt, string prompt)
+    protected virtual ChatRequest BuildChatRequest(GenerateProposalEvent evt, string prompt)
     {
         var request = new ChatRequest
         {
@@ -145,7 +157,7 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
         return request;
     }
 
-    private async Task<string> GenerateResponseWithStreamAsync(ChatRequest request, GenerateProposalEvent evt)
+    protected virtual async Task<string> GenerateResponseWithStreamAsync(ChatRequest request, GenerateProposalEvent evt)
     {
         var builder = new StringBuilder();
         await foreach (var chunk in ChatStreamAsync(request))
@@ -155,12 +167,12 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
                 continue;
             }
 
-            var safeChunk = chunk.ReplaceLineEndings(" ").Replace("|", "¦").Trim();
+            var safeChunk = chunk.ReplaceLineEndings(" ").Replace("|", "/").Trim();
             builder.Append(safeChunk);
-            Logger.LogInformation("WORKER_STREAM|{WorkerId}|{RequestId}|{Chunk}",
-                CustomState.WorkerId,
-                evt.RequestId,
-                safeChunk);
+            // Logger.LogInformation("WORKER_STREAM|{WorkerId}|{RequestId}|{Chunk}",
+            //    CustomState.WorkerId,
+            //    evt.RequestId,
+            //    safeChunk);
         }
 
         var content = builder.ToString().Trim();
@@ -178,7 +190,7 @@ Follow instructions exactly, keep answers deterministic, and prefer JSON for pla
         return fallback.Content;
     }
 
-    private static (string prompt, string role) BuildPrompt(GenerateProposalEvent evt)
+    protected virtual (string prompt, string role) BuildPrompt(GenerateProposalEvent evt)
     {
         var builder = new StringBuilder();
         string role;

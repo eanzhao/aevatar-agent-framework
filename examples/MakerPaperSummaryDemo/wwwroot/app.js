@@ -78,7 +78,7 @@ async function refreshSnapshot() {
     microObjectiveEl.innerText = snapshot.microObjective ?? "-";
     pendingChildrenEl.innerText = (snapshot.pendingChildren || []).join(", ") || "-";
 
-    renderFinalResult(snapshot.finalResult);
+    finalResultEl.innerText = snapshot.finalResult?.trim() || "暂无结果";
     renderVotes(snapshot);
     renderMicroObjectives(snapshot.microObjectives || [], snapshot.microCursor);
     renderPlannedSteps(snapshot.plannedSteps || []);
@@ -300,19 +300,5 @@ function renderWorkerStreams(events, workerIds) {
       streamDiv.innerText = chunks.join(""); 
     }
   });
-}
-
-function renderFinalResult(content) {
-  const text = (content || "").trim();
-  if (!text) {
-    finalResultEl.textContent = "暂无结果";
-    return;
-  }
-
-  if (window.marked) {
-    finalResultEl.innerHTML = marked.parse(text);
-  } else {
-    finalResultEl.textContent = text;
-  }
 }
 

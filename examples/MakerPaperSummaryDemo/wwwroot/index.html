@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MAKER 八字推演监控</title>
+    <title>MAKER Paper Summary</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header>
       <div class="header-content">
-        <h1>MAKER 八字推演监控面板</h1>
-        <p>First-to-Ahead-by-K Consensus System</p>
+        <h1>MAKER 论文总结演示</h1>
+        <p>First-to-Ahead-by-K Consensus System: Paper Summarization</p>
       </div>
       <div class="header-controls">
         <button id="startBtn">⚡️ 开始新一轮推演</button>
@@ -95,7 +95,7 @@
       <div class="bottom-grid">
         <div class="panel result-panel">
           <h3>✨ 最终共识结果</h3>
-          <div id="finalResult" class="markdown-body">等待产出...</div>
+          <pre id="finalResult">等待产出...</pre>
         </div>
 
         <div class="panel timeline-panel">
@@ -105,11 +105,10 @@
       </div>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha384-jCTITVEWilR92pT9XyM54q9WlH0I1GtIsfRSAxEPPGjBJOCa/MEGLjm+rXhN3kLB" crossorigin="anonymous"></script>
     <script src="app.js"></script>
     <script>
       // Force load confirmation
-      console.log("Maker Bazi Demo Loaded");
+      console.log("MAKER Paper Summary Demo Loaded");
       document.getElementById("startBtn").addEventListener("click", () => console.log("Button clicked!"));
     </script>
   </body>

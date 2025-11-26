@@ -3,8 +3,9 @@ using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Runtime.Local;
-using MakerBaziDemo;
+using MakerPaperSummaryDemo;
 using System.Diagnostics;
+using MakerBaziDemo;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,13 +13,22 @@ ConfigureConfiguration(builder.Configuration);
 
 var timelineStore = new MakerTimelineStore();
 builder.Services.AddSingleton(timelineStore);
-builder.Services.AddSingleton<MakerDemoOrchestrator>();
+builder.Services.AddSingleton<PaperSummaryOrchestrator>();
 
+// Reuse generic Maker configuration or define new one? 
+// We use the same "LLMProviders" section.
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+
 builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
+
+// Register custom agents
+builder.Services.AddTransient<PaperSummaryTaskAgent>();
+builder.Services.AddTransient<PaperSummaryWorkerAgent>();
+
 builder.Services.AddSingleton<IMakerRunRecorder, MakerFileRecorder>();
-builder.Services.AddSingleton<IMakerChildLinker, MakerChildLinker>();
+// Register custom child linker
+builder.Services.AddSingleton<IMakerChildLinker, PaperSummaryChildLinker>();
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -28,14 +38,14 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapPost("/api/run", async (MakerDemoOrchestrator orchestrator, CancellationToken ct) =>
+app.MapPost("/api/run", async (PaperSummaryOrchestrator orchestrator, CancellationToken ct) =>
 {
     var response = await orchestrator.StartRunAsync(ct);
     return Results.Json(response);
 });
 
-app.MapGet("/api/status", (MakerDemoOrchestrator orchestrator) => Results.Json(orchestrator.GetStatus()));
-app.MapGet("/api/snapshot", (MakerDemoOrchestrator orchestrator) => Results.Json(orchestrator.GetSnapshot()));
+app.MapGet("/api/status", (PaperSummaryOrchestrator orchestrator) => Results.Json(orchestrator.GetStatus()));
+app.MapGet("/api/snapshot", (PaperSummaryOrchestrator orchestrator) => Results.Json(orchestrator.GetSnapshot()));
 app.MapGet("/api/timeline", (MakerTimelineStore store) => Results.Json(store.GetEvents()));
 
 app.Run();

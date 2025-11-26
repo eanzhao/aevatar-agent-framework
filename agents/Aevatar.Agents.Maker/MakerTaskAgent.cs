@@ -1,14 +1,18 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Linq;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+
+using Microsoft.Extensions.AI;
 
 namespace Aevatar.Agents.Maker;
 
@@ -22,6 +26,7 @@ public class MakerTaskAgent : AIGAgentBase<TaskAgentState, TaskAgentConfig>
     private readonly SemaphoreSlim _selfWorkerInitLock = new(1, 1);
     private bool _selfWorkerInitialized;
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+    private const int MicroStageRetryLimit = 2;
     private readonly JsonDocumentOptions _jsonOptions = new()
     {
         AllowTrailingCommas = true,
@@ -31,8 +36,10 @@ public class MakerTaskAgent : AIGAgentBase<TaskAgentState, TaskAgentConfig>
     private readonly SemaphoreSlim _voteLock = new(1, 1);
     private readonly IMakerChildLinker? _childLinker;
     private bool _childLinkerWarningLogged;
+    private readonly Dictionary<string, string> _currentContextSnapshot = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, int> _microStageRetryCounters = new();
 
-    public MakerTaskAgent(IMakerChildLinker? childLinker = null)
+    public MakerTaskAgent(IMakerChildLinker? childLinker)
     {
         _childLinker = childLinker;
     }
@@ -43,6 +50,38 @@ public class MakerTaskAgent : AIGAgentBase<TaskAgentState, TaskAgentConfig>
 
         InitializeStateDefaults();
         InitializeConfigDefaults();
+
+        // Initialize embedding generator if configured
+        if (LLMProviderFactory != null)
+        {
+            try
+            {
+                // Try getting active provider config first
+                var providerName = CustomConfig.ProviderName;
+                if (!string.IsNullOrWhiteSpace(providerName)) 
+                {
+                    // Ensure we can get the config
+                    var providerConfig = LLMProviderFactory.GetProviderConfig(providerName);
+                    if (providerConfig?.Embeddings?.Enabled == true)
+                    {
+                        await InitializeEmbeddingGeneratorAsync(providerConfig, ct);
+                    }
+                    else 
+                    {
+                        // Try default provider as fallback for embeddings
+                        var defaultProviderConfig = LLMProviderFactory.GetDefaultProviderConfig();
+                        if (defaultProviderConfig?.Embeddings?.Enabled == true)
+                        {
+                             await InitializeEmbeddingGeneratorAsync(defaultProviderConfig, ct);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning("Failed to initialize embedding generator: {Message}", ex.Message);
+            }
+        }
 
         SystemPrompt = CustomConfig.SystemPromptTemplate;
         CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
@@ -128,168 +167,308 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         {
             CustomConfig.ChildPoolSize = 2;
         }
+        
+        if (CustomConfig.SemanticSimilarityThreshold <= 0)
+        {
+            CustomConfig.SemanticSimilarityThreshold = 0.95f;
+        }
     }
 
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleAssignTaskAsync(AssignTaskEvent evt)
     {
-        Logger.LogInformation("Task {TaskId} received goal: {Goal}", evt.TaskId, evt.GoalDescription);
-
-        if (!string.IsNullOrWhiteSpace(evt.TaskId))
+        try
         {
-            CustomState.TaskId = evt.TaskId;
+            Logger.LogInformation("Task {TaskId} received goal: {Goal}", evt.TaskId, evt.GoalDescription);
+
+            if (!string.IsNullOrWhiteSpace(evt.TaskId))
+            {
+                CustomState.TaskId = evt.TaskId;
+            }
+
+            var goalWithContext = BuildGoalWithInheritedContext(evt);
+            CustomState.OriginalGoal = goalWithContext;
+            CustomState.CurrentDepth = evt.CurrentDepth;
+            CustomState.ParentId = evt.ContextVariables.TryGetValue("parentTaskId", out var parentId)
+                ? parentId
+                : CustomState.ParentId;
+            CustomState.Phase = TaskAgentState.Types.Phase.AssessingComplexity;
+            CustomState.VoteTallies.Clear();
+            CustomState.VoteClusters.Clear();
+            CustomState.CandidateContent.Clear();
+            CustomState.PlannedSteps.Clear();
+            CustomState.PendingChildIds.Clear();
+            CustomState.PreferredPlanHash = string.Empty;
+            CustomState.ActiveRequestId = Guid.NewGuid().ToString("N");
+            CustomState.ProposalAttempts = 0;
+            CustomState.FinalResult = string.Empty;
+            CustomState.FailureReason = string.Empty;
+            CustomState.ActiveGenerationType = DetermineGenerationType(evt);
+            CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+            _selfHandledRequests.Clear();
+            _microStageRetryCounters.Clear();
+            SnapshotContextVariables(evt.ContextVariables);
+            await InitializeMicroPlanAsync(evt, CancellationToken.None);
+
+            var taskDescription = BuildTaskDescription(evt.GoalDescription, CustomState.ActiveGenerationType);
+            await RequestWorkerFanOutAsync(taskDescription, CustomState.ActiveGenerationType, CancellationToken.None);
         }
-
-        CustomState.OriginalGoal = evt.GoalDescription;
-        CustomState.CurrentDepth = evt.CurrentDepth;
-        CustomState.ParentId = evt.ContextVariables.TryGetValue("parentTaskId", out var parentId)
-            ? parentId
-            : CustomState.ParentId;
-        CustomState.Phase = TaskAgentState.Types.Phase.AssessingComplexity;
-        CustomState.VoteTallies.Clear();
-        CustomState.CandidateContent.Clear();
-        CustomState.PlannedSteps.Clear();
-        CustomState.PendingChildIds.Clear();
-        CustomState.PreferredPlanHash = string.Empty;
-        CustomState.ActiveRequestId = Guid.NewGuid().ToString("N");
-        CustomState.ProposalAttempts = 0;
-        CustomState.FinalResult = string.Empty;
-        CustomState.FailureReason = string.Empty;
-        CustomState.ActiveGenerationType = DetermineGenerationType(evt);
-        CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
-        _selfHandledRequests.Clear();
-        await InitializeMicroPlanAsync(evt, CancellationToken.None);
-
-        var taskDescription = BuildTaskDescription(evt.GoalDescription, CustomState.ActiveGenerationType);
-        await RequestWorkerFanOutAsync(taskDescription, CustomState.ActiveGenerationType, CancellationToken.None);
+        catch (System.Threading.Channels.ChannelClosedException)
+        {
+            Logger.LogDebug("Task {TaskId} tried to assign task but channel is closed.", CustomState.TaskId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling assign task in HandleAssignTaskAsync");
+            throw;
+        }
     }
 
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleProposalReceivedAsync(ProposalReceivedEvent evt)
     {
-        if (string.IsNullOrWhiteSpace(CustomState.ActiveRequestId) ||
-            !string.Equals(CustomState.ActiveRequestId, evt.RequestId, StringComparison.Ordinal))
+        try 
         {
-            Logger.LogDebug("Ignoring proposal for request {RequestId} (active: {Active})", evt.RequestId,
-                CustomState.ActiveRequestId);
-            return;
-        }
-
-        await _voteLock.WaitAsync();
-        try
-        {
-            var canonical = Canonicalize(evt.Content);
-            var contentHash = ComputeHash(canonical);
-
-            var tally = CustomState.VoteTallies.TryGetValue(contentHash, out var current)
-                ? current + 1
-                : 1;
-            CustomState.VoteTallies[contentHash] = tally;
-
-            if (!CustomState.CandidateContent.ContainsKey(contentHash))
+            if (string.IsNullOrWhiteSpace(CustomState.ActiveRequestId) ||
+                !string.Equals(CustomState.ActiveRequestId, evt.RequestId, StringComparison.Ordinal))
             {
-                CustomState.CandidateContent[contentHash] = canonical;
-            }
-
-            CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
-
-            var totalVotes = CustomState.VoteTallies.Values.Sum();
-
-            Logger.LogInformation(
-                "Task {TaskId} vote update (req {RequestId}, type {Type}): candidate {Candidate} -> {Votes} votes / total {Total}. Preview={Preview}",
-                CustomState.TaskId,
-                evt.RequestId,
-                CustomState.ActiveGenerationType,
-                GetHashPrefix(contentHash),
-                tally,
-                totalVotes,
-                BuildPreview(canonical));
-
-            if (HasConsensus(out var leaderHash, out var leaderVotes, out var runnerUpVotes))
-            {
-                CustomState.PreferredPlanHash = leaderHash;
-                var leaderContent = CustomState.CandidateContent[leaderHash];
-
-                Logger.LogInformation(
-                    "Task {TaskId} consensus lead {Leader}-{Runner} after {Total} votes. Leader preview={Preview}",
-                    CustomState.TaskId,
-                    leaderVotes,
-                    runnerUpVotes,
-                    totalVotes,
-                    BuildPreview(leaderContent));
-
-                await OnConsensusReachedAsync(leaderContent, CancellationToken.None);
+                Logger.LogDebug("Ignoring proposal for request {RequestId} (active: {Active})", evt.RequestId,
+                    CustomState.ActiveRequestId);
                 return;
             }
 
-            if (totalVotes >= CustomConfig.MaxCandidateWait)
-            {
-                Logger.LogWarning(
-                    "Consensus not reached after {Votes} votes (Attempt {Attempt}/{Max}). Standings: {Standings}",
-                    totalVotes,
-                    CustomState.ProposalAttempts + 1,
-                    CustomConfig.MaxAttempts,
-                    string.Join(", ",
-                        CustomState.VoteTallies
-                            .OrderByDescending(kv => kv.Value)
-                            .Take(4)
-                            .Select(kv => $"{GetHashPrefix(kv.Key)}:{kv.Value}")));
+            var canonical = Canonicalize(evt.Content);
+            Embedding<float>? embedding = null;
 
-                CustomState.ProposalAttempts++;
-                if (CustomState.ProposalAttempts >= CustomConfig.MaxAttempts)
+            // Generate embedding outside of lock to avoid blocking
+            try
+            {
+                // Try to generate embedding for semantic clustering
+                // We use a fire-and-forget manner or wait? Better wait to ensure consistency.
+                // If generator is not available, this returns null quickly.
+                embedding = await GenerateEmbeddingAsync(canonical, cancellationToken: CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning("Failed to generate embedding for proposal: {Message}. Falling back to exact match.", ex.Message);
+            }
+
+            await _voteLock.WaitAsync();
+            try
+            {
+                // Re-check state after lock
+                if (!string.Equals(CustomState.ActiveRequestId, evt.RequestId, StringComparison.Ordinal))
                 {
-                    if (CustomState.ActiveGenerationType ==
-                        TaskAgentState.Types.GenerationRequestType.Decomposition)
+                     return;
+                }
+                
+                var contentHash = ComputeHash(canonical);
+
+                // 1. Update legacy/exact match tallies (for debugging or fallback)
+                var tally = CustomState.VoteTallies.TryGetValue(contentHash, out var current)
+                    ? current + 1
+                    : 1;
+                CustomState.VoteTallies[contentHash] = tally;
+
+                if (!CustomState.CandidateContent.ContainsKey(contentHash))
+                {
+                    CustomState.CandidateContent[contentHash] = canonical;
+                }
+
+                // 2. Perform Semantic Clustering
+                string assignedClusterId = contentHash; // Default to exact hash
+                double maxSimilarity = 0.0;
+
+                if (embedding != null && CustomState.VoteClusters.Count > 0)
+                {
+                    // Find best matching cluster
+                    foreach (var cluster in CustomState.VoteClusters.Values)
                     {
-                        await RaiseRedFlagAsync("Reached maximum voting attempts without consensus.");
+                        if (cluster.RepresentativeEmbedding.Count == 0) continue;
+
+                        var clusterEmbedding = new Embedding<float>(cluster.RepresentativeEmbedding.ToArray());
+                        var similarity = CosineSimilarity(embedding, clusterEmbedding);
+                        
+                        if (similarity > maxSimilarity)
+                        {
+                            maxSimilarity = similarity;
+                            if (similarity >= CustomConfig.SemanticSimilarityThreshold)
+                            {
+                                assignedClusterId = cluster.ClusterId;
+                            }
+                        }
+                    }
+                }
+
+                // 3. Update Cluster State
+                if (!CustomState.VoteClusters.TryGetValue(assignedClusterId, out var targetCluster))
+                {
+                    // New cluster created
+                    targetCluster = new TaskAgentState.Types.VoteCluster
+                    {
+                        ClusterId = assignedClusterId,
+                        RepresentativeContent = canonical,
+                        VoteCount = 0
+                    };
+                    
+                    if (embedding != null)
+                    {
+                        targetCluster.RepresentativeEmbedding.AddRange(embedding.Vector.ToArray());
+                    }
+                    CustomState.VoteClusters[assignedClusterId] = targetCluster;
+                }
+
+                targetCluster.VoteCount++;
+                if (!targetCluster.VariantHashes.Contains(contentHash))
+                {
+                    targetCluster.VariantHashes.Add(contentHash);
+                }
+
+                CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+                var totalVotes = CustomState.VoteClusters.Values.Sum(c => c.VoteCount);
+
+                Logger.LogInformation(
+                    "Task {TaskId} vote update: req={RequestId}, hash={Hash}, cluster={ClusterId} (sim={Sim:F3}), cluster_votes={CVotes}, total={Total}. Preview={Preview}",
+                    CustomState.TaskId,
+                    evt.RequestId,
+                    GetHashPrefix(contentHash),
+                    GetHashPrefix(assignedClusterId),
+                    maxSimilarity,
+                    targetCluster.VoteCount,
+                    totalVotes,
+                    BuildPreview(canonical));
+
+                if (HasConsensus(out var leaderHash, out var leaderVotes, out var runnerUpVotes))
+                {
+                    CustomState.PreferredPlanHash = leaderHash;
+                    // Use the representative content of the winning cluster
+                    // Defensive check: ensure cluster exists
+                    if (CustomState.VoteClusters.TryGetValue(leaderHash, out var winningCluster)) 
+                    {
+                        var leaderContent = winningCluster.RepresentativeContent;
+
+                        Logger.LogInformation(
+                            "Task {TaskId} consensus lead {Leader}-{Runner} after {Total} votes. Leader preview={Preview}",
+                            CustomState.TaskId,
+                            leaderVotes,
+                            runnerUpVotes,
+                            totalVotes,
+                            BuildPreview(leaderContent));
+
+                        await OnConsensusReachedAsync(leaderContent, CancellationToken.None);
+                    }
+                    else 
+                    {
+                        Logger.LogError("Task {TaskId} consensus reached on hash {Hash} but cluster is missing!", CustomState.TaskId, leaderHash);
+                    }
+                    return;
+                }
+
+                if (totalVotes >= CustomConfig.MaxCandidateWait)
+                {
+                    Logger.LogWarning(
+                        "Consensus not reached after {Votes} votes. Top clusters: {Standings}",
+                        totalVotes,
+                        string.Join(", ",
+                            CustomState.VoteClusters.Values
+                                .OrderByDescending(v => v.VoteCount)
+                                .Take(3)
+                                .Select(v => $"{GetHashPrefix(v.ClusterId)}:{v.VoteCount}")));
+
+                    CustomState.ProposalAttempts++;
+                    if (CustomState.ProposalAttempts >= CustomConfig.MaxAttempts)
+                    {
+                        if (CustomState.ActiveGenerationType ==
+                            TaskAgentState.Types.GenerationRequestType.Decomposition)
+                        {
+                            await RaiseRedFlagAsync("Reached maximum voting attempts without consensus.");
+                        }
+                        else
+                        {
+                            await RestartDecompositionCycleAsync(CancellationToken.None);
+                        }
                     }
                     else
                     {
-                        await RestartDecompositionCycleAsync(CancellationToken.None);
+                        var description = BuildTaskDescription(CustomState.OriginalGoal, CustomState.ActiveGenerationType);
+                        await RequestWorkerFanOutAsync(description, CustomState.ActiveGenerationType,
+                            CancellationToken.None);
                     }
                 }
-                else
-                {
-                    var description = BuildTaskDescription(CustomState.OriginalGoal, CustomState.ActiveGenerationType);
-                    await RequestWorkerFanOutAsync(description, CustomState.ActiveGenerationType,
-                        CancellationToken.None);
-                }
+            }
+            finally
+            {
+                _voteLock.Release();
             }
         }
-        finally
+        catch (System.Threading.Channels.ChannelClosedException)
         {
-            _voteLock.Release();
+            Logger.LogDebug("Task {TaskId} tried to handle proposal but channel is closed.", CustomState.TaskId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling event in HandleProposalReceivedAsync");
+            throw;
         }
     }
 
     [EventHandler(AllowSelfHandling = true)]
     public async Task HandleChildOutcomeAsync(TaskOutcomeEvent evt)
     {
-        if (!CustomState.ChildAgentIds.Contains(evt.TaskId))
+        try
         {
-            return;
+            if (!CustomState.ChildAgentIds.Contains(evt.TaskId))
+            {
+                return;
+            }
+
+            CustomState.ChildResults[evt.TaskId] = evt.ResultData ?? string.Empty;
+            CustomState.PendingChildIds.Remove(evt.TaskId);
+            CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+            Logger.LogInformation("Task {TaskId} child {ChildId} completed. Remaining: {Remaining}", CustomState.TaskId,
+                evt.TaskId, CustomState.PendingChildIds.Count);
+
+            if (!evt.Success)
+            {
+                CustomState.Phase = TaskAgentState.Types.Phase.Failed;
+                CustomState.FailureReason = evt.FailureReason ?? "Child task failed.";
+                await PublishOutcomeAsync(false, evt.ResultData ?? string.Empty, CancellationToken.None);
+                return;
+            }
+
+            if (CustomState.PendingChildIds.Count == 0)
+            {
+                // Default: aggregate child results as final result
+                CustomState.FinalResult = BuildAggregateResult();
+                CustomState.Phase = TaskAgentState.Types.Phase.Completed;
+                
+                // If synthesis is possible (and enabled by override), try it
+                try 
+                {
+                    var synthesized = await SynthesizeFinalReportAsync(CancellationToken.None);
+                    if (!string.IsNullOrWhiteSpace(synthesized))
+                    {
+                        CustomState.FinalResult = synthesized;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to synthesize final report. Falling back to aggregation.");
+                }
+
+                await PublishOutcomeAsync(true, CustomState.FinalResult, CancellationToken.None);
+            }
         }
-
-        CustomState.ChildResults[evt.TaskId] = evt.ResultData ?? string.Empty;
-        CustomState.PendingChildIds.Remove(evt.TaskId);
-        CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
-
-        Logger.LogInformation("Task {TaskId} child {ChildId} completed. Remaining: {Remaining}", CustomState.TaskId,
-            evt.TaskId, CustomState.PendingChildIds.Count);
-
-        if (!evt.Success)
+        catch (System.Threading.Channels.ChannelClosedException)
         {
-            CustomState.Phase = TaskAgentState.Types.Phase.Failed;
-            CustomState.FailureReason = evt.FailureReason ?? "Child task failed.";
-            await PublishOutcomeAsync(false, evt.ResultData ?? string.Empty, CancellationToken.None);
-            return;
+            Logger.LogDebug("Task {TaskId} tried to publish outcome but channel is closed (Agent deactivating).", CustomState.TaskId);
         }
-
-        if (CustomState.PendingChildIds.Count == 0)
+        catch (Exception ex)
         {
-            CustomState.FinalResult = BuildAggregateResult();
-            CustomState.Phase = TaskAgentState.Types.Phase.Completed;
-            await PublishOutcomeAsync(true, CustomState.FinalResult, CancellationToken.None);
+            Logger.LogError(ex, "Error handling child outcome in HandleChildOutcomeAsync");
+            throw;
         }
     }
 
@@ -374,9 +553,10 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
 
         foreach (var objective in objectives)
         {
-            if (!string.IsNullOrWhiteSpace(objective))
+            var normalized = NormalizeObjective(objective);
+            if (!string.IsNullOrWhiteSpace(normalized))
             {
-                CustomState.MicroObjectives.Add(objective);
+                CustomState.MicroObjectives.Add(normalized);
             }
         }
 
@@ -386,7 +566,7 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             return;
         }
 
-        CustomState.MicroCurrentObjective = CustomState.MicroObjectives[0];
+        CustomState.MicroCurrentObjective = GetStageLabel(0);
     }
 
     protected virtual Task<IReadOnlyList<string>> BuildMicroObjectivesAsync(AssignTaskEvent evt, CancellationToken ct) =>
@@ -420,22 +600,35 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         }
 
         var index = Math.Clamp(CustomState.MicroCursor, 0, CustomState.MicroObjectives.Count - 1);
-        var stage = CustomState.MicroObjectives[index];
+        var stageLabel = GetStageLabel(index);
+        var totalStages = CustomState.MicroObjectives.Count;
 
         var builder = new StringBuilder();
-        builder.AppendLine(stage);
+        builder.AppendLine($"[Stage] ({index + 1}/{totalStages}) {stageLabel}");
+        builder.AppendLine("Focus strictly on this stage. Use confirmed facts below to propose new reasoning or actions; if nothing new exists, explain why.");
+        builder.AppendLine("When information is missing, list the gaps and specify the required inputs.");
+        builder.AppendLine($"Output format: New insight (specific to \"{stageLabel}\"): ...; Evidence: ...; if no insight, describe the blocker.");
+        builder.AppendLine("Differentiation rule: do not copy earlier summaries. Provide at least one new insight, parameter, or action item.");
+        builder.AppendLine();
+        AppendMicroBackground(builder);
 
         if (CustomState.MicroSummaries.Count > 0)
         {
-            builder.AppendLine("【已确认信息】");
-            for (var i = 0; i < CustomState.MicroSummaries.Count; i++)
+            builder.AppendLine("Confirmed stages (last 3):");
+            var startIndex = Math.Max(0, CustomState.MicroSummaries.Count - 3);
+            for (var i = startIndex; i < CustomState.MicroSummaries.Count; i++)
             {
-                builder.AppendLine($"- ({i + 1}) {CustomState.MicroSummaries[i]}");
+                var title = GetStageLabel(i);
+                builder.AppendLine($"- ({i + 1}) {title}: {CustomState.MicroSummaries[i]}");
             }
         }
+        else
+        {
+            builder.AppendLine("No confirmed stages yet. Cover the essential fundamentals.");
+        }
 
-        builder.AppendLine("【要求】请只回答当前阶段的问题，禁止引用未来阶段内容。");
-        builder.AppendLine("【输出规则】保持不超过 80 个汉字或 3 行，末尾追加标记 <END> 并立即停止。");
+        builder.AppendLine("Forbidden: verbatim repetition of confirmed content or jumping to future stages. Summarize before referencing and extend the reasoning.");
+        builder.AppendLine("Output rule: keep under 4 lines, lead with the conclusion, follow with evidence, and append <END> at the end.");
 
         return builder.ToString();
     }
@@ -487,22 +680,22 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         leaderHash = string.Empty;
         leaderVotes = 0;
         runnerUpVotes = 0;
-        if (CustomState.VoteTallies.Count == 0)
+        if (CustomState.VoteClusters.Count == 0)
         {
             return false;
         }
 
-        var ordered = CustomState.VoteTallies
-            .OrderByDescending(kv => kv.Value)
+        var ordered = CustomState.VoteClusters.Values
+            .OrderByDescending(c => c.VoteCount)
             .ToList();
 
         var leader = ordered[0];
-        runnerUpVotes = ordered.Count > 1 ? ordered[1].Value : 0;
-        leaderVotes = leader.Value;
+        runnerUpVotes = ordered.Count > 1 ? ordered[1].VoteCount : 0;
+        leaderVotes = leader.VoteCount;
 
-        if (leader.Value - runnerUpVotes >= CustomConfig.ConsensusThresholdK)
+        if (leader.VoteCount - runnerUpVotes >= CustomConfig.ConsensusThresholdK)
         {
-            leaderHash = leader.Key;
+            leaderHash = leader.ClusterId;
             return true;
         }
 
@@ -513,6 +706,10 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
     {
         Logger.LogInformation("Task {TaskId} consensus reached for request {RequestId}", CustomState.TaskId,
             CustomState.ActiveRequestId);
+
+        // Clear active request ID to prevent processing late/orphaned proposals
+        var completedRequestId = CustomState.ActiveRequestId;
+        CustomState.ActiveRequestId = string.Empty; 
 
         if (CustomState.ActiveGenerationType == TaskAgentState.Types.GenerationRequestType.AtomicSolve &&
             await HandleMicroRoundCompletionAsync(content, ct))
@@ -557,8 +754,26 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         {
             CustomState.FinalResult = content;
             CustomState.Phase = TaskAgentState.Types.Phase.Completed;
-            await PublishOutcomeAsync(true, content, ct);
+            
+            // Try to synthesize a better report if we have aggregated child results
+            if (CustomState.ChildResults.Count > 0)
+            {
+                var report = await SynthesizeFinalReportAsync(ct);
+                if (!string.IsNullOrWhiteSpace(report))
+                {
+                    CustomState.FinalResult = report;
+                }
+            }
+            
+            await PublishOutcomeAsync(true, CustomState.FinalResult, ct);
         }
+    }
+
+    protected virtual async Task<string> SynthesizeFinalReportAsync(CancellationToken ct)
+    {
+        // Default implementation just aggregates strings. 
+        // Derived classes (like BaziMakerTaskAgent) should override this to call LLM.
+        return BuildAggregateResult();
     }
 
     private async Task LaunchChildAssignmentsAsync(IEnumerable<PlanStep> steps, CancellationToken ct)
@@ -581,16 +796,13 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             Logger.LogInformation("Task {TaskId} assigning child {ChildId}: {Description}",
                 CustomState.TaskId, childId, step.Description);
 
+            var childContext = BuildChildAssignmentContext(step);
             await PublishAsync(new AssignTaskEvent
             {
                 TaskId = childId,
                 GoalDescription = step.Description,
                 CurrentDepth = nextDepth,
-                ContextVariables =
-                {
-                    { "parentTaskId", CustomState.TaskId },
-                    { "stepId", step.StepId }
-                }
+                ContextVariables = { childContext }
             }, EventDirection.Down, ct);
         }
     }
@@ -674,7 +886,25 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             return false;
         }
 
-        CustomState.MicroSummaries.Add(content);
+        var stageIndex = CustomState.MicroCursor;
+        var stageLabel = GetStageLabel(stageIndex);
+        var normalizedSummary = NormalizeMicroSummary(content);
+
+        if (IsDuplicateMicroSummary(normalizedSummary))
+        {
+            var retryTriggered = await RetryCurrentMicroStageAsync(stageIndex, stageLabel,
+                "Detected duplicate micro summary", ct);
+            if (retryTriggered)
+            {
+                return true;
+            }
+
+            Logger.LogWarning("Task {TaskId} stage {StageLabel} exceeded retry limit; accepting summary despite duplication.",
+                CustomState.TaskId, stageLabel);
+        }
+
+        CustomState.MicroSummaries.Add(normalizedSummary);
+        _microStageRetryCounters.Remove(stageIndex);
         CustomState.MicroCursor++;
         CustomState.LastUpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
 
@@ -687,7 +917,7 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             return true;
         }
 
-        CustomState.MicroCurrentObjective = CustomState.MicroObjectives[CustomState.MicroCursor];
+        CustomState.MicroCurrentObjective = GetStageLabel(CustomState.MicroCursor);
         CustomState.VoteTallies.Clear();
         CustomState.CandidateContent.Clear();
         CustomState.ProposalAttempts = 0;
@@ -712,15 +942,334 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         builder.AppendLine($"Micro-analysis summary for task {CustomState.TaskId}:");
         for (var i = 0; i < CustomState.MicroSummaries.Count; i++)
         {
-            var stageTitle = i < CustomState.MicroObjectives.Count
-                ? CustomState.MicroObjectives[i]
-                : $"阶段 {i + 1}";
+            var stageTitle = GetStageLabel(i);
             builder.AppendLine($"[{i + 1}] {stageTitle}");
             builder.AppendLine(CustomState.MicroSummaries[i]);
             builder.AppendLine();
         }
 
         return builder.ToString().Trim();
+    }
+
+    private void SnapshotContextVariables(IEnumerable<KeyValuePair<string, string>> contextVariables)
+    {
+        _currentContextSnapshot.Clear();
+
+        if (contextVariables == null)
+        {
+            return;
+        }
+
+        foreach (var pair in contextVariables)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key))
+            {
+                continue;
+            }
+
+            _currentContextSnapshot[pair.Key] = pair.Value ?? string.Empty;
+        }
+    }
+
+    private void AppendMicroBackground(StringBuilder builder)
+    {
+        var goalExcerpt = BuildOriginalGoalExcerpt();
+        if (!string.IsNullOrWhiteSpace(goalExcerpt))
+        {
+            builder.AppendLine("[Task Background]");
+            builder.AppendLine(goalExcerpt);
+        }
+
+        if (_currentContextSnapshot.Count > 0)
+        {
+            builder.AppendLine("[Context Variables]");
+            foreach (var pair in _currentContextSnapshot)
+            {
+                builder.AppendLine($"- {pair.Key}: {pair.Value}");
+            }
+        }
+    }
+
+    private Dictionary<string, string> BuildChildAssignmentContext(PlanStep step)
+    {
+        var context = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["parentTaskId"] = CustomState.TaskId,
+            ["stepId"] = step.StepId
+        };
+
+        foreach (var pair in _currentContextSnapshot)
+        {
+            context[pair.Key] = pair.Value;
+        }
+
+        var goalExcerpt = BuildOriginalGoalExcerpt();
+        if (!string.IsNullOrWhiteSpace(goalExcerpt))
+        {
+            context["original_goal_excerpt"] = goalExcerpt;
+        }
+
+        var microDigest = BuildMicroHistoryDigest();
+        if (!string.IsNullOrWhiteSpace(microDigest))
+        {
+            context["micro_history"] = microDigest;
+        }
+
+        var completedDigest = BuildCompletedChildDigest();
+        if (!string.IsNullOrWhiteSpace(completedDigest))
+        {
+            context["completed_children"] = completedDigest;
+        }
+
+        return context;
+    }
+
+    private string BuildOriginalGoalExcerpt(int maxChars = 600)
+    {
+        if (string.IsNullOrWhiteSpace(CustomState.OriginalGoal))
+        {
+            return string.Empty;
+        }
+
+        var normalized = WhitespaceRegex.Replace(CustomState.OriginalGoal, " ").Trim();
+        if (normalized.Length <= maxChars)
+        {
+            return normalized;
+        }
+
+        return normalized[..maxChars] + "...";
+    }
+
+    private string BuildMicroHistoryDigest(int maxEntries = 4)
+    {
+        if (CustomState.MicroSummaries.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var upper = CustomState.MicroSummaries.Count;
+        var start = Math.Max(0, upper - maxEntries);
+        var segments = new List<string>(upper - start);
+
+        for (var i = start; i < upper; i++)
+        {
+            var title = GetStageLabel(i);
+            segments.Add($"{title}: {CustomState.MicroSummaries[i]}");
+        }
+
+        var digest = string.Join(" | ", segments);
+        if (start > 0)
+        {
+            digest = "... | " + digest;
+        }
+
+        return digest;
+    }
+
+    private string GetStageLabel(int objectiveIndex)
+    {
+        if (objectiveIndex < 0)
+        {
+            return $"Stage {objectiveIndex + 1}";
+        }
+
+        if (objectiveIndex >= CustomState.MicroObjectives.Count)
+        {
+            return $"Stage {objectiveIndex + 1}";
+        }
+
+        var raw = CustomState.MicroObjectives[objectiveIndex];
+        var normalized = NormalizeObjective(raw);
+
+        return string.IsNullOrWhiteSpace(normalized)
+            ? $"Stage {objectiveIndex + 1}"
+            : normalized;
+    }
+
+    private static string NormalizeObjective(string objective)
+    {
+        if (string.IsNullOrWhiteSpace(objective))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = objective.Trim();
+
+        if (trimmed.EndsWith("<END>", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed[..^5];
+        }
+
+        trimmed = trimmed.Trim();
+
+        while (trimmed.Length > 0 && IsBulletCharacter(trimmed[0]))
+        {
+            trimmed = trimmed[1..].TrimStart();
+        }
+
+        return trimmed;
+    }
+
+    private string BuildCompletedChildDigest(int maxEntries = 4)
+    {
+        if (CustomState.ChildResults.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var entries = CustomState.ChildResults
+            .OrderBy(pair => pair.Key)
+            .Take(maxEntries)
+            .Select(pair => $"{pair.Key}: {BuildPreview(pair.Value)}");
+
+        var digest = string.Join(" | ", entries);
+        if (CustomState.ChildResults.Count > maxEntries)
+        {
+            digest += " | ...";
+        }
+
+        return digest;
+    }
+
+    private string NormalizeMicroSummary(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return string.Empty;
+        }
+
+        var normalized = content.Trim();
+        if (normalized.EndsWith("<END>", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^5];
+        }
+
+        normalized = normalized.ReplaceLineEndings(" ").Trim();
+        normalized = WhitespaceRegex.Replace(normalized, " ").Trim();
+        return normalized;
+    }
+
+    private static bool IsBulletCharacter(char value)
+    {
+        return value == '-'
+               || value == '*'
+               || value == '\u2022'
+               || value == '\u00B7';
+    }
+
+    private bool IsDuplicateMicroSummary(string summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            return false;
+        }
+
+        var candidate = CanonicalizeMicroSummary(summary);
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        foreach (var existing in CustomState.MicroSummaries)
+        {
+            var canonical = CanonicalizeMicroSummary(existing);
+            if (!string.IsNullOrWhiteSpace(canonical) &&
+                string.Equals(candidate, canonical, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string CanonicalizeMicroSummary(string? summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            return string.Empty;
+        }
+
+        var normalized = summary.ReplaceLineEndings(" ").Trim();
+        normalized = Regex.Replace(normalized, @"\s+", " ");
+        return normalized;
+    }
+
+    private async Task<bool> RetryCurrentMicroStageAsync(
+        int stageIndex,
+        string stageLabel,
+        string reason,
+        CancellationToken ct)
+    {
+        var attempts = _microStageRetryCounters.TryGetValue(stageIndex, out var current)
+            ? current + 1
+            : 1;
+        _microStageRetryCounters[stageIndex] = attempts;
+
+        if (attempts > MicroStageRetryLimit)
+        {
+            return false;
+        }
+
+        Logger.LogWarning(
+            "Task {TaskId} micro stage {StageLabel} retry {Attempt}/{Limit}: {Reason}",
+            CustomState.TaskId,
+            stageLabel,
+            attempts,
+            MicroStageRetryLimit,
+            reason);
+
+        CustomState.VoteTallies.Clear();
+        CustomState.CandidateContent.Clear();
+        CustomState.ProposalAttempts = 0;
+        CustomState.ActiveRequestId = Guid.NewGuid().ToString("N");
+        CustomState.Phase = TaskAgentState.Types.Phase.AssessingComplexity;
+
+        var description = BuildTaskDescription(CustomState.OriginalGoal,
+            TaskAgentState.Types.GenerationRequestType.AtomicSolve);
+
+        await RequestWorkerFanOutAsync(description,
+            TaskAgentState.Types.GenerationRequestType.AtomicSolve, ct);
+
+        return true;
+    }
+
+    private static string BuildGoalWithInheritedContext(AssignTaskEvent evt)
+    {
+        var builder = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(evt.GoalDescription))
+        {
+            builder.AppendLine(evt.GoalDescription.Trim());
+        }
+
+        if (evt.ContextVariables.TryGetValue("original_goal_excerpt", out var excerpt) &&
+            !string.IsNullOrWhiteSpace(excerpt))
+        {
+            builder.AppendLine();
+            builder.AppendLine("[Inherited Goal]");
+            builder.AppendLine(excerpt);
+        }
+
+        if (evt.ContextVariables.TryGetValue("micro_history", out var microHistory) &&
+            !string.IsNullOrWhiteSpace(microHistory))
+        {
+            builder.AppendLine();
+            builder.AppendLine("[Upstream Micro Summary]");
+            builder.AppendLine(microHistory);
+        }
+
+        if (evt.ContextVariables.TryGetValue("completed_children", out var completedChildren) &&
+            !string.IsNullOrWhiteSpace(completedChildren))
+        {
+            builder.AppendLine();
+            builder.AppendLine("[Completed Sibling Insights]");
+            builder.AppendLine(completedChildren);
+        }
+
+        var text = builder.ToString().Trim();
+        return string.IsNullOrWhiteSpace(text)
+            ? evt.GoalDescription
+            : text;
     }
 
     private string BuildAggregateResult()
@@ -749,9 +1298,27 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             return steps;
         }
 
+        var payload = content.Trim();
+        
+        // Robust JSON extraction: Find the outer-most square brackets
+        var start = payload.IndexOf('[');
+        var end = payload.LastIndexOf(']');
+        
+        if (start >= 0 && end > start)
+        {
+            payload = payload.Substring(start, end - start + 1);
+        }
+        else 
+        {
+            // Fallback: if no brackets found, maybe it's just content? 
+            // But we expect an array. If no brackets, it's likely invalid or just text.
+            // We'll try to parse it as is, in case it's a valid JSON without brackets (unlikely for array)
+            // or rely on the parser to throw.
+        }
+
         try
         {
-            using var document = JsonDocument.Parse(content, _jsonOptions);
+            using var document = JsonDocument.Parse(payload, _jsonOptions);
             if (document.RootElement.ValueKind != JsonValueKind.Array)
             {
                 return steps;
@@ -760,18 +1327,27 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             var index = 1;
             foreach (var element in document.RootElement.EnumerateArray())
             {
-                var stepIdRaw = element.TryGetProperty("step_id", out var stepIdProp)
-                    ? stepIdProp.GetString()
-                    : null;
-                var descriptionRaw = element.TryGetProperty("description", out var descProp)
-                    ? descProp.GetString()
-                    : element.GetPropertyOrDefault("task") ??
-                      (element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString());
+                string? stepIdRaw = null;
+                string? descriptionRaw = null;
+
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    stepIdRaw = element.TryGetProperty("step_id", out var stepIdProp)
+                        ? stepIdProp.GetString()
+                        : null;
+                    descriptionRaw = element.TryGetProperty("description", out var descProp)
+                        ? descProp.GetString()
+                        : element.GetPropertyOrDefault("task");
+                }
+                else if (element.ValueKind == JsonValueKind.String)
+                {
+                    descriptionRaw = element.GetString();
+                }
 
                 var stepId = string.IsNullOrWhiteSpace(stepIdRaw) ? $"S{index:D2}" : stepIdRaw.Trim();
                 var description = descriptionRaw?.Trim();
 
-                if (!string.IsNullOrWhiteSpace(stepId) && !string.IsNullOrWhiteSpace(description))
+                if (!string.IsNullOrWhiteSpace(description))
                 {
                     steps.Add(new PlanStep(stepId, description!));
                     index++;
@@ -780,7 +1356,7 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         }
         catch (JsonException ex)
         {
-            Logger.LogWarning(ex, "Failed to parse decomposition plan for task {TaskId}", CustomState.TaskId);
+            Logger.LogWarning(ex, "Failed to parse decomposition plan for task {TaskId}. Payload preview: {Payload}", CustomState.TaskId, payload.Substring(0, Math.Min(payload.Length, 100)));
         }
 
         return steps;
@@ -794,7 +1370,9 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         }
 
         var trimmed = content.Trim();
-        return WhitespaceRegex.Replace(trimmed, " ");
+        // Do NOT collapse whitespace for canonicalization anymore as it ruins formatting
+        // return WhitespaceRegex.Replace(trimmed, " "); 
+        return trimmed;
     }
 
     private static string ComputeHash(string canonicalContent)
@@ -849,6 +1427,7 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         CustomState.Phase = TaskAgentState.Types.Phase.AssessingComplexity;
         CustomState.ProposalAttempts = 0;
         CustomState.VoteTallies.Clear();
+        CustomState.VoteClusters.Clear();
         CustomState.CandidateContent.Clear();
         CustomState.PreferredPlanHash = string.Empty;
         _selfHandledRequests.Clear();
@@ -864,14 +1443,14 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
         var builder = new StringBuilder();
         builder.AppendLine(CustomState.ActiveGenerationType ==
                            TaskAgentState.Types.GenerationRequestType.Decomposition
-            ? "你是备用的 MAKER 自身分解单元，在缺少外部投票时，需要迅速给出一个候选方案。"
-            : "你是备用的 MAKER 自身求解单元，需要给出一个极简且可靠的候选方案。");
-        builder.AppendLine("遵守以下规则：");
-        builder.AppendLine("1. 回答必须简洁，避免多余解释。");
-        builder.AppendLine("2. 如果是分解任务，请输出 JSON 数组；若是原子任务，请输出 3 行以内的内容。");
-        builder.AppendLine("3. 最后追加标记 <END> 并立即停止。");
+            ? "You are the fallback MAKER decomposition unit. Produce a candidate plan quickly when external votes are missing."
+            : "You are the fallback MAKER atomic solver. Produce a minimal yet reliable answer when external votes are missing.");
+        builder.AppendLine("Follow these rules:");
+        builder.AppendLine("1. Keep responses concise - no extra commentary.");
+        builder.AppendLine("2. For decomposition tasks, output a JSON array; for atomic tasks, use no more than three lines.");
+        builder.AppendLine("3. Append the <END> marker and stop immediately.");
         builder.AppendLine();
-        builder.AppendLine("【当前任务】");
+        builder.AppendLine("[Current Task]");
         builder.AppendLine(evt.TaskDescription);
         return builder.ToString();
     }
@@ -888,7 +1467,8 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
             Message = prompt,
             RequestId = $"{evt.RequestId}:self",
             Temperature = 0.2,
-            MaxTokens = evt.MaxOutputTokens > 0 ? evt.MaxOutputTokens : 200
+            // Increase max tokens for self worker to allow valid json plans
+            MaxTokens = evt.MaxOutputTokens > 0 ? Math.Max(evt.MaxOutputTokens, 1000) : 1000
         };
 
         foreach (var seq in evt.StopSequences)
@@ -909,7 +1489,7 @@ You are a MAKER supervisor. Your job is to orchestrate recursive decomposition a
                 continue;
             }
 
-            Logger.LogInformation("✨ SelfWorker chunk: {Chunk}", chunk.Trim());
+            //Logger.LogInformation("SelfWorker chunk: {Chunk}", chunk.Trim());
             builder.Append(chunk);
         }
 
