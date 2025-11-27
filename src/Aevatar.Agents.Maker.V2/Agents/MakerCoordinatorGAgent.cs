@@ -41,11 +41,16 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     
     // Async coordination
     private TaskCompletionSource<bool>? _initCompletionSource;
-    private TaskCompletionSource<List<ProposalResult>>? _votingCompletionSource;
+    private TaskCompletionSource<VoteResult>? _consensusCompletionSource;
+    private CancellationTokenSource? _votingCts;
+    private VoteEngine? _currentVoteEngine;
     private readonly ConcurrentBag<ProposalResult> _collectedProposals = [];
     private int _workersInitialized;
     private int _expectedWorkers;
+    private int _activeWorkerRequests;
     private string? _currentVotingRequestPrefix;
+    private bool _isSolutionVoting;
+    private int _currentDepth;
     
     // Execution state
     private MakerResult? _cachedResult;
@@ -341,28 +346,103 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     }
 
     /// <summary>
-    /// Handle proposal results from workers.
+    /// Handle proposal results from workers - STREAMING RACE PATTERN.
+    /// Each proposal is immediately voted, consensus triggers early termination.
     /// </summary>
     [EventHandler]
-    public Task HandleProposalResult(ProposalResult result)
+    public async Task HandleProposalResult(ProposalResult result)
     {
         Logger.LogDebug("Received proposal {ProposalId} from worker {WorkerId} for task {TaskId}",
             result.ProposalId, result.WorkerId, result.TaskId);
 
         // Check if this proposal belongs to current voting session
-        if (_currentVotingRequestPrefix != null && result.RequestId.StartsWith(_currentVotingRequestPrefix))
+        if (_currentVotingRequestPrefix == null || !result.RequestId.StartsWith(_currentVotingRequestPrefix))
         {
-            _collectedProposals.Add(result);
-            CustomState.PendingProposals = _collectedProposals.Count;
+            return;
+        }
+        
+        // Check if voting already completed (early termination)
+        if (_consensusCompletionSource?.Task.IsCompleted == true)
+        {
+            Logger.LogDebug("Ignoring late proposal {ProposalId} - consensus already reached", result.ProposalId);
+            return;
+        }
 
-            // Check if we have all proposals
-            if (_collectedProposals.Count >= _expectedWorkers)
+        _collectedProposals.Add(result);
+        CustomState.PendingProposals = _collectedProposals.Count;
+        CustomState.TotalLlmCalls++;
+        
+        // Track token usage if available
+        if (result.PromptTokens > 0 || result.CompletionTokens > 0)
+        {
+            CustomState.TotalTokensUsed += result.PromptTokens + result.CompletionTokens;
+        }
+
+        // Report progress
+        ReportProgress(new MakerProgress
+        {
+            Phase = MakerPhase.Voting,
+            TaskId = result.TaskId,
+            Message = $"Received proposal #{_collectedProposals.Count} from {result.WorkerId}",
+            Depth = _currentDepth,
+            Proposal = new LLMProposal
             {
-                _votingCompletionSource?.TrySetResult(_collectedProposals.ToList());
+                ProposalId = result.ProposalId,
+                Content = result.Content,
+                Success = result.Success,
+                Error = result.Error,
+                PromptTokens = result.PromptTokens,
+                CompletionTokens = result.CompletionTokens
+            }
+        });
+
+        // Skip failed proposals
+        if (!result.Success || string.IsNullOrWhiteSpace(result.Content))
+        {
+            Interlocked.Decrement(ref _activeWorkerRequests);
+            return;
+        }
+
+        // STREAMING RACE: Immediately submit vote
+        if (_currentVoteEngine != null)
+        {
+            var cleanedContent = _isSolutionVoting
+                ? _solver.ExtractSolution(result.Content)
+                : result.Content;
+
+            var voteResult = await _currentVoteEngine.SubmitVoteAsync(cleanedContent, default);
+            
+            var progress = _currentVoteEngine.GetProgress(
+                _isSolutionVoting ? VotingType.Solution : VotingType.Decomposition);
+
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Voting,
+                TaskId = result.TaskId,
+                Message = voteResult != null
+                    ? $"✓ CONSENSUS REACHED after {_collectedProposals.Count} proposals! Early termination."
+                    : $"Voting (clusters: {progress.ClusterCount}, leader: {progress.LeaderVotes}/{progress.VotesNeeded})",
+                Depth = _currentDepth,
+                Voting = progress
+            });
+
+            // EARLY TERMINATION: Consensus reached!
+            if (voteResult != null)
+            {
+                Logger.LogInformation(
+                    "Early termination: Consensus reached after {Count} proposals (saved waiting for {Remaining} more)",
+                    _collectedProposals.Count,
+                    _activeWorkerRequests - 1);
+                    
+                _consensusCompletionSource?.TrySetResult(voteResult);
+                
+                // Cancel remaining workers
+                _votingCts?.Cancel();
+                return;
             }
         }
 
-        return Task.CompletedTask;
+        Interlocked.Decrement(ref _activeWorkerRequests);
     }
 
     #endregion
@@ -388,7 +468,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         });
 
         var options = _currentOptions ?? new MakerOptions();
-        var isAtomic = _decomposer.IsAtomic(description, depth, options.MaxDepth);
+        
+        // Use LLM-based atomicity assessment instead of heuristics
+        var isAtomic = await AssessAtomicityAsync(description, depth, options.MaxDepth, ct);
 
         if (isAtomic)
         {
@@ -429,6 +511,63 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         }
 
         return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
+    }
+
+    /// <summary>
+    /// LLM-based atomicity assessment instead of naive heuristics.
+    /// MAKER paper: "Maximal Decomposition" requires intelligent judgment of decomposability.
+    /// </summary>
+    private async Task<bool> AssessAtomicityAsync(
+        string taskDescription,
+        int currentDepth,
+        int maxDepth,
+        CancellationToken ct)
+    {
+        // Hard constraint: max depth reached → atomic
+        if (currentDepth >= maxDepth)
+        {
+            return true;
+        }
+
+        // Use LLM to assess atomicity (lightweight call with low temperature)
+        var prompt = $"""
+            You are a task complexity analyzer. Determine if the following task can be reliably solved in a SINGLE LLM inference step, or if it needs to be broken down into subtasks.
+
+            Consider:
+            - Can this be answered directly without multiple reasoning steps?
+            - Does this require gathering multiple pieces of information?
+            - Could breaking this down improve accuracy?
+
+            Task: {taskDescription}
+
+            Answer ONLY with one word: "ATOMIC" if solvable directly, or "DECOMPOSE" if needs breakdown.
+            """;
+
+        try
+        {
+            var response = await GenerateResponseAsync(prompt, ct);
+            CustomState.TotalLlmCalls++;
+            
+            var answer = response.Content?.Trim().ToUpperInvariant() ?? "";
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Assessing,
+                TaskId = CustomState.CurrentTaskId ?? "unknown",
+                Message = $"LLM atomicity assessment: {answer}",
+                Depth = currentDepth
+            });
+            
+            // If LLM says ATOMIC, use it. Otherwise decompose.
+            return answer.Contains("ATOMIC");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Atomicity assessment failed, falling back to heuristic");
+            
+            // Fallback to strategy-based assessment
+            return _decomposer.IsAtomic(taskDescription, currentDepth, maxDepth);
+        }
     }
 
     private async Task<(string? Result, TaskNode Node)> SolveAtomicTaskAsync(
@@ -569,20 +708,21 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
     #endregion
 
-    #region Voting with Workers (Event-Driven)
+    #region Voting with Workers (Event-Driven, Streaming Race)
 
     /// <summary>
-    /// Run single-round voting with worker agents.
+    /// Run streaming race voting with worker agents.
     /// 
-    /// MAKER Paper Design:
-    /// - Single round of N parallel LLM calls
-    /// - If K+ proposals reach consensus → Accept result
-    /// - If no consensus → Task is too complex, needs decomposition (NOT retry!)
+    /// MAKER Paper Design (Algorithm 4 - First-to-ahead-by-K):
+    /// - Dispatch N workers in parallel
+    /// - As each result arrives, IMMEDIATELY submit vote (no waiting)
+    /// - If consensus reached, CANCEL remaining workers (early termination)
+    /// - If first batch fails, dispatch more workers (continuous sampling)
+    /// - Maximum samples = 3*N to prevent infinite loops
     /// 
-    /// Returns: (Result, BestCandidate, Session)
-    /// - Result: The winning content if consensus reached, null otherwise
-    /// - BestCandidate: The best candidate even if no consensus (for fallback)
-    /// - Session: Voting session details
+    /// Key optimizations:
+    /// - Latency = fastest K workers, not slowest worker (Straggler-resistant)
+    /// - Token efficiency via early termination
     /// </summary>
     private async Task<(string? Result, string? BestCandidate, VotingSession? Session)> RunVotingWithWorkersAsync(
         string taskId,
@@ -592,15 +732,20 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         int depth,
         CancellationToken ct)
     {
-        // Get embedding generator from AIGAgentBase (configured during InitializeAsync)
+        // Get embedding generator from AIGAgentBase
         TryGetEmbeddingGenerator(out var embeddingGenerator);
         
-        // VoteEngine with maxRounds=1 (single round per MAKER paper)
+        // Create vote engine - supports continuous sampling
         var engine = new VoteEngine(
             options.ConsensusK,
             embeddingGenerator,
-            maxRounds: 1,  // MAKER paper: single round voting
+            maxRounds: 10,  // Allow continuous sampling up to 10 batches
             options.SemanticSimilarityThreshold);
+
+        // Store for streaming race
+        _currentVoteEngine = engine;
+        _isSolutionVoting = isSolution;
+        _currentDepth = depth;
 
         var systemPrompt = isSolution
             ? "You are a precise problem solver. Provide clear, direct answers."
@@ -608,18 +753,23 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         var maxTokens = isSolution ? 2048 : 1024;
         var baseTemperature = isSolution ? 0.2f : 0.3f;
+        
+        // Maximum samples = 3 * N (prevent infinite loops)
+        var maxTotalSamples = 3 * options.SamplesPerRound;
+        var totalSamplesSent = 0;
+        var round = 1;
 
         // Report voting start
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Voting,
             TaskId = taskId,
-            Message = $"Dispatching {_expectedWorkers} parallel LLM requests for {(isSolution ? "solution" : "decomposition")}",
+            Message = $"Starting streaming race with {_expectedWorkers} workers (K={options.ConsensusK})",
             Depth = depth,
             Voting = new VotingProgress
             {
                 Type = isSolution ? VotingType.Solution : VotingType.Decomposition,
-                Round = 1,
+                Round = round,
                 TotalVotes = 0,
                 VotesNeeded = options.ConsensusK,
                 LeaderVotes = 0,
@@ -630,101 +780,97 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         });
         
         // Generate unique request prefix
-        var requestPrefix = $"{taskId}:";
+        var requestPrefix = $"{taskId}:R{round}:";
         _currentVotingRequestPrefix = requestPrefix;
         _collectedProposals.Clear();
         CustomState.PendingProposals = 0;
 
-        // Setup completion source
-        _votingCompletionSource = new TaskCompletionSource<List<ProposalResult>>();
-
-        // Dispatch requests to all workers via events (DOWN to children)
-        for (var i = 0; i < _expectedWorkers; i++)
-        {
-            var requestId = $"{requestPrefix}W{i}";
-            var workerTemp = DecorrelateTemperature(baseTemperature, i, options.TemperatureVariance);
-
-            await PublishAsync(new GenerateProposalRequest
-            {
-                RequestId = requestId,
-                TaskId = taskId,
-                SystemPrompt = systemPrompt,
-                UserPrompt = prompt,
-                Temperature = workerTemp,
-                MaxTokens = maxTokens,
-                IsDecomposition = !isSolution
-            }, EventDirection.Down);
-        }
-
-        // Wait for proposals (with timeout)
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(60));
-
-        List<ProposalResult> proposals;
-        try
-        {
-            proposals = await _votingCompletionSource.Task.WaitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            Logger.LogWarning("Voting timed out with {Count}/{Expected} proposals",
-                _collectedProposals.Count, _expectedWorkers);
-            proposals = _collectedProposals.ToList();
-        }
-
-        // Process collected proposals
-        VoteResult? voteResult = null;
-        var proposalCount = 0;
+        // Setup consensus completion source for early termination
+        _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
+        _votingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         
-        foreach (var result in proposals)
+        VoteResult? voteResult = null;
+
+        // Continuous sampling loop
+        while (totalSamplesSent < maxTotalSamples && voteResult == null)
         {
-            proposalCount++;
-            CustomState.TotalLlmCalls++;
+            var batchSize = Math.Min(_expectedWorkers, maxTotalSamples - totalSamplesSent);
+            _activeWorkerRequests = batchSize;
+            
+            Logger.LogInformation(
+                "Dispatching batch {Round}: {BatchSize} workers (total sent: {Total}/{Max})",
+                round, batchSize, totalSamplesSent + batchSize, maxTotalSamples);
 
-            ReportProgress(new MakerProgress
+            // Dispatch batch of workers
+            for (var i = 0; i < batchSize; i++)
             {
-                Phase = MakerPhase.Voting,
-                TaskId = taskId,
-                Message = $"Received proposal #{proposalCount}/{_expectedWorkers} from {result.WorkerId}",
-                Depth = depth,
-                Proposal = new LLMProposal
+                var requestId = $"{requestPrefix}W{totalSamplesSent + i}";
+                var workerTemp = DecorrelateTemperature(baseTemperature, totalSamplesSent + i, options.TemperatureVariance);
+
+                await PublishAsync(new GenerateProposalRequest
                 {
-                    ProposalId = result.ProposalId,
-                    Content = result.Content,
-                    Success = result.Success,
-                    Error = result.Error
-                }
-            });
+                    RequestId = requestId,
+                    TaskId = taskId,
+                    SystemPrompt = systemPrompt,
+                    UserPrompt = prompt,
+                    Temperature = workerTemp,
+                    MaxTokens = maxTokens,
+                    IsDecomposition = !isSolution
+                }, EventDirection.Down);
+            }
+            
+            totalSamplesSent += batchSize;
 
-            if (!result.Success || string.IsNullOrWhiteSpace(result.Content))
-                continue;
-
-            var cleanedContent = isSolution
-                ? _solver.ExtractSolution(result.Content)
-                : result.Content;
-
-            voteResult = await engine.SubmitVoteAsync(cleanedContent, ct);
-
-            var progress = engine.GetProgress(isSolution ? VotingType.Solution : VotingType.Decomposition);
-
-            ReportProgress(new MakerProgress
+            // Wait for either:
+            // 1. Consensus reached (early termination) - FAST PATH
+            // 2. Timeout (per batch)
+            // 3. Cancellation
+            try
             {
-                Phase = MakerPhase.Voting,
-                TaskId = taskId,
-                Message = voteResult != null
-                    ? $"✓ Consensus reached! K={options.ConsensusK} votes achieved"
-                    : $"Clustering proposals (clusters: {progress.ClusterCount}, leader: {progress.LeaderVotes})",
-                Depth = depth,
-                Voting = progress
-            });
-
-            if (voteResult != null)
-                break;
+                using var batchCts = CancellationTokenSource.CreateLinkedTokenSource(_votingCts.Token);
+                batchCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s per batch
+                
+                voteResult = await _consensusCompletionSource.Task.WaitAsync(batchCts.Token);
+                
+                Logger.LogInformation(
+                    "EARLY TERMINATION: Consensus reached in {Ms}ms after {Samples} samples",
+                    _stopwatch.ElapsedMilliseconds,
+                    _collectedProposals.Count);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Batch timeout - check if we should continue sampling
+                voteResult = engine.CheckConsensus();
+                
+                if (voteResult == null && totalSamplesSent < maxTotalSamples)
+                {
+                    // No consensus yet, prepare next batch
+                    round++;
+                    requestPrefix = $"{taskId}:R{round}:";
+                    _currentVotingRequestPrefix = requestPrefix;
+                    _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
+                    
+                    var progress = engine.GetProgress(isSolution ? VotingType.Solution : VotingType.Decomposition);
+                    
+                    ReportProgress(new MakerProgress
+                    {
+                        Phase = MakerPhase.Voting,
+                        TaskId = taskId,
+                        Message = $"No consensus in batch {round - 1}, dispatching more workers (continuous sampling)",
+                        Depth = depth,
+                        Voting = progress
+                    });
+                }
+            }
         }
 
+        // Cleanup
         _currentVotingRequestPrefix = null;
+        _currentVoteEngine = null;
+        _votingCts?.Dispose();
+        _votingCts = null;
 
-        // Check final consensus state
+        // Final consensus check
         voteResult ??= engine.CheckConsensus();
         
         // Get best candidate even if no consensus (for fallback)

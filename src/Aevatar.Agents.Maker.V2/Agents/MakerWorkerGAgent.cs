@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
@@ -93,12 +94,15 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         CustomState.Status = 1; // Working
         CustomState.LastActivity = Timestamp.FromDateTime(DateTime.UtcNow);
 
+        var startTime = Stopwatch.GetTimestamp();
+        
         Logger.LogDebug("Worker {WorkerId} processing request {RequestId} for task {TaskId}",
             CustomState.WorkerId, request.RequestId, request.TaskId);
 
         string? content = null;
         string? error = null;
         var success = false;
+        int promptTokens = 0, completionTokens = 0, totalTokens = 0;
 
         try
         {
@@ -116,6 +120,14 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             var response = await LLMProvider.GenerateAsync(llmRequest);
             content = response.Content;
             success = !string.IsNullOrWhiteSpace(content);
+            
+            // Collect token usage
+            if (response.Usage != null)
+            {
+                promptTokens = response.Usage.PromptTokens;
+                completionTokens = response.Usage.CompletionTokens;
+                totalTokens = response.Usage.TotalTokens;
+            }
 
             if (success)
             {
@@ -135,6 +147,8 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             CustomState.FailedProposals++;
         }
 
+        var latencyMs = (long)((Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency);
+        
         CustomState.TotalProposals++;
         CustomState.Status = 0; // Back to idle
 
@@ -153,8 +167,16 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             Content = content ?? string.Empty,
             Success = success,
             Error = error ?? string.Empty,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            PromptTokens = promptTokens,
+            CompletionTokens = completionTokens,
+            TotalTokens = totalTokens,
+            LatencyMs = latencyMs
         }, EventDirection.Up);
+        
+        Logger.LogDebug(
+            "Worker {WorkerId} completed request {RequestId} in {LatencyMs}ms (tokens: {Prompt}+{Completion}={Total})",
+            CustomState.WorkerId, request.RequestId, latencyMs, promptTokens, completionTokens, totalTokens);
     }
 
     #endregion

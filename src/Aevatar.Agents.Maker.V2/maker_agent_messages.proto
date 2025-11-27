@@ -33,12 +33,16 @@ message MakerCoordinatorState {
     
     // Red flags
     repeated string red_flag_reasons = 15;
+    
+    // Token telemetry
+    int64 total_tokens_used = 16;
+    int64 total_prompt_tokens = 17;
+    int64 total_completion_tokens = 18;
 }
 
 message MakerCoordinatorConfig {
     int32 default_consensus_k = 1;
     int32 default_max_depth = 2;
-//    int32 max_voting_rounds = 3;
     int64 step_timeout_ms = 4;
     string llm_provider_name = 5;
     float base_temperature = 6;
@@ -90,7 +94,6 @@ message StartMakerTaskRequest {
     int32 consensus_k = 4;
     int32 max_depth = 5;
     int32 samples_per_round = 6;
-//    int32 max_voting_rounds = 7;
     float base_temperature = 8;
     float temperature_variance = 9;
     float semantic_similarity_threshold = 10;
@@ -142,6 +145,14 @@ message ProposalResult {
     bool success = 6;
     string error = 7;
     google.protobuf.Timestamp timestamp = 8;
+    
+    // Token usage telemetry
+    int32 prompt_tokens = 9;
+    int32 completion_tokens = 10;
+    int32 total_tokens = 11;
+    
+    // Timing
+    int64 latency_ms = 12;
 }
 
 // ============================================================

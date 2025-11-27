@@ -69,6 +69,26 @@ public sealed record LLMProposal
     /// Error message if failed.
     /// </summary>
     public string? Error { get; init; }
+    
+    /// <summary>
+    /// Prompt tokens used.
+    /// </summary>
+    public int PromptTokens { get; init; }
+    
+    /// <summary>
+    /// Completion tokens used.
+    /// </summary>
+    public int CompletionTokens { get; init; }
+    
+    /// <summary>
+    /// Total tokens used.
+    /// </summary>
+    public int TotalTokens => PromptTokens + CompletionTokens;
+    
+    /// <summary>
+    /// Latency in milliseconds.
+    /// </summary>
+    public long LatencyMs { get; init; }
 }
 
 /// <summary>
