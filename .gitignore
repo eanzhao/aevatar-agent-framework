@@ -489,3 +489,4 @@ ai-smart-home/
 appsettings.secrets.json
 
 runs/
+output/

@@ -17,6 +17,9 @@
                 <span class="brand-text">AEVATAR</span>
             </div>
             <nav id="project-nav" class="nav-list"></nav>
+            <button id="btn-new-project" class="btn-new-project" onclick="showCreateProjectModal()">
+                <span>+</span> NEW_PROJECT
+            </button>
             <div class="sys-status">
                 <div class="sys-row">
                     <span>SYSTEM</span>
@@ -144,6 +147,79 @@
                 <div class="loader-bracket">[ SELECT_MODULE ]</div>
             </div>
         </main>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden" onclick="hideCreateProjectModal()">
+        <div class="modal-dialog" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <span class="modal-title">>> CREATE_NEW_PROJECT</span>
+                <button class="modal-close" onclick="hideCreateProjectModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-tabs">
+                    <button class="modal-tab active" onclick="switchConfigMode('simple')">SIMPLE</button>
+                    <button class="modal-tab" onclick="switchConfigMode('advanced')">ADVANCED</button>
+                </div>
+                
+                <!-- Simple Mode -->
+                <div id="mode-simple" class="config-mode active">
+                    <div class="form-group">
+                        <label>PROJECT_NAME</label>
+                        <input type="text" id="cfg-name" value="My Analysis Project" />
+                    </div>
+                    <div class="form-group">
+                        <label>ICON</label>
+                        <input type="text" id="cfg-icon" value="🔬" style="width: 60px" />
+                    </div>
+                    <div class="form-group">
+                        <label>DESCRIPTION</label>
+                        <input type="text" id="cfg-desc" value="A simple analysis task" />
+                    </div>
+                    <div class="form-group">
+                        <label>TASK_OBJECTIVE</label>
+                        <textarea id="cfg-task" rows="5" placeholder="Describe what you want to analyze...">Analyze the following data and provide insights...</textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>RELIABILITY</label>
+                            <select id="cfg-reliability">
+                                <option value="Low">Low (K=1)</option>
+                                <option value="Medium" selected>Medium (K=2)</option>
+                                <option value="High">High (K=3)</option>
+                                <option value="Critical">Critical (K=4)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>MAX_DEPTH</label>
+                            <input type="number" id="cfg-depth" value="2" min="1" max="5" />
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Advanced Mode (JSON) -->
+                <div id="mode-advanced" class="config-mode">
+                    <div class="form-group">
+                        <label>CONFIG_JSON</label>
+                        <textarea id="cfg-json" rows="16" placeholder="Paste JSON config here..."></textarea>
+                    </div>
+                    <div class="template-btns">
+                        <button class="btn-template" onclick="loadTemplate('simple')">Load Simple Template</button>
+                        <button class="btn-template" onclick="loadTemplate('advanced')">Load Advanced Template</button>
+                    </div>
+                </div>
+                
+                <!-- Sample Projects -->
+                <div class="sample-section">
+                    <label class="sample-label">📦 SAMPLE_PROJECTS (点击快速加载)</label>
+                    <div id="sample-list" class="sample-list"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="hideCreateProjectModal()">CANCEL</button>
+                <button class="btn-create" onclick="createProject()">CREATE_PROJECT</button>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

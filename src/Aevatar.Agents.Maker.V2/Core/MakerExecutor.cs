@@ -335,14 +335,17 @@ public sealed class MakerExecutor : IMakerExecutor
             }
 
             voteResult = engine.SubmitVote(response.Content);
+            var progress = engine.GetProgress(VotingType.Decomposition);
 
             ReportProgress(options, new MakerProgress
             {
                 Phase = MakerPhase.Voting,
                 TaskId = taskId,
-                Message = "Voting on decomposition plan",
+                Message = voteResult != null 
+                    ? $"✓ Decomposition consensus reached after {calls} proposals"
+                    : "Voting on decomposition plan",
                 Depth = 0,
-                Voting = engine.GetProgress(VotingType.Decomposition)
+                Voting = progress
             });
 
             if (voteResult != null)
@@ -381,6 +384,19 @@ public sealed class MakerExecutor : IMakerExecutor
                 }
 
                 voteResult = engine.SubmitVote(response.Content);
+                
+                // Report voting progress
+                ReportProgress(options, new MakerProgress
+                {
+                    Phase = MakerPhase.Voting,
+                    TaskId = taskId,
+                    Message = voteResult != null 
+                        ? $"✓ Decomposition consensus reached after {calls} proposals"
+                        : "Voting on decomposition plan",
+                    Depth = 0,
+                    Voting = engine.GetProgress(VotingType.Decomposition)
+                });
+                
                 if (voteResult != null)
                 {
                     break;
@@ -495,7 +511,9 @@ public sealed class MakerExecutor : IMakerExecutor
             {
                 Phase = MakerPhase.Voting,
                 TaskId = taskId,
-                Message = "Voting on solution",
+                Message = voteResult != null 
+                    ? $"✓ Solution consensus reached after {calls} proposals"
+                    : "Voting on solution",
                 Depth = 0,
                 Voting = engine.GetProgress(VotingType.Solution)
             });
@@ -537,6 +555,19 @@ public sealed class MakerExecutor : IMakerExecutor
 
                 var cleanedContent = solver.ExtractSolution(response.Content);
                 voteResult = engine.SubmitVote(cleanedContent);
+                
+                // Report voting progress
+                ReportProgress(options, new MakerProgress
+                {
+                    Phase = MakerPhase.Voting,
+                    TaskId = taskId,
+                    Message = voteResult != null 
+                        ? $"✓ Solution consensus reached after {calls} proposals"
+                        : "Voting on solution",
+                    Depth = 0,
+                    Voting = engine.GetProgress(VotingType.Solution)
+                });
+                
                 if (voteResult != null)
                 {
                     break;

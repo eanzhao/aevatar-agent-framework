@@ -12,8 +12,149 @@ const APP_STATE = {
     files: [],           // { category, name, path }
     activeFile: null,    // Currently selected file path
     artifacts: [],       // Stage results for ARTIFACTS view
+    configTemplates: null,  // Config templates for project creation
     dom: {}
 };
+
+// ============================================================
+//  Dynamic Project Creation (Zero-Code Config)
+// ============================================================
+
+function showCreateProjectModal() {
+    document.getElementById('modal-overlay').classList.remove('hidden');
+    // Load templates if not loaded
+    if (!APP_STATE.configTemplates) {
+        loadConfigTemplates();
+    }
+    // Load sample projects if not loaded
+    if (!APP_STATE.sampleConfigs) {
+        loadSampleProjects();
+    }
+}
+
+function hideCreateProjectModal() {
+    document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+function switchConfigMode(mode) {
+    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.config-mode').forEach(m => m.classList.remove('active'));
+    
+    document.querySelector(`.modal-tab:nth-child(${mode === 'simple' ? 1 : 2})`).classList.add('active');
+    document.getElementById(`mode-${mode}`).classList.add('active');
+}
+
+async function loadConfigTemplates() {
+    try {
+        APP_STATE.configTemplates = await fetchJson('/api/projects/templates');
+    } catch (err) {
+        console.error("Failed to load templates:", err);
+    }
+}
+
+// Load sample projects
+async function loadSampleProjects() {
+    try {
+        const data = await fetchJson('/sample-configs.json');
+        APP_STATE.sampleConfigs = data.samples;
+        renderSampleList(data.samples);
+    } catch (err) {
+        console.error("Failed to load sample configs:", err);
+    }
+}
+
+function renderSampleList(samples) {
+    const container = document.getElementById('sample-list');
+    if (!container) return;
+    
+    container.innerHTML = samples.map((s, idx) => `
+        <div class="sample-card" onclick="loadSampleConfig(${idx})">
+            <div class="sample-card-icon">${s.config.icon}</div>
+            <div class="sample-card-name">${s.name}</div>
+            <div class="sample-card-desc">${s.description}</div>
+            <div class="sample-card-tags">
+                ${s.testFocus.map(t => `<span class="sample-tag">${t}</span>`).join('')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function loadSampleConfig(idx) {
+    const sample = APP_STATE.sampleConfigs[idx];
+    if (!sample) return;
+    
+    const config = sample.config;
+    
+    // Populate simple mode fields
+    document.getElementById('cfg-name').value = config.name;
+    document.getElementById('cfg-icon').value = config.icon;
+    document.getElementById('cfg-desc').value = config.description;
+    document.getElementById('cfg-task').value = config.task;
+    document.getElementById('cfg-reliability').value = config.reliability;
+    document.getElementById('cfg-depth').value = config.maxDepth;
+    
+    // Also populate JSON mode
+    document.getElementById('cfg-json').value = JSON.stringify(config, null, 2);
+    
+    // Visual feedback
+    document.querySelectorAll('.sample-card').forEach((card, i) => {
+        card.style.borderColor = i === idx ? 'var(--accent-main)' : '';
+    });
+}
+
+function loadTemplate(type) {
+    if (!APP_STATE.configTemplates) {
+        alert("Templates not loaded yet.");
+        return;
+    }
+    const template = APP_STATE.configTemplates[type];
+    if (template) {
+        document.getElementById('cfg-json').value = JSON.stringify(template, null, 2);
+    }
+}
+
+async function createProject() {
+    const activeMode = document.querySelector('.config-mode.active').id;
+    let config;
+    
+    if (activeMode === 'mode-simple') {
+        // Build config from form fields
+        config = {
+            name: document.getElementById('cfg-name').value,
+            icon: document.getElementById('cfg-icon').value,
+            description: document.getElementById('cfg-desc').value,
+            task: document.getElementById('cfg-task').value,
+            reliability: document.getElementById('cfg-reliability').value,
+            maxDepth: parseInt(document.getElementById('cfg-depth').value, 10)
+        };
+    } else {
+        // Parse JSON from textarea
+        try {
+            config = JSON.parse(document.getElementById('cfg-json').value);
+        } catch (err) {
+            alert("Invalid JSON: " + err.message);
+            return;
+        }
+    }
+    
+    try {
+        const result = await fetch('/api/projects/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(r => r.json());
+        
+        if (result.success) {
+            hideCreateProjectModal();
+            await loadProjectList();
+            selectProject(result.projectId);
+        } else {
+            alert("Failed to create project: " + (result.error || "Unknown error"));
+        }
+    } catch (err) {
+        alert("Error creating project: " + err.message);
+    }
+}
 
 // --- Initialization ---
 
@@ -441,6 +582,7 @@ function renderFiles() {
     const categoryIcons = {
         'proposals': '📝',
         'votes': '🗳️',
+        'consensus': '📊',
         'artifacts': '📦'
     };
     
@@ -478,17 +620,12 @@ async function loadFile(category, name) {
         
         const content = await res.text();
         
-        // Simple markdown rendering
-        const formatted = content
-            .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-            .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-            .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-            .replace(/`([^`]+)`/g, '<code>$1</code>')
-            .replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')
-            .replace(/\n/g, '<br>');
+        // Use marked.js for proper markdown rendering (including tables)
+        const html = typeof marked !== 'undefined' 
+            ? marked.parse(content) 
+            : escapeHtml(content);
         
-        APP_STATE.dom.filePreview.innerHTML = `<div class="file-content">${formatted}</div>`;
+        APP_STATE.dom.filePreview.innerHTML = `<div class="file-content markdown-body">${html}</div>`;
         
     } catch (err) {
         APP_STATE.dom.filePreview.innerHTML = `<div class="preview-placeholder">ERROR: ${err.message}</div>`;
@@ -505,16 +642,12 @@ function renderResult(snapshot) {
 }
 
 function renderResultContent(content) {
-    const formatted = content
-        .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-        .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')
-        .replace(/\n/g, '<br>');
+    // Use marked.js for proper markdown rendering
+    const html = typeof marked !== 'undefined' 
+        ? marked.parse(content) 
+        : escapeHtml(content);
     
-    APP_STATE.dom.finalResult.innerHTML = `<div class="result-content">${formatted}</div>`;
+    APP_STATE.dom.finalResult.innerHTML = `<div class="result-content markdown-body">${html}</div>`;
 }
 
 // --- Utilities ---

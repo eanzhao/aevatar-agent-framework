@@ -19,8 +19,17 @@ public enum ReliabilityLevel
     /// <summary>K=3, N=5. Reliable for important tasks.</summary>
     High = 3,
     
+    /// <summary>K=4, N=7. High reliability for important decisions.</summary>
+    VeryHigh = 4,
+    
     /// <summary>K=5, N=9. Maximum reliability for critical tasks.</summary>
-    Critical = 5
+    Critical = 5,
+    
+    /// <summary>K=7, N=13. Ultra-high reliability for mission-critical.</summary>
+    UltraCritical = 7,
+    
+    /// <summary>K=10, N=19. Extreme reliability, very expensive.</summary>
+    Extreme = 10
 }
 
 /// <summary>
@@ -33,6 +42,12 @@ public sealed record MakerOptions
     /// Default: Medium (K=2, N=3)
     /// </summary>
     public ReliabilityLevel Reliability { get; init; } = ReliabilityLevel.Medium;
+    
+    /// <summary>
+    /// Override K value directly. If set, ignores Reliability level.
+    /// Use this for fine-grained control over voting parameters.
+    /// </summary>
+    public int? CustomK { get; init; }
     
     /// <summary>
     /// Maximum recursion depth. Default: 4 (sufficient for most tasks).
@@ -80,8 +95,9 @@ public sealed record MakerOptions
     
     /// <summary>
     /// K value for first-to-ahead-by-K voting.
+    /// Uses CustomK if set, otherwise derived from Reliability level.
     /// </summary>
-    public int ConsensusK => (int)Reliability;
+    public int ConsensusK => CustomK ?? (int)Reliability;
     
     /// <summary>
     /// Number of samples per voting round. N = 2K - 1.

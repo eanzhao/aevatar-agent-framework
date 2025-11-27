@@ -36,6 +36,22 @@ app.UseStaticFiles();
 app.MapGet("/api/projects", (MakerProjectService svc) =>
     Results.Json(svc.GetProjects()));
 
+// Create dynamic project from JSON config (zero-code)
+app.MapPost("/api/projects/create", async (HttpContext ctx, MakerProjectService svc) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var configJson = await reader.ReadToEndAsync();
+    return Results.Json(svc.CreateProjectFromConfig(configJson));
+});
+
+// Delete dynamic project
+app.MapDelete("/api/projects/{projectId}", (string projectId, MakerProjectService svc) =>
+    Results.Json(new { success = svc.DeleteProject(projectId) }));
+
+// Get config templates for creating projects
+app.MapGet("/api/projects/templates", () =>
+    Results.Json(MakerProjectService.GetConfigTemplates()));
+
 app.MapPost("/api/projects/{projectId}/run", async (string projectId, MakerProjectService svc, CancellationToken ct) =>
     Results.Json(await svc.StartRunAsync(projectId, ct)));
 

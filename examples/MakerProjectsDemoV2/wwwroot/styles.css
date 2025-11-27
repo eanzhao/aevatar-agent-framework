@@ -676,3 +676,342 @@ body {
     padding: 1px 4px;
     border-radius: 2px;
 }
+
+/* === Markdown Table Styles === */
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 15px 0;
+    font-size: 12px;
+}
+
+.markdown-body th, .markdown-body td {
+    border: 1px solid var(--border-mid);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.markdown-body th {
+    background: var(--border-dim);
+    color: var(--accent-main);
+    font-weight: bold;
+}
+
+.markdown-body tr:nth-child(even) {
+    background: rgba(255,255,255,0.02);
+}
+
+.markdown-body tr:hover {
+    background: rgba(0,255,0,0.05);
+}
+
+.markdown-body blockquote {
+    border-left: 3px solid var(--accent-main);
+    padding-left: 15px;
+    margin: 10px 0;
+    color: var(--text-dim);
+}
+
+.markdown-body ul, .markdown-body ol {
+    padding-left: 20px;
+    margin: 10px 0;
+}
+
+.markdown-body li {
+    margin: 5px 0;
+}
+
+.markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--border-mid);
+    margin: 20px 0;
+}
+
+/* === Create Project Modal === */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-dialog {
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-main);
+    width: 600px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 30px rgba(0,255,0,0.2);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-mid);
+}
+
+.modal-title {
+    color: var(--accent-main);
+    font-weight: bold;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--accent-main);
+}
+
+.modal-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.modal-tab {
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+}
+
+.modal-tab.active {
+    border-color: var(--accent-main);
+    color: var(--accent-main);
+}
+
+.config-mode {
+    display: none;
+}
+
+.config-mode.active {
+    display: block;
+}
+
+.form-group {
+    margin-bottom: 12px;
+}
+
+.form-group label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+    color: var(--text-main);
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--accent-main);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+.template-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.btn-template {
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.btn-template:hover {
+    border-color: var(--accent-main);
+    color: var(--accent-main);
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-mid);
+}
+
+.btn-cancel {
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.btn-cancel:hover {
+    border-color: var(--text-dim);
+}
+
+.btn-create {
+    padding: 8px 16px;
+    background: var(--accent-main);
+    border: 1px solid var(--accent-main);
+    color: var(--bg-primary);
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.btn-create:hover {
+    background: var(--accent-bright);
+}
+
+.btn-new-project {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    background: transparent;
+    border: 1px dashed var(--border-mid);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    transition: all 0.2s;
+}
+
+.btn-new-project:hover {
+    border-color: var(--accent-main);
+    color: var(--accent-main);
+}
+
+.btn-new-project span {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* === Sample Projects === */
+.sample-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-dim);
+}
+
+.sample-label {
+    display: block;
+    color: var(--accent-main);
+    font-size: 11px;
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+}
+
+.sample-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.sample-card {
+    padding: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.sample-card:hover {
+    border-color: var(--accent-main);
+    background: rgba(0,255,0,0.05);
+}
+
+.sample-card-icon {
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+
+.sample-card-name {
+    font-size: 11px;
+    color: var(--text-main);
+    margin-bottom: 4px;
+    font-weight: bold;
+}
+
+.sample-card-desc {
+    font-size: 9px;
+    color: var(--text-dim);
+    line-height: 1.3;
+}
+
+.sample-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.sample-tag {
+    font-size: 8px;
+    padding: 2px 6px;
+    background: var(--border-dim);
+    color: var(--accent-main);
+    border-radius: 2px;
+}

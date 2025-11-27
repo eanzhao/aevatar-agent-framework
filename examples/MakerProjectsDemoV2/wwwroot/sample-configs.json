@@ -1,0 +1,170 @@
+{
+  "samples": [
+    {
+      "name": "🇸🇬 新加坡国家介绍",
+      "description": "测试简单任务的分解与原子性判断",
+      "testFocus": ["原子性判断", "简单分解", "信息综合"],
+      "config": {
+        "name": "新加坡国家介绍",
+        "icon": "🇸🇬",
+        "description": "介绍新加坡这个国家，测试简单任务是否会被过度分解",
+        "task": "请全面介绍新加坡这个国家，包括地理位置、历史、经济、文化、旅游景点等方面。",
+        "reliability": "Medium",
+        "maxDepth": 2,
+        "context": {
+          "language": "中文",
+          "style": "百科全书式",
+          "length": "1500-2000字"
+        }
+      }
+    },
+    {
+      "name": "📊 数学推导验证",
+      "description": "测试精确推理和投票纠错机制",
+      "testFocus": ["精确计算", "投票纠错", "错误检测"],
+      "config": {
+        "name": "数学推导验证",
+        "icon": "📊",
+        "description": "验证数学推导过程，测试 MAKER 的纠错能力",
+        "task": "请逐步推导并证明：对于任意正整数 n，1+2+3+...+n = n(n+1)/2。要求：(1) 使用数学归纳法证明；(2) 给出 n=100 时的具体计算结果；(3) 解释这个公式的几何意义。",
+        "reliability": "High",
+        "maxDepth": 2,
+        "context": {
+          "rigor": "严格数学证明",
+          "audience": "高中数学水平"
+        },
+        "decomposition": {
+          "atomicKeywords": ["计算", "代入", "验证"]
+        }
+      }
+    },
+    {
+      "name": "🔄 多角度对比分析",
+      "description": "测试多样化输出和投票共识机制",
+      "testFocus": ["多样性生成", "投票共识", "观点整合"],
+      "config": {
+        "name": "编程语言对比",
+        "icon": "🔄",
+        "description": "对比分析多种编程语言，测试 LLM 输出多样性和投票共识",
+        "task": "对比分析 Python、Rust、Go 三种编程语言，从以下维度进行评估：(1) 学习曲线；(2) 性能表现；(3) 生态系统；(4) 适用场景；(5) 未来发展趋势。最后给出针对不同开发者背景的推荐建议。",
+        "reliability": "Medium",
+        "maxDepth": 3,
+        "context": {
+          "perspective": "客观中立",
+          "data_source": "2024年最新数据"
+        }
+      }
+    },
+    {
+      "name": "🏗️ 层级任务测试",
+      "description": "测试递归分解和深度组合",
+      "testFocus": ["递归分解", "深度组合", "层级结构"],
+      "config": {
+        "name": "创业计划书",
+        "icon": "🏗️",
+        "description": "撰写完整创业计划书，测试深层递归分解能力",
+        "task": "为一个 AI 驱动的智能家居产品撰写完整的创业计划书，需要包含：执行摘要、市场分析、产品描述、营销策略、运营计划、财务预测、团队介绍、风险分析。",
+        "reliability": "Medium",
+        "maxDepth": 4,
+        "context": {
+          "industry": "智能家居",
+          "stage": "种子轮融资",
+          "target_funding": "500万人民币"
+        },
+        "decomposition": {
+          "minDepthForAtomic": 2,
+          "promptTemplate": "你是一位经验丰富的创业顾问。将以下任务分解为3-5个具体的子任务：\n\n{task}\n\n背景信息：{context}\n\n输出JSON格式：[{\"step_id\": \"S1\", \"description\": \"...\"}]"
+        }
+      }
+    },
+    {
+      "name": "🎯 精确事实核查",
+      "description": "测试事实准确性和错误检测",
+      "testFocus": ["事实核查", "数据一致性", "Red-Flag机制"],
+      "config": {
+        "name": "历史事件时间线",
+        "icon": "🎯",
+        "description": "整理历史事件时间线，测试事实准确性和一致性检查",
+        "task": "整理二战（1939-1945）期间的关键历史事件时间线，要求：(1) 列出至少20个关键事件及其精确日期；(2) 说明每个事件的历史意义；(3) 分析事件之间的因果关系；(4) 绘制战争形势演变图。",
+        "reliability": "Critical",
+        "maxDepth": 3,
+        "context": {
+          "accuracy": "要求日期精确到日",
+          "source": "主流历史学研究共识"
+        },
+        "solution": {
+          "outputFormat": "markdown",
+          "promptTemplate": "你是一位严谨的历史学家。请完成以下任务，注意事实准确性：\n\n{task}\n\n要求：{context}\n\n如果对某个日期不确定，请明确标注。"
+        }
+      }
+    },
+    {
+      "name": "🧩 逻辑推理测试",
+      "description": "测试逻辑一致性和推理链",
+      "testFocus": ["逻辑推理", "推理链", "一致性验证"],
+      "config": {
+        "name": "逻辑谜题求解",
+        "icon": "🧩",
+        "description": "求解逻辑谜题，测试推理能力和结论一致性",
+        "task": "请解决以下逻辑谜题：五个人（Alice、Bob、Carol、Dave、Eve）住在一栋5层楼里，每人住不同楼层（1-5层）。已知条件：(1) Bob住的楼层比Carol高；(2) Alice不住顶层也不住底层；(3) Eve住在Dave楼上的某一层；(4) Carol住2层；(5) Alice和Bob不相邻。请推导出每个人住在哪一层，并给出完整的推理过程。",
+        "reliability": "High",
+        "maxDepth": 2,
+        "context": {
+          "method": "逐步演绎推理",
+          "verification": "需要验证答案满足所有条件"
+        },
+        "decomposition": {
+          "atomicKeywords": ["验证", "检查", "确认"]
+        }
+      }
+    },
+    {
+      "name": "📝 长文本生成",
+      "description": "测试长内容生成和组合能力",
+      "testFocus": ["长文本", "内容组合", "风格一致性"],
+      "config": {
+        "name": "科幻短篇小说",
+        "icon": "📝",
+        "description": "创作科幻短篇小说，测试创意生成和内容组合",
+        "task": "创作一篇3000字左右的科幻短篇小说，主题是「当人类发现AI已经拥有了自我意识」。要求：(1) 有完整的故事结构（开端、发展、高潮、结局）；(2) 至少3个主要角色；(3) 探讨AI伦理问题；(4) 结局要有反转。",
+        "reliability": "Low",
+        "maxDepth": 3,
+        "context": {
+          "tone": "悬疑、引人深思",
+          "setting": "2050年",
+          "style": "阿西莫夫式硬科幻"
+        },
+        "decomposition": {
+          "promptTemplate": "你是一位科幻小说作家。将这个创作任务分解为具体的写作步骤：\n\n{task}\n\n风格要求：{context}\n\n输出JSON：[{\"step_id\": \"S1\", \"description\": \"...\"}]"
+        },
+        "solution": {
+          "promptTemplate": "你是一位才华横溢的科幻作家。请完成以下创作任务：\n\n{task}\n\n风格要求：{context}\n\n请直接输出小说内容，保持文学性和可读性。",
+          "outputFormat": "markdown"
+        }
+      }
+    },
+    {
+      "name": "🔢 数据处理任务",
+      "description": "测试结构化数据生成和格式一致性",
+      "testFocus": ["JSON输出", "数据结构", "格式一致性"],
+      "config": {
+        "name": "API设计文档",
+        "icon": "🔢",
+        "description": "生成API设计文档，测试结构化输出能力",
+        "task": "为一个用户管理系统设计RESTful API，需要包含：(1) 用户注册、登录、注销；(2) 用户信息CRUD；(3) 用户角色管理；(4) 权限验证。输出OpenAPI 3.0格式的规范文档。",
+        "reliability": "High",
+        "maxDepth": 2,
+        "context": {
+          "format": "OpenAPI 3.0 YAML",
+          "auth": "JWT Token",
+          "versioning": "URL路径版本控制"
+        },
+        "solution": {
+          "outputFormat": "json",
+          "promptTemplate": "你是一位资深API架构师。请设计以下API：\n\n{task}\n\n技术要求：{context}\n\n请输出符合OpenAPI 3.0规范的YAML文档。"
+        }
+      }
+    }
+  ]
+}
+

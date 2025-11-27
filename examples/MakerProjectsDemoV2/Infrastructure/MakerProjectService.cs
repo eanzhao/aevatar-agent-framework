@@ -19,6 +19,7 @@ public sealed record ProjectDef(
     string Name,
     string Description,
     string Icon,
+    string Task,  // The actual task to execute
     Func<MakerOptions> BuildOptions);
 
 /// <summary>
@@ -42,9 +43,27 @@ public sealed class ProjectRun
     {
         ["proposals"] = new(),      // LLM proposals (decomposition/solution)
         ["votes"] = new(),          // Voting results
+        ["consensus"] = new(),      // Consensus analysis
         ["artifacts"] = new()       // Stage results and final result
     };
+    
+    // Disk storage path
+    public string? OutputDir { get; set; }
+    
+    // Track all proposals per task for comparison
+    public Dictionary<string, List<ProposalRecord>> ProposalsByTask { get; } = new();
 }
+
+/// <summary>
+/// Record of a proposal for analysis.
+/// </summary>
+public sealed record ProposalRecord(
+    string ProposalId,
+    string Content,
+    bool Success,
+    string? Error,
+    DateTimeOffset Timestamp
+);
 
 /// <summary>
 /// File info for frontend.
@@ -110,10 +129,15 @@ public sealed class MakerProjectService
     private readonly IMakerExecutor _executor;
     private readonly ILogger<MakerProjectService> _logger;
     private readonly ConcurrentDictionary<string, ProjectRun> _runs = new();
+    
+    // Dynamic projects added via API (config-based, zero-code)
+    private readonly ConcurrentDictionary<string, ProjectDef> _dynamicProjects = new();
 
-    private static readonly ProjectDef[] Projects =
+    // Built-in projects (code-based strategies)
+    private static readonly ProjectDef[] BuiltInProjects =
     [
         new("bazi", "八字推演", "多 Agent 八字推演，涵盖格局拆解、喜忌分析与报告综合。", "🌓",
+            BaziProfile.CreateDemo().BuildGoal(),  // Task
             () =>
             {
                 var profile = BaziProfile.CreateDemo();
@@ -131,6 +155,7 @@ public sealed class MakerProjectService
                 };
             }),
         new("paper", "论文总结", "多 Agent 协作拆解技术论文，生成结构化总结。", "📄",
+            $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.",  // Task
             () => new MakerOptions
             {
                 Reliability = ReliabilityLevel.Medium,
@@ -140,27 +165,155 @@ public sealed class MakerProjectService
             })
     ];
 
+    // All projects (built-in + dynamic)
+    private IEnumerable<ProjectDef> AllProjects => BuiltInProjects.Concat(_dynamicProjects.Values);
+
     public MakerProjectService(IMakerExecutor executor, ILogger<MakerProjectService> logger)
     {
         _executor = executor;
         _logger = logger;
     }
+    
+    // ============================================================
+    //  Dynamic Project Management (Zero-Code Config)
+    // ============================================================
+    
+    /// <summary>
+    /// Create a new project from JSON config.
+    /// </summary>
+    public object CreateProjectFromConfig(string configJson)
+    {
+        try
+        {
+            var config = ProjectConfig.FromJson(configJson);
+            var projectId = $"custom_{Guid.NewGuid():N}"[..16];
+            
+            var project = new ProjectDef(
+                projectId,
+                config.Name,
+                config.Description,
+                config.Icon,
+                config.Task,  // Pass the task from config
+                () => config.BuildOptions());
+            
+            _dynamicProjects[projectId] = project;
+            
+            _logger.LogInformation("Created dynamic project: {ProjectId} - {Name}, Task: {Task}", 
+                projectId, config.Name, config.Task[..Math.Min(50, config.Task.Length)]);
+            
+            return new
+            {
+                success = true,
+                projectId,
+                name = config.Name,
+                description = config.Description,
+                icon = config.Icon
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create project from config");
+            return new { success = false, error = ex.Message };
+        }
+    }
+    
+    /// <summary>
+    /// Delete a dynamic project.
+    /// </summary>
+    public bool DeleteProject(string projectId)
+    {
+        // Cannot delete built-in projects
+        if (BuiltInProjects.Any(p => p.Id == projectId))
+        {
+            return false;
+        }
+        return _dynamicProjects.TryRemove(projectId, out _);
+    }
+    
+    /// <summary>
+    /// Get sample config templates for different use cases.
+    /// </summary>
+    public static object GetConfigTemplates() => new
+    {
+        simple = new ProjectConfig
+        {
+            Name = "My Analysis Project",
+            Description = "A simple analysis task",
+            Icon = "🔬",
+            Task = "Analyze the following data and provide insights...",
+            Reliability = "Medium",
+            MaxDepth = 2,
+            Context = new Dictionary<string, string>
+            {
+                ["domain"] = "data analysis",
+                ["output_format"] = "markdown report"
+            }
+        },
+        advanced = new ProjectConfig
+        {
+            Name = "Custom Research Project",
+            Description = "Complex multi-step research with custom prompts",
+            Icon = "🧪",
+            Task = "Research and synthesize information about...",
+            Reliability = "High",
+            MaxDepth = 3,
+            Context = new Dictionary<string, string>
+            {
+                ["language"] = "Chinese",
+                ["depth"] = "comprehensive"
+            },
+            Decomposition = new DecompositionConfig
+            {
+                PromptTemplate = """
+                    You are a research methodology expert.
+                    
+                    Break down this research task into 3-5 distinct phases:
+                    {task}
+                    
+                    Context: {context}
+                    
+                    Output as JSON: [{"step_id": "P1", "description": "..."}]
+                    """,
+                MinDepthForAtomic = 2,
+                AtomicKeywords = ["summarize", "conclude", "finalize"]
+            },
+            Solution = new SolutionConfig
+            {
+                PromptTemplate = """
+                    You are a domain expert. Complete this research task:
+                    {task}
+                    
+                    Context: {context}
+                    
+                    Provide a thorough, well-structured response.
+                    """,
+                OutputFormat = "markdown"
+            }
+        }
+    };
 
     /// <summary>
     /// Record task tree results as artifacts.
     /// </summary>
-    private static void RecordTaskTree(ProjectRun run, TaskNode node, int depth)
+    private void RecordTaskTree(ProjectRun run, TaskNode node, int depth)
     {
-        var indent = new string(' ', depth * 2);
         var depthPrefix = depth == 0 ? "root" : $"D{depth}";
         var fileName = $"{depthPrefix}_{node.TaskId}_result.md";
         
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"# Task Result: {node.TaskId}");
+        sb.AppendLine($"# 📋 Task Result: {node.TaskId}");
         sb.AppendLine();
-        sb.AppendLine($"**Depth:** {depth}  ");
-        sb.AppendLine($"**Type:** {(node.IsAtomic ? "Atomic (Solved Directly)" : "Composite (Decomposed)")}  ");
-        sb.AppendLine($"**Description:** {node.Description}");
+        sb.AppendLine("## Metadata");
+        sb.AppendLine();
+        sb.AppendLine($"| Field | Value |");
+        sb.AppendLine($"|-------|-------|");
+        sb.AppendLine($"| **Task ID** | `{node.TaskId}` |");
+        sb.AppendLine($"| **Recursion Depth** | D{depth} |");
+        sb.AppendLine($"| **Type** | {(node.IsAtomic ? "🎯 Atomic (Solved Directly)" : "🔀 Composite (Decomposed)")} |");
+        sb.AppendLine();
+        sb.AppendLine("## Description");
+        sb.AppendLine();
+        sb.AppendLine(node.Description);
         sb.AppendLine();
         
         // Voting sessions
@@ -170,15 +323,29 @@ public sealed class MakerProjectService
             sb.AppendLine();
             foreach (var session in node.VotingSessions)
             {
-                sb.AppendLine($"### {session.Type} ({session.Rounds} rounds)");
+                sb.AppendLine($"### {session.Type} ({session.Rounds} rounds, {session.Candidates.Count} candidates)");
+                sb.AppendLine();
+                
                 if (session.Winner != null)
                 {
-                    sb.AppendLine($"**Winner:** {session.Winner.Votes} votes");
+                    sb.AppendLine($"**✓ Winner:** {session.Winner.Votes} votes");
+                    sb.AppendLine();
                     sb.AppendLine("```");
-                    sb.AppendLine(session.Winner.Content.Length > 500 
-                        ? session.Winner.Content[..500] + "..." 
-                        : session.Winner.Content);
+                    sb.AppendLine(session.Winner.Content);
                     sb.AppendLine("```");
+                }
+                
+                // Show other candidates for comparison
+                var others = session.Candidates.Where(c => c.Hash != session.Winner?.Hash).Take(3).ToList();
+                if (others.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("**Other candidates (for comparison):**");
+                    foreach (var other in others)
+                    {
+                        var preview = other.Content.Length > 100 ? other.Content[..100] + "..." : other.Content;
+                        sb.AppendLine($"- ({other.Votes} votes) `{preview.Replace("\n", " ")}`");
+                    }
                 }
                 sb.AppendLine();
             }
@@ -187,7 +354,7 @@ public sealed class MakerProjectService
         // Result
         if (!string.IsNullOrEmpty(node.Result))
         {
-            sb.AppendLine("## Result");
+            sb.AppendLine("## Final Result");
             sb.AppendLine();
             sb.AppendLine(node.Result);
         }
@@ -198,13 +365,21 @@ public sealed class MakerProjectService
             sb.AppendLine();
             sb.AppendLine($"## Child Tasks ({node.Children.Count})");
             sb.AppendLine();
+            sb.AppendLine("| Depth | Task ID | Type | Description |");
+            sb.AppendLine("|-------|---------|------|-------------|");
             foreach (var child in node.Children)
             {
-                sb.AppendLine($"- `{child.TaskId}`: {child.Description}");
+                var childType = child.IsAtomic ? "Atomic" : "Composite";
+                var desc = child.Description.Length > 50 ? child.Description[..50] + "..." : child.Description;
+                sb.AppendLine($"| D{depth + 1} | `{child.TaskId}` | {childType} | {desc} |");
             }
         }
         
-        run.Files["artifacts"][fileName] = sb.ToString();
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine("*Task execution trace for MAKER consensus analysis.*");
+        
+        SaveFile(run, "artifacts", fileName, sb.ToString());
         
         // Recurse into children
         foreach (var child in node.Children)
@@ -214,7 +389,14 @@ public sealed class MakerProjectService
     }
 
     public IEnumerable<object> GetProjects() =>
-        Projects.Select(p => new { p.Id, p.Name, p.Description, p.Icon });
+        AllProjects.Select(p => new 
+        { 
+            p.Id, 
+            p.Name, 
+            p.Description, 
+            p.Icon,
+            isDynamic = _dynamicProjects.ContainsKey(p.Id)
+        });
 
     public object? GetStatus(string projectId)
     {
@@ -304,9 +486,115 @@ public sealed class MakerProjectService
         return files.GetValueOrDefault(name);
     }
 
+    /// <summary>
+    /// Save a file to memory and disk.
+    /// </summary>
+    private void SaveFile(ProjectRun run, string category, string fileName, string content)
+    {
+        // Save to memory
+        run.Files[category][fileName] = content;
+        
+        // Save to disk
+        if (!string.IsNullOrEmpty(run.OutputDir))
+        {
+            try
+            {
+                var dir = Path.Combine(run.OutputDir, category);
+                Directory.CreateDirectory(dir);
+                var path = Path.Combine(dir, fileName);
+                File.WriteAllText(path, content);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to write file to disk: {Category}/{FileName}", category, fileName);
+            }
+        }
+        
+        // Send SSE event
+        run.EventChannel.Writer.TryWrite(new SSEEvent
+        {
+            Type = "file",
+            TaskId = fileName,
+            Phase = category,
+            Message = $"Generated: {category}/{fileName}",
+            Timestamp = DateTimeOffset.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Generate consensus analysis file when voting completes.
+    /// </summary>
+    private void GenerateConsensusAnalysis(ProjectRun run, string taskId, string votingType, int depth)
+    {
+        if (!run.ProposalsByTask.TryGetValue(taskId, out var proposals) || proposals.Count == 0)
+            return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# 📊 Consensus Analysis: {taskId}");
+        sb.AppendLine();
+        sb.AppendLine($"**Type:** {votingType}  ");
+        sb.AppendLine($"**Depth:** D{depth}  ");
+        sb.AppendLine($"**Total Proposals:** {proposals.Count}  ");
+        sb.AppendLine($"**Time:** {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+        
+        // Group by content hash for comparison
+        var grouped = proposals
+            .Where(p => p.Success && !string.IsNullOrEmpty(p.Content))
+            .GroupBy(p => p.Content.GetHashCode())
+            .OrderByDescending(g => g.Count())
+            .ToList();
+
+        sb.AppendLine("## Proposal Distribution");
+        sb.AppendLine();
+        sb.AppendLine("| Cluster | Votes | First Seen | Content Preview |");
+        sb.AppendLine("|---------|-------|------------|-----------------|");
+        
+        var clusterNum = 1;
+        foreach (var group in grouped)
+        {
+            var first = group.First();
+            var preview = first.Content.Length > 80 ? first.Content[..80] + "..." : first.Content;
+            preview = preview.Replace("\n", " ").Replace("|", "\\|");
+            sb.AppendLine($"| C{clusterNum} | {group.Count()} | {first.Timestamp:HH:mm:ss} | {preview} |");
+            clusterNum++;
+        }
+        
+        sb.AppendLine();
+        sb.AppendLine("## All Proposals (Chronological)");
+        sb.AppendLine();
+        
+        foreach (var (p, idx) in proposals.Select((p, i) => (p, i)))
+        {
+            var status = p.Success ? "✓" : "✗";
+            sb.AppendLine($"### Proposal {idx + 1}: {p.ProposalId} {status}");
+            sb.AppendLine();
+            sb.AppendLine($"**Time:** {p.Timestamp:HH:mm:ss.fff}");
+            sb.AppendLine();
+            
+            if (p.Success && !string.IsNullOrEmpty(p.Content))
+            {
+                sb.AppendLine("```");
+                sb.AppendLine(p.Content);
+                sb.AppendLine("```");
+            }
+            else if (!string.IsNullOrEmpty(p.Error))
+            {
+                sb.AppendLine($"**Error:** {p.Error}");
+            }
+            sb.AppendLine();
+        }
+        
+        sb.AppendLine("---");
+        sb.AppendLine("*This analysis helps understand how LLM proposals converged to consensus.*");
+        
+        var fileName = $"consensus_{taskId}_{votingType}.md";
+        SaveFile(run, "consensus", fileName, sb.ToString());
+    }
+
     public async Task<object> StartRunAsync(string projectId, CancellationToken ct)
     {
-        var project = Projects.FirstOrDefault(p => p.Id == projectId);
+        var project = AllProjects.FirstOrDefault(p => p.Id == projectId);
         if (project == null)
             return new { success = false, error = "Project not found" };
 
@@ -315,14 +603,17 @@ public sealed class MakerProjectService
 
         var run = new ProjectRun();
         _runs[projectId] = run;
+        
+        // Setup disk output directory
+        var outputBase = Path.Combine(Directory.GetCurrentDirectory(), "output", projectId, run.RunId);
+        Directory.CreateDirectory(outputBase);
+        run.OutputDir = outputBase;
 
-        _logger.LogInformation("Starting {Project} run {RunId}", projectId, run.RunId);
+        _logger.LogInformation("Starting {Project} run {RunId}, output: {OutputDir}", projectId, run.RunId, outputBase);
         run.Timeline.Add(new ProgressEntry("Starting", $"开始执行 {project.Name}", DateTimeOffset.UtcNow));
 
-        // Build task description
-        var taskDescription = projectId == "bazi"
-            ? BaziProfile.CreateDemo().BuildGoal()
-            : $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.";
+        // Get task description from project definition
+        var taskDescription = project.Task;
 
         var options = project.BuildOptions();
         options = options with
@@ -347,6 +638,11 @@ public sealed class MakerProjectService
                 // SSE: voting event (for CONSENSUS_PROTOCOL)
                 if (p.Voting != null)
                 {
+                    // Check if consensus reached (either by gap or by message)
+                    var gap = p.Voting.LeaderVotes - p.Voting.RunnerUpVotes;
+                    var consensusReached = gap >= p.Voting.VotesNeeded || 
+                                          (p.Message?.Contains("consensus reached", StringComparison.OrdinalIgnoreCase) ?? false);
+                    
                     run.EventChannel.Writer.TryWrite(new SSEEvent
                     {
                         Type = "voting",
@@ -357,26 +653,61 @@ public sealed class MakerProjectService
                         VotesNeeded = p.Voting.VotesNeeded,
                         LeaderVotes = p.Voting.LeaderVotes,
                         RunnerUpVotes = p.Voting.RunnerUpVotes,
+                        Success = consensusReached,
                         Timestamp = p.Timestamp
                     });
                     
                     // Record voting state to file
                     var voteFileName = $"vote_{p.TaskId}_{p.Voting.Type}_R{p.Voting.Round}.md";
+                    var consensusStatus = consensusReached ? "✓ CONSENSUS REACHED" : $"⏳ Need {p.Voting.VotesNeeded - gap} more";
+                    var voteTypeDesc = p.Voting.Type.ToString() == "Decomposition" 
+                        ? "🔀 Deciding HOW to break down this task into sub-steps"
+                        : "🎯 Deciding WHAT is the correct solution";
+                    
                     var voteContent = $"""
-                        # Voting: {p.Voting.Type} - Round {p.Voting.Round}
+                        # 🗳️ Voting Session: {p.Voting.Type}
                         
-                        **Task:** `{p.TaskId}`  
-                        **Depth:** {p.Depth}  
-                        **Time:** {p.Timestamp:HH:mm:ss}
+                        ## Context
                         
-                        ## Progress
-                        - Total Votes: {p.Voting.TotalVotes}
-                        - Leader: {p.Voting.LeaderVotes} votes
-                        - Runner-up: {p.Voting.RunnerUpVotes} votes
-                        - Need lead by: {p.Voting.VotesNeeded}
-                        - Current gap: {p.Voting.LeaderVotes - p.Voting.RunnerUpVotes}
+                        | Field | Value |
+                        |-------|-------|
+                        | **Task ID** | `{p.TaskId}` |
+                        | **Recursion Depth** | D{p.Depth} |
+                        | **Voting Round** | R{p.Voting.Round} |
+                        | **Time** | {p.Timestamp:HH:mm:ss.fff} |
+                        
+                        ## Purpose
+                        
+                        {voteTypeDesc}
+                        
+                        **Current Objective:** {p.Message}
+                        
+                        ## Voting Progress
+                        
+                        ```
+                        Consensus Threshold: K = {p.Voting.VotesNeeded} (leader must lead by K votes)
+                        
+                        Leader:    {p.Voting.LeaderVotes} votes  {"█".PadRight(Math.Min(20, p.Voting.LeaderVotes), '█')}
+                        Runner-up: {p.Voting.RunnerUpVotes} votes  {"█".PadRight(Math.Min(20, p.Voting.RunnerUpVotes), '█')}
+                        
+                        Current Gap: {gap} / {p.Voting.VotesNeeded} needed
+                        Total Samples: {p.Voting.TotalVotes}
+                        ```
+                        
+                        ## Status
+                        
+                        **{consensusStatus}**
+                        
+                        ---
+                        *This file is auto-generated during MAKER execution to track voting progress.*
                         """;
-                    run.Files["votes"][voteFileName] = voteContent;
+                    SaveFile(run, "votes", voteFileName, voteContent);
+                    
+                    // Generate consensus analysis when consensus is reached
+                    if (consensusReached)
+                    {
+                        GenerateConsensusAnalysis(run, p.TaskId, p.Voting.Type.ToString(), p.Depth);
+                    }
                 }
                 
                 // SSE: proposal event (LLM response for SYSTEM_NODES)
@@ -395,35 +726,47 @@ public sealed class MakerProjectService
                         Timestamp = p.Timestamp
                     });
                     
+                    // Track proposal for consensus analysis
+                    if (!run.ProposalsByTask.ContainsKey(p.TaskId))
+                        run.ProposalsByTask[p.TaskId] = [];
+                    
+                    run.ProposalsByTask[p.TaskId].Add(new ProposalRecord(
+                        p.Proposal.ProposalId,
+                        p.Proposal.Content ?? "",
+                        p.Proposal.Success,
+                        p.Proposal.Error,
+                        p.Timestamp
+                    ));
+                    
                     // Determine proposal type from ID (D=Decomposition, S=Solution)
                     var proposalType = p.Proposal.ProposalId.StartsWith("D") ? "decomposition" : "solution";
+                    var proposalNum = run.ProposalsByTask[p.TaskId].Count;
                     var fileName = $"{proposalType}_{p.TaskId}_{p.Proposal.ProposalId}.md";
                     
                     var content = $"""
-                        # {proposalType.ToUpperInvariant()} Proposal: {p.Proposal.ProposalId}
+                        # {proposalType.ToUpperInvariant()} Proposal #{proposalNum}: {p.Proposal.ProposalId}
                         
-                        **Task:** `{p.TaskId}`  
-                        **Depth:** {p.Depth}  
-                        **Status:** {(p.Proposal.Success ? "✓ Success" : "✗ Failed")}  
-                        **Time:** {p.Timestamp:HH:mm:ss}
+                        ## Metadata
                         
-                        ## Content
+                        | Field | Value |
+                        |-------|-------|
+                        | **Task ID** | `{p.TaskId}` |
+                        | **Proposal ID** | `{p.Proposal.ProposalId}` |
+                        | **Recursion Depth** | D{p.Depth} |
+                        | **Sequence** | #{proposalNum} for this task |
+                        | **Status** | {(p.Proposal.Success ? "✓ Success" : "✗ Failed")} |
+                        | **Time** | {p.Timestamp:HH:mm:ss.fff} |
+                        
+                        ## LLM Response
                         
                         ```
                         {p.Proposal.Content ?? p.Proposal.Error ?? "No content"}
                         ```
+                        
+                        ---
+                        *Raw LLM output captured for consensus analysis.*
                         """;
-                    run.Files["proposals"][fileName] = content;
-                    
-                    // Send file event
-                    run.EventChannel.Writer.TryWrite(new SSEEvent
-                    {
-                        Type = "file",
-                        TaskId = fileName,
-                        Phase = "proposals",
-                        Message = $"New {proposalType} proposal",
-                        Timestamp = p.Timestamp
-                    });
+                    SaveFile(run, "proposals", fileName, content);
                 }
             }
         };
@@ -443,8 +786,39 @@ public sealed class MakerProjectService
                 // Record final result as artifact
                 if (!string.IsNullOrEmpty(run.Result.Content))
                 {
+                    // Generate execution summary
+                    var summaryContent = $"""
+                        # 📊 Execution Summary
+                        
+                        ## Overview
+                        
+                        | Metric | Value |
+                        |--------|-------|
+                        | **Project** | {project.Name} |
+                        | **Run ID** | `{run.RunId}` |
+                        | **Status** | {(run.Result.Success ? "✓ Success" : "✗ Failed")} |
+                        | **Duration** | {run.Stopwatch.Elapsed.TotalSeconds:F1}s |
+                        | **Total LLM Calls** | {run.Result.TotalLLMCalls} |
+                        | **Output Directory** | `{run.OutputDir}` |
+                        
+                        ## Files Generated
+                        
+                        - **Proposals:** {run.Files["proposals"].Count} files
+                        - **Votes:** {run.Files["votes"].Count} files
+                        - **Consensus Analysis:** {run.Files["consensus"].Count} files
+                        - **Artifacts:** {run.Files["artifacts"].Count + 2} files
+                        
+                        ## Task Tree
+                        
+                        Total tasks tracked: {run.ProposalsByTask.Count}
+                        
+                        ---
+                        *Generated by MAKER V2 Demo*
+                        """;
+                    SaveFile(run, "artifacts", "00_summary.md", summaryContent);
+                    
                     var finalContent = $"""
-                        # Final Report
+                        # 📄 Final Report
                         
                         **Project:** {project.Name}  
                         **Run ID:** {run.RunId}  
@@ -456,17 +830,7 @@ public sealed class MakerProjectService
                         
                         {run.Result.Content}
                         """;
-                    run.Files["artifacts"]["final_report.md"] = finalContent;
-                    
-                    // Send file event
-                    run.EventChannel.Writer.TryWrite(new SSEEvent
-                    {
-                        Type = "file",
-                        TaskId = "final_report.md",
-                        Phase = "artifacts",
-                        Message = "Final report generated",
-                        Timestamp = DateTimeOffset.UtcNow
-                    });
+                    SaveFile(run, "artifacts", "final_report.md", finalContent);
                 }
                 
                 // Record execution trace
