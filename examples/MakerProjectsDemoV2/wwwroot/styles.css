@@ -1210,3 +1210,118 @@ body,
                 border-color 0.3s ease, 
                 color 0.3s ease;
 }
+
+/* === Config Details Panel === */
+.config-details {
+    margin: 10px 0 15px 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-dim);
+}
+
+.config-summary {
+    padding: 10px 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    user-select: none;
+}
+
+.config-summary:hover {
+    background: rgba(0,255,0,0.05);
+    color: var(--accent-main);
+}
+
+.config-icon {
+    font-size: 14px;
+}
+
+.config-badge {
+    margin-left: auto;
+    padding: 2px 8px;
+    background: var(--border-dim);
+    color: var(--accent-main);
+    font-size: 10px;
+    border-radius: 2px;
+}
+
+.config-body {
+    padding: 15px;
+    border-top: 1px solid var(--border-dim);
+}
+
+.config-section {
+    margin-bottom: 15px;
+}
+
+.config-section:last-child {
+    margin-bottom: 0;
+}
+
+.config-section h4 {
+    color: var(--accent-main);
+    font-size: 11px;
+    margin: 0 0 10px 0;
+    letter-spacing: 0.5px;
+}
+
+.config-task-text {
+    color: var(--text-main);
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 10px;
+    background: var(--bg-primary);
+    border-left: 3px solid var(--accent-main);
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.config-item {
+    padding: 8px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-dim);
+}
+
+.config-item label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 9px;
+    margin-bottom: 4px;
+    letter-spacing: 0.3px;
+}
+
+.config-item span {
+    color: var(--accent-main);
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.config-context {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.context-tag {
+    padding: 4px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-dim);
+    font-size: 11px;
+}
+
+.context-tag .key {
+    color: var(--text-dim);
+}
+
+.context-tag .val {
+    color: var(--accent-main);
+}

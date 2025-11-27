@@ -49,6 +49,9 @@ public sealed class ProjectRun
     // Disk storage path
     public string? OutputDir { get; set; }
     
+    // Task configuration for display
+    public RunConfig? Config { get; set; }
+    
     // Track all proposals per task for comparison
     public Dictionary<string, List<ProposalRecord>> ProposalsByTask { get; } = new();
 }
@@ -70,6 +73,26 @@ public sealed record ProposalRecord(
 public sealed record FileInfo(string Category, string Name, string Path);
 
 public sealed record ProgressEntry(string Phase, string Message, DateTimeOffset Timestamp);
+
+/// <summary>
+/// Task configuration snapshot for frontend display.
+/// </summary>
+public sealed record RunConfig
+{
+    public required string ProjectName { get; init; }
+    public required string ProjectDescription { get; init; }
+    public required string Task { get; init; }
+    public required string Reliability { get; init; }
+    public required int ConsensusK { get; init; }
+    public required int SamplesPerRound { get; init; }
+    public required int MaxDepth { get; init; }
+    public required int MaxVotingRounds { get; init; }
+    public required double StepTimeoutSeconds { get; init; }
+    public string? DecomposerType { get; init; }
+    public string? SolverType { get; init; }
+    public string? ComposerType { get; init; }
+    public IReadOnlyDictionary<string, string>? Context { get; init; }
+}
 
 /// <summary>
 /// SSE event for real-time streaming.
@@ -406,7 +429,24 @@ public sealed class MakerProjectService
             success = run.Result?.Success,
             llmCalls = run.Result?.TotalLLMCalls,
             duration = run.Result?.Duration.TotalSeconds,
-            workerIds = run.WorkerIds.ToArray()
+            workerIds = run.WorkerIds.ToArray(),
+            // Task configuration details
+            config = run.Config == null ? null : new
+            {
+                projectName = run.Config.ProjectName,
+                projectDescription = run.Config.ProjectDescription,
+                task = run.Config.Task,
+                reliability = run.Config.Reliability,
+                consensusK = run.Config.ConsensusK,
+                samplesPerRound = run.Config.SamplesPerRound,
+                maxDepth = run.Config.MaxDepth,
+                maxVotingRounds = run.Config.MaxVotingRounds,
+                stepTimeoutSeconds = run.Config.StepTimeoutSeconds,
+                decomposerType = run.Config.DecomposerType,
+                solverType = run.Config.SolverType,
+                composerType = run.Config.ComposerType,
+                context = run.Config.Context
+            }
         };
     }
 
@@ -597,6 +637,24 @@ public sealed class MakerProjectService
         var taskDescription = project.Task;
 
         var options = project.BuildOptions();
+        
+        // Save configuration for frontend display
+        run.Config = new RunConfig
+        {
+            ProjectName = project.Name,
+            ProjectDescription = project.Description,
+            Task = taskDescription,
+            Reliability = options.Reliability.ToString(),
+            ConsensusK = options.ConsensusK,
+            SamplesPerRound = options.SamplesPerRound,
+            MaxDepth = options.MaxDepth,
+            MaxVotingRounds = options.MaxVotingRounds,
+            StepTimeoutSeconds = options.StepTimeout.TotalSeconds,
+            DecomposerType = options.Decomposer?.GetType().Name ?? "DefaultDecomposer",
+            SolverType = options.Solver?.GetType().Name ?? "DefaultSolver",
+            ComposerType = options.Composer?.GetType().Name ?? "DefaultComposer",
+            Context = options.Context
+        };
         options = options with
         {
             OnProgress = p =>

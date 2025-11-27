@@ -53,6 +53,10 @@
 
                 <!-- Status Matrix -->
                 <div class="matrix-grid">
+                    <div class="matrix-cell wide">
+                        <label>CURRENT OBJECTIVE</label>
+                        <div id="val-objective" class="matrix-val text-scroll">-</div>
+                    </div>
                     <div class="matrix-cell">
                         <label>STATUS</label>
                         <div id="val-status" class="matrix-val">IDLE</div>
@@ -65,11 +69,68 @@
                         <label>DEPTH</label>
                         <div id="val-depth" class="matrix-val">0</div>
                     </div>
-                    <div class="matrix-cell wide">
-                        <label>CURRENT OBJECTIVE</label>
-                        <div id="val-objective" class="matrix-val text-scroll">-</div>
-                    </div>
                 </div>
+                
+                <!-- Config Details (collapsible) -->
+                <details class="config-details" id="config-details">
+                    <summary class="config-summary">
+                        <span class="config-icon">⚙</span> TASK_CONFIG
+                        <span id="config-reliability" class="config-badge">-</span>
+                    </summary>
+                    <div class="config-body">
+                        <div class="config-section">
+                            <h4>📋 TASK</h4>
+                            <div id="config-task" class="config-task-text">-</div>
+                        </div>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label>RELIABILITY</label>
+                                <span id="cfg-reliability">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>CONSENSUS_K</label>
+                                <span id="cfg-k">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>SAMPLES_PER_ROUND</label>
+                                <span id="cfg-n">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>MAX_DEPTH</label>
+                                <span id="cfg-depth">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>MAX_VOTING_ROUNDS</label>
+                                <span id="cfg-rounds">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>STEP_TIMEOUT</label>
+                                <span id="cfg-timeout">-</span>
+                            </div>
+                        </div>
+                        <div class="config-section">
+                            <h4>🔧 STRATEGIES</h4>
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label>DECOMPOSER</label>
+                                    <span id="cfg-decomposer">-</span>
+                                </div>
+                                <div class="config-item">
+                                    <label>SOLVER</label>
+                                    <span id="cfg-solver">-</span>
+                                </div>
+                                <div class="config-item">
+                                    <label>COMPOSER</label>
+                                    <span id="cfg-composer">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="config-section" id="config-context-section" style="display:none">
+                            <h4>📦 CONTEXT</h4>
+                            <div id="cfg-context" class="config-context"></div>
+                        </div>
+                    </div>
+                </details>
 
                 <!-- Workspace: Split View -->
                 <div class="workspace">
@@ -170,24 +231,24 @@
                 <div id="mode-simple" class="config-mode active">
                     <div class="form-group">
                         <label>PROJECT_NAME</label>
-                        <input type="text" id="cfg-name" value="My Analysis Project" />
+                        <input type="text" id="new-cfg-name" value="My Analysis Project" />
                     </div>
                     <div class="form-group">
                         <label>ICON</label>
-                        <input type="text" id="cfg-icon" value="🔬" style="width: 60px" />
+                        <input type="text" id="new-cfg-icon" value="🔬" style="width: 60px" />
                     </div>
                     <div class="form-group">
                         <label>DESCRIPTION</label>
-                        <input type="text" id="cfg-desc" value="A simple analysis task" />
+                        <input type="text" id="new-cfg-desc" value="A simple analysis task" />
                     </div>
                     <div class="form-group">
                         <label>TASK_OBJECTIVE</label>
-                        <textarea id="cfg-task" rows="5" placeholder="Describe what you want to analyze...">Analyze the following data and provide insights...</textarea>
+                        <textarea id="new-cfg-task" rows="5" placeholder="Describe what you want to analyze...">Analyze the following data and provide insights...</textarea>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>RELIABILITY</label>
-                            <select id="cfg-reliability">
+                            <select id="new-cfg-reliability">
                                 <option value="Low">Low (K=1)</option>
                                 <option value="Medium" selected>Medium (K=2)</option>
                                 <option value="High">High (K=3)</option>
@@ -196,7 +257,7 @@
                         </div>
                         <div class="form-group">
                             <label>MAX_DEPTH</label>
-                            <input type="number" id="cfg-depth" value="2" min="1" max="5" />
+                            <input type="number" id="new-cfg-depth" value="5" min="1" max="10" />
                         </div>
                     </div>
                 </div>
@@ -205,7 +266,7 @@
                 <div id="mode-advanced" class="config-mode">
                     <div class="form-group">
                         <label>CONFIG_JSON</label>
-                        <textarea id="cfg-json" rows="16" placeholder="Paste JSON config here..."></textarea>
+                        <textarea id="new-cfg-json" rows="16" placeholder="Paste JSON config here..."></textarea>
                     </div>
                     <div class="template-btns">
                         <button class="btn-template" onclick="loadTemplate('simple')">Load Simple Template</button>

@@ -129,15 +129,15 @@ function loadSampleConfig(idx) {
     const config = sample.config;
     
     // Populate simple mode fields
-    document.getElementById('cfg-name').value = config.name;
-    document.getElementById('cfg-icon').value = config.icon;
-    document.getElementById('cfg-desc').value = config.description;
-    document.getElementById('cfg-task').value = config.task;
-    document.getElementById('cfg-reliability').value = config.reliability;
-    document.getElementById('cfg-depth').value = config.maxDepth;
+    document.getElementById('new-cfg-name').value = config.name;
+    document.getElementById('new-cfg-icon').value = config.icon;
+    document.getElementById('new-cfg-desc').value = config.description;
+    document.getElementById('new-cfg-task').value = config.task;
+    document.getElementById('new-cfg-reliability').value = config.reliability;
+    document.getElementById('new-cfg-depth').value = config.maxDepth;
     
     // Also populate JSON mode
-    document.getElementById('cfg-json').value = JSON.stringify(config, null, 2);
+    document.getElementById('new-cfg-json').value = JSON.stringify(config, null, 2);
     
     // Visual feedback
     document.querySelectorAll('.sample-card').forEach((card, i) => {
@@ -152,7 +152,7 @@ function loadTemplate(type) {
     }
     const template = APP_STATE.configTemplates[type];
     if (template) {
-        document.getElementById('cfg-json').value = JSON.stringify(template, null, 2);
+        document.getElementById('new-cfg-json').value = JSON.stringify(template, null, 2);
     }
 }
 
@@ -163,17 +163,17 @@ async function createProject() {
     if (activeMode === 'mode-simple') {
         // Build config from form fields
         config = {
-            name: document.getElementById('cfg-name').value,
-            icon: document.getElementById('cfg-icon').value,
-            description: document.getElementById('cfg-desc').value,
-            task: document.getElementById('cfg-task').value,
-            reliability: document.getElementById('cfg-reliability').value,
-            maxDepth: parseInt(document.getElementById('cfg-depth').value, 10)
+            name: document.getElementById('new-cfg-name').value,
+            icon: document.getElementById('new-cfg-icon').value,
+            description: document.getElementById('new-cfg-desc').value,
+            task: document.getElementById('new-cfg-task').value,
+            reliability: document.getElementById('new-cfg-reliability').value,
+            maxDepth: parseInt(document.getElementById('new-cfg-depth').value, 10)
         };
     } else {
         // Parse JSON from textarea
         try {
-            config = JSON.parse(document.getElementById('cfg-json').value);
+            config = JSON.parse(document.getElementById('new-cfg-json').value);
         } catch (err) {
             alert("Invalid JSON: " + err.message);
             return;
@@ -229,7 +229,22 @@ function initDomCache() {
         fileList: q('#file-list'),
         filePreview: q('#file-preview'),
         tabs: document.querySelectorAll('.tab-btn'),
-        views: document.querySelectorAll('.term-view')
+        views: document.querySelectorAll('.term-view'),
+        // Config panel elements
+        configDetails: q('#config-details'),
+        configReliability: q('#config-reliability'),
+        configTask: q('#config-task'),
+        cfgReliability: q('#cfg-reliability'),
+        cfgK: q('#cfg-k'),
+        cfgN: q('#cfg-n'),
+        cfgDepth: q('#cfg-depth'),
+        cfgRounds: q('#cfg-rounds'),
+        cfgTimeout: q('#cfg-timeout'),
+        cfgDecomposer: q('#cfg-decomposer'),
+        cfgSolver: q('#cfg-solver'),
+        cfgComposer: q('#cfg-composer'),
+        cfgContext: q('#cfg-context'),
+        configContextSection: q('#config-context-section')
     };
 }
 
@@ -345,6 +360,8 @@ async function handleStartRun() {
             APP_STATE.dom.valStatus.style.color = 'var(--accent-main)';
             APP_STATE.dom.startBtn.textContent = 'RUNNING...';
             startEventStream(id);
+            // Refresh to get config after task starts
+            setTimeout(() => refreshProject(), 300);
         } else {
             APP_STATE.dom.startBtn.disabled = false;
             APP_STATE.dom.startBtn.textContent = '▶ INITIATE';
@@ -509,6 +526,44 @@ function renderStatus(status, snapshot) {
         APP_STATE.dom.startBtn.disabled = false;
         APP_STATE.dom.startBtn.textContent = '▶ INITIATE';
     }
+    
+    // Render config if available
+    if (snapshot?.config) {
+        renderConfig(snapshot.config);
+    }
+}
+
+function renderConfig(config) {
+    if (!config) return;
+    
+    // Update config badge
+    APP_STATE.dom.configReliability.textContent = config.reliability;
+    
+    // Update task description
+    APP_STATE.dom.configTask.textContent = config.task || '-';
+    
+    // Update config grid values
+    APP_STATE.dom.cfgReliability.textContent = config.reliability;
+    APP_STATE.dom.cfgK.textContent = config.consensusK;
+    APP_STATE.dom.cfgN.textContent = config.samplesPerRound;
+    APP_STATE.dom.cfgDepth.textContent = config.maxDepth;
+    APP_STATE.dom.cfgRounds.textContent = config.maxVotingRounds;
+    APP_STATE.dom.cfgTimeout.textContent = `${config.stepTimeoutSeconds}s`;
+    
+    // Update strategy types
+    APP_STATE.dom.cfgDecomposer.textContent = config.decomposerType || 'Default';
+    APP_STATE.dom.cfgSolver.textContent = config.solverType || 'Default';
+    APP_STATE.dom.cfgComposer.textContent = config.composerType || 'Default';
+    
+    // Update context if available
+    if (config.context && Object.keys(config.context).length > 0) {
+        APP_STATE.dom.configContextSection.style.display = 'block';
+        APP_STATE.dom.cfgContext.innerHTML = Object.entries(config.context)
+            .map(([k, v]) => `<span class="context-tag"><span class="key">${escapeHtml(k)}:</span> <span class="val">${escapeHtml(v)}</span></span>`)
+            .join('');
+    } else {
+        APP_STATE.dom.configContextSection.style.display = 'none';
+    }
 }
 
 function renderTasks() {
@@ -559,7 +614,7 @@ function renderVoting() {
                 <span class="vote-type">${v.type}</span>
                 <span class="vote-round">R${v.round}</span>
             </td>
-        </tr>
+            </tr>
     `;
 }
 
