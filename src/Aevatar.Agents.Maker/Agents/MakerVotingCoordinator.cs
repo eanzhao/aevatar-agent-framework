@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.Maker.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -239,44 +240,38 @@ public partial class MakerCoordinatorGAgent
     /// <summary>
     /// Parse atomicity assessment JSON response.
     /// Returns (isAtomic, reason).
+    /// Uses LLMResponseParser for robust JSON extraction.
     /// </summary>
     private static (bool IsAtomic, string Reason) ParseAtomicityResponse(string content)
     {
-        // Try to extract JSON from content (handle markdown wrapping)
-        var json = content.Trim();
-        if (json.StartsWith("```"))
+        // Use LLMResponseParser for robust JSON extraction
+        var doc = LLMResponseParser.ParseToDocument(content);
+        if (doc != null)
         {
-            var start = json.IndexOf('{');
-            var end = json.LastIndexOf('}');
-            if (start >= 0 && end > start)
+            try
             {
-                json = json.Substring(start, end - start + 1);
+                var root = doc.RootElement;
+                var isAtomic = root.TryGetProperty("atomic", out var atomicProp) && atomicProp.GetBoolean();
+                var reason = root.TryGetProperty("reason", out var reasonProp)
+                    ? reasonProp.GetString() ?? "no reason provided"
+                    : "no reason provided";
+
+                return (isAtomic, reason);
+            }
+            finally
+            {
+                doc.Dispose();
             }
         }
 
-        try
+        // Fallback: check for keywords in raw content
+        var upper = content.ToUpperInvariant();
+        if (upper.Contains("\"ATOMIC\"") || upper.Contains(":TRUE") || upper.Contains(": TRUE"))
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            var isAtomic = root.TryGetProperty("atomic", out var atomicProp) && atomicProp.GetBoolean();
-            var reason = root.TryGetProperty("reason", out var reasonProp)
-                ? reasonProp.GetString() ?? "no reason provided"
-                : "no reason provided";
-
-            return (isAtomic, reason);
+            return (true, "parsed from keywords");
         }
-        catch (JsonException)
-        {
-            // Fallback: check for keywords
-            var upper = content.ToUpperInvariant();
-            if (upper.Contains("\"ATOMIC\"") || upper.Contains(":TRUE") || upper.Contains(": TRUE"))
-            {
-                return (true, "parsed from keywords");
-            }
 
-            return (false, "failed to parse JSON, defaulting to decompose");
-        }
+        return (false, "failed to parse JSON, defaulting to decompose");
     }
 
     /// <summary>

@@ -1,0 +1,121 @@
+# ============================================================
+#  Aevatar Agent Framework - Code Quality CI
+#  Runs on PRs and pushes to main/develop
+# ============================================================
+
+name: Code Quality
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # ============================================================
+  #  Build and Test
+  # ============================================================
+  build:
+    runs-on: ubuntu-latest
+    name: Build & Test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: '**/test-results.trx'
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: '**/coverage.cobertura.xml'
+
+  # ============================================================
+  #  Code Analysis
+  # ============================================================
+  analyze:
+    runs-on: ubuntu-latest
+    name: Code Analysis
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build with analysis
+        run: dotnet build --no-restore /p:TreatWarningsAsErrors=true /warnaserror
+
+      - name: Check for complexity warnings
+        run: |
+          echo "Checking for high complexity warnings (CA1502, CA1505, CA1506)..."
+          dotnet build --no-restore 2>&1 | tee build.log
+          
+          # Count complexity warnings
+          complexity_warnings=$(grep -c "CA150[256]" build.log || true)
+          
+          if [ "$complexity_warnings" -gt 0 ]; then
+            echo "::warning::Found $complexity_warnings complexity warnings. Consider refactoring."
+            grep "CA150[256]" build.log
+          else
+            echo "✅ No complexity warnings found"
+          fi
+
+  # ============================================================
+  #  Format Check
+  # ============================================================
+  format:
+    runs-on: ubuntu-latest
+    name: Format Check
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Check formatting
+        run: |
+          dotnet format --verify-no-changes --verbosity diagnostic || {
+            echo "::error::Code formatting issues found. Run 'dotnet format' locally to fix."
+            exit 1
+          }
+

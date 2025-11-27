@@ -664,231 +664,84 @@ public override async Task OnActivateAsync(CancellationToken cancellationToken)
 
 ---
 
-## 🟡 P2 - 可后续优化
+## 🟡 P2 - 可后续优化 ✅ 全部完成
 
-### P2-1: 拆分 IGAgentManager 接口
+### P2-1: 拆分 IGAgentManager 接口 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.Abstractions/IGAgentManager.cs`
+**完成日期**: 2025-11-27
 
-**当前问题**: 单一接口承担类型发现、注册、元数据、插件加载多重职责
-
-**改进方案**:
-
-```csharp
-// 拆分为多个职责单一的接口
-public interface IAgentTypeRegistry
-{
-    List<Type> GetAvailableAgentTypes();
-    List<Type> GetAvailableEventTypes();
-    bool IsValidAgentType(Type type);
-    bool IsValidEventType(Type type);
-}
-
-public interface IAgentTypeRegistrar
-{
-    void RegisterAgentType(Type agentType);
-    void UnregisterAgentType(Type agentType);
-    void RegisterEventType(Type eventType);
-    void UnregisterEventType(Type eventType);
-}
-
-public interface IAgentMetadataProvider
-{
-    AgentTypeMetadata? GetAgentMetadata(Type agentType);
-    AgentTypeMetadata? GetAgentMetadata<TAgent>() where TAgent : IGAgent;
-    IReadOnlyList<AgentTypeMetadata> GetAllAgentMetadata();
-    List<Type> GetSupportedEventTypes<TAgent>() where TAgent : IGAgent;
-    List<Type> GetSupportedEventTypes(Type agentType);
-}
-
-public interface IAgentPluginLoader
-{
-    int LoadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
-    int LoadAgentTypesFromPath(string assemblyPath);
-    void UnloadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
-}
-
-// 保留聚合接口以向后兼容
-public interface IGAgentManager : 
-    IAgentTypeRegistry, 
-    IAgentTypeRegistrar, 
-    IAgentMetadataProvider, 
-    IAgentPluginLoader
-{
-}
-```
+**修复内容**:
+- 拆分为 4 个职责单一的接口：`IAgentTypeRegistry`, `IAgentTypeRegistrar`, `IAgentMetadataProvider`, `IAgentPluginLoader`
+- `IGAgentManager` 保留为聚合接口以向后兼容
+- 符合接口隔离原则 (ISP)
 
 ---
 
-### P2-2: ResourceContext 类型安全改进
+### P2-2: ResourceContext 类型安全改进 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.Abstractions/ResourceContext.cs`
+**完成日期**: 2025-11-27
 
-**当前问题**:
-```csharp
-public Dictionary<string, object> AvailableResources { get; set; }  // 类型不安全
-```
-
-**改进方案**:
-
-```csharp
-public class ResourceContext
-{
-    private readonly Dictionary<string, object> _resources = new();
-    
-    public T? Get<T>(string key) where T : class
-    {
-        return _resources.TryGetValue(key, out var value) ? value as T : null;
-    }
-    
-    public T GetRequired<T>(string key) where T : class
-    {
-        if (!_resources.TryGetValue(key, out var value))
-            throw new KeyNotFoundException($"Resource '{key}' not found");
-        
-        return value as T 
-            ?? throw new InvalidCastException($"Resource '{key}' is not of type {typeof(T).Name}");
-    }
-    
-    public void Set<T>(string key, T value) where T : class
-    {
-        _resources[key] = value;
-    }
-    
-    public bool Contains(string key) => _resources.ContainsKey(key);
-    
-    // 保留向后兼容
-    [Obsolete("Use Get<T>/Set<T> methods for type safety")]
-    public Dictionary<string, object> AvailableResources
-    {
-        get => _resources;
-        set
-        {
-            _resources.Clear();
-            foreach (var kv in value)
-                _resources[kv.Key] = kv.Value;
-        }
-    }
-}
-```
+**修复内容**:
+- 新增泛型方法：`Get<T>`, `GetRequired<T>`, `Set<T>`, `TryGet<T>`
+- 旧 API 标记为 `[Obsolete]` 保持向后兼容
+- 新增 `Contains`, `Remove`, `Keys`, `Count`, `Clear` 等便捷方法
 
 ---
 
-### P2-3: AevatarToolManager Logger 注入
+### P2-3: AevatarToolManager Logger 注入 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.AI.WithTool/` (L288)
+**完成日期**: 2025-11-27
 
-**当前问题**:
-```csharp
-var logger = NullLogger<AevatarToolManager>.Instance;  // 静默丢弃日志
-```
-
-**改进方案**:
-- 通过构造函数注入 `ILogger<AevatarToolManager>`
-- 如果未配置 DI，提供合理的默认行为
+**修复内容**:
+- `AIGAgentWithToolBase.CreateToolManager()` 使用继承的 Logger
+- 创建 `LoggerAdapter<T>` 转换 `ILogger` 到 `ILogger<T>`
+- 不再使用 `NullLogger`
 
 ---
 
-### P2-4: ParseToolArguments 异常处理
+### P2-4: ParseToolArguments 异常处理 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.AI.WithTool/`
+**完成日期**: 2025-11-27
 
-**当前问题**:
-```csharp
-catch (JsonException ex)
-{
-    Logger?.LogError(...);  // Logger 可能为 null
-    return new Dictionary<string, object>();  // 静默失败
-}
-```
-
-**改进方案**:
-```csharp
-public class ToolArgumentParseException : Exception
-{
-    public string RawJson { get; }
-    public ToolArgumentParseException(string rawJson, Exception inner) 
-        : base($"Failed to parse tool arguments: {rawJson}", inner)
-    {
-        RawJson = rawJson;
-    }
-}
-
-// 调用方可选择处理或使用默认值
-```
+**修复内容**:
+- 新增 `ToolArgumentParseException` 异常类
+- 新增 `ToolArgumentParseResult` 结构体用于结构化错误处理
+- `ToolExecutionCoordinator.TryParseToolArguments()` 返回结构化结果
+- 支持 `ThrowOnParseError` 配置
 
 ---
 
-### P2-5: MassTransit Category 映射文档
+### P2-5: MassTransit Category 映射文档 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.Plugins.MassTransit/`
+**完成日期**: 2025-11-27
 
-**问题**: Category 如何映射到 MassTransit Exchange/Topic 缺少文档说明
-
-**改进方案**: 添加架构文档说明映射规则
-
----
-
-### P2-6: ISubscriptionManager 设计优化
-
-**问题位置**: `src/Aevatar.Agents.Abstractions/`
-
-**问题**: `ISubscriptionHandle` 与 `IMessageStreamSubscription` 职责重叠
-
-**改进方案**: 统一接口或明确边界文档
+**修复内容**:
+- 新增 `src/Aevatar.Agents.Plugins.MassTransit/docs/ARCHITECTURE.md`
+- 说明 Category → Exchange/Topic 映射规则
+- 包含架构图、配置示例、最佳实践
 
 ---
 
-### P2-7: JSON 解析健壮性
+### P2-6: ISubscriptionManager 设计优化 ✅ 已完成
 
-**问题位置**: `src/Aevatar.Agents.Maker/Agents/MakerCoordinatorGAgent.cs` (L1529-1565)
+**完成日期**: 2025-11-27
 
-**当前问题**:
-```csharp
-// 手动处理 markdown 包装
-if (json.StartsWith("```"))
-{
-    var start = json.IndexOf('{');
-    ...
-}
-```
+**修复内容**:
+- 在 `ISubscriptionManager.cs` 头部添加详细设计文档
+- 明确 `ISubscriptionManager`, `ISubscriptionHandle`, `IMessageStreamSubscription` 三者关系
+- 添加 ASCII 架构图说明层级关系
 
-**改进方案**: 抽取为通用 JSON 提取工具
+---
 
-```csharp
-public static class LLMResponseParser
-{
-    /// <summary>
-    /// 从 LLM 响应中提取 JSON（处理 markdown 代码块包装）
-    /// </summary>
-    public static string ExtractJson(string content)
-    {
-        var trimmed = content.Trim();
-        
-        // 处理 markdown 代码块
-        if (trimmed.StartsWith("```"))
-        {
-            // 找到第一个 { 和最后一个 }
-            var start = trimmed.IndexOf('{');
-            var end = trimmed.LastIndexOf('}');
-            
-            if (start >= 0 && end > start)
-            {
-                return trimmed.Substring(start, end - start + 1);
-            }
-        }
-        
-        // 直接返回（可能已经是纯 JSON）
-        return trimmed;
-    }
-    
-    public static T? ParseJson<T>(string content) where T : class
-    {
-        var json = ExtractJson(content);
-        return JsonSerializer.Deserialize<T>(json);
-    }
-}
-```
+### P2-7: JSON 解析健壮性 (LLMResponseParser) ✅ 已完成
+
+**完成日期**: 2025-11-27
+
+**修复内容**:
+- 新增 `src/Aevatar.Agents.AI.Core/Utils/LLMResponseParser.cs`
+- 支持 markdown 代码块、嵌套 JSON、部分 JSON 提取
+- 提供 `ExtractJson`, `ParseJson<T>`, `TryParseJson<T>`, `ParseToDocument` 方法
+- `MakerVotingCoordinator` 已使用新工具类
 
 ---
 
@@ -981,8 +834,14 @@ public enum MakerExecutionState
 - [x] P1-7: 反射回退抽取
 - [x] P1-8: ServiceProvider 空检查
 
-### 第四周 (P2)
-- [ ] P2-1 ~ P2-7: 按优先级逐步处理
+### 第四周 (P2) ✅ 已完成
+- [x] P2-1: 拆分 IGAgentManager 接口 ✅ 2025-11-27
+- [x] P2-2: ResourceContext 类型安全改进 ✅ 2025-11-27
+- [x] P2-3: AevatarToolManager Logger 注入 ✅ 2025-11-27
+- [x] P2-4: ParseToolArguments 异常处理 ✅ 2025-11-27
+- [x] P2-5: MassTransit Category 映射文档 ✅ 2025-11-27
+- [x] P2-6: ISubscriptionManager 设计优化 ✅ 2025-11-27
+- [x] P2-7: JSON 解析健壮性 (LLMResponseParser) ✅ 2025-11-27
 
 ### 持续进行 (P3)
 - [ ] P3-1 ~ P3-6: 作为长期技术债务清理
