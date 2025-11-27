@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Aevatar.Agents.Maker.V2;
 
-namespace MakerProjectsDemoV2.Projects.Paper;
+namespace MakerProjectsDemoV2.Projects;
 
 // ============================================================
 //  Paper Summary Strategies - Only 90 lines total!

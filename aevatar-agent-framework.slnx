@@ -1,10 +1,10 @@
 <Solution>
   <Folder Name="/agents/">
     <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" />
+    <Project Path="agents\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" />
     <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" />
     <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />
-    <Project Path="agents\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
   <Folder Name="/apps/" />
@@ -24,7 +24,6 @@
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
-    <Project Path="examples\MakerProjectsDemo\MakerProjectsDemo.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />

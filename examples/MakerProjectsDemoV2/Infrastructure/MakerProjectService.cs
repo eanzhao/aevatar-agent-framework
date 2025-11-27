@@ -1,8 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aevatar.Agents.Maker.V2;
-using MakerProjectsDemoV2.Projects.Bazi;
-using MakerProjectsDemoV2.Projects.Paper;
+using MakerProjectsDemoV2.Projects;
 
 namespace MakerProjectsDemoV2.Infrastructure;
 
@@ -136,24 +135,6 @@ public sealed class MakerProjectService
     // Built-in projects (code-based strategies)
     private static readonly ProjectDef[] BuiltInProjects =
     [
-        new("bazi", "八字推演", "多 Agent 八字推演，涵盖格局拆解、喜忌分析与报告综合。", "🌓",
-            BaziProfile.CreateDemo().BuildGoal(),  // Task
-            () =>
-            {
-                var profile = BaziProfile.CreateDemo();
-                return new MakerOptions
-                {
-                    Reliability = ReliabilityLevel.Medium,
-                    Decomposer = new BaziDecomposer(),
-                    Solver = new BaziSolver(),
-                    MaxDepth = 2,
-                    Context = new Dictionary<string, string>
-                    {
-                        ["birth_info"] = profile.SolarBirth,
-                        ["bazi"] = $"{profile.LunarYearStemBranch} {profile.LunarMonthStemBranch} {profile.LunarDayStemBranch} {profile.LunarHourStemBranch}"
-                    }
-                };
-            }),
         new("paper", "论文总结", "多 Agent 协作拆解技术论文，生成结构化总结。", "📄",
             $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.",  // Task
             () => new MakerOptions
@@ -161,7 +142,7 @@ public sealed class MakerProjectService
                 Reliability = ReliabilityLevel.Medium,
                 Decomposer = new PaperDecomposer(),
                 Solver = new PaperSolver(),
-                MaxDepth = 2
+                MaxDepth = 5
             })
     ];
 
@@ -242,7 +223,7 @@ public sealed class MakerProjectService
             Icon = "🔬",
             Task = "Analyze the following data and provide insights...",
             Reliability = "Medium",
-            MaxDepth = 2,
+            MaxDepth = 5,
             Context = new Dictionary<string, string>
             {
                 ["domain"] = "data analysis",

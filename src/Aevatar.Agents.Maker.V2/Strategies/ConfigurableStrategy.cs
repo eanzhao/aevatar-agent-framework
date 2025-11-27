@@ -69,10 +69,11 @@ public sealed record ProjectConfig
     public int? CustomK { get; init; }
     
     /// <summary>
-    /// Maximum recursion depth.
+    /// Maximum recursion depth for task decomposition.
+    /// Recommended: 3-4 (simple), 5-6 (medium), 7-10 (complex).
     /// </summary>
     [JsonPropertyName("maxDepth")]
-    public int MaxDepth { get; init; } = 3;
+    public int MaxDepth { get; init; } = 5;
     
     /// <summary>
     /// Parse from JSON string.

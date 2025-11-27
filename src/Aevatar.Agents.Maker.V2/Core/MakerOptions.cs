@@ -50,9 +50,19 @@ public sealed record MakerOptions
     public int? CustomK { get; init; }
     
     /// <summary>
-    /// Maximum recursion depth. Default: 4 (sufficient for most tasks).
+    /// Maximum recursion depth for task decomposition.
+    /// - Depth 0: Root task
+    /// - Depth 1-N: Sub-tasks
+    /// - At MaxDepth: Tasks are solved directly (atomic)
+    /// 
+    /// Recommended values:
+    /// - 3-4: Simple tasks (介绍、总结)
+    /// - 5-6: Medium tasks (分析报告、设计文档)
+    /// - 7-10: Complex tasks (创业计划、系统设计)
+    /// 
+    /// Default: 5 (balanced for most tasks)
     /// </summary>
-    public int MaxDepth { get; init; } = 4;
+    public int MaxDepth { get; init; } = 5;
     
     /// <summary>
     /// Custom decomposition strategy. If null, uses DefaultDecomposer.

@@ -2,6 +2,49 @@
 //  MAKER V2 Demo - Clean SSE-based Real-time UI
 // ============================================================
 
+// ============================================================
+//  Theme Toggle System
+// ============================================================
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('maker-theme') || 'dark';
+    applyTheme(savedTheme);
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    localStorage.setItem('maker-theme', next);
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    
+    const icon = document.getElementById('theme-icon');
+    const label = document.getElementById('theme-label');
+    
+    if (icon && label) {
+        if (theme === 'light') {
+            icon.textContent = '☀️';
+            label.textContent = 'LIGHT';
+        } else {
+            icon.textContent = '🌙';
+            label.textContent = 'DARK';
+        }
+    }
+}
+
+// Initialize theme before DOM content loaded to prevent flash
+initTheme();
+
+// Expose to global
+window.toggleTheme = toggleTheme;
+
+// ============================================================
+//  Application State
+// ============================================================
+
 const APP_STATE = {
     projects: {},
     activeProjectId: null,
@@ -297,8 +340,11 @@ async function handleStartRun() {
         const data = await res.json();
         
         if (data.success) {
-            startEventStream(id);
+            // Update status immediately
+            APP_STATE.dom.valStatus.textContent = 'ACTIVE';
+            APP_STATE.dom.valStatus.style.color = 'var(--accent-main)';
             APP_STATE.dom.startBtn.textContent = 'RUNNING...';
+            startEventStream(id);
         } else {
             APP_STATE.dom.startBtn.disabled = false;
             APP_STATE.dom.startBtn.textContent = '▶ INITIATE';
@@ -342,6 +388,10 @@ function startEventStream(projectId) {
 function handleSSEEvent(event) {
     switch (event.type) {
         case 'progress':
+            // Update status to ACTIVE when receiving progress
+            APP_STATE.dom.valStatus.textContent = 'ACTIVE';
+            APP_STATE.dom.valStatus.style.color = 'var(--accent-main)';
+            
             // Update HUD (always visible)
             APP_STATE.dom.valPhase.textContent = event.phase || '-';
             APP_STATE.dom.valDepth.textContent = event.depth ?? 0;
