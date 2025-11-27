@@ -1,5 +1,6 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Core.Tests.Messages;
+using Microsoft.Extensions.AI;
 
 namespace Aevatar.Agents.AI.Core.Tests.TestAgents;
 
@@ -98,6 +99,13 @@ public class TestAIGAgent(Guid? id = null) : AIGAgentBase<TestAIGAgentState, Tes
     /// Test helper to check if initialized
     /// </summary>
     public bool IsInitialized => LLMProviderFactory != null;
+
+    public bool HasEmbeddings => HasEmbeddingGenerator;
+
+    public Task<Embedding<float>?> GenerateEmbeddingForTestAsync(string input, CancellationToken ct = default)
+    {
+        return GenerateEmbeddingAsync(input, cancellationToken: ct);
+    }
 
     /// <summary>
     /// Test helper to reset counters

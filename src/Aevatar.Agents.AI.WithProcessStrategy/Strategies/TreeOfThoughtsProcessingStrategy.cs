@@ -1,9 +1,9 @@
+using System.Collections.Concurrent;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Messages;
+using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
-using System.Collections.Concurrent;
-using Aevatar.Agents.AI.WithProcessStrategy.Messages;
 
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 

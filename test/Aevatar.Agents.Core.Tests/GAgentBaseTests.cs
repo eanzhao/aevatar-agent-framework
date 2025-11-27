@@ -1,12 +1,12 @@
 using Aevatar.Agents.Abstractions.Extensions;
-using Shouldly;
-using Aevatar.Agents.Core.Tests.Agents;
-using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
+using Shouldly;
 
 namespace Aevatar.Agents.Core.Tests;
 

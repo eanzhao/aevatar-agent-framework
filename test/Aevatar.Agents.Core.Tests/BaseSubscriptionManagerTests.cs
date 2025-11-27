@@ -1,9 +1,9 @@
-using Microsoft.Extensions.Logging;
-using Shouldly;
-using Xunit.Abstractions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Subscription;
 using Aevatar.Agents.Core.Tests.Subscription;
+using Microsoft.Extensions.Logging;
+using Shouldly;
+using Xunit.Abstractions;
 
 namespace Aevatar.Agents.Core.Tests;
 

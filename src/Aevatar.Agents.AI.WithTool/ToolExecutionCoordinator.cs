@@ -1,10 +1,10 @@
+using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace Aevatar.Agents.AI.WithTool;
 

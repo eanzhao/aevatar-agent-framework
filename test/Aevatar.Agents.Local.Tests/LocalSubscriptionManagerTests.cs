@@ -1,10 +1,10 @@
-using Microsoft.Extensions.Logging;
-using Moq;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Runtime.Local.Subscription;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Local.Subscription;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace Aevatar.Agents.Local.Tests;
 

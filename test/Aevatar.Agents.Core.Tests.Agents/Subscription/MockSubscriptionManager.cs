@@ -2,9 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Subscription;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core.Tests.Subscription;
 

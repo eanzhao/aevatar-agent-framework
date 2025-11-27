@@ -1,14 +1,14 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aevatar.Agents.Abstractions;
-using Shouldly;
+using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
-using Aevatar.Agents.Core.Helpers;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Shouldly;
 using Xunit.Abstractions;
 
 namespace Aevatar.Agents.Core.Tests;

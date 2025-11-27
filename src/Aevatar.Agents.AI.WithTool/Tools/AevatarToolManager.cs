@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Tools;
 

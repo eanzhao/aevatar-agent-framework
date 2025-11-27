@@ -7,7 +7,7 @@ using EventSourcingDemo;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-Console.WriteLine("🌌 Aevatar Agent Framework - EventSourcing Demo V2");
+Console.WriteLine("🌌 Aevatar Agent Framework - EventSourcing Demo");
 Console.WriteLine("==================================================\n");
 Console.WriteLine("展示新的 EventSourcing API:");
 Console.WriteLine("  ✅ 批量事件提交 (RaiseEvent + ConfirmEventsAsync)");
@@ -203,7 +203,7 @@ Console.WriteLine($"   when the snapshot strategy condition is met.");
 // ============================================================
 // Summary
 // ============================================================
-Console.WriteLine("\n\n✅ EventSourcing Demo V2 completed successfully!");
+Console.WriteLine("\n\n✅ EventSourcing Demo completed successfully!");
 Console.WriteLine("══════════════════════════════════════════════════\n");
 
 Console.WriteLine("🌟 Key Features Demonstrated:");

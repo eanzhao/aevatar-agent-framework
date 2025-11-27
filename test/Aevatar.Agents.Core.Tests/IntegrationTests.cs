@@ -2,16 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Xunit;
-using Shouldly;
-using Aevatar.Agents.Core.Tests.Agents;
-using Aevatar.Agents.Core.Tests.Fixtures;
-using Aevatar.Agents.Core.Helpers;
-using Aevatar.Agents.Core.Tests.EventPublisher;
-using Microsoft.Extensions.DependencyInjection;
-using Google.Protobuf.WellKnownTypes;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.Agents;
+using Aevatar.Agents.Core.Tests.EventPublisher;
+using Aevatar.Agents.Core.Tests.Fixtures;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.DependencyInjection;
+using Shouldly;
+using Xunit;
 
 namespace Aevatar.Agents.Core.Tests;
 

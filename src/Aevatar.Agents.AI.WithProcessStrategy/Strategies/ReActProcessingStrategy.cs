@@ -1,7 +1,7 @@
-using Aevatar.Agents.AI.Abstractions;
-using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 

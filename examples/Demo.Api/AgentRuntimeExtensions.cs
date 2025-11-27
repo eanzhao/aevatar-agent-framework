@@ -1,12 +1,12 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.Subscription;
+using Aevatar.Agents.Runtime.Orleans;
 using Aevatar.Agents.Runtime.Orleans.Subscription;
 using Aevatar.Agents.Runtime.ProtoActor.Subscription;
-using Aevatar.Agents.Core.EventDeduplication;
-using Aevatar.Agents.Runtime.Orleans;
 using Microsoft.Extensions.Logging;
 
 namespace Demo.Api;
