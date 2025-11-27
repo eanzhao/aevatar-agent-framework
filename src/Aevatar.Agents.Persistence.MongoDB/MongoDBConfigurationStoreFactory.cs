@@ -9,18 +9,26 @@ namespace Aevatar.Agents.Persistence.MongoDB;
 public static class MongoDBConfigurationStoreFactory
 {
     /// <summary>
-    /// Create MongoDB configuration store factory function
+    /// Create MongoDB configuration store factory function using DI-registered IMongoDatabase
+    /// 
+    /// Preferred usage:
+    /// <code>
+    /// services.AddAevatarMongoDB("mongodb://localhost:27017");
+    /// services.AddMongoDBConfigStore&lt;MyConfig&gt;();
+    /// </code>
     /// </summary>
-    public static Func<IServiceProvider, object> Create<TConfig>(
-        string? connectionString = null,
-        string? databaseName = null)
+    /// <typeparam name="TConfig">Config type</typeparam>
+    /// <param name="collectionName">Optional custom collection name</param>
+    /// <returns>Factory function for DI</returns>
+    public static Func<IServiceProvider, object> Create<TConfig>(string? collectionName = null)
         where TConfig : class, new()
     {
         return sp =>
         {
-            var mongoClient = new MongoClient(connectionString ?? "mongodb://localhost:27017");
-            var database = mongoClient.GetDatabase(databaseName ?? "aevatar");
-            return new MongoDbConfigStore<TConfig>(database);
+            var database = sp.GetService(typeof(IMongoDatabase)) as IMongoDatabase
+                ?? throw new InvalidOperationException(
+                    "IMongoDatabase not registered. Call services.AddAevatarMongoDB() first.");
+            return new MongoDbConfigStore<TConfig>(database, collectionName);
         };
     }
 }

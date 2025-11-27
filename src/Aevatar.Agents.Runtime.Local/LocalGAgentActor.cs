@@ -22,6 +22,7 @@ public class LocalGAgentActor : GAgentActorBase
 
     // My Stream
     private IMessageStream? _myStream;
+    private IMessageStreamSubscription? _selfStreamSubscription;
     private IMessageStreamSubscription? _parentStreamSubscription;
 
     // Cache for other actors' streams (when using external provider)
@@ -129,16 +130,10 @@ public class LocalGAgentActor : GAgentActorBase
             _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
-                    // ... (Same handler logic)
                     try
                     {
-                        var handleMethod = Agent.GetType().GetMethod("HandleEventAsync",
-                            [typeof(EventEnvelope), typeof(CancellationToken)]);
-                        if (handleMethod != null)
-                        {
-                            var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
-                            if (task != null) await task;
-                        }
+                        // Direct call - no reflection needed since IGAgent defines HandleEventAsync
+                        await Agent.HandleEventAsync(envelope, ct);
 
                         if (envelope.Direction == EventDirection.Down)
                         {
@@ -201,7 +196,8 @@ public class LocalGAgentActor : GAgentActorBase
     {
         if (_myStream != null)
         {
-            await _myStream.SubscribeAsync<EventEnvelope>(
+            // Store subscription handle for proper cleanup in OnDeactivateAsync
+            _selfStreamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
                     Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from stream", Id,
@@ -218,15 +214,25 @@ public class LocalGAgentActor : GAgentActorBase
         AgentMetrics.UpdateActiveActorCount(count);
     }
 
-    protected override Task OnDeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("Deactivating agent {AgentId}", Id);
 
-        // If using Local Registry, remove it. If MassTransit, the provider handles it (or we unsubscribe)
-        // MassTransit streams are persistent, but subscriptions are memory-bound.
-        // We should explicitly unsubscribe if we held a handle, but currently _myStream.SubscribeAsync returns a handle we didn't store for self (fixed below)
+        // Unsubscribe from self stream
+        if (_selfStreamSubscription != null)
+        {
+            await _selfStreamSubscription.UnsubscribeAsync();
+            _selfStreamSubscription = null;
+        }
 
-        // Note: In local registry, RemoveStream stops the channel. 
+        // Unsubscribe from parent stream (if still subscribed)
+        if (_parentStreamSubscription != null)
+        {
+            await _parentStreamSubscription.UnsubscribeAsync();
+            _parentStreamSubscription = null;
+        }
+
+        // Clean up local stream registry
         if (_myStream is LocalMessageStream)
         {
             _streamRegistry.RemoveStream(Id);
@@ -234,7 +240,5 @@ public class LocalGAgentActor : GAgentActorBase
 
         var count = Interlocked.Decrement(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
-
-        return Task.CompletedTask;
     }
 }

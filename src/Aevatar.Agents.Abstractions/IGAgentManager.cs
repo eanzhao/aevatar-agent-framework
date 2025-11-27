@@ -1,161 +1,190 @@
 namespace Aevatar.Agents.Abstractions;
 
-/// <summary>
-/// Agent 管理器接口
-/// 负责 Agent 类型发现、注册和元数据管理
-/// </summary>
-public interface IGAgentManager
-{
-    #region 类型发现
+// ============================================================
+//  Agent Manager - Interface Segregation
+//  Split into focused interfaces for better testability
+// ============================================================
 
+#region Core Interfaces (ISP compliant)
+
+/// <summary>
+/// Agent type registry - read-only type discovery
+/// </summary>
+public interface IAgentTypeRegistry
+{
     /// <summary>
-    /// 获取所有可用的 Agent 类型
+    /// Get all available agent types
     /// </summary>
     List<Type> GetAvailableAgentTypes();
 
     /// <summary>
-    /// 获取所有可用的事件类型
+    /// Get all available event types
     /// </summary>
     List<Type> GetAvailableEventTypes();
 
     /// <summary>
-    /// 获取指定 Agent 类型支持的事件类型
-    /// </summary>
-    List<Type> GetSupportedEventTypes<TAgent>()
-        where TAgent : IGAgent;
-
-    /// <summary>
-    /// 获取指定 Agent 类型支持的事件类型
-    /// </summary>
-    List<Type> GetSupportedEventTypes(Type agentType);
-
-    /// <summary>
-    /// 检查指定类型是否为有效的 Agent 类型
+    /// Check if the type is a valid agent type
     /// </summary>
     bool IsValidAgentType(Type type);
 
     /// <summary>
-    /// 检查指定类型是否为有效的事件类型
+    /// Check if the type is a valid event type
     /// </summary>
     bool IsValidEventType(Type type);
+}
 
-    #endregion
-
-    #region 类型注册
-
+/// <summary>
+/// Agent type registrar - write operations for type registration
+/// </summary>
+public interface IAgentTypeRegistrar
+{
     /// <summary>
-    /// 注册 Agent 类型（用于插件系统）
+    /// Register an agent type (for plugin system)
     /// </summary>
     void RegisterAgentType(Type agentType);
 
     /// <summary>
-    /// 注销 Agent 类型
+    /// Unregister an agent type
     /// </summary>
     void UnregisterAgentType(Type agentType);
 
     /// <summary>
-    /// 注册事件类型
+    /// Register an event type
     /// </summary>
     void RegisterEventType(Type eventType);
 
     /// <summary>
-    /// 注销事件类型
+    /// Unregister an event type
     /// </summary>
     void UnregisterEventType(Type eventType);
+}
 
-    #endregion
-
-    #region 元数据
-
+/// <summary>
+/// Agent metadata provider - type metadata and supported events
+/// </summary>
+public interface IAgentMetadataProvider
+{
     /// <summary>
-    /// 获取 Agent 类型的元数据
+    /// Get metadata for an agent type
     /// </summary>
     AgentTypeMetadata? GetAgentMetadata(Type agentType);
 
     /// <summary>
-    /// 获取 Agent 类型的元数据
+    /// Get metadata for an agent type
     /// </summary>
-    AgentTypeMetadata? GetAgentMetadata<TAgent>()
-        where TAgent : IGAgent;
+    AgentTypeMetadata? GetAgentMetadata<TAgent>() where TAgent : IGAgent;
 
     /// <summary>
-    /// 获取所有 Agent 类型的元数据
+    /// Get all agent type metadata
     /// </summary>
     IReadOnlyList<AgentTypeMetadata> GetAllAgentMetadata();
 
-    #endregion
-
-    #region 插件支持
+    /// <summary>
+    /// Get supported event types for an agent
+    /// </summary>
+    List<Type> GetSupportedEventTypes<TAgent>() where TAgent : IGAgent;
 
     /// <summary>
-    /// 从程序集加载 Agent 类型
+    /// Get supported event types for an agent
     /// </summary>
-    /// <param name="assembly">要加载的程序集</param>
-    /// <returns>加载的 Agent 类型数量</returns>
-    int LoadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
-
-    /// <summary>
-    /// 从程序集路径加载 Agent 类型
-    /// </summary>
-    /// <param name="assemblyPath">程序集文件路径</param>
-    /// <returns>加载的 Agent 类型数量</returns>
-    int LoadAgentTypesFromPath(string assemblyPath);
-
-    /// <summary>
-    /// 卸载来自指定程序集的所有 Agent 类型
-    /// </summary>
-    void UnloadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
-
-    #endregion
+    List<Type> GetSupportedEventTypes(Type agentType);
 }
 
 /// <summary>
-/// Agent 类型元数据
+/// Agent plugin loader - assembly loading and unloading
+/// </summary>
+public interface IAgentPluginLoader
+{
+    /// <summary>
+    /// Load agent types from assembly
+    /// </summary>
+    /// <param name="assembly">Assembly to load</param>
+    /// <returns>Number of loaded agent types</returns>
+    int LoadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
+
+    /// <summary>
+    /// Load agent types from assembly path
+    /// </summary>
+    /// <param name="assemblyPath">Assembly file path</param>
+    /// <returns>Number of loaded agent types</returns>
+    int LoadAgentTypesFromPath(string assemblyPath);
+
+    /// <summary>
+    /// Unload all agent types from assembly
+    /// </summary>
+    void UnloadAgentTypesFromAssembly(System.Reflection.Assembly assembly);
+}
+
+#endregion
+
+#region Aggregate Interface (backward compatible)
+
+/// <summary>
+/// Agent manager interface - aggregate of all agent management capabilities
+/// Combines IAgentTypeRegistry, IAgentTypeRegistrar, IAgentMetadataProvider, IAgentPluginLoader
+/// for backward compatibility
+/// </summary>
+public interface IGAgentManager :
+    IAgentTypeRegistry,
+    IAgentTypeRegistrar,
+    IAgentMetadataProvider,
+    IAgentPluginLoader
+{
+}
+
+#endregion
+
+#region Metadata Types
+
+/// <summary>
+/// Agent type metadata
 /// </summary>
 public record AgentTypeMetadata
 {
     /// <summary>
-    /// Agent 类型
+    /// Agent type
     /// </summary>
     public Type AgentType { get; init; } = null!;
 
     /// <summary>
-    /// Agent 类型名称
+    /// Agent type name
     /// </summary>
     public string Name { get; init; } = string.Empty;
 
     /// <summary>
-    /// Agent 描述
+    /// Agent description
     /// </summary>
     public string? Description { get; init; }
 
     /// <summary>
-    /// 状态类型
+    /// State type
     /// </summary>
     public Type? StateType { get; init; }
 
     /// <summary>
-    /// 支持的事件类型
+    /// Supported event types
     /// </summary>
     public List<Type> SupportedEventTypes { get; init; } = new();
 
     /// <summary>
-    /// 是否支持事件溯源
+    /// Whether event sourcing is supported
     /// </summary>
     public bool SupportsEventSourcing { get; init; }
 
     /// <summary>
-    /// 是否支持配置
+    /// Whether configuration is supported
     /// </summary>
     public bool SupportsConfiguration { get; init; }
 
     /// <summary>
-    /// 来源程序集
+    /// Source assembly name
     /// </summary>
     public string? AssemblyName { get; init; }
 
     /// <summary>
-    /// 注册时间
+    /// Registration time
     /// </summary>
     public DateTimeOffset RegisteredAt { get; init; } = DateTimeOffset.UtcNow;
 }
+
+#endregion

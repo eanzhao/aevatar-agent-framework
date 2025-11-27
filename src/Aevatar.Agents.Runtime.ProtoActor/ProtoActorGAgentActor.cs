@@ -79,17 +79,8 @@ public class ProtoActorGAgentActor : GAgentActorBase
                 {
                     // 从父stream接收到的事件，只需要处理，不需要继续传播
                     // 因为这个事件已经在父stream中广播了
-                    // 通过反射调用Agent的HandleEventAsync
-                    var handleMethod = Agent.GetType().GetMethod("HandleEventAsync",
-                        [typeof(EventEnvelope), typeof(CancellationToken)]);
-                    if (handleMethod != null)
-                    {
-                        var task = handleMethod.Invoke(Agent, [envelope, ct]) as Task;
-                        if (task != null)
-                        {
-                            await task;
-                        }
-                    }
+                    // Direct call - no reflection needed since IGAgent defines HandleEventAsync
+                    await Agent.HandleEventAsync(envelope, ct);
                 },
                 combinedFilter,
                 ct);

@@ -217,18 +217,20 @@ public sealed record MakerOptions
     
     /// <summary>
     /// Whether to use multiple LLM providers for decorrelation.
-    /// When true, workers are assigned providers from ProviderNames in round-robin fashion.
+    /// When true, automatically discovers all valid providers from configuration
+    /// and assigns them to workers in round-robin fashion.
     /// Default: false (use same provider)
     /// </summary>
     public bool UseMultipleProviders { get; init; } = false;
     
     /// <summary>
-    /// List of LLM provider names for multi-provider mode.
-    /// Workers will be assigned providers in round-robin order.
-    /// Example: ["deepseek", "moonshot", "bigmodel"]
-    /// If empty and UseMultipleProviders=true, falls back to ProviderName.
+    /// Dedicated LLM provider for the Coordinator agent.
+    /// If set, Coordinator uses this provider exclusively.
+    /// If null, Coordinator participates in round-robin with workers.
+    /// Useful when you want Coordinator to use a more capable model for synthesis.
+    /// Example: "gpt-4" for Coordinator while workers use "deepseek"
     /// </summary>
-    public IReadOnlyList<string> ProviderNames { get; init; } = [];
+    public string? CoordinatorProviderName { get; init; }
     
     /// <summary>
     /// Red flag threshold - number of consecutive failures before escalation.

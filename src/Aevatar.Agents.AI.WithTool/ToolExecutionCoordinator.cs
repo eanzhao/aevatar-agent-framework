@@ -3,10 +3,18 @@ using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Exceptions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Aevatar.Agents.AI.WithTool;
+
+// ============================================================
+//  Tool Execution Coordinator
+//  Coordinates tool execution workflow including parsing,
+//  execution, and response generation.
+// ============================================================
 
 /// <summary>
 /// Coordinates tool execution workflow including parsing, execution, and response generation.
@@ -17,7 +25,13 @@ public class ToolExecutionCoordinator
     private readonly IAevatarToolManager _toolManager;
     private readonly IAevatarLLMProvider _llmProvider;
     private readonly ToolAwareConversationHistoryManager _historyManager;
-    private readonly ILogger? _logger;
+    private readonly ILogger _logger;
+
+    /// <summary>
+    /// Whether to throw exceptions on argument parse failures.
+    /// Default: false (returns empty dict for backward compatibility)
+    /// </summary>
+    public bool ThrowOnParseError { get; set; }
 
     public ToolExecutionCoordinator(
         IAevatarToolManager toolManager,
@@ -28,7 +42,7 @@ public class ToolExecutionCoordinator
         _toolManager = toolManager ?? throw new ArgumentNullException(nameof(toolManager));
         _llmProvider = llmProvider ?? throw new ArgumentNullException(nameof(llmProvider));
         _historyManager = historyManager ?? throw new ArgumentNullException(nameof(historyManager));
-        _logger = logger;
+        _logger = logger ?? NullLogger.Instance;
     }
 
     /// <summary>
@@ -39,10 +53,9 @@ public class ToolExecutionCoordinator
         AevatarLLMRequest llmRequest,
         CancellationToken cancellationToken = default)
     {
-        if (functionCall == null)
-            throw new ArgumentNullException(nameof(functionCall));
+        ArgumentNullException.ThrowIfNull(functionCall);
 
-        _logger?.LogDebug("Executing tool: {ToolName}", functionCall.Name);
+        _logger.LogDebug("Executing tool: {ToolName}", functionCall.Name);
 
         // 1. Add tool call to history
         var toolCallMsg = _historyManager.AddToolCallMessage(functionCall);
@@ -54,8 +67,6 @@ public class ToolExecutionCoordinator
         var toolResultMsg = _historyManager.AddToolResultMessage(functionCall.Name, result);
 
         // 4. Generate final LLM response with tool result
-        // IMPORTANT: We must add the tool call and result to the current request messages
-        // so the LLM knows the tool has been executed and sees the result.
         llmRequest.Messages.Add(toolCallMsg);
         llmRequest.Messages.Add(toolResultMsg);
 
@@ -74,32 +85,41 @@ public class ToolExecutionCoordinator
         AevatarFunctionCall functionCall,
         CancellationToken cancellationToken)
     {
-        // Parse arguments
-        var parameters = ParseToolArguments(functionCall.Arguments);
+        // Parse arguments with proper error handling
+        var parseResult = TryParseToolArguments(functionCall.Arguments, functionCall.Name);
+
+        if (!parseResult.Success && ThrowOnParseError)
+        {
+            throw new ToolArgumentParseException(
+                functionCall.Name,
+                functionCall.Arguments,
+                new JsonException(parseResult.Error));
+        }
 
         // Execute tool via tool manager
         return await _toolManager.ExecuteToolAsync(
             functionCall.Name,
-            parameters,
+            parseResult.Parameters,
             context: null,
             cancellationToken: cancellationToken);
     }
 
     /// <summary>
-    /// Parse tool arguments from JSON string.
+    /// Parse tool arguments from JSON string with structured result.
     /// </summary>
-    private Dictionary<string, object> ParseToolArguments(string argumentsJson)
+    /// <param name="argumentsJson">JSON string containing arguments</param>
+    /// <param name="toolName">Tool name for error context</param>
+    /// <returns>Parse result with success/failure info</returns>
+    public ToolArgumentParseResult TryParseToolArguments(string argumentsJson, string? toolName = null)
     {
-        _logger?.LogWarning("[DEBUG] ParseToolArguments received: {Arguments}", argumentsJson);
-
         if (string.IsNullOrWhiteSpace(argumentsJson))
-            return new Dictionary<string, object>();
+            return ToolArgumentParseResult.Ok(new Dictionary<string, object>());
 
         try
         {
             var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argumentsJson);
             if (dict == null)
-                return new Dictionary<string, object>();
+                return ToolArgumentParseResult.Ok(new Dictionary<string, object>());
 
             var result = new Dictionary<string, object>();
             foreach (var kvp in dict)
@@ -111,16 +131,23 @@ public class ToolExecutionCoordinator
                     JsonValueKind.True => true,
                     JsonValueKind.False => false,
                     JsonValueKind.Null => null!,
-                    // For arrays and objects, keep the JsonElement so tools can parse them as needed
+                    // For arrays and objects, keep the JsonElement for flexible handling
                     _ => kvp.Value
                 };
             }
-            return result;
+
+            _logger.LogDebug("Parsed {Count} arguments for tool {ToolName}",
+                result.Count, toolName ?? "unknown");
+
+            return ToolArgumentParseResult.Ok(result);
         }
         catch (JsonException ex)
         {
-            _logger?.LogWarning(ex, "Failed to parse tool arguments: {Arguments}", argumentsJson);
-            return new Dictionary<string, object>();
+            var error = $"JSON parse error: {ex.Message}";
+            _logger.LogWarning(ex, "Failed to parse tool arguments for {ToolName}: {Arguments}",
+                toolName ?? "unknown", TruncateForLog(argumentsJson));
+
+            return ToolArgumentParseResult.Fail(error);
         }
     }
 
@@ -148,10 +175,10 @@ public class ToolExecutionCoordinator
         // Populate tool call arguments
         if (!string.IsNullOrEmpty(functionCall.Arguments))
         {
-            var args = ParseToolArguments(functionCall.Arguments);
-            foreach (var arg in args)
+            var parseResult = TryParseToolArguments(functionCall.Arguments, functionCall.Name);
+            foreach (var arg in parseResult.Parameters)
             {
-                response.ToolCall.Arguments[arg.Key.ToString()] = arg.Value?.ToString() ?? string.Empty;
+                response.ToolCall.Arguments[arg.Key] = arg.Value?.ToString() ?? string.Empty;
             }
         }
 
@@ -167,5 +194,11 @@ public class ToolExecutionCoordinator
         }
 
         return response;
+    }
+
+    private static string TruncateForLog(string value, int maxLength = 200)
+    {
+        if (string.IsNullOrEmpty(value)) return "(empty)";
+        return value.Length > maxLength ? value[..maxLength] + "..." : value;
     }
 }

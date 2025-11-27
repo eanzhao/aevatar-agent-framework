@@ -337,8 +337,9 @@ public static class PaperReviewProject
             MaxTotalTokens = 1_000_000,  // Papers need more tokens
             Mode = ExecutionMode.Academic,
             Granularity = DecompositionGranularity.Balanced,
-            UseMultipleProviders = true,  // Multiple LLMs for diverse revision perspectives
-            ProviderNames = ["deepseek", "bigmodel"],
+            // Multi-provider: auto-discovers all valid providers from config
+            UseMultipleProviders = true,
+            //CoordinatorProviderName = "openai",
             Context = new Dictionary<string, string>
             {
                 ["venue"] = targetVenue,

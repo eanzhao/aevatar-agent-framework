@@ -25,6 +25,9 @@ public class MongoDBEventRouterStore : IEventRouterStore
     {
         var name = collectionName ?? "agent_event_router_hierarchies";
         _collection = database.GetCollection<EventRouterHierarchyDocument>(name);
+
+        // Ensure indexes are created (idempotent, runs once per collection per process)
+        MongoDBIndexManager.EnsureEventRouterStoreIndexes(_collection);
     }
 
     /// <summary>
@@ -91,17 +94,24 @@ public class MongoDBEventRouterStore : IEventRouterStore
 public static class MongoDBEventRouterStoreFactory
 {
     /// <summary>
-    /// Create MongoDB EventRouter store factory function
+    /// Create MongoDB EventRouter store factory function using DI-registered IMongoDatabase
+    /// 
+    /// Preferred usage:
+    /// <code>
+    /// services.AddAevatarMongoDB("mongodb://localhost:27017");
+    /// services.AddMongoDBEventRouterStore();
+    /// </code>
     /// </summary>
-    public static Func<IServiceProvider, IEventRouterStore> Create(
-        string? connectionString = null,
-        string? databaseName = null)
+    /// <param name="collectionName">Optional custom collection name</param>
+    /// <returns>Factory function for DI</returns>
+    public static Func<IServiceProvider, IEventRouterStore> Create(string? collectionName = null)
     {
         return sp =>
         {
-            var mongoClient = new MongoClient(connectionString ?? "mongodb://localhost:27017");
-            var database = mongoClient.GetDatabase(databaseName ?? "aevatar");
-            return new MongoDBEventRouterStore(database);
+            var database = sp.GetService(typeof(IMongoDatabase)) as IMongoDatabase
+                ?? throw new InvalidOperationException(
+                    "IMongoDatabase not registered. Call services.AddAevatarMongoDB() first.");
+            return new MongoDBEventRouterStore(database, collectionName);
         };
     }
 }

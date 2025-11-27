@@ -677,6 +677,89 @@ body {
     color: var(--text-dim);
 }
 
+/* Streaming Effects */
+.node-streaming {
+    border-color: var(--accent-main);
+    box-shadow: 0 0 10px var(--shadow-glow);
+    animation: streaming-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes streaming-pulse {
+    0%, 100% { box-shadow: 0 0 5px var(--shadow-glow); }
+    50% { box-shadow: 0 0 15px var(--shadow-glow); }
+}
+
+.node-streaming .node-head {
+    background: rgba(0, 255, 0, 0.08);
+}
+
+.node-streaming .node-log {
+    color: var(--text-primary);
+}
+
+.streaming-cursor {
+    display: inline-block;
+    color: var(--accent-main);
+    animation: cursor-blink 0.7s step-end infinite;
+}
+
+@keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* Coordinator Node (distinct from worker nodes) */
+.coordinator-node {
+    border-color: var(--accent-warn);
+    background: rgba(255, 170, 0, 0.08);
+}
+
+.coordinator-node .node-head {
+    background: rgba(255, 170, 0, 0.15);
+    color: var(--accent-warn);
+}
+
+.coordinator-node.node-streaming {
+    border-color: var(--accent-warn);
+    box-shadow: 0 0 12px rgba(255, 170, 0, 0.4);
+    animation: coordinator-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes coordinator-pulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(255, 170, 0, 0.3); }
+    50% { box-shadow: 0 0 18px rgba(255, 170, 0, 0.5); }
+}
+
+.coordinator-node.node-streaming .node-head {
+    background: rgba(255, 170, 0, 0.2);
+}
+
+.node-streaming-badge {
+    font-size: 0.65em;
+    background: var(--accent-main);
+    color: var(--bg-core);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    animation: badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.node-status.streaming {
+    color: var(--accent-main);
+    animation: status-spin 1s linear infinite;
+}
+
+@keyframes status-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* Markdown Override */
 .markdown-content {
     color: var(--text-primary);

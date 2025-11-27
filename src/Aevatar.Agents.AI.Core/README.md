@@ -27,7 +27,7 @@ public class CustomerSupportAgent : AevatarAIAgentBase<CustomerSupportState>
     protected override void ConfigureAI(AevatarAIAgentConfiguration config)
     {
         config.Provider = "SemanticKernel";
-        config.Model = "gpt-4";
+        config.Model = AIDefaults.DefaultModel; // Default: "gpt-4o-mini"
         config.Temperature = 0.7;
         config.SystemPrompt = @"
             You are a helpful customer support agent.

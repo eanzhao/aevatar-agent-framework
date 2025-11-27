@@ -2,7 +2,9 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Orleans;
 using Orleans.Runtime;
@@ -50,8 +52,8 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     private IAsyncStream<byte[]>? _myStream;  // 使用 byte[] 以避免 JSON 序列化问题，支持 Protobuf ByteString
     private StreamSubscriptionHandle<byte[]>? _streamSubscription;
 
-    // 日志
-    private ILogger<OrleansGAgentGrain>? _logger;
+    // Logger - initialized in OnActivateAsync with NullLogger fallback
+    private ILogger<OrleansGAgentGrain> _logger = NullLogger<OrleansGAgentGrain>.Instance;
 
     public OrleansGAgentGrain(
         [PersistentState("agentState")]
@@ -62,13 +64,16 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
     {
-        // 获取 Logger
-        _logger = ServiceProvider?.GetService(typeof(ILogger<OrleansGAgentGrain>)) as ILogger<OrleansGAgentGrain>;
+        // Initialize logger with fallback to NullLogger if DI unavailable
+        // Note: ServiceProvider should always be available in Orleans Grain lifecycle,
+        // but we use defensive coding for robustness
+        _logger = ServiceProvider.GetService<ILogger<OrleansGAgentGrain>>()
+                  ?? NullLogger<OrleansGAgentGrain>.Instance;
 
-        _logger?.LogInformation("Activating OrleansGAgentGrain {GrainId}", this.GetGrainId());
+        _logger.LogInformation("Activating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
-        // 获取 StreamingOptions 配置 (with fallback to default)
-        var streamingOptions = ServiceProvider?.GetService(typeof(IOptions<StreamingOptions>)) as IOptions<StreamingOptions>;
+        // Get streaming configuration with sensible defaults
+        var streamingOptions = ServiceProvider.GetService<IOptions<StreamingOptions>>();
         var streamNamespace = streamingOptions?.Value?.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
         var streamProviderName = streamingOptions?.Value?.StreamProviderName ?? AevatarAgentsOrleansConstants.StreamProviderName;
 
@@ -85,11 +90,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             // 订阅自己的 Stream
             _streamSubscription = await _myStream.SubscribeAsync(OnStreamEventReceived);
 
-            _logger?.LogDebug("Successfully subscribed to stream for Grain {GrainId}", this.GetGrainId());
+            _logger.LogDebug("Successfully subscribed to stream for Grain {GrainId}", this.GetGrainId());
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to initialize streams for Grain {GrainId}", this.GetGrainId());
+            _logger.LogWarning(ex, "Failed to initialize streams for Grain {GrainId}", this.GetGrainId());
         }
 
         await base.OnActivateAsync(cancellationToken);
@@ -97,7 +102,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
     {
-        _logger?.LogInformation("Deactivating OrleansGAgentGrain {GrainId}", this.GetGrainId());
+        _logger.LogInformation("Deactivating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
         // 取消 Stream 订阅
         if (_streamSubscription != null)
@@ -105,11 +110,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             try
             {
                 await _streamSubscription.UnsubscribeAsync();
-                _logger?.LogDebug("Successfully unsubscribed from stream for Grain {GrainId}", this.GetGrainId());
+                _logger.LogDebug("Successfully unsubscribed from stream for Grain {GrainId}", this.GetGrainId());
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Failed to unsubscribe from stream for Grain {GrainId}", this.GetGrainId());
+                _logger.LogWarning(ex, "Failed to unsubscribe from stream for Grain {GrainId}", this.GetGrainId());
             }
         }
 
@@ -129,7 +134,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             return Task.FromResult(guid);
         }
 
-        _logger?.LogError("Failed to parse Grain ID from key: {Key}", keyString);
+        _logger.LogError("Failed to parse Grain ID from key: {Key}", keyString);
         return Task.FromResult(Guid.Empty);
     }
 
@@ -143,7 +148,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     {
         if (envelopeBytes == null || envelopeBytes.Length == 0)
         {
-            _logger?.LogWarning("Received empty event bytes in Grain {GrainId}", this.GetGrainId());
+            _logger.LogWarning("Received empty event bytes in Grain {GrainId}", this.GetGrainId());
             return;
         }
 
@@ -152,7 +157,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             // 反序列化 EventEnvelope
             var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
 
-            _logger?.LogDebug("Grain {GrainId} received event {EventId}, forwarding to stream", this.GetGrainId(), envelope.Id);
+            _logger.LogDebug("Grain {GrainId} received event {EventId}, forwarding to stream", this.GetGrainId(), envelope.Id);
 
             // 通过 Stream 转发到本地的 OrleansGAgentActor
             // 序列化为 byte[] 以避免 JSON 序列化问题
@@ -166,38 +171,47 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             }
             else
             {
-                _logger?.LogWarning("Stream not available for Grain {GrainId}, event {EventId} dropped", this.GetGrainId(), envelope.Id);
+                _logger.LogWarning("Stream not available for Grain {GrainId}, event {EventId} dropped", this.GetGrainId(), envelope.Id);
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling event in Grain {GrainId}", this.GetGrainId());
+            _logger.LogError(ex, "Error handling event in Grain {GrainId}", this.GetGrainId());
             throw;
         }
     }
 
     /// <summary>
-    /// 处理从 Stream 接收到的事件
-    /// 这个方法被 Orleans Streams 调用
-    /// 反序列化 byte[] 为 EventEnvelope
+    /// Stream subscription callback - validates event deserialization for diagnostics.
+    /// 
+    /// IMPORTANT: This method intentionally does NOT process the event.
+    /// The actual event handling is done by OrleansGAgentActor which subscribes to this Grain's stream.
+    /// This callback exists only to:
+    /// 1. Validate that events can be deserialized (catches serialization issues early)
+    /// 2. Provide debug logging for stream traffic
+    /// 
+    /// The Orleans streaming model works as follows:
+    /// - Producer publishes to Grain's stream via ProduceAsync
+    /// - All subscribers (including child Actors) receive the event independently
+    /// - Each subscriber handles the event in their own subscription callback
     /// </summary>
-    private async Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
+    private Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
     {
-        try
+        // Only parse for validation/logging in debug builds to avoid unnecessary overhead
+        if (_logger.IsEnabled(LogLevel.Debug) == true)
         {
-            // 反序列化 byte[] 为 EventEnvelope
-            var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
-            _logger?.LogDebug("Grain {GrainId} received event {EventId} from stream", this.GetGrainId(), envelope.Id);
+            try
+            {
+                var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
+                _logger.LogDebug("Grain {GrainId} stream received event {EventId}", this.GetGrainId(), envelope.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize stream event for Grain {GrainId}", this.GetGrainId());
+            }
+        }
 
-            // NOTE: 事件会通过 Stream 自动发送到订阅的 OrleansGAgentActor
-            // 这里不需要做额外的处理,因为 OrleansGAgentActor 已经订阅了这个 Stream
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Error deserializing stream event for Grain {GrainId}", this.GetGrainId());
-        }
-        
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     // ============ 层级关系管理 ============
@@ -209,7 +223,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _grainState.State.Children.Add(childId);
             await _grainState.WriteStateAsync();
 
-            _logger?.LogInformation("Added child {ChildId} to Grain {GrainId}", childId, this.GetGrainId());
+            _logger.LogInformation("Added child {ChildId} to Grain {GrainId}", childId, this.GetGrainId());
         }
     }
 
@@ -219,7 +233,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         {
             await _grainState.WriteStateAsync();
 
-            _logger?.LogInformation("Removed child {ChildId} from Grain {GrainId}", childId, this.GetGrainId());
+            _logger.LogInformation("Removed child {ChildId} from Grain {GrainId}", childId, this.GetGrainId());
         }
     }
 
@@ -230,7 +244,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _grainState.State.ParentId = parentId;
             await _grainState.WriteStateAsync();
 
-            _logger?.LogInformation("Set parent {ParentId} for Grain {GrainId}", parentId, this.GetGrainId());
+            _logger.LogInformation("Set parent {ParentId} for Grain {GrainId}", parentId, this.GetGrainId());
         }
     }
 
@@ -241,7 +255,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _grainState.State.ParentId = null;
             await _grainState.WriteStateAsync();
 
-            _logger?.LogInformation("Cleared parent for Grain {GrainId}", this.GetGrainId());
+            _logger.LogInformation("Cleared parent for Grain {GrainId}", this.GetGrainId());
         }
     }
 
@@ -262,7 +276,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         // Grain 已经在 OnActivateAsync 中激活
         // 这里可以根据 agentTypeName 和 stateTypeName 做额外的初始化
 
-        _logger?.LogInformation("Grain {GrainId} activated with AgentType: {AgentType}, StateType: {StateType}",
+        _logger.LogInformation("Grain {GrainId} activated with AgentType: {AgentType}, StateType: {StateType}",
             this.GetGrainId(), agentTypeName ?? "unknown", stateTypeName ?? "unknown");
 
         return Task.CompletedTask;
@@ -271,7 +285,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     public Task DeactivateAsync()
     {
         // Grain 的停用由 Orleans 管理
-        _logger?.LogInformation("Grain {GrainId} deactivate requested", this.GetGrainId());
+        _logger.LogInformation("Grain {GrainId} deactivate requested", this.GetGrainId());
         return Task.CompletedTask;
     }
 }

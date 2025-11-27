@@ -105,9 +105,14 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         {
             if (_currentRequestCts != null && !_currentRequestCts.IsCancellationRequested)
             {
-                Logger.LogInformation("Worker {WorkerId} cancelling current request (reason: {Reason})",
+                Logger.LogWarning("[CANCEL] Worker {WorkerId} received cancel request (reason: {Reason}), cancelling LLM call",
                     CustomState.WorkerId, request.Reason);
                 _currentRequestCts.Cancel();
+            }
+            else
+            {
+                Logger.LogWarning("[CANCEL] Worker {WorkerId} received cancel but no active request to cancel (already finished?)",
+                    CustomState.WorkerId);
             }
         }
         return Task.CompletedTask;
@@ -145,6 +150,11 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         int promptTokens = 0, completionTokens = 0, totalTokens = 0;
         long? ttftMs = null;
 
+        // Generate proposal ID early for streaming events
+        var proposalId = request.IsDecomposition
+            ? $"D{CustomState.TotalProposals + 1}"
+            : $"S{CustomState.TotalProposals + 1}";
+
         try
         {
             var llmRequest = new AevatarLLMRequest
@@ -164,7 +174,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             if (modelInfo.SupportsStreaming)
             {
                 (content, promptTokens, completionTokens, ttftMs) = 
-                    await GenerateWithStreamingAsync(llmRequest, request.IsDecomposition, startTime, cts.Token);
+                    await GenerateWithStreamingAsync(llmRequest, request.IsDecomposition, startTime, proposalId, cts.Token);
             }
             else
             {
@@ -223,11 +233,6 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         CustomState.TotalProposals++;
         CustomState.Status = 0; // Back to idle
 
-        // Generate proposal ID
-        var proposalId = request.IsDecomposition
-            ? $"D{CustomState.TotalProposals}"
-            : $"S{CustomState.TotalProposals}";
-
         // Send result back to coordinator (UP direction to parent stream)
         await PublishAsync(new ProposalResult
         {
@@ -258,33 +263,58 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
 
     /// <summary>
     /// Generate LLM response using streaming for lower latency.
+    /// Publishes real-time StreamingToken events for live UI updates.
     /// </summary>
     private async Task<(string Content, int PromptTokens, int CompletionTokens, long? TtftMs)> GenerateWithStreamingAsync(
         AevatarLLMRequest request,
         bool isDecomposition,
         long startTimestamp,
+        string proposalId,
         CancellationToken ct)
     {
         var sb = new StringBuilder();
         var firstTokenReceived = false;
         long? ttftMs = null;
         int promptTokens = 0, completionTokens = 0;
+        var tokenIndex = 0;
+
+        Logger.LogWarning("[STREAMING] Worker {WorkerId} starting streaming for task {TaskId}, proposalId={ProposalId}",
+            CustomState.WorkerId, CustomState.CurrentTaskId, proposalId);
 
         await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct))
         {
             // Track Time To First Token
-            if (!firstTokenReceived)
+            var isFirst = !firstTokenReceived;
+            if (isFirst)
             {
                 firstTokenReceived = true;
                 ttftMs = (long)((Stopwatch.GetTimestamp() - startTimestamp) * 1000.0 / Stopwatch.Frequency);
                 
-                Logger.LogDebug("Worker {WorkerId} TTFT: {TtftMs}ms", CustomState.WorkerId, ttftMs);
+                Logger.LogWarning("[STREAMING] Worker {WorkerId} first token received, TTFT: {TtftMs}ms, token: '{Token}'",
+                    CustomState.WorkerId, ttftMs, 
+                    token.Content?.Length > 50 ? token.Content[..50] + "..." : token.Content);
             }
 
             // Accumulate content
             if (!string.IsNullOrEmpty(token.Content))
             {
                 sb.Append(token.Content);
+                
+                // Publish streaming token event for real-time UI updates
+                await PublishAsync(new StreamingToken
+                {
+                    RequestId = CustomState.CurrentRequestId,
+                    TaskId = CustomState.CurrentTaskId,
+                    WorkerId = CustomState.WorkerId,
+                    ProposalId = proposalId,
+                    Token = token.Content,
+                    AccumulatedContent = sb.ToString(),
+                    TokenIndex = tokenIndex++,
+                    IsFirstToken = isFirst,
+                    IsLastToken = false,
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                    ProviderName = CustomConfig.LlmProviderName
+                }, EventDirection.Up, ct);
             }
 
             // Early format validation for decomposition (JSON expected)
@@ -300,6 +330,22 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
                 }
             }
         }
+
+        // Send final token marker
+        await PublishAsync(new StreamingToken
+        {
+            RequestId = CustomState.CurrentRequestId,
+            TaskId = CustomState.CurrentTaskId,
+            WorkerId = CustomState.WorkerId,
+            ProposalId = proposalId,
+            Token = string.Empty,
+            AccumulatedContent = sb.ToString(),
+            TokenIndex = tokenIndex,
+            IsFirstToken = false,
+            IsLastToken = true,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            ProviderName = CustomConfig.LlmProviderName
+        }, EventDirection.Up, ct);
 
         // Estimate completion tokens if not provided
         if (completionTokens == 0 && sb.Length > 0)

@@ -487,6 +487,7 @@ old/
 ai-smart-home/
 
 appsettings.secrets.json
+appsettings.secrets.json.bak
 
 runs/
 output/

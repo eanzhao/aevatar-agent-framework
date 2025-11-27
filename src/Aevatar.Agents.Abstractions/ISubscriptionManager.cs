@@ -4,9 +4,41 @@ using System.Threading.Tasks;
 
 namespace Aevatar.Agents.Abstractions;
 
+// ============================================================
+//  Subscription Manager - Parent-Child Relationship Management
+//
+//  Design Notes:
+//  - ISubscriptionManager: High-level subscription lifecycle
+//    management with retry, health check, and reconnection
+//  - ISubscriptionHandle: Represents an active subscription
+//    with metadata (parent/child IDs, health status)
+//  - IMessageStreamSubscription: Low-level stream subscription
+//    handle returned by IMessageStream.SubscribeAsync()
+//
+//  Relationship:
+//  ┌─────────────────────────────────────────────────────┐
+//  │          ISubscriptionManager                        │
+//  │   (orchestrates subscriptions with retry/health)    │
+//  │                      │                              │
+//  │                      ▼                              │
+//  │          ISubscriptionHandle                        │
+//  │   (tracks parent-child relationship + metadata)     │
+//  │                      │                              │
+//  │                      ▼                              │
+//  │       IMessageStreamSubscription                    │
+//  │   (actual stream subscription, owned by handle)     │
+//  └─────────────────────────────────────────────────────┘
+//
+//  Usage:
+//  - Use ISubscriptionManager for robust parent-child subscriptions
+//  - Use IMessageStream.SubscribeAsync directly for simple cases
+//  - ISubscriptionHandle.StreamSubscription provides access to
+//    underlying stream subscription when needed
+// ============================================================
+
 /// <summary>
-/// 统一的订阅管理器接口
-/// 提供父子关系订阅的统一管理、重试策略和健康检查
+/// Unified subscription manager interface.
+/// Provides parent-child subscription management with retry strategy and health checking.
 /// </summary>
 public interface ISubscriptionManager
 {

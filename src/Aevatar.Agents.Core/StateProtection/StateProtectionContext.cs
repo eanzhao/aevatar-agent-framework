@@ -19,19 +19,20 @@ internal static class StateProtectionContext
     private static readonly AsyncLocal<bool> IsStateOrConfigModifiable = new();
 
     /// <summary>
-    /// Gets whether current execution is within an event handler context.
+    /// Gets whether current execution is within a modifiable context (event handler or initialization).
     /// </summary>
     public static bool IsModifiable => IsStateOrConfigModifiable.Value;
 
     /// <summary>
-    /// Creates an event handler execution scope.
-    /// State modifications are only allowed within this scope.
+    /// Unified scope for state modification contexts.
+    /// Used for both event handlers and initialization - the behavior is identical.
     /// </summary>
-    public class EventHandlerScope : IDisposable
+    public sealed class StateModificationScope : IDisposable
     {
         private readonly bool _previousValue;
+        private bool _disposed;
 
-        public EventHandlerScope()
+        internal StateModificationScope()
         {
             _previousValue = IsStateOrConfigModifiable.Value;
             IsStateOrConfigModifiable.Value = true;
@@ -39,18 +40,25 @@ internal static class StateProtectionContext
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             IsStateOrConfigModifiable.Value = _previousValue;
         }
     }
 
     /// <summary>
     /// Begins an event handler execution scope.
+    /// State modifications are only allowed within this scope.
     /// </summary>
     /// <returns>A disposable scope that must be disposed when event handling completes.</returns>
-    public static EventHandlerScope BeginEventHandlerScope()
-    {
-        return new EventHandlerScope();
-    }
+    public static StateModificationScope BeginEventHandlerScope() => new();
+
+    /// <summary>
+    /// Creates a special scope for agent initialization where State setup is allowed.
+    /// Should only be used in OnActivateAsync or similar initialization methods.
+    /// </summary>
+    /// <returns>A disposable scope for initialization.</returns>
+    public static StateModificationScope BeginInitializationScope() => new();
 
     /// <summary>
     /// Checks if current context allows State modification.
@@ -67,35 +75,5 @@ internal static class StateProtectionContext
                 "State must only be modified within event handler methods to ensure consistency through the event stream. " +
                 "Consider publishing an event and handling it in an [EventHandler] method instead.");
         }
-    }
-
-    /// <summary>
-    /// Temporarily allows State modification outside of event handler context.
-    /// This should ONLY be used during agent initialization (OnActivateAsync).
-    /// </summary>
-    public class InitializationScope : IDisposable
-    {
-        private readonly bool _previousValue;
-
-        public InitializationScope()
-        {
-            _previousValue = IsStateOrConfigModifiable.Value;
-            IsStateOrConfigModifiable.Value = true;
-        }
-
-        public void Dispose()
-        {
-            IsStateOrConfigModifiable.Value = _previousValue;
-        }
-    }
-
-    /// <summary>
-    /// Creates a special scope for agent initialization where State setup is allowed.
-    /// Should only be used in OnActivateAsync or similar initialization methods.
-    /// </summary>
-    /// <returns>A disposable scope for initialization.</returns>
-    public static InitializationScope BeginInitializationScope()
-    {
-        return new InitializationScope();
     }
 }

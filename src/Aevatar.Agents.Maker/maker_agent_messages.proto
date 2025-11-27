@@ -6,6 +6,35 @@ option csharp_namespace = "Aevatar.Agents.Maker.Messages";
 import "google/protobuf/timestamp.proto";
 
 // ============================================================
+//  MAKER Execution State Machine (P3-4)
+//  Explicit state machine for clear execution flow
+// ============================================================
+
+enum MakerExecutionState {
+    MAKER_STATE_IDLE = 0;
+    MAKER_STATE_INITIALIZING_WORKERS = 1;
+    MAKER_STATE_ASSESSING_ATOMICITY = 2;
+    MAKER_STATE_DECOMPOSING = 3;
+    MAKER_STATE_SOLVING_ATOMIC = 4;
+    MAKER_STATE_VOTING = 5;
+    MAKER_STATE_COMPOSING = 6;
+    MAKER_STATE_COMPLETED = 7;
+    MAKER_STATE_FAILED = 8;
+    MAKER_STATE_CANCELLED = 9;
+}
+
+// ============================================================
+//  MAKER Worker State Machine
+// ============================================================
+
+enum MakerWorkerStatus {
+    WORKER_STATUS_IDLE = 0;
+    WORKER_STATUS_WORKING = 1;
+    WORKER_STATUS_COMPLETED = 2;
+    WORKER_STATUS_ERROR = 3;
+}
+
+// ============================================================
 //  MAKER Coordinator Agent State
 // ============================================================
 
@@ -17,8 +46,12 @@ message MakerCoordinatorState {
     int32 samples_per_round = 5;
     int32 total_llm_calls = 6;
     
-    // Status (0=idle, 1=starting, 2=running, 3=completed, 4=failed, 5=cancelled)
-    int32 status = 7;
+    // Execution state machine (replaces legacy int32 status)
+    MakerExecutionState execution_state = 30;
+    
+    // DEPRECATED: Legacy status field (0=idle, 1=starting, 2=running, 3=completed, 4=failed, 5=cancelled)
+    // Keep for backward compatibility, will be removed in future version
+    int32 status = 7 [deprecated = true];
     string current_task_id = 8;
     int32 current_depth = 9;
     
@@ -43,6 +76,42 @@ message MakerCoordinatorState {
     int32 max_total_llm_calls = 19;
     int64 max_total_tokens = 20;
     int64 max_duration_ms = 21;
+    
+    // === P0-2: Runtime state persistence ===
+    
+    // Execution context (user-provided key-value pairs)
+    map<string, string> execution_context = 22;
+    
+    // Serialized MakerOptions for resumption
+    MakerOptionsProto options = 23;
+    
+    // Execution result (for completed runs)
+    string result_content = 24;
+    string result_error = 25;
+    string result_trace_json = 26;
+    
+    // Valid provider names (discovered during startup)
+    repeated string valid_providers = 27;
+    string coordinator_provider = 28;
+    
+    // Stopwatch elapsed time (for duration tracking across restarts)
+    int64 elapsed_ms = 29;
+}
+
+// Serializable version of MakerOptions for state persistence
+message MakerOptionsProto {
+    int32 consensus_k = 1;
+    int32 samples_per_round = 2;
+    int32 max_total_llm_calls = 3;
+    int64 max_total_tokens = 4;
+    int64 max_duration_ms = 5;
+    int32 depth_warning_threshold = 6;
+    int32 hard_depth_cap = 7;
+    float base_temperature = 8;
+    float temperature_variance = 9;
+    float semantic_similarity_threshold = 10;
+    string clustering_method = 11;
+    string execution_mode = 12;  // "Production" or "Academic"
 }
 
 message MakerCoordinatorConfig {
@@ -80,8 +149,12 @@ message MakerWorkerState {
     int32 successful_proposals = 6;
     int32 failed_proposals = 7;
     
-    // Status (0=idle, 1=working, 2=completed)
-    int32 status = 8;
+    // Worker state machine (replaces legacy int32 status)
+    MakerWorkerStatus worker_status = 10;
+    
+    // DEPRECATED: Legacy status field (0=idle, 1=working, 2=completed)
+    // Keep for backward compatibility, will be removed in future version
+    int32 status = 8 [deprecated = true];
     
     google.protobuf.Timestamp last_activity = 9;
 }
@@ -118,8 +191,8 @@ message StartMakerTaskRequest {
     int32 depth_warning_threshold = 16;
     
     // Multi-provider support for decorrelation
-    repeated string provider_names = 17;   // Multiple providers for round-robin assignment
-    bool use_multiple_providers = 18;      // Enable multi-provider mode
+    bool use_multiple_providers = 17;      // Enable multi-provider mode (auto-discover valid providers)
+    string coordinator_provider_name = 18; // Optional dedicated provider for Coordinator
 }
 
 // ============================================================
@@ -186,6 +259,21 @@ message ProposalResult {
     
     // Time To First Token (streaming latency metric)
     int64 ttft_ms = 14;
+}
+
+// Real-time streaming token from Worker (for live UI updates)
+message StreamingToken {
+    string request_id = 1;
+    string task_id = 2;
+    string worker_id = 3;
+    string proposal_id = 4;
+    string token = 5;                        // The token content chunk
+    string accumulated_content = 6;          // Full content so far (optional, for stateless frontend)
+    int32 token_index = 7;                   // Sequence number for ordering
+    bool is_first_token = 8;                 // TTFT indicator
+    bool is_last_token = 9;                  // Stream completion indicator
+    google.protobuf.Timestamp timestamp = 10;
+    string provider_name = 11;
 }
 
 // ============================================================

@@ -116,16 +116,14 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 MaxTotalTokens = options.MaxTotalTokens,
                 MaxDurationMs = (long)options.MaxDuration.TotalMilliseconds,
                 DepthWarningThreshold = options.DepthWarningThreshold,
-                // Multi-provider support
-                UseMultipleProviders = options.UseMultipleProviders
+                // Multi-provider support (auto-discovers valid providers)
+                UseMultipleProviders = options.UseMultipleProviders,
+                CoordinatorProviderName = options.CoordinatorProviderName ?? string.Empty
             };
             
-            // Add provider names for multi-provider mode
-            if (options.UseMultipleProviders && options.ProviderNames.Count > 0)
+            if (options.UseMultipleProviders)
             {
-                startRequest.ProviderNames.AddRange(options.ProviderNames);
-                _logger.LogInformation("Multi-provider mode enabled with {Count} providers: {Providers}", 
-                    options.ProviderNames.Count, string.Join(", ", options.ProviderNames));
+                _logger.LogInformation("Multi-provider mode enabled. Will auto-discover valid providers.");
             }
 
             // Add context if provided
