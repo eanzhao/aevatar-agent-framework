@@ -18,22 +18,40 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
     private readonly IClusterClient _clusterClient;
     private readonly IStreamProvider? _streamProvider;
     private readonly StreamingOptions _streamingOptions;
+    private readonly IMessageStreamProvider? _messageStreamProvider;
+    private readonly IOptions<MessageStreamProviderOptions>? _providerOptions;
 
     public OrleansGAgentActorFactory(
         IServiceProvider serviceProvider,
         IClusterClient clusterClient,
-        ILogger<OrleansGAgentActorFactory> logger)
+        ILogger<OrleansGAgentActorFactory> logger,
+        IMessageStreamProvider? messageStreamProvider = null,
+        IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(serviceProvider, logger)
     {
         _clusterClient = clusterClient;
+        _messageStreamProvider = messageStreamProvider;
+        _providerOptions = providerOptions;
 
         // Get StreamingOptions from configuration (with fallback to default)
         _streamingOptions = serviceProvider.GetService<IOptions<StreamingOptions>>()?.Value
                             ?? new StreamingOptions();
 
+        // Orleans Stream Provider (依然需要初始化，作为 fallback 或默认)
         var streamProviderName = _streamingOptions.StreamProviderName;
-        _streamProvider = clusterClient.GetStreamProvider(streamProviderName)
-                          ?? throw new InvalidOperationException($"Stream provider '{streamProviderName}' not found");
+        try 
+        {
+            _streamProvider = clusterClient.GetStreamProvider(streamProviderName);
+        }
+        catch (Exception ex)
+        {
+            // 如果配置了 MassTransit，Orleans Stream Provider 失败可能是预期的
+            // 只有在没配置 MassTransit 时才抛出异常
+            if (messageStreamProvider == null || providerOptions?.Value.Provider != "MassTransit")
+            {
+                logger.LogWarning(ex, "Stream provider '{StreamProviderName}' not found", streamProviderName);
+            }
+        }
     }
 
     protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
@@ -46,8 +64,16 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         var grain = _clusterClient.GetGrain<IGAgentGrain>(id.ToString());
         _logger.LogDebug("Using Standard Grain for agent {Id}", id);
 
-        // 创建 Orleans Actor (继承自 GAgentActorBase!)
-        var actor = new OrleansGAgentActor(agent, _clusterClient, _streamProvider, _streamingOptions);
+        // 创建 Orleans Actor
+        // 传入所有必要的依赖，包括可选的 MessageStreamProvider
+        var actor = new OrleansGAgentActor(
+            agent, 
+            _clusterClient, // IGrainFactory
+            _streamProvider!, // IStreamProvider (可能为 null，但在 Actor 中会检查)
+            _streamingOptions,
+            _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActor>>(),
+            _messageStreamProvider,
+            _providerOptions);
 
         _logger.LogInformation("Created Orleans agent actor instance {Id} with grain type {GrainType}",
             id, grain.GetType().Name);

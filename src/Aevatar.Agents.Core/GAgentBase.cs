@@ -143,6 +143,20 @@ public abstract class GAgentBase : IGAgent
     // ============ IGAgent Implementation ============
 
     /// <summary>
+    /// Get agent category for routing.
+    /// Defaults to [StreamTopic] attribute value, or the simple type name if not present.
+    /// </summary>
+    public virtual string GetAgentCategory()
+    {
+        var attr = GetType().GetCustomAttribute<StreamTopicAttribute>();
+        if (attr != null)
+        {
+            return attr.Topic;
+        }
+        return GetType().Name;
+    }
+
+    /// <summary>
     /// Get agent description
     /// </summary>
     public virtual string GetDescription()

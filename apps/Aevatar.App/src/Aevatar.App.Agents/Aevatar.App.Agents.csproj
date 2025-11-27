@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Protobuf support -->
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+    
+    <!-- Aevatar Core for GAgentBase -->
+    <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\business_agent.proto" GrpcServices="None" />
+    <Protobuf Include="Protos\typed_agent.proto" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>
