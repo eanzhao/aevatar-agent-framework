@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/agents/">
     <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" />
-    <Project Path="agents\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" />
     <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" />
     <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />

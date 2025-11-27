@@ -6,16 +6,26 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <RootNamespace>Aevatar.Agents.Maker.V2</RootNamespace>
-    <Description>MAKER V2 - Zero-Error LLM Task Execution Framework</Description>
+    <Description>MAKER V2 - Zero-Error LLM Task Execution Framework with Agent Support</Description>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="maker_agent_messages.proto" GrpcServices="None" />
   </ItemGroup>
 
 </Project>

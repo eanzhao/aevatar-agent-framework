@@ -238,13 +238,19 @@ function initDomCache() {
         cfgK: q('#cfg-k'),
         cfgN: q('#cfg-n'),
         cfgDepth: q('#cfg-depth'),
-        cfgRounds: q('#cfg-rounds'),
         cfgTimeout: q('#cfg-timeout'),
         cfgDecomposer: q('#cfg-decomposer'),
         cfgSolver: q('#cfg-solver'),
         cfgComposer: q('#cfg-composer'),
         cfgContext: q('#cfg-context'),
-        configContextSection: q('#config-context-section')
+        configContextSection: q('#config-context-section'),
+        // Advanced MAKER params
+        cfgClustering: q('#cfg-clustering'),
+        cfgSimilarity: q('#cfg-similarity'),
+        cfgBaseTemp: q('#cfg-base-temp'),
+        cfgTempVariance: q('#cfg-temp-variance'),
+        cfgMultiProvider: q('#cfg-multi-provider'),
+        cfgRedFlag: q('#cfg-red-flag')
     };
 }
 
@@ -547,13 +553,20 @@ function renderConfig(config) {
     APP_STATE.dom.cfgK.textContent = config.consensusK;
     APP_STATE.dom.cfgN.textContent = config.samplesPerRound;
     APP_STATE.dom.cfgDepth.textContent = config.maxDepth;
-    APP_STATE.dom.cfgRounds.textContent = config.maxVotingRounds;
     APP_STATE.dom.cfgTimeout.textContent = `${config.stepTimeoutSeconds}s`;
     
     // Update strategy types
     APP_STATE.dom.cfgDecomposer.textContent = config.decomposerType || 'Default';
     APP_STATE.dom.cfgSolver.textContent = config.solverType || 'Default';
     APP_STATE.dom.cfgComposer.textContent = config.composerType || 'Default';
+    
+    // Update advanced MAKER parameters
+    APP_STATE.dom.cfgClustering.textContent = config.clusteringMethod || 'exact';
+    APP_STATE.dom.cfgSimilarity.textContent = config.semanticSimilarityThreshold?.toFixed(2) || '0.85';
+    APP_STATE.dom.cfgBaseTemp.textContent = config.baseTemperature?.toFixed(2) || '0.30';
+    APP_STATE.dom.cfgTempVariance.textContent = `±${config.temperatureVariance?.toFixed(2) || '0.10'}`;
+    APP_STATE.dom.cfgMultiProvider.textContent = config.useMultipleProviders ? 'YES' : 'NO';
+    APP_STATE.dom.cfgRedFlag.textContent = config.redFlagThreshold || '3';
     
     // Update context if available
     if (config.context && Object.keys(config.context).length > 0) {

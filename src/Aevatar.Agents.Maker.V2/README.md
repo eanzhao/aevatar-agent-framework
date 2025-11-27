@@ -94,14 +94,27 @@ public class MySolver : ISolutionStrategy
 
 ## DI Registration
 
+### Pool Mode (Default)
+
 ```csharp
-services.AddMakerV2(pool =>
-{
-    pool.AddAevatarProvider("deepseek-chat");
-    pool.AddAevatarProvider("gpt-4");  // Multiple for decorrelation
-    pool.TemperatureVariance = 0.1f;
-});
+services.AddMEAI();
+services.AddMakerV2(poolSize: 3, temperatureVariance: 0.1f);
 ```
+
+### Agent Mode (Scalable)
+
+For distributed systems or when you need state persistence:
+
+```csharp
+services.AddMEAI();
+services.AddMakerV2WithAgents(defaultProviderName: "default");
+```
+
+Agent mode uses the Aevatar Agent Framework, enabling:
+- Distributed execution across Orleans/ProtoActor runtimes
+- State persistence and EventSourcing
+- Event-driven progress tracking
+- Horizontal scaling
 
 ## Result Inspection
 

@@ -32,27 +32,6 @@ public static class UsageExamples
     }
 
     /// <summary>
-    /// Example 3: Domain-specific strategies.
-    /// </summary>
-    public static async Task<MakerResult> BaziAnalysisAsync(IMakerExecutor maker)
-    {
-        return await maker.ExecuteAsync(
-            taskDescription: "为命主分析2024年事业运势：癸卯年生，男，出生于北京。",
-            options: new MakerOptions
-            {
-                Reliability = ReliabilityLevel.High,
-                Decomposer = new BaziDecomposer(),
-                Solver = new BaziSolver(),
-                Context = new Dictionary<string, string>
-                {
-                    ["birth_year"] = "癸卯",
-                    ["gender"] = "男",
-                    ["birth_city"] = "北京"
-                }
-            });
-    }
-
-    /// <summary>
     /// Example 4: Paper summary with content injection.
     /// </summary>
     public static async Task<MakerResult> PaperSummaryAsync(IMakerExecutor maker, string paperContent)

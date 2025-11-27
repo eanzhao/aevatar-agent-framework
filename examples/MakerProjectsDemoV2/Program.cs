@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Maker.V2;
+using Aevatar.Agents.Runtime.Local;
 using MakerProjectsDemoV2.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,11 +14,14 @@ builder.Configuration
 
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 
+// Add Aevatar Local Runtime (provides IGAgentActorFactory)
+builder.Services.AddAevatarLocalRuntime();
+
 // Add MEAI LLM infrastructure
 builder.Services.AddMEAI();
 
-// Add MAKER V2 - one line, no adapters needed
-builder.Services.AddMakerV2(poolSize: 3, temperatureVariance: 0.1f);
+// Add MAKER V2 - Agent-based execution with Worker Agents
+builder.Services.AddMakerV2("deepseek");
 
 // Project service
 builder.Services.AddSingleton<MakerProjectService>();

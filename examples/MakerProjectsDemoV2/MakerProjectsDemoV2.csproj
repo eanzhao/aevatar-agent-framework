@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Aevatar.Agents.Maker.V2/Aevatar.Agents.Maker.V2.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
+    <ProjectReference Include="../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
   </ItemGroup>
 
 </Project>

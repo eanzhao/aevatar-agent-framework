@@ -100,6 +100,51 @@ public sealed record MakerOptions
     public string? ProviderName { get; init; }
     
     // ============================================================
+    //  Advanced MAKER System Parameters
+    // ============================================================
+    
+    /// <summary>
+    /// Clustering method for voting.
+    /// - "auto": Use semantic if embedding available, otherwise exact (default)
+    /// - "exact": Exact hash match (fast)
+    /// - "semantic": Semantic similarity clustering (requires embedding model)
+    /// </summary>
+    public string ClusteringMethod { get; init; } = "auto";
+    
+    /// <summary>
+    /// Semantic similarity threshold for clustering (0.0 - 1.0).
+    /// Only used when ClusteringMethod is "semantic".
+    /// Higher = stricter matching, fewer clusters.
+    /// Default: 0.85
+    /// </summary>
+    public float SemanticSimilarityThreshold { get; init; } = 0.85f;
+    
+    /// <summary>
+    /// Temperature variance for LLM decorrelation.
+    /// Each worker gets temperature ± variance to reduce correlated errors.
+    /// Default: 0.1
+    /// </summary>
+    public float TemperatureVariance { get; init; } = 0.1f;
+    
+    /// <summary>
+    /// Base temperature for LLM calls.
+    /// Default: 0.3
+    /// </summary>
+    public float BaseTemperature { get; init; } = 0.3f;
+    
+    /// <summary>
+    /// Whether to use multiple LLM providers for decorrelation.
+    /// Default: false (use same provider)
+    /// </summary>
+    public bool UseMultipleProviders { get; init; } = false;
+    
+    /// <summary>
+    /// Red flag threshold - number of consecutive failures before escalation.
+    /// Default: 3
+    /// </summary>
+    public int RedFlagThreshold { get; init; } = 3;
+    
+    // ============================================================
     //  Computed Properties (from ReliabilityLevel)
     // ============================================================
     
@@ -114,9 +159,5 @@ public sealed record MakerOptions
     /// </summary>
     public int SamplesPerRound => 2 * ConsensusK - 1;
     
-    /// <summary>
-    /// Maximum voting rounds before red flag.
-    /// </summary>
-    public int MaxVotingRounds => 3;
 }
 

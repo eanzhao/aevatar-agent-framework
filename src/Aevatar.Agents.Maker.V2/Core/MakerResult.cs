@@ -109,7 +109,13 @@ public sealed record TaskNode
     /// <summary>
     /// Final result of this task.
     /// </summary>
-    public string? Result { get; init; }
+    public string? Result { get; set; }
+    
+    /// <summary>
+    /// Best candidate from voting even if no consensus (for fallback use).
+    /// Per MAKER paper: when consensus fails, this can be used at max depth.
+    /// </summary>
+    public string? FallbackCandidate { get; init; }
 }
 
 /// <summary>
@@ -138,38 +144,7 @@ public sealed record VotingSession
     public int Rounds { get; init; }
 }
 
-/// <summary>
-/// Type of voting decision.
-/// </summary>
-public enum VotingType
-{
-    /// <summary>Voting on how to decompose a task.</summary>
-    Decomposition,
-    
-    /// <summary>Voting on the solution to an atomic task.</summary>
-    Solution
-}
-
-/// <summary>
-/// A candidate in a vote.
-/// </summary>
-public sealed record VoteCandidate
-{
-    /// <summary>
-    /// Canonical content hash.
-    /// </summary>
-    public required string Hash { get; init; }
-    
-    /// <summary>
-    /// Content of this candidate.
-    /// </summary>
-    public required string Content { get; init; }
-    
-    /// <summary>
-    /// Number of votes received.
-    /// </summary>
-    public int Votes { get; init; }
-}
+// VotingType and VoteCandidate are defined in MakerProgress.cs
 
 /// <summary>
 /// Red flag event.

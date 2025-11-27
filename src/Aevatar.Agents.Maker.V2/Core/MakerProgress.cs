@@ -141,5 +141,38 @@ public sealed record VotingProgress
     /// Runner-up's vote count.
     /// </summary>
     public int RunnerUpVotes { get; init; }
+    
+    /// <summary>
+    /// Number of semantic clusters formed.
+    /// </summary>
+    public int ClusterCount { get; init; }
+    
+    /// <summary>
+    /// Whether semantic clustering was used.
+    /// </summary>
+    public bool UsedSemanticClustering { get; init; }
+}
+
+/// <summary>
+/// A vote candidate/cluster.
+/// </summary>
+public sealed record VoteCandidate
+{
+    public required string Hash { get; init; }
+    public required string Content { get; init; }
+    public required int Votes { get; init; }
+    public int ClusterSize { get; init; } = 1;
+}
+
+/// <summary>
+/// Type of voting decision.
+/// </summary>
+public enum VotingType
+{
+    /// <summary>Voting on how to decompose a task.</summary>
+    Decomposition,
+    
+    /// <summary>Voting on the solution to an atomic task.</summary>
+    Solution
 }
 

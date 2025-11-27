@@ -1,77 +1,55 @@
-using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Maker.V2.Agents;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Maker.V2;
 
 // ============================================================
-//  DI Extensions - Simple Registration
-//  Directly uses Aevatar's ILLMProviderFactory
+//  DI Extensions - Agent-based MAKER System
 // ============================================================
 
 /// <summary>
 /// Extension methods for registering MAKER services.
+/// Uses Aevatar Agent Framework for distributed multi-agent execution.
 /// </summary>
 public static class MakerServiceCollectionExtensions
 {
     /// <summary>
-    /// Add MAKER V2 services to the DI container.
-    /// Requires ILLMProviderFactory to be registered (e.g. via AddMEAI()).
+    /// Add MAKER services using Aevatar Agent Framework.
+    /// Each execution creates a Coordinator Agent with Worker Agents.
+    /// Requires IGAgentActorFactory from the runtime (Local, Orleans, ProtoActor).
     /// </summary>
     /// <param name="services">Service collection.</param>
-    /// <param name="poolSize">Number of LLM instances for decorrelation.</param>
-    /// <param name="temperatureVariance">Temperature variance for decorrelation.</param>
+    /// <param name="defaultProviderName">Default LLM provider name from configuration.</param>
     public static IServiceCollection AddMakerV2(
         this IServiceCollection services,
-        int poolSize = 3,
-        float temperatureVariance = 0.1f)
+        string? defaultProviderName = null)
     {
         // Register strategies with defaults
-        services.AddSingleton<IDecompositionStrategy, DefaultDecomposer>();
-        services.AddSingleton<ISolutionStrategy, DefaultSolver>();
-        services.AddSingleton<ICompositionStrategy, DefaultComposer>();
-        services.AddSingleton<IRedFlagHandler, DefaultRedFlagHandler>();
+        services.TryAddSingleton<IDecompositionStrategy, DefaultDecomposer>();
+        services.TryAddSingleton<ISolutionStrategy, DefaultSolver>();
+        services.TryAddSingleton<ICompositionStrategy, DefaultComposer>();
+        services.TryAddSingleton<IRedFlagHandler, DefaultRedFlagHandler>();
 
-        // Register pool - directly uses ILLMProviderFactory
-        services.AddSingleton(sp =>
-        {
-            var factory = sp.GetRequiredService<ILLMProviderFactory>();
-            return new ExecutionPool(factory, poolSize, temperatureVariance);
-        });
-
-        // Register executor
+        // Register Agent-based executor
+        // Requires IGAgentActorFactory from the runtime (Local, Orleans, ProtoActor)
         services.AddTransient<IMakerExecutor>(sp =>
         {
-            var pool = sp.GetRequiredService<ExecutionPool>();
-            var redFlagHandler = sp.GetService<IRedFlagHandler>();
-            return new MakerExecutor(pool, redFlagHandler);
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// Add MAKER V2 with custom pool configuration.
-    /// </summary>
-    public static IServiceCollection AddMakerV2(
-        this IServiceCollection services,
-        Func<IServiceProvider, ExecutionPool> poolFactory)
-    {
-        // Register strategies with defaults
-        services.AddSingleton<IDecompositionStrategy, DefaultDecomposer>();
-        services.AddSingleton<ISolutionStrategy, DefaultSolver>();
-        services.AddSingleton<ICompositionStrategy, DefaultComposer>();
-        services.AddSingleton<IRedFlagHandler, DefaultRedFlagHandler>();
-
-        // Register custom pool
-        services.AddSingleton(poolFactory);
-
-        // Register executor
-        services.AddTransient<IMakerExecutor>(sp =>
-        {
-            var pool = sp.GetRequiredService<ExecutionPool>();
-            var redFlagHandler = sp.GetService<IRedFlagHandler>();
-            return new MakerExecutor(pool, redFlagHandler);
+            var actorFactory = sp.GetRequiredService<IGAgentActorFactory>();
+            var logger = sp.GetRequiredService<ILogger<AgentMakerExecutor>>();
+            var decomposer = sp.GetService<IDecompositionStrategy>();
+            var solver = sp.GetService<ISolutionStrategy>();
+            var composer = sp.GetService<ICompositionStrategy>();
+            
+            return new AgentMakerExecutor(
+                actorFactory,
+                logger,
+                defaultProviderName,
+                decomposer,
+                solver,
+                composer);
         });
 
         return services;

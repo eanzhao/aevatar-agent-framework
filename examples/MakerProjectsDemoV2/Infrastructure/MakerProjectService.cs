@@ -79,6 +79,7 @@ public sealed record ProgressEntry(string Phase, string Message, DateTimeOffset 
 /// </summary>
 public sealed record RunConfig
 {
+    // Basic config
     public required string ProjectName { get; init; }
     public required string ProjectDescription { get; init; }
     public required string Task { get; init; }
@@ -86,12 +87,23 @@ public sealed record RunConfig
     public required int ConsensusK { get; init; }
     public required int SamplesPerRound { get; init; }
     public required int MaxDepth { get; init; }
-    public required int MaxVotingRounds { get; init; }
     public required double StepTimeoutSeconds { get; init; }
+    
+    // Strategy types
     public string? DecomposerType { get; init; }
     public string? SolverType { get; init; }
     public string? ComposerType { get; init; }
+    
+    // Context
     public IReadOnlyDictionary<string, string>? Context { get; init; }
+    
+    // Advanced MAKER parameters
+    public required string ClusteringMethod { get; init; }
+    public required float SemanticSimilarityThreshold { get; init; }
+    public required float TemperatureVariance { get; init; }
+    public required float BaseTemperature { get; init; }
+    public required bool UseMultipleProviders { get; init; }
+    public required int RedFlagThreshold { get; init; }
 }
 
 /// <summary>
@@ -440,12 +452,18 @@ public sealed class MakerProjectService
                 consensusK = run.Config.ConsensusK,
                 samplesPerRound = run.Config.SamplesPerRound,
                 maxDepth = run.Config.MaxDepth,
-                maxVotingRounds = run.Config.MaxVotingRounds,
                 stepTimeoutSeconds = run.Config.StepTimeoutSeconds,
                 decomposerType = run.Config.DecomposerType,
                 solverType = run.Config.SolverType,
                 composerType = run.Config.ComposerType,
-                context = run.Config.Context
+                context = run.Config.Context,
+                // Advanced MAKER parameters
+                clusteringMethod = run.Config.ClusteringMethod,
+                semanticSimilarityThreshold = run.Config.SemanticSimilarityThreshold,
+                temperatureVariance = run.Config.TemperatureVariance,
+                baseTemperature = run.Config.BaseTemperature,
+                useMultipleProviders = run.Config.UseMultipleProviders,
+                redFlagThreshold = run.Config.RedFlagThreshold
             }
         };
     }
@@ -648,12 +666,18 @@ public sealed class MakerProjectService
             ConsensusK = options.ConsensusK,
             SamplesPerRound = options.SamplesPerRound,
             MaxDepth = options.MaxDepth,
-            MaxVotingRounds = options.MaxVotingRounds,
             StepTimeoutSeconds = options.StepTimeout.TotalSeconds,
             DecomposerType = options.Decomposer?.GetType().Name ?? "DefaultDecomposer",
             SolverType = options.Solver?.GetType().Name ?? "DefaultSolver",
             ComposerType = options.Composer?.GetType().Name ?? "DefaultComposer",
-            Context = options.Context
+            Context = options.Context,
+            // Advanced MAKER parameters
+            ClusteringMethod = options.ClusteringMethod,
+            SemanticSimilarityThreshold = options.SemanticSimilarityThreshold,
+            TemperatureVariance = options.TemperatureVariance,
+            BaseTemperature = options.BaseTemperature,
+            UseMultipleProviders = options.UseMultipleProviders,
+            RedFlagThreshold = options.RedFlagThreshold
         };
         options = options with
         {
