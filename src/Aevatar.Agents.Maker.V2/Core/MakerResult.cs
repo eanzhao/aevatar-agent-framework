@@ -38,6 +38,21 @@ public sealed record MakerResult
     /// Total execution time.
     /// </summary>
     public TimeSpan Duration => Trace.Duration;
+    
+    /// <summary>
+    /// Total tokens consumed (prompt + completion).
+    /// </summary>
+    public long TotalTokens => Trace.TotalTokens;
+    
+    /// <summary>
+    /// Prompt tokens consumed.
+    /// </summary>
+    public long PromptTokens => Trace.PromptTokens;
+    
+    /// <summary>
+    /// Completion tokens consumed.
+    /// </summary>
+    public long CompletionTokens => Trace.CompletionTokens;
 }
 
 /// <summary>
@@ -69,6 +84,21 @@ public sealed record MakerTrace
     /// Red flags raised during execution.
     /// </summary>
     public IReadOnlyList<RedFlagEvent> RedFlags { get; init; } = [];
+    
+    /// <summary>
+    /// Total tokens consumed (prompt + completion).
+    /// </summary>
+    public long TotalTokens { get; init; }
+    
+    /// <summary>
+    /// Prompt tokens consumed.
+    /// </summary>
+    public long PromptTokens { get; init; }
+    
+    /// <summary>
+    /// Completion tokens consumed.
+    /// </summary>
+    public long CompletionTokens { get; init; }
 }
 
 /// <summary>

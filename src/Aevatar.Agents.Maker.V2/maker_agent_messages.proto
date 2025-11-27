@@ -12,7 +12,7 @@ import "google/protobuf/timestamp.proto";
 message MakerCoordinatorState {
     string execution_id = 1;
     string task_description = 2;
-    int32 max_depth = 3;
+    // field 3 removed (was max_depth, now replaced by budget)
     int32 consensus_k = 4;
     int32 samples_per_round = 5;
     int32 total_llm_calls = 6;
@@ -38,11 +38,16 @@ message MakerCoordinatorState {
     int64 total_tokens_used = 16;
     int64 total_prompt_tokens = 17;
     int64 total_completion_tokens = 18;
+    
+    // Budget limits
+    int32 max_total_llm_calls = 19;
+    int64 max_total_tokens = 20;
+    int64 max_duration_ms = 21;
 }
 
 message MakerCoordinatorConfig {
     int32 default_consensus_k = 1;
-    int32 default_max_depth = 2;
+    // field 2 removed (was max_depth, now replaced by budget)
     int64 step_timeout_ms = 4;
     string llm_provider_name = 5;
     float base_temperature = 6;
@@ -50,6 +55,12 @@ message MakerCoordinatorConfig {
     string clustering_method = 8;
     float semantic_similarity_threshold = 9;
     int32 worker_pool_size = 10;
+    
+    // Budget-based limits (replaces max_depth)
+    int32 max_total_llm_calls = 11;
+    int64 max_total_tokens = 12;
+    int64 max_duration_ms = 13;
+    int32 depth_warning_threshold = 14;
 }
 
 // ============================================================
@@ -92,13 +103,19 @@ message StartMakerTaskRequest {
     string task_description = 2;
     string provider_name = 3;
     int32 consensus_k = 4;
-    int32 max_depth = 5;
+    // field 5 removed (was max_depth, now replaced by budget)
     int32 samples_per_round = 6;
     float base_temperature = 8;
     float temperature_variance = 9;
     float semantic_similarity_threshold = 10;
     string clustering_method = 11;
     map<string, string> context = 12;
+    
+    // Budget-based limits (replaces max_depth)
+    int32 max_total_llm_calls = 13;
+    int64 max_total_tokens = 14;
+    int64 max_duration_ms = 15;
+    int32 depth_warning_threshold = 16;
 }
 
 // ============================================================

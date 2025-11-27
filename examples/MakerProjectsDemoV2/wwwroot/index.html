@@ -71,6 +71,30 @@
                     </div>
                 </div>
                 
+                <!-- Token & Cost Matrix -->
+                <div class="matrix-grid token-matrix">
+                    <div class="matrix-cell">
+                        <label>LLM_CALLS</label>
+                        <div id="val-llm-calls" class="matrix-val">0</div>
+                    </div>
+                    <div class="matrix-cell">
+                        <label>PROMPT_TOKENS</label>
+                        <div id="val-prompt-tokens" class="matrix-val">0</div>
+                    </div>
+                    <div class="matrix-cell">
+                        <label>COMPLETION_TOKENS</label>
+                        <div id="val-completion-tokens" class="matrix-val">0</div>
+                    </div>
+                    <div class="matrix-cell">
+                        <label>TOTAL_TOKENS</label>
+                        <div id="val-total-tokens" class="matrix-val accent">0</div>
+                    </div>
+                    <div class="matrix-cell">
+                        <label>RED_FLAGS</label>
+                        <div id="val-red-flags" class="matrix-val warn">0</div>
+                    </div>
+                </div>
+                
                 <!-- Config Details (collapsible) -->
                 <details class="config-details" id="config-details">
                     <summary class="config-summary">
@@ -96,12 +120,20 @@
                                 <span id="cfg-n">-</span>
                             </div>
                             <div class="config-item">
-                                <label>MAX_DEPTH</label>
-                                <span id="cfg-depth">-</span>
-                            </div>
-                            <div class="config-item">
                                 <label>STEP_TIMEOUT</label>
                                 <span id="cfg-timeout">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>MAX_LLM_CALLS</label>
+                                <span id="cfg-max-calls">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>MAX_TOKENS</label>
+                                <span id="cfg-max-tokens">-</span>
+                            </div>
+                            <div class="config-item">
+                                <label>MAX_DURATION</label>
+                                <span id="cfg-max-duration">-</span>
                             </div>
                         </div>
                         <div class="config-section">
@@ -184,6 +216,7 @@
                         <section class="terminal-window">
                             <div class="term-header">
                                 <span class="term-title">>> CONSENSUS_PROTOCOL</span>
+                                <span class="term-badge" id="voting-mode">STREAMING_RACE</span>
                             </div>
                             <div class="term-body">
                                 <table class="geek-table">
@@ -196,6 +229,16 @@
                                     </thead>
                                     <tbody id="table-votes"></tbody>
                                 </table>
+                            </div>
+                        </section>
+                        
+                        <!-- Red Flags -->
+                        <section class="terminal-window red-flag-panel" id="red-flag-panel" style="display:none">
+                            <div class="term-header warn">
+                                <span class="term-title">🚩 RED_FLAGS</span>
+                            </div>
+                            <div class="term-body">
+                                <ul id="red-flag-list" class="red-flag-list"></ul>
                             </div>
                         </section>
                     </div>
@@ -281,8 +324,18 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>MAX_DEPTH</label>
-                            <input type="number" id="new-cfg-depth" value="5" min="1" max="10" />
+                            <label>MAX_LLM_CALLS</label>
+                            <input type="number" id="new-cfg-max-calls" value="500" min="10" max="2000" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>MAX_TOKENS</label>
+                            <input type="number" id="new-cfg-max-tokens" value="2000000" min="100000" max="10000000" step="100000" />
+                        </div>
+                        <div class="form-group">
+                            <label>MAX_DURATION (min)</label>
+                            <input type="number" id="new-cfg-max-duration" value="30" min="1" max="120" />
                         </div>
                     </div>
                 </div>

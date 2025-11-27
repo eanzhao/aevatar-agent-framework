@@ -104,6 +104,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     IsAtomic = false
                 },
                 TotalLLMCalls = CustomState.TotalLlmCalls,
+                TotalTokens = CustomState.TotalTokensUsed,
+                PromptTokens = CustomState.TotalPromptTokens,
+                CompletionTokens = CustomState.TotalCompletionTokens,
                 Duration = _stopwatch.Elapsed,
                 RedFlags = _redFlags.ToList()
             }
@@ -119,6 +122,21 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     /// Get total LLM calls made.
     /// </summary>
     public int GetTotalLlmCalls() => CustomState.TotalLlmCalls;
+    
+    /// <summary>
+    /// Get total tokens consumed.
+    /// </summary>
+    public long GetTotalTokens() => CustomState.TotalTokensUsed;
+    
+    /// <summary>
+    /// Get prompt tokens consumed.
+    /// </summary>
+    public long GetPromptTokens() => CustomState.TotalPromptTokens;
+    
+    /// <summary>
+    /// Get completion tokens consumed.
+    /// </summary>
+    public long GetCompletionTokens() => CustomState.TotalCompletionTokens;
 
     #endregion
 
@@ -138,7 +156,6 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             // Initialize state
             CustomState.ExecutionId = request.ExecutionId;
             CustomState.TaskDescription = request.TaskDescription;
-            CustomState.MaxDepth = request.MaxDepth;
             CustomState.ConsensusK = request.ConsensusK;
             CustomState.SamplesPerRound = request.SamplesPerRound;
             CustomState.Status = 1; // Starting
@@ -146,22 +163,33 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             CustomState.TotalLlmCalls = 0;
             CustomState.RedFlagReasons.Clear();
             _redFlags.Clear();
+            
+            // Budget limits
+            CustomState.MaxTotalLlmCalls = request.MaxTotalLlmCalls > 0 ? request.MaxTotalLlmCalls : 100;
+            CustomState.MaxTotalTokens = request.MaxTotalTokens > 0 ? request.MaxTotalTokens : 500_000;
+            CustomState.MaxDurationMs = request.MaxDurationMs > 0 ? request.MaxDurationMs : 600_000; // 10 min
 
             // Setup config
             CustomConfig.DefaultConsensusK = request.ConsensusK;
-            CustomConfig.DefaultMaxDepth = request.MaxDepth;
             CustomConfig.BaseTemperature = request.BaseTemperature;
             CustomConfig.TemperatureVariance = request.TemperatureVariance;
             CustomConfig.SemanticSimilarityThreshold = request.SemanticSimilarityThreshold;
             CustomConfig.ClusteringMethod = request.ClusteringMethod;
             CustomConfig.LlmProviderName = request.ProviderName;
             CustomConfig.WorkerPoolSize = request.SamplesPerRound;
+            CustomConfig.MaxTotalLlmCalls = CustomState.MaxTotalLlmCalls;
+            CustomConfig.MaxTotalTokens = CustomState.MaxTotalTokens;
+            CustomConfig.MaxDurationMs = CustomState.MaxDurationMs;
+            CustomConfig.DepthWarningThreshold = request.DepthWarningThreshold > 0 ? request.DepthWarningThreshold : 10;
 
             // Store options for later use
             _currentOptions = new MakerOptions
             {
                 CustomK = request.ConsensusK,
-                MaxDepth = request.MaxDepth,
+                MaxTotalLlmCalls = CustomState.MaxTotalLlmCalls,
+                MaxTotalTokens = CustomState.MaxTotalTokens,
+                MaxDuration = TimeSpan.FromMilliseconds(CustomState.MaxDurationMs),
+                DepthWarningThreshold = CustomConfig.DepthWarningThreshold,
                 BaseTemperature = request.BaseTemperature,
                 TemperatureVariance = request.TemperatureVariance,
                 SemanticSimilarityThreshold = request.SemanticSimilarityThreshold,
@@ -189,7 +217,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 Phase = MakerPhase.Starting,
                 TaskId = request.ExecutionId,
-                Message = $"MAKER System Online - K={request.ConsensusK}, N={request.SamplesPerRound}, MaxDepth={request.MaxDepth}",
+                Message = $"MAKER System Online - K={request.ConsensusK}, N={request.SamplesPerRound}, Budget: {CustomState.MaxTotalLlmCalls} calls / {CustomState.MaxTotalTokens:N0} tokens",
                 Depth = 0
             });
             
@@ -259,7 +287,10 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     RootTask = node,
                     TotalLLMCalls = CustomState.TotalLlmCalls,
                     Duration = _stopwatch.Elapsed,
-                    RedFlags = _redFlags.ToList()
+                    RedFlags = _redFlags.ToList(),
+                    TotalTokens = CustomState.TotalTokensUsed,
+                    PromptTokens = CustomState.TotalPromptTokens,
+                    CompletionTokens = CustomState.TotalCompletionTokens
                 }
             };
 
@@ -306,7 +337,10 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     },
                     TotalLLMCalls = CustomState.TotalLlmCalls,
                     Duration = _stopwatch.Elapsed,
-                    RedFlags = _redFlags.ToList()
+                    RedFlags = _redFlags.ToList(),
+                    TotalTokens = CustomState.TotalTokensUsed,
+                    PromptTokens = CustomState.TotalPromptTokens,
+                    CompletionTokens = CustomState.TotalCompletionTokens
                 }
             };
 
@@ -375,7 +409,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         // Track token usage if available
         if (result.PromptTokens > 0 || result.CompletionTokens > 0)
         {
-            CustomState.TotalTokensUsed += result.PromptTokens + result.CompletionTokens;
+            CustomState.TotalPromptTokens += result.PromptTokens;
+            CustomState.TotalCompletionTokens += result.CompletionTokens;
+            CustomState.TotalTokensUsed = CustomState.TotalPromptTokens + CustomState.TotalCompletionTokens;
         }
 
         // Report progress
@@ -399,6 +435,24 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         // Skip failed proposals
         if (!result.Success || string.IsNullOrWhiteSpace(result.Content))
         {
+            Interlocked.Decrement(ref _activeWorkerRequests);
+            return;
+        }
+        
+        // RED-FLAGGING PARSER: Validate content before entering vote pool
+        var (isValid, redFlagReason) = ValidateProposalContent(result.Content, result.ProposalId);
+        if (!isValid)
+        {
+            AddRedFlag(result.TaskId, redFlagReason!);
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.RedFlag,
+                TaskId = result.TaskId,
+                Message = $"🚩 Proposal {result.ProposalId} rejected: {redFlagReason}",
+                Depth = _currentDepth
+            });
+            
             Interlocked.Decrement(ref _activeWorkerRequests);
             return;
         }
@@ -459,23 +513,60 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         CustomState.CurrentTaskId = taskId;
         CustomState.CurrentDepth = depth;
 
+        var options = _currentOptions ?? new MakerOptions();
+        
+        // Check budget before proceeding
+        var budgetStatus = CheckBudget(options);
+        if (!budgetStatus.WithinBudget)
+        {
+            AddRedFlag(taskId, $"Budget exhausted: {budgetStatus.Reason}");
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.RedFlag,
+                TaskId = taskId,
+                Message = $"⚠️ Budget exhausted: {budgetStatus.Reason}. Using fallback.",
+                Depth = depth
+            });
+            
+            // Return null result - caller will handle fallback
+            return (null, new TaskNode
+            {
+                TaskId = taskId,
+                Description = description,
+                Depth = depth,
+                IsAtomic = true,
+                Result = null
+            });
+        }
+        
+        // Depth warning (not a hard limit, just informational)
+        if (depth >= options.DepthWarningThreshold)
+        {
+            AddRedFlag(taskId, $"Depth warning: reached depth {depth} (threshold: {options.DepthWarningThreshold})");
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Assessing,
+                TaskId = taskId,
+                Message = $"⚠️ Deep recursion warning: depth {depth}. Task may be too complex or poorly structured.",
+                Depth = depth
+            });
+        }
+
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Assessing,
             TaskId = taskId,
-            Message = $"Assessing task complexity at depth {depth}",
+            Message = $"Assessing task complexity at depth {depth} (Budget: {CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls} calls)",
             Depth = depth
         });
 
-        var options = _currentOptions ?? new MakerOptions();
-        
-        // Use LLM-based atomicity assessment instead of heuristics
-        var isAtomic = await AssessAtomicityAsync(description, depth, options.MaxDepth, ct);
+        // Use LLM-based atomicity assessment
+        var isAtomic = await AssessAtomicityAsync(description, depth, ct);
 
         if (isAtomic)
         {
-            // MAKER Paper: If atomic task solution fails and we have depth budget,
-            // try decomposition instead (task may be too complex)
             var (result, node) = await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
             
             if (result != null)
@@ -484,25 +575,27 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             }
             
             // Solution failed - per MAKER paper, this means task is too complex
-            if (depth < options.MaxDepth)
+            // Check if we still have budget to decompose
+            var budgetAfterSolve = CheckBudget(options);
+            if (budgetAfterSolve.WithinBudget)
             {
                 Logger.LogInformation(
-                    "Task {TaskId}: Solution voting failed at depth {Depth}, attempting decomposition (MAKER paper rule)",
+                    "Task {TaskId}: Solution voting failed at depth {Depth}, attempting decomposition (MAKER paper: no consensus = needs breakdown)",
                     taskId, depth);
                     
-                AddRedFlag(taskId, $"Solution consensus failed at depth {depth}, trying decomposition");
+                AddRedFlag(taskId, $"Solution consensus failed at depth {depth}, decomposing further");
                 
                 return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
             }
             
-            // At max depth with no consensus - use best candidate as fallback
+            // Budget exhausted with no consensus - use best candidate as fallback
             if (node.VotingSessions.Count > 0 && node.VotingSessions[0].Candidates.Count > 0)
             {
                 var bestCandidate = node.VotingSessions[0].Candidates
                     .OrderByDescending(c => c.Votes)
                     .First();
                     
-                AddRedFlag(taskId, $"At max depth without consensus, using best candidate (votes: {bestCandidate.Votes})");
+                AddRedFlag(taskId, $"Budget exhausted without consensus, using best candidate (votes: {bestCandidate.Votes})");
                 node.Result = bestCandidate.Content;
                 return (bestCandidate.Content, node);
             }
@@ -512,35 +605,86 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
     }
+    
+    /// <summary>
+    /// Check if we're still within budget.
+    /// </summary>
+    private (bool WithinBudget, string? Reason) CheckBudget(MakerOptions options)
+    {
+        // Check LLM calls
+        if (options.MaxTotalLlmCalls > 0 && CustomState.TotalLlmCalls >= options.MaxTotalLlmCalls)
+        {
+            return (false, $"LLM calls exhausted ({CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls})");
+        }
+        
+        // Check tokens
+        if (options.MaxTotalTokens > 0 && CustomState.TotalTokensUsed >= options.MaxTotalTokens)
+        {
+            return (false, $"Token budget exhausted ({CustomState.TotalTokensUsed:N0}/{options.MaxTotalTokens:N0})");
+        }
+        
+        // Check duration
+        if (options.MaxDuration > TimeSpan.Zero && _stopwatch.Elapsed >= options.MaxDuration)
+        {
+            return (false, $"Time limit reached ({_stopwatch.Elapsed.TotalMinutes:F1} min)");
+        }
+        
+        return (true, null);
+    }
 
     /// <summary>
-    /// LLM-based atomicity assessment instead of naive heuristics.
-    /// MAKER paper: "Maximal Decomposition" requires intelligent judgment of decomposability.
+    /// LLM-based atomicity assessment with strategy override.
+    /// Priority: 1. Strategy says atomic → atomic (no LLM needed)
+    ///           2. LLM assessment
+    ///           3. Fallback heuristics
     /// </summary>
     private async Task<bool> AssessAtomicityAsync(
         string taskDescription,
         int currentDepth,
-        int maxDepth,
         CancellationToken ct)
     {
-        // Hard constraint: max depth reached → atomic
-        if (currentDepth >= maxDepth)
+        // PRIORITY 1: Strategy-defined atomicity
+        // If the decomposition strategy explicitly says this is atomic, trust it!
+        // This prevents infinite decomposition loops where LLM keeps breaking down subtasks.
+        if (_decomposer.IsAtomic(taskDescription, currentDepth))
         {
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Assessing,
+                TaskId = CustomState.CurrentTaskId ?? "unknown",
+                Message = $"Strategy says ATOMIC at depth {currentDepth} - skipping LLM assessment",
+                Depth = currentDepth
+            });
             return true;
         }
 
-        // Use LLM to assess atomicity (lightweight call with low temperature)
-        var prompt = $"""
+        // PRIORITY 2: LLM-based assessment with depth context
+        var prompt = $$"""
             You are a task complexity analyzer. Determine if the following task can be reliably solved in a SINGLE LLM inference step, or if it needs to be broken down into subtasks.
 
-            Consider:
-            - Can this be answered directly without multiple reasoning steps?
-            - Does this require gathering multiple pieces of information?
-            - Could breaking this down improve accuracy?
+            IMPORTANT CONTEXT:
+            - Current recursion depth: {{currentDepth}}
+            - This is a SUB-TASK of a larger problem
+            - If this looks like a leaf-level task (e.g., "Summarize Section X", "Calculate Y", "Write paragraph about Z"), it is probably ATOMIC
+            - DO NOT decompose tasks that are already specific enough
 
-            Task: {taskDescription}
+            Criteria for ATOMIC (return true):
+            - Task focuses on ONE specific section/topic/aspect
+            - Task can be answered with a single coherent response
+            - Task description already includes "Section", "Step", "Part", or similar specificity
+            - Task is a direct question or simple generation request
 
-            Answer ONLY with one word: "ATOMIC" if solvable directly, or "DECOMPOSE" if needs breakdown.
+            Criteria for DECOMPOSE (return false):
+            - Task requires covering MULTIPLE distinct topics
+            - Task explicitly mentions "comprehensive", "complete", "all aspects"
+            - Task would benefit from parallel independent subtasks
+
+            Task: {{taskDescription}}
+
+            Respond with ONLY valid JSON (no markdown):
+            {"atomic": true, "reason": "..."}
+            or
+            {"atomic": false, "reason": "..."}
             """;
 
         try
@@ -548,25 +692,28 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             var response = await GenerateResponseAsync(prompt, ct);
             CustomState.TotalLlmCalls++;
             
-            var answer = response.Content?.Trim().ToUpperInvariant() ?? "";
+            var content = response.Content?.Trim() ?? "";
+            
+            // Parse JSON response
+            var (isAtomic, reason) = ParseAtomicityResponse(content);
             
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Assessing,
                 TaskId = CustomState.CurrentTaskId ?? "unknown",
-                Message = $"LLM atomicity assessment: {answer}",
+                Message = $"LLM atomicity assessment: {(isAtomic ? "ATOMIC" : "DECOMPOSE")} - {reason}",
                 Depth = currentDepth
             });
             
-            // If LLM says ATOMIC, use it. Otherwise decompose.
-            return answer.Contains("ATOMIC");
+            return isAtomic;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Atomicity assessment failed, falling back to heuristic");
+            AddRedFlag(CustomState.CurrentTaskId ?? "unknown", $"Atomicity LLM failed: {ex.Message}");
             
-            // Fallback to strategy-based assessment
-            return _decomposer.IsAtomic(taskDescription, currentDepth, maxDepth);
+            // Fallback to strategy-based assessment (no depth limit)
+            return _decomposer.IsAtomic(taskDescription, currentDepth);
         }
     }
 
@@ -928,6 +1075,154 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     #endregion
 
     #region Helpers
+    
+    // ============================================================
+    //  RED-FLAGGING PARSER
+    //  Per MAKER paper: Reject garbage before it pollutes the vote pool
+    //  
+    //  Design Principles:
+    //  1. Only check START patterns (LLM refusal is at the beginning)
+    //  2. Don't keyword-match in body (causes false positives)
+    //  3. Focus on structure, not content
+    // ============================================================
+    
+    private const int MaxContentLength = 8000;  // Reject over-long responses (increased from 4000)
+    private const int MinContentLength = 10;    // Reject suspiciously short responses
+    
+    // Only check if content STARTS with these refusal patterns
+    // "I'm sorry" in the middle of an apology letter is fine!
+    private static readonly string[] RefusalPrefixes = 
+    [
+        "I cannot", "I can't", "I'm unable", "I am unable",
+        "I don't have", "I do not have", "I'm not able",
+        "As an AI language model", "As a large language model",
+        "I apologize, but I cannot", "I'm sorry, but I cannot",
+        "I'm afraid I can't", "Unfortunately, I cannot"
+    ];
+    
+    // Structural degeneration patterns (LLM output collapsed)
+    private static readonly string[] DegenerationPatterns =
+    [
+        "```json```json", "```\n```\n```",  // Broken code blocks
+        "---\n---\n---", "...\n...\n...",   // Filler patterns
+        "NULL", "undefined", "NaN"           // Garbage output
+    ];
+    
+    /// <summary>
+    /// Red-Flagging Parser: Validate content before entering vote pool.
+    /// Returns (isValid, redFlagReason).
+    /// 
+    /// Philosophy: We only reject content that is STRUCTURALLY broken,
+    /// not content that happens to contain certain keywords.
+    /// </summary>
+    private static (bool IsValid, string? RedFlagReason) ValidateProposalContent(string content, string proposalId)
+    {
+        // Check 1: Over-length (LLM went into infinite generation loop)
+        if (content.Length > MaxContentLength)
+        {
+            return (false, $"Content too long ({content.Length} chars). Likely generation loop.");
+        }
+        
+        // Check 2: Under-length (empty/meaningless response)
+        if (content.Length < MinContentLength)
+        {
+            return (false, $"Content too short ({content.Length} chars). Empty response.");
+        }
+        
+        // Check 3: Refusal at START only (not in the middle!)
+        // "I'm sorry" in a sad story is fine, "I'm sorry, I cannot" at start is refusal
+        var trimmed = content.TrimStart();
+        foreach (var prefix in RefusalPrefixes)
+        {
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, $"LLM refused task: starts with '{prefix}'");
+            }
+        }
+        
+        // Check 4: Structural degeneration (broken output format)
+        foreach (var pattern in DegenerationPatterns)
+        {
+            if (content.Contains(pattern, StringComparison.Ordinal))
+            {
+                return (false, $"Degenerate output: contains '{pattern}'");
+            }
+        }
+        
+        // Check 5: Repetition ratio (same substring repeated many times)
+        // This catches LLM getting stuck in a loop
+        if (HasExcessiveRepetition(content))
+        {
+            return (false, "Excessive repetition detected. Output degenerated.");
+        }
+        
+        // All structural checks passed - let voting handle semantic quality
+        return (true, null);
+    }
+    
+    /// <summary>
+    /// Detect if content has excessive repetition (degenerate output).
+    /// </summary>
+    private static bool HasExcessiveRepetition(string content, int minRepetitions = 5, int windowSize = 50)
+    {
+        if (content.Length < windowSize * 2) return false;
+        
+        // Check if any 50-char window appears 5+ times
+        var seen = new Dictionary<string, int>();
+        for (var i = 0; i <= content.Length - windowSize; i += windowSize / 2)
+        {
+            var window = content.Substring(i, windowSize);
+            seen.TryGetValue(window, out var count);
+            seen[window] = count + 1;
+            
+            if (count + 1 >= minRepetitions)
+                return true;
+        }
+        
+        return false;
+    }
+    
+    /// <summary>
+    /// Parse atomicity assessment JSON response.
+    /// Returns (isAtomic, reason).
+    /// </summary>
+    private static (bool IsAtomic, string Reason) ParseAtomicityResponse(string content)
+    {
+        // Try to extract JSON from content (handle markdown wrapping)
+        var json = content.Trim();
+        if (json.StartsWith("```"))
+        {
+            var start = json.IndexOf('{');
+            var end = json.LastIndexOf('}');
+            if (start >= 0 && end > start)
+            {
+                json = json.Substring(start, end - start + 1);
+            }
+        }
+        
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            
+            var isAtomic = root.TryGetProperty("atomic", out var atomicProp) && atomicProp.GetBoolean();
+            var reason = root.TryGetProperty("reason", out var reasonProp) 
+                ? reasonProp.GetString() ?? "no reason provided"
+                : "no reason provided";
+            
+            return (isAtomic, reason);
+        }
+        catch (JsonException)
+        {
+            // Fallback: check for keywords
+            var upper = content.ToUpperInvariant();
+            if (upper.Contains("\"ATOMIC\"") || upper.Contains(":TRUE") || upper.Contains(": TRUE"))
+            {
+                return (true, "parsed from keywords");
+            }
+            return (false, "failed to parse JSON, defaulting to decompose");
+        }
+    }
 
     private static float DecorrelateTemperature(float baseTemp, int index, float variance)
     {

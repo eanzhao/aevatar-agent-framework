@@ -44,14 +44,12 @@ public sealed class DefaultDecomposer : IDecompositionStrategy
     }
 
     /// <inheritdoc />
-    public bool IsAtomic(string taskDescription, int currentDepth, int maxDepth)
+    /// <remarks>
+    /// This is a fallback heuristic when LLM-based atomicity assessment fails.
+    /// No depth limit is applied here - budget constraints handle resource limits.
+    /// </remarks>
+    public bool IsAtomic(string taskDescription, int currentDepth)
     {
-        // Atomic if we've reached max depth
-        if (currentDepth >= maxDepth)
-        {
-            return true;
-        }
-
         // Heuristic: short descriptions are likely atomic
         if (taskDescription.Length < 100)
         {
@@ -61,6 +59,13 @@ public sealed class DefaultDecomposer : IDecompositionStrategy
         // Heuristic: contains "single", "one", "atomic" keywords
         var lower = taskDescription.ToLowerInvariant();
         if (lower.Contains("single") || lower.Contains("one step") || lower.Contains("atomic"))
+        {
+            return true;
+        }
+        
+        // Deep recursion suggests we should treat this as atomic
+        // (this is a soft heuristic, not a hard limit)
+        if (currentDepth >= 10)
         {
             return true;
         }

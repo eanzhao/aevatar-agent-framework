@@ -104,12 +104,16 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 TaskDescription = taskDescription,
                 ProviderName = providerName,
                 ConsensusK = options.ConsensusK,
-                MaxDepth = options.MaxDepth,
                 SamplesPerRound = options.SamplesPerRound,
                 BaseTemperature = options.BaseTemperature,
                 TemperatureVariance = options.TemperatureVariance,
                 SemanticSimilarityThreshold = options.SemanticSimilarityThreshold,
-                ClusteringMethod = options.ClusteringMethod
+                ClusteringMethod = options.ClusteringMethod,
+                // Budget-based limits (replaces MaxDepth)
+                MaxTotalLlmCalls = options.MaxTotalLlmCalls,
+                MaxTotalTokens = options.MaxTotalTokens,
+                MaxDurationMs = (long)options.MaxDuration.TotalMilliseconds,
+                DepthWarningThreshold = options.DepthWarningThreshold
             };
 
             // Add context if provided
@@ -184,7 +188,10 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                     },
                     TotalLLMCalls = coordinator.GetTotalLlmCalls(),
                     Duration = DateTime.UtcNow - startTime,
-                    RedFlags = []
+                    RedFlags = [],
+                    TotalTokens = coordinator.GetTotalTokens(),
+                    PromptTokens = coordinator.GetPromptTokens(),
+                    CompletionTokens = coordinator.GetCompletionTokens()
                 }
             };
         }
@@ -214,7 +221,10 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                     },
                     TotalLLMCalls = 0,
                     Duration = TimeSpan.Zero,
-                    RedFlags = []
+                    RedFlags = [],
+                    TotalTokens = 0,
+                    PromptTokens = 0,
+                    CompletionTokens = 0
                 }
             };
         }

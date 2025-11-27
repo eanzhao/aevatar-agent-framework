@@ -69,11 +69,22 @@ public sealed record ProjectConfig
     public int? CustomK { get; init; }
     
     /// <summary>
-    /// Maximum recursion depth for task decomposition.
-    /// Recommended: 3-4 (simple), 5-6 (medium), 7-10 (complex).
+    /// Maximum total LLM calls allowed.
     /// </summary>
-    [JsonPropertyName("maxDepth")]
-    public int MaxDepth { get; init; } = 5;
+    [JsonPropertyName("maxTotalLlmCalls")]
+    public int MaxTotalLlmCalls { get; init; } = 100;
+    
+    /// <summary>
+    /// Maximum total tokens allowed.
+    /// </summary>
+    [JsonPropertyName("maxTotalTokens")]
+    public long MaxTotalTokens { get; init; } = 500_000;
+    
+    /// <summary>
+    /// Maximum execution duration in minutes.
+    /// </summary>
+    [JsonPropertyName("maxDurationMinutes")]
+    public int MaxDurationMinutes { get; init; } = 10;
     
     /// <summary>
     /// Parse from JSON string.
@@ -97,7 +108,9 @@ public sealed record ProjectConfig
         {
             Reliability = reliability,
             CustomK = CustomK,  // Direct K override if specified
-            MaxDepth = MaxDepth,
+            MaxTotalLlmCalls = MaxTotalLlmCalls,
+            MaxTotalTokens = MaxTotalTokens,
+            MaxDuration = TimeSpan.FromMinutes(MaxDurationMinutes),
             Context = Context,
             Decomposer = new ConfigurableDecomposer(Decomposition),
             Solver = new ConfigurableSolver(Solution),
@@ -205,9 +218,9 @@ public sealed class ConfigurableDecomposer : IDecompositionStrategy
             """;
     }
 
-    public bool IsAtomic(string taskDescription, int currentDepth, int maxDepth)
+    public bool IsAtomic(string taskDescription, int currentDepth)
     {
-        if (currentDepth >= maxDepth) return true;
+        // Min depth check
         if (currentDepth < _config.MinDepthForAtomic) return false;
         
         // Check atomic keywords

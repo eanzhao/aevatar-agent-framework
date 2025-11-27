@@ -86,8 +86,13 @@ public sealed record RunConfig
     public required string Reliability { get; init; }
     public required int ConsensusK { get; init; }
     public required int SamplesPerRound { get; init; }
-    public required int MaxDepth { get; init; }
     public required double StepTimeoutSeconds { get; init; }
+    
+    // Budget-based limits (replaces MaxDepth)
+    // MAKER trades tokens for correctness - don't be stingy!
+    public int MaxTotalLlmCalls { get; init; } = 500;
+    public long MaxTotalTokens { get; init; } = 2_000_000;
+    public int MaxDurationMinutes { get; init; } = 30;
     
     // Strategy types
     public string? DecomposerType { get; init; }
@@ -112,7 +117,7 @@ public sealed record RunConfig
 public sealed record SSEEvent
 {
     [System.Text.Json.Serialization.JsonPropertyName("type")]
-    public required string Type { get; init; }  // "progress", "proposal", "voting", "result", "error"
+    public required string Type { get; init; }  // "progress", "proposal", "voting", "result", "error", "redFlag"
     
     [System.Text.Json.Serialization.JsonPropertyName("taskId")]
     public required string TaskId { get; init; }
@@ -151,6 +156,32 @@ public sealed record SSEEvent
     [System.Text.Json.Serialization.JsonPropertyName("runnerUpVotes")]
     public int? RunnerUpVotes { get; init; }
     
+    [System.Text.Json.Serialization.JsonPropertyName("clusterCount")]
+    public int? ClusterCount { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("usedSemanticClustering")]
+    public bool? UsedSemanticClustering { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("earlyTermination")]
+    public bool? EarlyTermination { get; init; }
+    
+    // Token telemetry
+    [System.Text.Json.Serialization.JsonPropertyName("promptTokens")]
+    public int? PromptTokens { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("completionTokens")]
+    public int? CompletionTokens { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("totalTokens")]
+    public long? TotalTokens { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("totalLlmCalls")]
+    public int? TotalLlmCalls { get; init; }
+    
+    // Red flag
+    [System.Text.Json.Serialization.JsonPropertyName("reason")]
+    public string? Reason { get; init; }
+    
     [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -177,7 +208,8 @@ public sealed class MakerProjectService
                 Reliability = ReliabilityLevel.Medium,
                 Decomposer = new PaperDecomposer(),
                 Solver = new PaperSolver(),
-                MaxDepth = 5
+                MaxTotalLlmCalls = 100,
+                MaxTotalTokens = 500_000
             })
     ];
 
@@ -258,7 +290,8 @@ public sealed class MakerProjectService
             Icon = "🔬",
             Task = "Analyze the following data and provide insights...",
             Reliability = "Medium",
-            MaxDepth = 5,
+            MaxTotalLlmCalls = 50,
+            MaxTotalTokens = 200_000,
             Context = new Dictionary<string, string>
             {
                 ["domain"] = "data analysis",
@@ -272,7 +305,8 @@ public sealed class MakerProjectService
             Icon = "🧪",
             Task = "Research and synthesize information about...",
             Reliability = "High",
-            MaxDepth = 3,
+            MaxTotalLlmCalls = 100,
+            MaxTotalTokens = 500_000,
             Context = new Dictionary<string, string>
             {
                 ["language"] = "Chinese",
@@ -451,8 +485,11 @@ public sealed class MakerProjectService
                 reliability = run.Config.Reliability,
                 consensusK = run.Config.ConsensusK,
                 samplesPerRound = run.Config.SamplesPerRound,
-                maxDepth = run.Config.MaxDepth,
                 stepTimeoutSeconds = run.Config.StepTimeoutSeconds,
+                // Budget-based limits
+                maxTotalLlmCalls = run.Config.MaxTotalLlmCalls,
+                maxTotalTokens = run.Config.MaxTotalTokens,
+                maxDurationMinutes = run.Config.MaxDurationMinutes,
                 decomposerType = run.Config.DecomposerType,
                 solverType = run.Config.SolverType,
                 composerType = run.Config.ComposerType,
@@ -665,8 +702,11 @@ public sealed class MakerProjectService
             Reliability = options.Reliability.ToString(),
             ConsensusK = options.ConsensusK,
             SamplesPerRound = options.SamplesPerRound,
-            MaxDepth = options.MaxDepth,
             StepTimeoutSeconds = options.StepTimeout.TotalSeconds,
+            // Budget-based limits
+            MaxTotalLlmCalls = options.MaxTotalLlmCalls,
+            MaxTotalTokens = options.MaxTotalTokens,
+            MaxDurationMinutes = (int)options.MaxDuration.TotalMinutes,
             DecomposerType = options.Decomposer?.GetType().Name ?? "DefaultDecomposer",
             SolverType = options.Solver?.GetType().Name ?? "DefaultSolver",
             ComposerType = options.Composer?.GetType().Name ?? "DefaultComposer",
@@ -786,7 +826,10 @@ public sealed class MakerProjectService
                         Content = p.Proposal.Content,
                         Success = p.Proposal.Success,
                         Message = p.Proposal.Error,
-                        Timestamp = p.Timestamp
+                        Timestamp = p.Timestamp,
+                        // Token telemetry
+                        PromptTokens = p.Proposal.PromptTokens,
+                        CompletionTokens = p.Proposal.CompletionTokens
                     });
                     
                     // Track proposal for consensus analysis
@@ -889,6 +932,13 @@ public sealed class MakerProjectService
                         **Duration:** {run.Stopwatch.Elapsed.TotalSeconds:F1}s  
                         **LLM Calls:** {run.Result.TotalLLMCalls}
                         
+                        ## 📊 Token Usage
+                        | Metric | Value |
+                        |--------|-------|
+                        | Prompt Tokens | {run.Result.PromptTokens:N0} |
+                        | Completion Tokens | {run.Result.CompletionTokens:N0} |
+                        | **Total Tokens** | **{run.Result.TotalTokens:N0}** |
+                        
                         ---
                         
                         {run.Result.Content}
@@ -926,7 +976,7 @@ public sealed class MakerProjectService
             {
                 run.Stopwatch.Stop();
                 
-                // Send final result event
+                // Send final result event with token statistics
                 if (run.Result != null)
                 {
                     run.EventChannel.Writer.TryWrite(new SSEEvent
@@ -935,7 +985,11 @@ public sealed class MakerProjectService
                         TaskId = run.RunId,
                         Content = run.Result.Content,
                         Success = run.Result.Success,
-                        Message = run.Result.Error
+                        Message = run.Result.Error,
+                        TotalTokens = run.Result.TotalTokens,
+                        PromptTokens = (int)run.Result.PromptTokens,
+                        CompletionTokens = (int)run.Result.CompletionTokens,
+                        TotalLlmCalls = run.Result.TotalLLMCalls
                     });
                 }
                 

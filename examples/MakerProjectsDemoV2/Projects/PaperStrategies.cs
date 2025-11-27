@@ -77,7 +77,7 @@ public sealed class PaperDecomposer : IDecompositionStrategy
             """;
     }
 
-    public bool IsAtomic(string task, int depth, int maxDepth) => depth >= 1;
+    public bool IsAtomic(string task, int depth) => depth >= 1;
 
     public IReadOnlyList<(string, string)> ParseDecomposition(string output)
         => new DefaultDecomposer().ParseDecomposition(output);

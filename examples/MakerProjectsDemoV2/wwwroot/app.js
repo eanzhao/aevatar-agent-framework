@@ -49,13 +49,20 @@ const APP_STATE = {
     projects: {},
     activeProjectId: null,
     eventSource: null,
-    proposals: {},       // taskId -> { content, success, error }
+    proposals: {},       // taskId -> { content, success, error, promptTokens, completionTokens }
     tasks: [],           // { taskId, phase, message, depth }
     votingState: null,   // Current voting progress
     files: [],           // { category, name, path }
     activeFile: null,    // Currently selected file path
     artifacts: [],       // Stage results for ARTIFACTS view
     configTemplates: null,  // Config templates for project creation
+    redFlags: [],        // Red flag events
+    tokenStats: {        // Token statistics
+        llmCalls: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0
+    },
     dom: {}
 };
 
@@ -134,7 +141,9 @@ function loadSampleConfig(idx) {
     document.getElementById('new-cfg-desc').value = config.description;
     document.getElementById('new-cfg-task').value = config.task;
     document.getElementById('new-cfg-reliability').value = config.reliability;
-    document.getElementById('new-cfg-depth').value = config.maxDepth;
+    document.getElementById('new-cfg-max-calls').value = config.maxTotalLlmCalls || 100;
+    document.getElementById('new-cfg-max-tokens').value = config.maxTotalTokens || 500000;
+    document.getElementById('new-cfg-max-duration').value = config.maxDurationMinutes || 10;
     
     // Also populate JSON mode
     document.getElementById('new-cfg-json').value = JSON.stringify(config, null, 2);
@@ -168,7 +177,9 @@ async function createProject() {
             description: document.getElementById('new-cfg-desc').value,
             task: document.getElementById('new-cfg-task').value,
             reliability: document.getElementById('new-cfg-reliability').value,
-            maxDepth: parseInt(document.getElementById('new-cfg-depth').value, 10)
+            maxTotalLlmCalls: parseInt(document.getElementById('new-cfg-max-calls').value, 10),
+            maxTotalTokens: parseInt(document.getElementById('new-cfg-max-tokens').value, 10),
+            maxDurationMinutes: parseInt(document.getElementById('new-cfg-max-duration').value, 10)
         };
     } else {
         // Parse JSON from textarea
@@ -237,8 +248,10 @@ function initDomCache() {
         cfgReliability: q('#cfg-reliability'),
         cfgK: q('#cfg-k'),
         cfgN: q('#cfg-n'),
-        cfgDepth: q('#cfg-depth'),
         cfgTimeout: q('#cfg-timeout'),
+        cfgMaxCalls: q('#cfg-max-calls'),
+        cfgMaxTokens: q('#cfg-max-tokens'),
+        cfgMaxDuration: q('#cfg-max-duration'),
         cfgDecomposer: q('#cfg-decomposer'),
         cfgSolver: q('#cfg-solver'),
         cfgComposer: q('#cfg-composer'),
@@ -250,7 +263,18 @@ function initDomCache() {
         cfgBaseTemp: q('#cfg-base-temp'),
         cfgTempVariance: q('#cfg-temp-variance'),
         cfgMultiProvider: q('#cfg-multi-provider'),
-        cfgRedFlag: q('#cfg-red-flag')
+        cfgRedFlag: q('#cfg-red-flag'),
+        // Token stats elements
+        valLlmCalls: q('#val-llm-calls'),
+        valPromptTokens: q('#val-prompt-tokens'),
+        valCompletionTokens: q('#val-completion-tokens'),
+        valTotalTokens: q('#val-total-tokens'),
+        valRedFlags: q('#val-red-flags'),
+        // Red flag panel
+        redFlagPanel: q('#red-flag-panel'),
+        redFlagList: q('#red-flag-list'),
+        // Voting mode badge
+        votingMode: q('#voting-mode')
     };
 }
 
@@ -290,6 +314,8 @@ function selectProject(id) {
     APP_STATE.files = [];
     APP_STATE.activeFile = null;
     APP_STATE.artifacts = [];
+    APP_STATE.redFlags = [];
+    APP_STATE.tokenStats = { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     
     // Update nav
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -306,6 +332,10 @@ function selectProject(id) {
         APP_STATE.dom.title.textContent = project.name;
         APP_STATE.dom.id.textContent = `ID: ${id}`;
     }
+    
+    // Reset token displays
+    renderTokenStats();
+    renderRedFlags();
     
     // Fetch current state
     refreshProject();
@@ -349,12 +379,16 @@ async function handleStartRun() {
     APP_STATE.votingState = null;
     APP_STATE.files = [];
     APP_STATE.artifacts = [];
+    APP_STATE.redFlags = [];
+    APP_STATE.tokenStats = { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     
     // Clear displays
     renderTasks();
     renderVoting();
     renderWorkers();
     renderFiles();
+    renderTokenStats();
+    renderRedFlags();
     
     try {
         const res = await fetch(`/api/projects/${id}/run`, { method: 'POST' });
@@ -423,8 +457,13 @@ function handleSSEEvent(event) {
             // Update task progress (STRATEGIC_PLANNING)
             updateTaskProgress(event);
             
+            // Handle RedFlag phase
+            if (event.phase === 'RedFlag') {
+                addRedFlag(event.taskId, event.message);
+                addLogEntry('RED_FLAG', event.message);
+            }
             // Only add to log for major phase changes
-            if (['Starting', 'Decomposing', 'Solving', 'Composing', 'Completed', 'Failed'].includes(event.phase)) {
+            else if (['Starting', 'Decomposing', 'Solving', 'Composing', 'Completed', 'Failed', 'Assessing'].includes(event.phase)) {
                 addLogEntry(event.phase, event.message);
             }
             break;
@@ -438,10 +477,17 @@ function handleSSEEvent(event) {
                 totalVotes: event.totalVotes,
                 votesNeeded: event.votesNeeded,
                 leaderVotes: event.leaderVotes,
-                runnerUpVotes: event.runnerUpVotes
+                runnerUpVotes: event.runnerUpVotes,
+                clusterCount: event.clusterCount,
+                usedSemanticClustering: event.usedSemanticClustering,
+                earlyTermination: event.earlyTermination
             };
             renderVoting();
-            // Don't pollute log with every vote update
+            
+            // Log early termination events
+            if (event.earlyTermination) {
+                addLogEntry('CONSENSUS', `Early termination! Saved ${event.savedProposals || '?'} LLM calls`);
+            }
             break;
             
         case 'proposal':
@@ -449,10 +495,21 @@ function handleSSEEvent(event) {
             APP_STATE.proposals[event.taskId] = {
                 content: event.content || '',
                 success: event.success,
-                error: event.message
+                error: event.message,
+                promptTokens: event.promptTokens || 0,
+                completionTokens: event.completionTokens || 0
             };
+            
+            // Update token stats
+            if (event.promptTokens || event.completionTokens) {
+                APP_STATE.tokenStats.llmCalls++;
+                APP_STATE.tokenStats.promptTokens += event.promptTokens || 0;
+                APP_STATE.tokenStats.completionTokens += event.completionTokens || 0;
+                APP_STATE.tokenStats.totalTokens = APP_STATE.tokenStats.promptTokens + APP_STATE.tokenStats.completionTokens;
+                renderTokenStats();
+            }
+            
             renderWorkers();
-            // Don't pollute log with every proposal
             break;
             
         case 'file':
@@ -473,11 +530,26 @@ function handleSSEEvent(event) {
             // Final result (ARTIFACTS)
             APP_STATE.dom.valStatus.textContent = event.success ? 'COMPLETED' : 'FAILED';
             APP_STATE.dom.valStatus.style.color = event.success ? 'var(--accent-main)' : 'var(--accent-warn)';
+            
+            // Update final token stats from result
+            if (event.totalTokens || event.promptTokens || event.completionTokens) {
+                APP_STATE.tokenStats.totalTokens = event.totalTokens || APP_STATE.tokenStats.totalTokens;
+                APP_STATE.tokenStats.promptTokens = event.promptTokens || APP_STATE.tokenStats.promptTokens;
+                APP_STATE.tokenStats.completionTokens = event.completionTokens || APP_STATE.tokenStats.completionTokens;
+                APP_STATE.tokenStats.llmCalls = event.totalLlmCalls || APP_STATE.tokenStats.llmCalls;
+                renderTokenStats();
+            }
+            
             if (event.content) {
                 renderResultContent(event.content);
             }
-            addLogEntry(event.success ? 'COMPLETED' : 'FAILED', 'Execution finished');
+            addLogEntry(event.success ? 'COMPLETED' : 'FAILED', `Execution finished (${APP_STATE.tokenStats.totalTokens.toLocaleString()} tokens)`);
             setTimeout(() => refreshProject(), 500);
+            break;
+            
+        case 'redFlag':
+            // Direct red flag event
+            addRedFlag(event.taskId, event.reason);
             break;
             
         case 'error':
@@ -552,8 +624,12 @@ function renderConfig(config) {
     APP_STATE.dom.cfgReliability.textContent = config.reliability;
     APP_STATE.dom.cfgK.textContent = config.consensusK;
     APP_STATE.dom.cfgN.textContent = config.samplesPerRound;
-    APP_STATE.dom.cfgDepth.textContent = config.maxDepth;
     APP_STATE.dom.cfgTimeout.textContent = `${config.stepTimeoutSeconds}s`;
+    
+    // Budget-based limits
+    APP_STATE.dom.cfgMaxCalls.textContent = config.maxTotalLlmCalls || '-';
+    APP_STATE.dom.cfgMaxTokens.textContent = config.maxTotalTokens ? `${(config.maxTotalTokens / 1000).toFixed(0)}K` : '-';
+    APP_STATE.dom.cfgMaxDuration.textContent = config.maxDurationMinutes ? `${config.maxDurationMinutes}min` : '-';
     
     // Update strategy types
     APP_STATE.dom.cfgDecomposer.textContent = config.decomposerType || 'Default';
@@ -606,6 +682,11 @@ function renderTasks() {
 function renderVoting() {
     const v = APP_STATE.votingState;
     
+    // Update voting mode badge
+    if (APP_STATE.dom.votingMode) {
+        APP_STATE.dom.votingMode.textContent = v?.usedSemanticClustering ? 'SEMANTIC_CLUSTERING' : 'STREAMING_RACE';
+    }
+    
     if (!v) {
         APP_STATE.dom.tableVotes.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">NO_ACTIVE_VOTE</td></tr>';
         return;
@@ -613,6 +694,7 @@ function renderVoting() {
     
     const gap = v.leaderVotes - v.runnerUpVotes;
     const progress = v.votesNeeded > 0 ? Math.round((gap / v.votesNeeded) * 100) : 0;
+    const earlyBadge = v.earlyTermination ? '<span class="early-termination">EARLY_TERMINATION</span>' : '';
     
     APP_STATE.dom.tableVotes.innerHTML = `
         <tr>
@@ -622,13 +704,65 @@ function renderVoting() {
                     <div class="vote-fill" style="width:${Math.min(100, Math.max(0, progress))}%"></div>
                 </div>
                 <small>Leader: ${v.leaderVotes} | RunnerUp: ${v.runnerUpVotes} | Gap: ${gap}/${v.votesNeeded}</small>
+                ${v.clusterCount ? `<br><small>Clusters: ${v.clusterCount}</small>` : ''}
             </td>
             <td>
                 <span class="vote-type">${v.type}</span>
                 <span class="vote-round">R${v.round}</span>
+                ${earlyBadge}
             </td>
-            </tr>
+        </tr>
     `;
+}
+
+function renderTokenStats() {
+    const stats = APP_STATE.tokenStats;
+    
+    if (APP_STATE.dom.valLlmCalls) {
+        APP_STATE.dom.valLlmCalls.textContent = stats.llmCalls.toLocaleString();
+    }
+    if (APP_STATE.dom.valPromptTokens) {
+        APP_STATE.dom.valPromptTokens.textContent = stats.promptTokens.toLocaleString();
+    }
+    if (APP_STATE.dom.valCompletionTokens) {
+        APP_STATE.dom.valCompletionTokens.textContent = stats.completionTokens.toLocaleString();
+    }
+    if (APP_STATE.dom.valTotalTokens) {
+        APP_STATE.dom.valTotalTokens.textContent = stats.totalTokens.toLocaleString();
+    }
+    if (APP_STATE.dom.valRedFlags) {
+        APP_STATE.dom.valRedFlags.textContent = APP_STATE.redFlags.length;
+    }
+}
+
+function addRedFlag(taskId, reason) {
+    APP_STATE.redFlags.push({
+        taskId: taskId,
+        reason: reason,
+        timestamp: new Date()
+    });
+    renderRedFlags();
+}
+
+function renderRedFlags() {
+    const flags = APP_STATE.redFlags;
+    
+    // Update counter
+    if (APP_STATE.dom.valRedFlags) {
+        APP_STATE.dom.valRedFlags.textContent = flags.length;
+    }
+    
+    // Show/hide panel
+    if (APP_STATE.dom.redFlagPanel) {
+        APP_STATE.dom.redFlagPanel.style.display = flags.length > 0 ? 'flex' : 'none';
+    }
+    
+    if (APP_STATE.dom.redFlagList && flags.length > 0) {
+        APP_STATE.dom.redFlagList.innerHTML = flags.slice(-10).map(rf => {
+            const time = rf.timestamp.toLocaleTimeString([], {hour12:false});
+            return `<li><span class="rf-time">${time}</span><span class="rf-task">[${rf.taskId?.substring(0,8) || 'UNKNOWN'}]</span>${escapeHtml(rf.reason)}</li>`;
+        }).join('');
+    }
 }
 
 function renderLogs(timeline) {
@@ -668,12 +802,16 @@ function renderWorkers() {
         const statusIcon = p.success ? '✓' : '✗';
         const statusClass = p.success ? 'success' : 'error';
         const content = p.content || p.error || 'No content';
+        const tokens = (p.promptTokens || p.completionTokens) 
+            ? `<span class="node-tokens">${p.promptTokens || 0}+${p.completionTokens || 0}</span>` 
+            : '';
         
         return `
             <div class="worker-node">
                 <div class="node-head">
                     <span class="node-status ${statusClass}">${statusIcon}</span>
-                    NODE::${id}
+                    NODE::${id.substring(0, 12)}
+                    ${tokens}
                 </div>
                 <div class="node-log">${escapeHtml(content)}</div>
             </div>

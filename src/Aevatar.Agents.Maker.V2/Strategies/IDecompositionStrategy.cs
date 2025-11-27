@@ -21,12 +21,12 @@ public interface IDecompositionStrategy
     
     /// <summary>
     /// Determine if a task is atomic (cannot be decomposed further).
+    /// This is used as a fallback when LLM-based atomicity assessment fails.
     /// </summary>
     /// <param name="taskDescription">The task description.</param>
-    /// <param name="currentDepth">Current recursion depth.</param>
-    /// <param name="maxDepth">Maximum allowed depth.</param>
+    /// <param name="currentDepth">Current recursion depth (for heuristics).</param>
     /// <returns>True if the task should be solved directly without decomposition.</returns>
-    bool IsAtomic(string taskDescription, int currentDepth, int maxDepth);
+    bool IsAtomic(string taskDescription, int currentDepth);
     
     /// <summary>
     /// Parse the LLM output into a list of subtask descriptions.

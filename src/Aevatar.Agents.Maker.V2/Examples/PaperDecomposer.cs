@@ -33,7 +33,7 @@ public sealed class PaperDecomposer : IDecompositionStrategy
     }
 
     /// <inheritdoc />
-    public bool IsAtomic(string taskDescription, int currentDepth, int maxDepth)
+    public bool IsAtomic(string taskDescription, int currentDepth)
     {
         // Paper summary: 1 level is enough (decompose into sections → summarize each)
         return currentDepth >= 1;

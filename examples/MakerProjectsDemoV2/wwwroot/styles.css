@@ -368,6 +368,94 @@ body {
     line-height: 1.4;
 }
 
+/* Token Matrix */
+.token-matrix {
+    margin-top: 10px;
+    grid-template-columns: repeat(5, 1fr);
+}
+
+.token-matrix .matrix-cell {
+    padding: 10px;
+}
+
+.token-matrix .matrix-val {
+    font-size: 1em;
+}
+
+.matrix-val.accent {
+    color: var(--accent-main);
+}
+
+.matrix-val.warn {
+    color: var(--accent-warn);
+}
+
+/* Term Badge */
+.term-badge {
+    background: var(--accent-main);
+    color: var(--bg-primary);
+    padding: 2px 8px;
+    font-size: 0.7em;
+    border-radius: 3px;
+    margin-left: auto;
+}
+
+.term-header.warn {
+    background: rgba(255, 170, 0, 0.1);
+    border-color: var(--accent-warn);
+}
+
+.term-header.warn .term-title {
+    color: var(--accent-warn);
+}
+
+/* Red Flag Panel */
+.red-flag-panel {
+    max-height: 150px;
+}
+
+.red-flag-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.red-flag-list li {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-dim);
+    font-size: 0.85em;
+    color: var(--accent-warn);
+}
+
+.red-flag-list li:last-child {
+    border-bottom: none;
+}
+
+.red-flag-list .rf-time {
+    color: var(--text-dim);
+    margin-right: 8px;
+}
+
+.red-flag-list .rf-task {
+    color: var(--accent-info);
+    margin-right: 8px;
+}
+
+/* Early Termination Badge */
+.early-termination {
+    background: var(--accent-main);
+    color: var(--bg-primary);
+    padding: 2px 6px;
+    font-size: 0.7em;
+    border-radius: 3px;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
 /* Workspace Split */
 .workspace {
     flex: 1;
@@ -557,6 +645,18 @@ body {
     font-size: 0.8em;
     border-bottom: 1px solid var(--border-dim);
     color: var(--accent-alt);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.node-tokens {
+    margin-left: auto;
+    font-size: 0.85em;
+    color: var(--text-dim);
+    background: rgba(255,255,255,0.05);
+    padding: 2px 6px;
+    border-radius: 3px;
 }
 
 .node-log {

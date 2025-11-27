@@ -49,20 +49,55 @@ public sealed record MakerOptions
     /// </summary>
     public int? CustomK { get; init; }
     
+    // ============================================================
+    //  Resource Budget (replaces MaxDepth)
+    //  Philosophy: "Not limited by depth, but by budget"
+    //  This allows decomposition to continue until truly atomic tasks,
+    //  while still providing practical cost/time limits.
+    // ============================================================
+    
     /// <summary>
-    /// Maximum recursion depth for task decomposition.
-    /// - Depth 0: Root task
-    /// - Depth 1-N: Sub-tasks
-    /// - At MaxDepth: Tasks are solved directly (atomic)
+    /// Maximum total LLM calls allowed.
+    /// Set to 0 or negative for unlimited (not recommended).
     /// 
-    /// Recommended values:
-    /// - 3-4: Simple tasks (介绍、总结)
-    /// - 5-6: Medium tasks (分析报告、设计文档)
-    /// - 7-10: Complex tasks (创业计划、系统设计)
+    /// Estimation guide:
+    /// - Simple task (K=2, 1 level): ~20-30 calls
+    /// - Medium task (K=3, 2 levels): ~100-200 calls
+    /// - Complex task (K=3, 3+ levels): ~300-500 calls
+    /// - Very complex task: 500+ calls
     /// 
-    /// Default: 5 (balanced for most tasks)
+    /// Default: 500 calls (enough for most complex tasks)
     /// </summary>
-    public int MaxDepth { get; init; } = 5;
+    public int MaxTotalLlmCalls { get; init; } = 500;
+    
+    /// <summary>
+    /// Maximum total tokens allowed (prompt + completion).
+    /// Set to 0 or negative for unlimited (not recommended).
+    /// 
+    /// Estimation guide (GPT-4 class models):
+    /// - Simple task: ~100K-200K tokens
+    /// - Medium task: ~300K-500K tokens
+    /// - Complex task: ~500K-1M tokens
+    /// - Very complex task: 1M+ tokens
+    /// 
+    /// Default: 2,000,000 tokens (~$10-50 depending on model)
+    /// </summary>
+    public long MaxTotalTokens { get; init; } = 2_000_000;
+    
+    /// <summary>
+    /// Maximum execution duration.
+    /// Complex tasks with many voting rounds can take significant time.
+    /// Default: 30 minutes
+    /// </summary>
+    public TimeSpan MaxDuration { get; init; } = TimeSpan.FromMinutes(30);
+    
+    /// <summary>
+    /// Soft depth warning threshold.
+    /// Triggers a warning when depth exceeds this, but doesn't stop execution.
+    /// Useful for detecting potentially runaway decomposition.
+    /// Default: 10 (just a warning, not a hard limit)
+    /// </summary>
+    public int DepthWarningThreshold { get; init; } = 10;
     
     /// <summary>
     /// Custom decomposition strategy. If null, uses DefaultDecomposer.

@@ -10,7 +10,9 @@
         "description": "介绍新加坡这个国家，测试简单任务是否会被过度分解",
         "task": "请全面介绍新加坡这个国家，包括地理位置、历史、经济、文化、旅游景点等方面。",
         "reliability": "Medium",
-        "maxDepth": 4,
+        "maxTotalLlmCalls": 200,
+        "maxTotalTokens": 500000,
+        "maxDurationMinutes": 15,
         "context": {
           "language": "中文",
           "style": "百科全书式",
@@ -28,7 +30,9 @@
         "description": "验证数学推导过程，测试 MAKER 的纠错能力",
         "task": "请逐步推导并证明：对于任意正整数 n，1+2+3+...+n = n(n+1)/2。要求：(1) 使用数学归纳法证明；(2) 给出 n=100 时的具体计算结果；(3) 解释这个公式的几何意义。",
         "reliability": "High",
-        "maxDepth": 4,
+        "maxTotalLlmCalls": 300,
+        "maxTotalTokens": 800000,
+        "maxDurationMinutes": 20,
         "context": {
           "rigor": "严格数学证明",
           "audience": "高中数学水平"
@@ -48,7 +52,9 @@
         "description": "对比分析多种编程语言，测试 LLM 输出多样性和投票共识",
         "task": "对比分析 Python、Rust、Go 三种编程语言，从以下维度进行评估：(1) 学习曲线；(2) 性能表现；(3) 生态系统；(4) 适用场景；(5) 未来发展趋势。最后给出针对不同开发者背景的推荐建议。",
         "reliability": "Medium",
-        "maxDepth": 5,
+        "maxTotalLlmCalls": 300,
+        "maxTotalTokens": 1000000,
+        "maxDurationMinutes": 20,
         "context": {
           "perspective": "客观中立",
           "data_source": "2024年最新数据"
@@ -65,7 +71,9 @@
         "description": "撰写完整创业计划书，测试深层递归分解能力",
         "task": "为一个 AI 驱动的智能家居产品撰写完整的创业计划书，需要包含：执行摘要、市场分析、产品描述、营销策略、运营计划、财务预测、团队介绍、风险分析。",
         "reliability": "Medium",
-        "maxDepth": 7,
+        "maxTotalLlmCalls": 800,
+        "maxTotalTokens": 3000000,
+        "maxDurationMinutes": 45,
         "context": {
           "industry": "智能家居",
           "stage": "种子轮融资",
@@ -87,7 +95,9 @@
         "description": "整理历史事件时间线，测试事实准确性和一致性检查",
         "task": "整理二战（1939-1945）期间的关键历史事件时间线，要求：(1) 列出至少20个关键事件及其精确日期；(2) 说明每个事件的历史意义；(3) 分析事件之间的因果关系；(4) 绘制战争形势演变图。",
         "reliability": "Critical",
-        "maxDepth": 5,
+        "maxTotalLlmCalls": 500,
+        "maxTotalTokens": 2000000,
+        "maxDurationMinutes": 30,
         "context": {
           "accuracy": "要求日期精确到日",
           "source": "主流历史学研究共识"
@@ -108,7 +118,9 @@
         "description": "求解逻辑谜题，测试推理能力和结论一致性",
         "task": "请解决以下逻辑谜题：五个人（Alice、Bob、Carol、Dave、Eve）住在一栋5层楼里，每人住不同楼层（1-5层）。已知条件：(1) Bob住的楼层比Carol高；(2) Alice不住顶层也不住底层；(3) Eve住在Dave楼上的某一层；(4) Carol住2层；(5) Alice和Bob不相邻。请推导出每个人住在哪一层，并给出完整的推理过程。",
         "reliability": "High",
-        "maxDepth": 4,
+        "maxTotalLlmCalls": 300,
+        "maxTotalTokens": 800000,
+        "maxDurationMinutes": 20,
         "context": {
           "method": "逐步演绎推理",
           "verification": "需要验证答案满足所有条件"
@@ -128,7 +140,9 @@
         "description": "创作科幻短篇小说，测试创意生成和内容组合",
         "task": "创作一篇3000字左右的科幻短篇小说，主题是「当人类发现AI已经拥有了自我意识」。要求：(1) 有完整的故事结构（开端、发展、高潮、结局）；(2) 至少3个主要角色；(3) 探讨AI伦理问题；(4) 结局要有反转。",
         "reliability": "Low",
-        "maxDepth": 5,
+        "maxTotalLlmCalls": 300,
+        "maxTotalTokens": 1500000,
+        "maxDurationMinutes": 25,
         "context": {
           "tone": "悬疑、引人深思",
           "setting": "2050年",
@@ -153,7 +167,9 @@
         "description": "生成API设计文档，测试结构化输出能力",
         "task": "为一个用户管理系统设计RESTful API，需要包含：(1) 用户注册、登录、注销；(2) 用户信息CRUD；(3) 用户角色管理；(4) 权限验证。输出OpenAPI 3.0格式的规范文档。",
         "reliability": "High",
-        "maxDepth": 5,
+        "maxTotalLlmCalls": 400,
+        "maxTotalTokens": 1500000,
+        "maxDurationMinutes": 25,
         "context": {
           "format": "OpenAPI 3.0 YAML",
           "auth": "JWT Token",
