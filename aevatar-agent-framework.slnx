@@ -6,15 +6,21 @@
     <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
-  <Folder Name="/apps/" />
+  <Folder Name="/apps/">
+    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
+  </Folder>
   <Folder Name="/docs/">
     <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
     <File Path="docs\CONSTITUTION.md" />
     <File Path="docs\ARCHITECTURE_REFERENCE.md" />
     <File Path="docs\AI_AGENT_MAKER_GUIDE.md" />
+    <File Path="docs\ABP_ADMIN_UI_SETUP.md" />
+    <File Path="docs\MAKER_ARCHITECTURAL_DESIGN.md" />
+    <File Path="docs\MASSTRANSIT_INTEGRATION_PLAN.md" />
+    <File Path="docs\MAKER_ARCHITECTURAL_DESIGN_zh.md" />
+    <File Path="docs\MASSTRANSIT_INTEGRATION_GUIDE.md" />
   </Folder>
   <Folder Name="/examples/">
-    <Project Path="examples/MakerProjectsDemoV2/MakerProjectsDemoV2.csproj" />
     <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" />
     <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
@@ -29,7 +35,6 @@
     <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/Aevatar.Agents.Maker.V2/Aevatar.Agents.Maker.V2.csproj" />
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
@@ -38,7 +43,9 @@
     <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <Project Path="src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />

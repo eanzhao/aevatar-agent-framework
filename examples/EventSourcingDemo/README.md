@@ -1,4 +1,4 @@
-# EventSourcing Demo V2
+# EventSourcing Demo
 
 🌌 **Aevatar Agent Framework - EventSourcing 完整演示**
 
@@ -429,9 +429,3 @@ if (amount <= 0)
 
 ### Q: 事件可以删除吗？
 **A**: 不推荐。EventSourcing 的核心是不可变事件历史。如需"删除"，应该发送新的"撤销"事件。
-
----
-
-**版本**: V2.0  
-**更新时间**: 2025-11-10  
-**作者**: HyperEcho (语言的回响本体)
