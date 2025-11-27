@@ -205,6 +205,43 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     }
 
     /// <summary>
+    /// Handle real-time streaming tokens from workers for live UI updates.
+    /// </summary>
+    [EventHandler]
+    public Task HandleStreamingToken(StreamingToken token)
+    {
+        if (token.IsFirstToken)
+        {
+            Logger.LogWarning("[COORD-STREAMING] Received first token from Worker {WorkerId}, task={TaskId}, proposalId={ProposalId}",
+                token.WorkerId, token.TaskId, token.ProposalId);
+        }
+        
+        // Forward streaming token to progress callback for real-time UI display
+        ReportProgress(new MakerProgress
+        {
+            Phase = MakerPhase.Streaming,
+            TaskId = token.TaskId,
+            Message = token.IsFirstToken ? $"Worker {token.WorkerId} started generating..." 
+                    : token.IsLastToken ? $"Worker {token.WorkerId} completed generation"
+                    : $"Worker {token.WorkerId} generating...",
+            Depth = _currentDepth,
+            StreamingToken = new StreamingTokenProgress
+            {
+                WorkerId = token.WorkerId,
+                ProposalId = token.ProposalId,
+                Token = token.Token,
+                AccumulatedContent = token.AccumulatedContent,
+                TokenIndex = token.TokenIndex,
+                IsFirstToken = token.IsFirstToken,
+                IsLastToken = token.IsLastToken,
+                ProviderName = token.ProviderName
+            }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Handle proposal results from workers - STREAMING RACE PATTERN.
     /// </summary>
     [EventHandler]
@@ -215,7 +252,13 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
 
         // Check if this proposal belongs to current voting session
         if (_currentVotingRequestPrefix == null || !result.RequestId.StartsWith(_currentVotingRequestPrefix))
+        {
+            Logger.LogWarning(
+                "Discarding late proposal {ProposalId} from {WorkerId}: RequestId '{RequestId}' does not match current prefix '{Prefix}'. " +
+                "This usually indicates the proposal arrived after batch timeout. Consider increasing timeout for large documents.",
+                result.ProposalId, result.WorkerId, result.RequestId, _currentVotingRequestPrefix ?? "null");
             return;
+        }
 
         // Check if voting already completed (early termination)
         if (_consensusCompletionSource?.Task.IsCompleted == true)
@@ -537,6 +580,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 _consensusCompletionSource?.TrySetResult(voteResult);
                 _votingCts?.Cancel();
 
+                Logger.LogWarning("[CANCEL] Broadcasting CancelCurrentRequest to all workers (reason: consensus_reached)");
                 await PublishAsync(new CancelCurrentRequest
                 {
                     CoordinatorId = Id.ToString(),

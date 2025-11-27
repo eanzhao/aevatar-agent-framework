@@ -125,19 +125,20 @@ public partial class MakerCoordinatorGAgent
                     Temperature = workerTemp,
                     MaxTokens = maxTokens,
                     IsDecomposition = !isSolution
-                }, EventDirection.Down);
+                }, EventDirection.Down, ct);
             }
 
             totalSamplesSent += batchSize;
 
             // Wait for either:
             // 1. Consensus reached (early termination) - FAST PATH
-            // 2. Timeout (per batch)
+            // 2. Timeout (per batch) - extended for large documents
             // 3. Cancellation
             try
             {
                 using var batchCts = CancellationTokenSource.CreateLinkedTokenSource(_votingCts.Token);
-                batchCts.CancelAfter(TimeSpan.FromSeconds(30));
+                // Increased timeout: LLM processing large papers (50K+ tokens) can take 2+ minutes
+                batchCts.CancelAfter(TimeSpan.FromSeconds(120));
 
                 voteResult = await _consensusCompletionSource.Task.WaitAsync(batchCts.Token);
 
@@ -148,7 +149,27 @@ public partial class MakerCoordinatorGAgent
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // Batch timeout - check if we should continue sampling
+                // Batch timeout - give late proposals a grace period before moving on
+                // This is critical for large documents where LLM response time varies significantly
+                var proposalsBeforeGrace = _collectedProposals.Count;
+                
+                Logger.LogInformation(
+                    "Batch {Round} timeout with {Proposals} proposals. Waiting grace period for late arrivals...",
+                    round, proposalsBeforeGrace);
+                
+                // Grace period: wait up to 10 more seconds for any in-flight proposals
+                // Keep the same prefix during grace period so late proposals are still accepted
+                await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                
+                var proposalsAfterGrace = _collectedProposals.Count;
+                if (proposalsAfterGrace > proposalsBeforeGrace)
+                {
+                    Logger.LogInformation(
+                        "Grace period captured {Count} additional proposals (total: {Total})",
+                        proposalsAfterGrace - proposalsBeforeGrace, proposalsAfterGrace);
+                }
+                
+                // Now check consensus with any late arrivals included
                 voteResult = engine.CheckConsensus();
 
                 if (voteResult == null && totalSamplesSent < maxTotalSamples)
@@ -165,7 +186,7 @@ public partial class MakerCoordinatorGAgent
                     {
                         Phase = MakerPhase.Voting,
                         TaskId = taskId,
-                        Message = $"No consensus in batch {round - 1}, dispatching more workers (continuous sampling)",
+                        Message = $"No consensus in batch {round - 1} ({_collectedProposals.Count} proposals), dispatching more workers",
                         Depth = depth,
                         Voting = progress
                     });

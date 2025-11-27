@@ -1,3 +1,4 @@
+using System.Text;
 using Aevatar.Agents.Maker.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -419,8 +420,16 @@ public partial class MakerCoordinatorGAgent
         {
             var synthPrompt = _composer.BuildSynthesisPrompt(
                 current.Description, current.SubtaskResults, current.Context);
-            var response = await GenerateResponseAsync(synthPrompt, ct);
-            composed = response.Content?.Trim() ?? string.Join("\n\n", current.SubtaskResults.Values);
+            
+            // Use streaming for real-time UI updates
+            composed = await GenerateResponseWithStreamingAsync(
+                synthPrompt, current.TaskId, "COMPOSE", ct);
+            composed = composed.Trim();
+            
+            if (string.IsNullOrWhiteSpace(composed))
+            {
+                composed = string.Join("\n\n", current.SubtaskResults.Values);
+            }
             CustomState.TotalLlmCalls++;
         }
 
@@ -529,10 +538,13 @@ public partial class MakerCoordinatorGAgent
 
         try
         {
-            var response = await GenerateResponseAsync(prompt, ct);
+            // Use streaming for real-time UI updates
+            var taskId = CustomState.CurrentTaskId ?? "unknown";
+            var content = await GenerateResponseWithStreamingAsync(
+                prompt, taskId, "ASSESS", ct);
             CustomState.TotalLlmCalls++;
 
-            var content = response.Content?.Trim() ?? "";
+            content = content.Trim();
 
             // Parse JSON response
             var (isAtomic, reason) = ParseAtomicityResponse(content);
@@ -540,7 +552,7 @@ public partial class MakerCoordinatorGAgent
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Assessing,
-                TaskId = CustomState.CurrentTaskId ?? "unknown",
+                TaskId = taskId,
                 Message = $"LLM atomicity assessment: {(isAtomic ? "ATOMIC" : "DECOMPOSE")} - {reason}",
                 Depth = currentDepth
             });
@@ -653,6 +665,87 @@ public partial class MakerCoordinatorGAgent
         }
 
         return result;
+    }
+
+    // ============================================================
+    //  Streaming Generation Helper
+    // ============================================================
+
+    /// <summary>
+    /// Generate response using streaming API with real-time progress updates.
+    /// This is used by Coordinator for internal LLM calls (composition, atomicity assessment).
+    /// </summary>
+    private async Task<string> GenerateResponseWithStreamingAsync(
+        string prompt,
+        string taskId,
+        string operationType,
+        CancellationToken ct)
+    {
+        var sb = new StringBuilder();
+        var proposalId = $"COORD_{operationType}_{Guid.NewGuid():N}"[..24];
+        var tokenIndex = 0;
+        var isFirstToken = true;
+
+        Logger.LogWarning("[STREAMING] Coordinator {OpType} starting for task {TaskId}, proposalId={ProposalId}",
+            operationType, taskId, proposalId);
+
+        await foreach (var token in GenerateResponseStreamAsync(prompt, ct))
+        {
+            if (string.IsNullOrEmpty(token)) continue;
+
+            sb.Append(token);
+
+            if (isFirstToken)
+            {
+                Logger.LogWarning("[STREAMING] Coordinator {OpType} first token received: '{Token}'",
+                    operationType, token.Length > 50 ? token[..50] + "..." : token);
+            }
+
+            // Report streaming progress
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Streaming,
+                TaskId = taskId,
+                Message = isFirstToken ? $"Coordinator {operationType} started..."
+                        : $"Coordinator {operationType} generating...",
+                Depth = _currentDepth,
+                StreamingToken = new StreamingTokenProgress
+                {
+                    WorkerId = "COORDINATOR",
+                    ProposalId = proposalId,
+                    Token = token,
+                    AccumulatedContent = sb.ToString(),
+                    TokenIndex = tokenIndex++,
+                    IsFirstToken = isFirstToken,
+                    IsLastToken = false,
+                    ProviderName = CustomConfig.LlmProviderName
+                }
+            });
+
+            isFirstToken = false;
+        }
+
+        // Send final token marker
+        ReportProgress(new MakerProgress
+        {
+            Phase = MakerPhase.Streaming,
+            TaskId = taskId,
+            Message = $"Coordinator {operationType} completed",
+            Depth = _currentDepth,
+            StreamingToken = new StreamingTokenProgress
+            {
+                WorkerId = "COORDINATOR",
+                ProposalId = proposalId,
+                Token = string.Empty,
+                AccumulatedContent = sb.ToString(),
+                TokenIndex = tokenIndex,
+                IsFirstToken = false,
+                IsLastToken = true,
+                ProviderName = CustomConfig.LlmProviderName
+            }
+        });
+
+        return sb.ToString();
     }
 }
 

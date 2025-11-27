@@ -261,6 +261,21 @@ message ProposalResult {
     int64 ttft_ms = 14;
 }
 
+// Real-time streaming token from Worker (for live UI updates)
+message StreamingToken {
+    string request_id = 1;
+    string task_id = 2;
+    string worker_id = 3;
+    string proposal_id = 4;
+    string token = 5;                        // The token content chunk
+    string accumulated_content = 6;          // Full content so far (optional, for stateless frontend)
+    int32 token_index = 7;                   // Sequence number for ordering
+    bool is_first_token = 8;                 // TTFT indicator
+    bool is_last_token = 9;                  // Stream completion indicator
+    google.protobuf.Timestamp timestamp = 10;
+    string provider_name = 11;
+}
+
 // ============================================================
 //  Events: Coordinator -> External (Progress & Completion)
 // ============================================================

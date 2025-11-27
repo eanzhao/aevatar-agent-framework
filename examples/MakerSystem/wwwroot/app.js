@@ -626,14 +626,15 @@ function handleSSEEvent(event, projectId) {
             break;
             
         case 'proposal':
-            // Update proposals (SYSTEM_NODES)
+            // Update proposals (SYSTEM_NODES) - final complete proposal
             APP_STATE.proposals[event.taskId] = {
                 content: event.content || '',
                 success: event.success,
                 error: event.message,
                 promptTokens: event.promptTokens || 0,
                 completionTokens: event.completionTokens || 0,
-                providerName: event.providerName || null  // Track LLM provider
+                providerName: event.providerName || null,
+                streaming: false  // Mark as complete
             };
             
             // Update token stats
@@ -645,6 +646,40 @@ function handleSSEEvent(event, projectId) {
                 renderTokenStats();
             }
             
+            renderWorkers();
+            break;
+            
+        case 'streaming':
+            // Real-time streaming token update (SYSTEM_NODES live output)
+            const nodeId = event.taskId;  // Format: "taskId:proposalId"
+            const workerId = event.workerId || 'unknown';
+            const isCoordinator = workerId === 'COORDINATOR';
+            
+            // Initialize or update streaming state
+            if (!APP_STATE.proposals[nodeId]) {
+                APP_STATE.proposals[nodeId] = {
+                    content: '',
+                    success: true,
+                    streaming: true,
+                    providerName: event.providerName || null,
+                    workerId: workerId,
+                    isCoordinator: isCoordinator
+                };
+            }
+            
+            // Update content with accumulated stream
+            APP_STATE.proposals[nodeId].content = event.accumulatedContent || '';
+            APP_STATE.proposals[nodeId].streaming = !event.isLastToken;
+            APP_STATE.proposals[nodeId].providerName = event.providerName;
+            APP_STATE.proposals[nodeId].workerId = workerId;
+            APP_STATE.proposals[nodeId].isCoordinator = isCoordinator;
+            
+            // Mark completion
+            if (event.isLastToken) {
+                APP_STATE.proposals[nodeId].streaming = false;
+            }
+            
+            // Render immediately for real-time effect
             renderWorkers();
             break;
             
@@ -937,7 +972,13 @@ function addLogEntry(phase, message) {
 
 function renderWorkers() {
     const proposals = APP_STATE.proposals;
-    const ids = Object.keys(proposals).sort();
+    const ids = Object.keys(proposals).sort((a, b) => {
+        // Sort: Coordinator nodes first, then by id
+        const aIsCoord = proposals[a].isCoordinator ? 0 : 1;
+        const bIsCoord = proposals[b].isCoordinator ? 0 : 1;
+        if (aIsCoord !== bIsCoord) return aIsCoord - bIsCoord;
+        return a.localeCompare(b);
+    });
     
     if (ids.length === 0) {
         APP_STATE.dom.workerGrid.innerHTML = '<div style="color:var(--text-dim); text-align:center">NO_ACTIVE_NODES</div>';
@@ -946,29 +987,69 @@ function renderWorkers() {
     
     APP_STATE.dom.workerGrid.innerHTML = ids.map(id => {
         const p = proposals[id];
-        const statusIcon = p.success ? '✓' : '✗';
-        const statusClass = p.success ? 'success' : 'error';
+        
+        // Check if this is a Coordinator node
+        const isCoordinator = p.isCoordinator === true;
+        const workerId = p.workerId || 'unknown';
+        
+        // Determine status: streaming, success, or error
+        const isStreaming = p.streaming === true;
+        const statusIcon = isStreaming ? '⏳' : (p.success ? '✓' : '✗');
+        const statusClass = isStreaming ? 'streaming' : (p.success ? 'success' : 'error');
+        
         const content = p.content || p.error || 'No content';
         const tokens = (p.promptTokens || p.completionTokens) 
             ? `<span class="node-tokens">${p.promptTokens || 0}+${p.completionTokens || 0}</span>` 
             : '';
+        
         // LLM provider badge
         const providerBadge = p.providerName 
             ? `<span class="node-provider" title="LLM Provider">🤖 ${p.providerName}</span>` 
             : '';
         
+        // Streaming indicator with cursor animation
+        const streamingIndicator = isStreaming 
+            ? '<span class="streaming-cursor">▌</span>' 
+            : '';
+        
+        // Streaming status badge
+        const streamingBadge = isStreaming 
+            ? '<span class="node-streaming-badge">STREAMING</span>' 
+            : '';
+        
+        // Node label: Coordinator vs Worker
+        const nodeLabel = isCoordinator 
+            ? `COORDINATOR::${extractOperationType(id)}`
+            : `WORKER::${workerId || id.substring(0, 12)}`;
+        
+        // Node class for styling
+        const nodeClass = isCoordinator ? 'coordinator-node' : '';
+        
         return `
-            <div class="worker-node">
+            <div class="worker-node ${isStreaming ? 'node-streaming' : ''} ${nodeClass}">
                 <div class="node-head">
                     <span class="node-status ${statusClass}">${statusIcon}</span>
-                    NODE::${id.substring(0, 12)}
+                    ${nodeLabel}
                     ${providerBadge}
+                    ${streamingBadge}
                     ${tokens}
                 </div>
-                <div class="node-log">${escapeHtml(content)}</div>
+                <div class="node-log">${escapeHtml(content)}${streamingIndicator}</div>
             </div>
         `;
     }).join('');
+    
+    // Auto-scroll streaming nodes into view
+    const streamingNodes = document.querySelectorAll('.node-streaming');
+    if (streamingNodes.length > 0) {
+        streamingNodes[streamingNodes.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+// Extract operation type from proposal id (e.g., "task:COORD_ASSESS_xxx" -> "ASSESS")
+function extractOperationType(id) {
+    const match = id.match(/COORD_([A-Z]+)_/);
+    return match ? match[1] : 'TASK';
 }
 
 function renderFiles() {

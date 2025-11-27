@@ -40,9 +40,44 @@ public sealed record MakerProgress
     public LLMProposal? Proposal { get; init; }
     
     /// <summary>
+    /// Streaming token (for real-time LLM output display).
+    /// </summary>
+    public StreamingTokenProgress? StreamingToken { get; init; }
+    
+    /// <summary>
     /// Timestamp.
     /// </summary>
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>
+/// Real-time streaming token progress for live UI updates.
+/// </summary>
+public sealed record StreamingTokenProgress
+{
+    /// <summary>Worker ID generating this token.</summary>
+    public required string WorkerId { get; init; }
+    
+    /// <summary>Proposal ID being generated.</summary>
+    public required string ProposalId { get; init; }
+    
+    /// <summary>The token content chunk.</summary>
+    public required string Token { get; init; }
+    
+    /// <summary>Full accumulated content so far.</summary>
+    public required string AccumulatedContent { get; init; }
+    
+    /// <summary>Sequence number for ordering.</summary>
+    public int TokenIndex { get; init; }
+    
+    /// <summary>Whether this is the first token (TTFT indicator).</summary>
+    public bool IsFirstToken { get; init; }
+    
+    /// <summary>Whether this is the last token (stream complete).</summary>
+    public bool IsLastToken { get; init; }
+    
+    /// <summary>LLM provider name.</summary>
+    public string? ProviderName { get; init; }
 }
 
 /// <summary>
@@ -124,6 +159,9 @@ public enum MakerPhase
     
     /// <summary>Red flag raised, attempting recovery.</summary>
     RedFlag,
+    
+    /// <summary>Streaming LLM output in real-time.</summary>
+    Streaming,
     
     /// <summary>Completed successfully.</summary>
     Completed,

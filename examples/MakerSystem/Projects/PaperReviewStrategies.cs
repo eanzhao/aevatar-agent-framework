@@ -339,7 +339,7 @@ public static class PaperReviewProject
             Granularity = DecompositionGranularity.Balanced,
             // Multi-provider: auto-discovers all valid providers from config
             UseMultipleProviders = true,
-            CoordinatorProviderName = "openai",
+            //CoordinatorProviderName = "openai",
             Context = new Dictionary<string, string>
             {
                 ["venue"] = targetVenue,
