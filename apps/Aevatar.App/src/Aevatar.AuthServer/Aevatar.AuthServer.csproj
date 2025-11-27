@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <Import Project="common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>
+    <RootNamespace>Aevatar.AuthServer</RootNamespace>
+    <AssemblyName>Aevatar.AuthServer</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Project References (Shared Domain and Infrastructure) -->
+  <ItemGroup>
+    <ProjectReference Include="..\Aevatar.App.Domain\Aevatar.App.Domain.csproj" />
+    <ProjectReference Include="..\Aevatar.App.Application\Aevatar.App.Application.csproj" />
+    <ProjectReference Include="..\Aevatar.App.MongoDB\Aevatar.App.MongoDB.csproj" />
+    <ProjectReference Include="..\Aevatar.App.HttpApi\Aevatar.App.HttpApi.csproj" />
+  </ItemGroup>
+
+  <!-- Core ABP Framework -->
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Autofac" />
+    <PackageReference Include="Volo.Abp.AspNetCore.Serilog" />
+    <PackageReference Include="Volo.Abp.Swashbuckle" />
+  </ItemGroup>
+
+  <!-- UI & Web (Required for AuthServer Web UI) -->
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" />
+    <PackageReference Include="Volo.Abp.Account.Web.OpenIddict" />
+    <PackageReference Include="Volo.Abp.Identity.Web" />
+    <PackageReference Include="Volo.Abp.TenantManagement.Web" />
+    <PackageReference Include="Volo.Abp.FeatureManagement.Web" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.Web" />
+  </ItemGroup>
+
+  <!-- Logging -->
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Async" />
+  </ItemGroup>
+
+</Project>

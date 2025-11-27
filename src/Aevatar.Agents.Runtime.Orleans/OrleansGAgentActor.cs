@@ -3,53 +3,137 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Orleans.Streams;
 
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
 /// Orleans Agent Actor
-/// 继承自 GAgentActorBase,使用 Orleans Streams 进行事件传输
-/// 使用 byte[] 流以避免 JSON 序列化问题（支持 Protobuf ByteString）
+/// 继承自 GAgentActorBase,使用 IMessageStream (Orleans Streams 或 MassTransit) 进行事件传输
 /// </summary>
 public class OrleansGAgentActor : GAgentActorBase
 {
     private readonly IGrainFactory _grainFactory;
-    private readonly IStreamProvider _streamProvider;
+    
+    // Orleans Stream Specifics
+    private readonly IStreamProvider _orleansStreamProvider;
     private readonly StreamingOptions _streamingOptions;
-    private readonly Dictionary<Guid, IAsyncStream<byte[]>> _actorStreams = new();
-    private IAsyncStream<byte[]>? _myStream;
-    private StreamSubscriptionHandle<byte[]>? _streamSubscription;
+    
+    // Abstracted Stream
+    private readonly IMessageStreamProvider? _externalStreamProvider;
+    private readonly MessageStreamProviderOptions _providerOptions;
+    
+    // Cache for other actors' streams
+    private readonly Dictionary<Guid, IMessageStream> _actorStreams = new();
+    
+    // My Stream
+    private IMessageStream? _myStream;
+    private IMessageStreamSubscription? _streamSubscription;
 
     // ============ 构造函数 ============
 
     /// <summary>
-    /// 主构造函数 - 用于新的实现
+    /// 主构造函数
     /// </summary>
     public OrleansGAgentActor(
         IGAgent agent,
         IGrainFactory grainFactory,
-        IStreamProvider streamProvider,
-        StreamingOptions streamingOptions)
+        IStreamProvider orleansStreamProvider,
+        StreamingOptions streamingOptions,
+        ILogger<OrleansGAgentActor> logger,
+        IMessageStreamProvider? externalStreamProvider = null,
+        IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(agent)
     {
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));
-        _streamProvider = streamProvider;
+        _orleansStreamProvider = orleansStreamProvider;
         _streamingOptions = streamingOptions ?? new StreamingOptions();
+        _externalStreamProvider = externalStreamProvider;
+        _providerOptions = providerOptions?.Value ?? new MessageStreamProviderOptions();
 
-        // 创建自己的 Stream (使用配置的 StreamNamespace)
-        // 使用 byte[] 类型以避免 JSON 序列化问题，支持 Protobuf ByteString
+        InitializeStream();
+    }
+
+    private void InitializeStream()
+    {
         try
         {
-            var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-            var streamId = StreamId.Create(streamNamespace, Id.ToString());
-            _myStream = _streamProvider.GetStream<byte[]>(streamId);
+            // Determine which provider to use
+            // Priority: Configuration > Default (Orleans)
+            var providerType = _providerOptions.Provider;
+            
+            Logger.LogWarning("DEBUG: [OrleansGAgentActor] Initializing stream. Default Provider: {Provider}", providerType);
+
+            // Check runtime-specific override
+            if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
+            {
+                providerType = runtimeProvider;
+                Logger.LogWarning("DEBUG: [OrleansGAgentActor] Runtime 'Orleans' override: {Provider}", providerType);
+            }
+
+            Logger.LogWarning("DEBUG: [OrleansGAgentActor] Final ProviderType: {ProviderType}, ExternalProvider: {HasExternalProvider}", 
+                providerType, _externalStreamProvider != null);
+
+            if (providerType == "MassTransit" && _externalStreamProvider != null)
+            {
+                // Use External Provider (MassTransit)
+                // Pass Agent Category as Category for dynamic routing
+                var agentCategory = Agent.GetAgentCategory();
+                _myStream = _externalStreamProvider.GetStream(Id, agentCategory);
+                Logger.LogWarning("DEBUG: Agent {AgentId} using MassTransit stream. Category: {Category}", Id, agentCategory);
+            }
+            else
+            {
+                // Use Orleans Stream (Default)
+                var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
+                var streamId = StreamId.Create(streamNamespace, Id.ToString());
+                var orleansStream = _orleansStreamProvider.GetStream<byte[]>(streamId);
+                
+                // Wrap in OrleansMessageStream
+                _myStream = new OrleansMessageStream(Id, orleansStream);
+                Logger.LogWarning("DEBUG: Agent {AgentId} using Orleans stream (Namespace: {Namespace})", Id, streamNamespace);
+            }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to create Orleans stream for Agent {AgentId}", Id);
+            Logger.LogError(ex, "Failed to initialize stream for Agent {AgentId}", Id);
             _myStream = null;
         }
+    }
+
+    private IMessageStream GetActorStream(Guid actorId)
+    {
+        if (_actorStreams.TryGetValue(actorId, out var stream))
+        {
+            return stream;
+        }
+
+        IMessageStream newStream;
+        var providerType = _providerOptions.Provider;
+        if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
+        {
+            providerType = runtimeProvider;
+        }
+
+        if (providerType == "MassTransit" && _externalStreamProvider != null)
+        {
+            // For external actors, we don't know their type/category by default.
+            // We pass null, which will default to TopicPrefix.
+            // TODO: Implement a mechanism to resolve target agent type if strict topic isolation is required.
+            newStream = _externalStreamProvider.GetStream(actorId, null);
+        }
+        else
+        {
+            var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
+            var streamId = StreamId.Create(streamNamespace, actorId.ToString());
+            var orleansStream = _orleansStreamProvider.GetStream<byte[]>(streamId);
+            newStream = new OrleansMessageStream(actorId, orleansStream);
+        }
+
+        _actorStreams[actorId] = newStream;
+        return newStream;
     }
 
     /// <summary>
@@ -60,19 +144,13 @@ public class OrleansGAgentActor : GAgentActorBase
     // ============ 抽象方法实现 ============
 
     /// <summary>
-    /// 发送事件给自己 - 通过 Orleans Stream
-    /// 序列化 EventEnvelope 为 byte[] 以支持 Protobuf ByteString
+    /// 发送事件给自己
     /// </summary>
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
         if (_myStream != null)
         {
-            // 序列化为 byte[] 以避免 JSON 序列化问题
-            using var stream = new MemoryStream();
-            using var codedOutput = new CodedOutputStream(stream);
-            envelope.WriteTo(codedOutput);
-            codedOutput.Flush();
-            await _myStream.OnNextAsync(stream.ToArray());
+            await _myStream.ProduceAsync(envelope, ct);
         }
         else
         {
@@ -82,34 +160,21 @@ public class OrleansGAgentActor : GAgentActorBase
     }
 
     /// <summary>
-    /// 发送事件到指定 Actor - 通过 Orleans Streams
-    /// 序列化 EventEnvelope 为 byte[] 以支持 Protobuf ByteString
+    /// 发送事件到指定 Actor
     /// </summary>
     protected override async Task SendEventToActorAsync(Guid actorId, EventEnvelope envelope, CancellationToken ct)
     {
         try
         {
-            // 获取或创建目标 Actor 的 Stream (使用配置的 StreamNamespace)
-            if (!_actorStreams.TryGetValue(actorId, out var stream))
-            {
-                var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-                var streamId = StreamId.Create(streamNamespace, actorId.ToString());
-                stream = _streamProvider.GetStream<byte[]>(streamId);
-                _actorStreams[actorId] = stream;
-            }
-
-            // 序列化为 byte[] 以避免 JSON 序列化问题
-            using var memoryStream = new MemoryStream();
-            using var codedOutput = new CodedOutputStream(memoryStream);
-            envelope.WriteTo(codedOutput);
-            codedOutput.Flush();
-            await stream.OnNextAsync(memoryStream.ToArray());
+            var stream = GetActorStream(actorId);
+            await stream.ProduceAsync(envelope, ct);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to send event {EventId} to Actor {ActorId}", envelope.Id, actorId);
 
-            // Fallback: 直接通过 Grain 调用
+            // Fallback: 如果是 Orleans 环境，尝试直接通过 Grain 调用 (仅当 stream 失败时)
+            // 注意：如果是 MassTransit 模式，这个 fallback 可能不适用，或者依然可以通过 RPC 调用 Grain
             try
             {
                 var grain = _grainFactory.GetGrain<IGAgentGrain>(actorId.ToString());
@@ -128,7 +193,7 @@ public class OrleansGAgentActor : GAgentActorBase
     }
 
     /// <summary>
-    /// 激活 Actor - 订阅 Orleans Stream
+    /// 激活 Actor - 订阅 Stream
     /// </summary>
     protected override async Task OnActivateAsync(CancellationToken ct)
     {
@@ -139,8 +204,13 @@ public class OrleansGAgentActor : GAgentActorBase
         {
             try
             {
-                _streamSubscription = await _myStream.SubscribeAsync(OnStreamEventReceived);
-                Logger.LogDebug("Successfully subscribed to Orleans stream for Agent {AgentId}", Id);
+                _streamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(async envelope =>
+                {
+                    Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
+                    await HandleEventAsync(envelope, CancellationToken.None);
+                }, ct);
+                
+                Logger.LogDebug("Successfully subscribed to stream for Agent {AgentId}", Id);
             }
             catch (Exception ex)
             {
@@ -148,8 +218,7 @@ public class OrleansGAgentActor : GAgentActorBase
             }
         }
 
-        // 如果 Agent 支持事件溯源,触发事件回放 (在 Actor 层触发,而不是 Agent 层)
-        // Check if Agent inherits from GAgentBaseWithEventSourcing<TState>
+        // 如果 Agent 支持事件溯源,触发事件回放
         var agentType = Agent.GetType();
         var baseType = agentType.BaseType;
         while (baseType != null && baseType != typeof(object))
@@ -157,8 +226,6 @@ public class OrleansGAgentActor : GAgentActorBase
             if (baseType.IsGenericType &&
                 baseType.GetGenericTypeDefinition().Name == "GAgentBaseWithEventSourcing`1")
             {
-                // Found GAgentBaseWithEventSourcing<TState>
-                // Use reflection to get and call ReplayEventsAsync
                 var replayMethod = baseType.GetMethod("ReplayEventsAsync", new[] { typeof(CancellationToken) });
                 if (replayMethod != null)
                 {
@@ -194,7 +261,7 @@ public class OrleansGAgentActor : GAgentActorBase
             try
             {
                 await _streamSubscription.UnsubscribeAsync();
-                Logger.LogDebug("Successfully unsubscribed from Orleans stream for Agent {AgentId}", Id);
+                Logger.LogDebug("Successfully unsubscribed from stream for Agent {AgentId}", Id);
             }
             catch (Exception ex)
             {
@@ -206,28 +273,5 @@ public class OrleansGAgentActor : GAgentActorBase
         _actorStreams.Clear();
 
         Logger.LogInformation("Orleans Actor {ActorId} deactivated", Id);
-    }
-
-    // ============ Stream 事件处理 ============
-
-    /// <summary>
-    /// 处理从 Orleans Stream 接收到的事件
-    /// 反序列化 byte[] 为 EventEnvelope
-    /// </summary>
-    private async Task OnStreamEventReceived(byte[] envelopeBytes, StreamSequenceToken? token)
-    {
-        try
-        {
-            // 反序列化 byte[] 为 EventEnvelope
-            var envelope = EventEnvelope.Parser.ParseFrom(envelopeBytes);
-            Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
-
-            // 直接调用基类的 HandleEventAsync (会走完整的处理流程)
-            await HandleEventAsync(envelope, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error deserializing or handling stream event for Agent {AgentId}", Id);
-        }
     }
 }
