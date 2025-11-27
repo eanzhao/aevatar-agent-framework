@@ -79,8 +79,10 @@ public class OrleansGAgentActor : GAgentActorBase
             if (providerType == "MassTransit" && _externalStreamProvider != null)
             {
                 // Use External Provider (MassTransit)
-                _myStream = _externalStreamProvider.GetStream(Id);
-                Logger.LogWarning("DEBUG: Agent {AgentId} using MassTransit stream", Id);
+                // Pass Agent Category as Category for dynamic routing
+                var agentCategory = Agent.GetAgentCategory();
+                _myStream = _externalStreamProvider.GetStream(Id, agentCategory);
+                Logger.LogWarning("DEBUG: Agent {AgentId} using MassTransit stream. Category: {Category}", Id, agentCategory);
             }
             else
             {
@@ -117,7 +119,10 @@ public class OrleansGAgentActor : GAgentActorBase
 
         if (providerType == "MassTransit" && _externalStreamProvider != null)
         {
-            newStream = _externalStreamProvider.GetStream(actorId);
+            // For external actors, we don't know their type/category by default.
+            // We pass null, which will default to TopicPrefix.
+            // TODO: Implement a mechanism to resolve target agent type if strict topic isolation is required.
+            newStream = _externalStreamProvider.GetStream(actorId, null);
         }
         else
         {

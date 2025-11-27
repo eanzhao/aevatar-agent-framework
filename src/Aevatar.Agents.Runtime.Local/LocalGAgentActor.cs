@@ -30,10 +30,12 @@ public class LocalGAgentActor : GAgentActorBase
     public LocalGAgentActor(
         IGAgent agent,
         LocalMessageStreamRegistry streamRegistry,
+        ILogger<LocalGAgentActor> logger, // Added logger
         IMessageStreamProvider? externalStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(agent)
     {
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions?.Value ?? new MessageStreamProviderOptions();
@@ -53,7 +55,9 @@ public class LocalGAgentActor : GAgentActorBase
         if (providerType == "MassTransit" && _externalStreamProvider != null)
         {
             // Use External Provider (MassTransit)
-            _myStream = _externalStreamProvider.GetStream(Id);
+            // Pass Agent Category as Category for dynamic routing
+            var agentCategory = Agent.GetAgentCategory();
+            _myStream = _externalStreamProvider.GetStream(Id, agentCategory);
         }
         else
         {
@@ -73,7 +77,8 @@ public class LocalGAgentActor : GAgentActorBase
 
         if (providerType == "MassTransit" && _externalStreamProvider != null)
         {
-            return _externalActorStreams.GetOrAdd(actorId, id => _externalStreamProvider.GetStream(id));
+            // For external actors, we pass null as category (default topic)
+            return _externalActorStreams.GetOrAdd(actorId, id => _externalStreamProvider.GetStream(id, null));
         }
         else
         {

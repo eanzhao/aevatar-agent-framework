@@ -12,6 +12,13 @@ public interface IGAgent
     Guid Id { get; }
 
     /// <summary>
+    /// Get Agent Category (used for Stream routing and grouping).
+    /// Defaults to the Type Name.
+    /// </summary>
+    /// <returns>The category string.</returns>
+    string GetAgentCategory();
+
+    /// <summary>
     /// Get GAgent description.
     /// </summary>
     /// <returns>A descriptive string about this agent</returns>

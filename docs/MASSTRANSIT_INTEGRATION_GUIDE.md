@@ -15,6 +15,7 @@ MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kaf
 
 2.  **抽象层 (Abstractions)**
     *   **`IStreamNotFoundHandler`**: 定义了“当消息到达但接收者不在家时该怎么办”的策略接口。
+    *   **`[StreamTopic]` Attribute**: 用于 Agent 类上的声明式 Topic 路由配置。
 
 3.  **运行时适配层 (Runtime Adaptation)**
     *   **Orleans Runtime**: 实现了 `OrleansStreamNotFoundHandler`。利用 Virtual Actor 特性，通过 `GrainFactory.GetGrain(...).ActivateAsync()` 自动唤醒 Grain。
@@ -25,56 +26,76 @@ MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kaf
 ```mermaid
 graph TD
     A[Sender Agent] -->|Publish| B(GAgentActor)
-    B -->|ProduceAsync| C[MassTransitMessageStream]
-    C -->|Serialize| D[ByteArrayMessage]
-    D -->|MassTransit Producer| E((Kafka / RabbitMQ))
+    B -->|GetStream(Category)| C[MassTransitMessageStreamProvider]
+    C -->|Lookup Topic| D{Topic Mapping?}
     
-    E -->|MassTransit Consumer| F[StreamMessageDispatcher]
-    F -->|Dispatch by StreamId| G{Stream Exists?}
+    D -->|Found| E[Target Topic]
+    D -->|Not Found| F[Default Topic (TopicPrefix)]
     
-    G -->|Yes| H[MassTransitMessageStream]
-    G -->|No| I[IStreamNotFoundHandler]
+    E -->|ProduceAsync (Key=StreamId)| G((Kafka))
+    F -->|ProduceAsync (Key=StreamId)| G
     
-    I -->|Orleans Mode| J[OrleansStreamNotFoundHandler]
-    J -->|Activate| K(Orleans Grain)
-    K -->|Register Stream| H
+    G -->|MassTransit Consumer| H[StreamMessageDispatcher]
+    H -->|Dispatch by StreamId| I{Stream Exists?}
     
-    I -->|Local Mode| L[LocalStreamNotFoundHandler]
-    L -->|Log Warning / Error| M[End / Retry]
+    I -->|Yes| J[MassTransitMessageStream]
+    I -->|No| K[IStreamNotFoundHandler]
     
-    H -->|Deserialize| N[EventEnvelope]
-    N -->|HandleEventAsync| O(GAgentActor)
-    O -->|ProcessEvent| P[Receiver Agent]
+    K -->|Orleans Mode| L[OrleansStreamNotFoundHandler]
+    L -->|Activate| M(Orleans Grain)
+    M -->|Register Stream| J
+    
+    K -->|Local Mode| N[LocalStreamNotFoundHandler]
+    N -->|Log Warning / Error| O[End / Retry]
+    
+    J -->|Deserialize| P[EventEnvelope]
+    P -->|HandleEventAsync| Q(GAgentActor)
+    Q -->|ProcessEvent| R[Receiver Agent]
 ```
 
 ---
 
-## 2. 消息传播与自我保护机制
+## 2. 动态 Topic 路由与配置
 
-在 Aevatar 框架中，事件传播遵循层级路由规则（Up/Down/Both）。为了防止无限递归，框架默认开启了自我保护：
+MassTransit 插件支持灵活的 **Category -> Topic** 映射机制，允许将不同类型的 Agent 路由到不同的 Kafka Topic。
 
-**如果事件的发布者 ID (PublisherId) 等于当前 Agent 的 ID，该事件将被自动忽略。**
+### 优先级规则
 
-这意味着：
-*   **正确做法**：让 Agent A 发送消息给 Agent B（通过 `LinkParentChild` 建立关系后广播，或直接发送）。
-*   **测试场景**：如果要测试单个 Agent 自己发给自己，需要显式在 Handler 上添加 `[EventHandler(AllowSelfHandling = true)]`。但在生产环境中，更推荐使用多 Agent 协作模式。
+路由配置遵循以下优先级（由高到低）：
 
-### 最佳实践示例
+1.  **`appsettings.json` 配置**: 运维人员可以在部署时覆盖一切代码设定。
+2.  **`[StreamTopic]` 注解**: 开发者在代码中声明的默认 Topic。
+3.  **类名回退**: 如果无注解，使用 Agent 的类名作为 Category。
+4.  **默认 Topic**: 如果 Category 没有在映射表中找到对应 Topic，则使用全局的 `TopicPrefix` (默认 `agent-events`)。
+
+### 方式一：使用注解（推荐）
+
+在 Agent 类上直接声明目标 Topic：
 
 ```csharp
-// 1. 创建两个 Agent
-var senderId = Guid.NewGuid();
-var receiverId = Guid.NewGuid();
-var sender = await actorManager.CreateAndRegisterAsync<MyAgent>(senderId);
-var receiver = await actorManager.CreateAndRegisterAsync<MyAgent>(receiverId);
+[StreamTopic("finance-billing")]
+public class BillingAgent : GAgentBase<BillingState>
+{
+    // ...
+}
+```
 
-// 2. 建立层级关系 (Sender 是 Receiver 的父节点)
-await actorManager.LinkParentChildAsync(senderId, receiverId);
+在启动时，插件会自动扫描并注册该 Topic。
 
-// 3. Sender 向下广播事件
-await sender.PublishEventAsync(new MyEvent(), EventDirection.Down);
+### 方式二：使用配置文件
 
-// 4. 结果：Receiver 收到并处理事件，Sender 忽略自己发出的事件
+在 `appsettings.json` 中配置映射：
+
+```csharp
+"MassTransit": {
+  "Stream": {
+    "TopicPrefix": "agent-events",
+    "TopicMapping": {
+      "BillingAgent": "finance-billing-v2", // 覆盖代码中的 v1
+      "UserAgent": "user-events"
+    }
+  }
+}
 ```
 
 ---
@@ -88,43 +109,25 @@ await sender.PublishEventAsync(new MyEvent(), EventDirection.Down);
     <ProjectReference Include="..\..\..\src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
     ```
 
-2.  **配置 appsettings.json**:
-    ```json
-    {
-      "MessageStream": {
-        "Provider": "MassTransit",
-        "Runtime": {
-          "Orleans": "MassTransit",
-          "Local": "MassTransit"
-        }
-      },
-      "MassTransit": {
-        "Stream": {
-          "TopicPrefix": "agent-events",
-          "Topics": ["AevatarAgents-Shared", "AevatarAgents-TypeA"], // 多 Topic 支持
-          "TransportType": "Kafka",
-          "RuntimeName": "Default",
-          "Kafka": {
-            "BootstrapServers": "localhost:9092",
-            "ConsumerGroupId": "aevatar-agents-group"
-          }
-        }
-      }
-    }
+2.  **代码集成 (支持自动扫描)**:
+    在 `Program.cs` 中注册插件时，传入包含 Agent 的程序集：
+
+    ```csharp
+    // 自动扫描程序集中的 [StreamTopic] 注解
+    services.AddMassTransitStreamPlugin(
+        configuration, 
+        typeof(MyAgent).Assembly,
+        typeof(AnotherAgent).Assembly
+    );
     ```
 
 ### Orleans Runtime 集成
 
-在 `Program.cs` 中：
-
 ```csharp
 host.ConfigureServices((context, services) =>
 {
-    // 1. 注册 MassTransit 插件 (包含 Kafka Rider 等)
-    services.AddMassTransitStreamPlugin(context.Configuration);
+    services.AddMassTransitStreamPlugin(context.Configuration, typeof(MyAgent).Assembly);
 
-    // 2. 注册 Aevatar Agent (Orleans)
-    // 内部会自动注册 OrleansStreamNotFoundHandler
     services.AddAevatarAgentSystem(builder =>
     {
         builder.UseOrleansRuntime(context.Configuration);
@@ -134,48 +137,33 @@ host.ConfigureServices((context, services) =>
 
 ### Local Runtime 集成
 
-在 `Program.cs` 中：
-
 ```csharp
-// 1. 注册 MassTransit 插件
-services.AddMassTransitStreamPlugin(configuration);
-
-// 2. 注册 Aevatar Local Runtime
-// 内部会自动注册 LocalStreamNotFoundHandler
+services.AddMassTransitStreamPlugin(configuration, typeof(MyAgent).Assembly);
 services.AddAevatarLocalRuntime();
 ```
 
-**注意**: Local Runtime 是内存模型。如果 MassTransit 收到一条消息，但对应的 Agent 没有在内存中被创建（`CreateAndRegisterAsync`），`LocalStreamNotFoundHandler` 会抛出异常并触发 Kafka 重试。**在 Local 模式下使用 MassTransit，必须确保接收方 Agent 已经启动。**
+---
+
+## 4. 性能优化特性
+
+插件内置了多项针对 Kafka 的性能优化：
+
+1.  **Partition Ordering (Key-based)**:
+    Producer 发送消息时，使用 `StreamId` 作为 Kafka Message Key。这确保了同一个 Agent 的所有消息都会落入同一个 Partition，从而利用 Kafka 原生的分区顺序性保证消息处理顺序，无需在 Consumer 端进行昂贵的重排序。
+
+2.  **Batch Processing**:
+    Consumer 配置了 `CheckpointMessageCount = 100` 和 `CheckpointInterval = 5s`，启用批量提交 Offset，大幅减少 Kafka 交互开销。
+
+3.  **Concurrency**:
+    默认启用 `UseConcurrencyLimit(50)`，允许单个 Consumer 实例并发处理不同 Partition 的消息，最大化吞吐量。
 
 ---
 
-## 4. 验证与测试工具
+## 5. 验证与测试工具
 
-为了验证集成效果，框架提供了专门的测试工具。
-
-### 1. Local Runtime 验证工具
-
-位于 `apps/Aevatar.App/src/Aevatar.App.LocalTest`。
-
-**功能**：
-*   验证 Local Stream (In-Memory) 的基本功能。
-*   验证 MassTransit Kafka 模式下的连接、发送和接收。
-*   验证 Agent 不在内存时的异常处理机制。
-
-**运行方式**：
-```bash
-cd apps/Aevatar.App
-./test-local.sh
-```
-
-### 2. 性能基准测试 (Orleans vs MassTransit)
+### 性能基准测试 (Orleans vs MassTransit)
 
 位于 `apps/Aevatar.App/benchmarks`。
-
-**功能**：
-*   对比 Orleans Stream Kafka 与 MassTransit Kafka 的吞吐量和延迟。
-*   验证 Shared Topic (多消费者竞争) 场景下的正确性。
-*   验证自动唤醒 (Auto-Activation) 机制。
 
 **运行方式**：
 ```bash
@@ -183,19 +171,22 @@ cd apps/Aevatar.App/benchmarks
 ./run-benchmark-comparison.sh
 ```
 
+**最新 Benchmark 结果 (Kafka Mode)**：
+*   **MassTransit**: ~12,500 msg/s (得益于批处理和并发优化)
+*   **Orleans Stream**: ~13.5 msg/s (受限于逐条确认机制)
+
 ---
 
-## 5. 常见问题排查
+## 6. 常见问题排查
 
-1.  **收不到消息？**
-    *   检查 Kafka/RabbitMQ 服务是否正常。
-    *   检查 `TopicPrefix` 和 `Topics` 配置是否覆盖了目标 Topic。
-    *   **Orleans**: 检查是否大量 `No stream found` 日志转为正常日志（说明自动唤醒工作正常）。
-    *   **Local**: 检查是否有 `Local Agent ... not active` 警告。
+1.  **消息发送到了错误的 Topic？**
+    *   检查 `appsettings.json` 中的 `TopicMapping` 是否覆盖了预期配置。
+    *   检查 Agent 类上的 `[StreamTopic]` 注解是否正确。
+    *   如果没有配置，消息会默认发送到 `TopicPrefix` 指定的 Topic。
 
-2.  **Kafka Consumer Group 冲突？**
-    *   MassTransit 插件目前为每个 Topic 创建独立的 Endpoint，使用**同一个 ConsumerGroupId**。
-    *   **优化建议**: 在生产环境高并发场景下，建议使用 `UsePartitioner` 确保同一个 Agent (StreamId) 的消息顺序性（插件已默认开启）。
+2.  **收不到消息？**
+    *   **Orleans**: 检查 Silo 日志中是否包含 `No stream found`，如果数量在减少，说明 Auto-Activation 正在工作。
+    *   **Local**: Local 模式不支持自动唤醒，必须先创建 Agent。
 
-3.  **Benchmark 丢包？**
-    *   如果使用 Shared Topic，确保 Consumer 能够处理并发竞争。插件已引入 `IStreamNotFoundHandler` 彻底解决了因 Actor 未激活导致的丢包问题。
+3.  **Kafka Consumer Group 冲突？**
+    *   所有 Topic 默认使用配置中的同一个 Consumer Group ID。MassTransit 会自动管理订阅。

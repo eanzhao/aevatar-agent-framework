@@ -29,8 +29,19 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
     /// <inheritdoc />
     public IMessageStream GetStream(Guid agentId)
     {
+        return GetStream(agentId, null);
+    }
+
+    /// <inheritdoc />
+    public IMessageStream GetStream(Guid agentId, string? category = null)
+    {
+        // We use GetOrAdd, but we need to make sure if the stream exists, its category is updated or compatible?
+        // Actually, StreamId (AgentId) is unique. The category is mainly used for Producing.
+        // A stream instance is tied to an AgentId. 
+        // If we create it with a category, that category determines where it publishes TO.
+        
         return _streams.GetOrAdd(agentId, id => 
-            new MassTransitMessageStream(id, _bus, _serviceProvider, _options));
+            new MassTransitMessageStream(id, category, _bus, _serviceProvider, _options));
     }
 
     /// <summary>

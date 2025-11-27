@@ -18,17 +18,20 @@ public class MassTransitMessageStream : IMessageStream
     private readonly MassTransitStreamOptions _options;
     private readonly ILogger<MassTransitMessageStream> _logger;
     private readonly ConcurrentDictionary<Guid, Func<EventEnvelope, Task>> _handlers = new();
+    private readonly string? _category;
 
     /// <inheritdoc />
     public Guid StreamId { get; }
 
     public MassTransitMessageStream(
-        Guid streamId, 
+        Guid streamId,
+        string? category,
         IBus bus,
         IServiceProvider serviceProvider,
         IOptions<MassTransitStreamOptions> options)
     {
         StreamId = streamId;
+        _category = category;
         _bus = bus;
         _serviceProvider = serviceProvider;
         _options = options.Value;
@@ -38,7 +41,7 @@ public class MassTransitMessageStream : IMessageStream
     /// <inheritdoc />
     public async Task ProduceAsync<T>(T message, CancellationToken ct = default) where T : IMessage
     {
-        System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] ProduceAsync called for StreamId: {StreamId}, MessageType: {typeof(T).Name}");
+        // System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] ProduceAsync called for StreamId: {StreamId}, Category: {_category ?? "null"}");
         if (message is EventEnvelope envelope)
         {
             using var stream = new MemoryStream();
@@ -50,34 +53,39 @@ public class MassTransitMessageStream : IMessageStream
                 Data = stream.ToArray() 
             };
 
-            System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] TransportType: {_options.TransportType}");
-
             if (_options.TransportType == MassTransitTransportType.Kafka)
             {
+                // Determine Topic
+                string topic = _options.TopicPrefix;
+                if (!string.IsNullOrEmpty(_category) && _options.TopicMapping.TryGetValue(_category, out var mappedTopic))
+                {
+                    topic = mappedTopic;
+                }
+
                 try 
                 {
-                    // In Kafka mode, use ITopicProducer (Rider) instead of Bus
-                    var producer = _serviceProvider.GetRequiredService<ITopicProducer<ByteArrayMessage>>();
-                    System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] Producing to Kafka topic: {_options.TopicPrefix}");
-                    await producer.Produce(payload, ct);
-                    System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] Successfully produced to Kafka.");
+                    // Use ITopicProducerProvider to get a producer for a specific address (topic)
+                    var producerProvider = _serviceProvider.GetRequiredService<ITopicProducerProvider>();
+                    var producer = producerProvider.GetProducer<Guid, ByteArrayMessage>(new Uri($"topic:{topic}"));
+                    // Use StreamId as Key to ensure partition ordering
+                    await producer.Produce(StreamId, payload, ct);
+                    
+                    // System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] Successfully produced to Kafka topic: {topic}");
                 }
                 catch (Exception ex)
                 {
-                    System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] ERROR producing to Kafka: {ex}");
+                    // System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] ERROR producing to Kafka: {ex}");
                     throw;
                 }
             }
             else if (_options.TransportType == MassTransitTransportType.InMemory)
             {
-                // InMemory mode: Use Publish which will route to all subscribed consumers
-                // MassTransit will automatically route ByteArrayMessage to StreamMessageDispatcher
-                System.Diagnostics.Debug.WriteLine($"MassTransitMessageStream {StreamId} publishing ByteArrayMessage with StreamId={payload.StreamId}, DataLength={payload.Data.Length}");
+                // InMemory mode: Use Publish
                 await _bus.Publish(payload, ct);
             }
             else
             {
-                // RabbitMQ use standard Bus Publish
+                // RabbitMQ: Use Publish (Exchange routing)
                 await _bus.Publish(payload, ct);
             }
         }
@@ -144,7 +152,6 @@ public class MassTransitMessageStream : IMessageStream
         }
         catch (Exception ex)
         {
-            // Log but don't throw - allow other handlers to process
             System.Diagnostics.Debug.WriteLine($"Error dispatching message: {ex.Message}");
         }
     }

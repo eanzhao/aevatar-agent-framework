@@ -14,7 +14,15 @@ public class MassTransitStreamOptions
     public string TopicPrefix { get; set; } = "agent-events";
 
     /// <summary>
+    /// 动态 Topic 映射表
+    /// Key: Category (Agent Type Name)
+    /// Value: Kafka Topic Name
+    /// </summary>
+    public Dictionary<string, string> TopicMapping { get; set; } = new();
+
+    /// <summary>
     /// 需要监听的额外 Topic 列表（用于多租户或多业务类型隔离）
+    /// 注意：如果配置了 TopicMapping，Silo 启动时会自动将 Mapping 中的 Values 加入监听列表，无需重复在此配置。
     /// </summary>
     public List<string> Topics { get; set; } = new();
 
