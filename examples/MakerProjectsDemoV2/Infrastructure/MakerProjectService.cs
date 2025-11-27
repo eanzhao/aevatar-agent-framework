@@ -94,6 +94,11 @@ public sealed record RunConfig
     public long MaxTotalTokens { get; init; } = 2_000_000;
     public int MaxDurationMinutes { get; init; } = 30;
     
+    // Execution mode (Production vs Academic)
+    public string ExecutionMode { get; init; } = "Production";
+    public string Granularity { get; init; } = "Balanced";
+    public int HardDepthCap { get; init; } = 50;
+    
     // Strategy types
     public string? DecomposerType { get; init; }
     public string? SolverType { get; init; }
@@ -490,6 +495,10 @@ public sealed class MakerProjectService
                 maxTotalLlmCalls = run.Config.MaxTotalLlmCalls,
                 maxTotalTokens = run.Config.MaxTotalTokens,
                 maxDurationMinutes = run.Config.MaxDurationMinutes,
+                // Execution mode
+                executionMode = run.Config.ExecutionMode,
+                granularity = run.Config.Granularity,
+                hardDepthCap = run.Config.HardDepthCap,
                 decomposerType = run.Config.DecomposerType,
                 solverType = run.Config.SolverType,
                 composerType = run.Config.ComposerType,
@@ -707,6 +716,10 @@ public sealed class MakerProjectService
             MaxTotalLlmCalls = options.MaxTotalLlmCalls,
             MaxTotalTokens = options.MaxTotalTokens,
             MaxDurationMinutes = (int)options.MaxDuration.TotalMinutes,
+            // Execution mode
+            ExecutionMode = options.Mode.ToString(),
+            Granularity = options.Granularity.ToString(),
+            HardDepthCap = options.HardDepthCap,
             DecomposerType = options.Decomposer?.GetType().Name ?? "DefaultDecomposer",
             SolverType = options.Solver?.GetType().Name ?? "DefaultSolver",
             ComposerType = options.Composer?.GetType().Name ?? "DefaultComposer",

@@ -21,19 +21,60 @@ public sealed class DefaultDecomposer : IDecompositionStrategy
     /// <inheritdoc />
     public string BuildDecompositionPrompt(string taskDescription, IReadOnlyDictionary<string, string> context)
     {
+        return BuildDecompositionPrompt(taskDescription, context, DecompositionGranularity.Balanced);
+    }
+    
+    /// <inheritdoc />
+    public string BuildDecompositionPrompt(
+        string taskDescription, 
+        IReadOnlyDictionary<string, string> context,
+        DecompositionGranularity granularity)
+    {
         var contextSection = context.Count > 0
             ? $"\n[Context]\n{string.Join("\n", context.Select(kv => $"- {kv.Key}: {kv.Value}"))}\n"
             : "";
 
         var jsonFormat = """{"step_id": "S1", "description": "..."}""";
+        
+        // Build granularity-specific instruction
+        var (stepInstruction, rules) = granularity switch
+        {
+            DecompositionGranularity.Binary => (
+                "Split the following task into EXACTLY 2 parts (binary decomposition)",
+                """
+                Rules:
+                1. Output EXACTLY 2 subtasks - no more, no less.
+                2. Each part should handle roughly half the complexity.
+                3. Parts should be logically separable.
+                4. Part 1's output may be needed by Part 2.
+                """
+            ),
+            DecompositionGranularity.Single => (
+                "Identify the SINGLE NEXT STEP needed to make progress on this task",
+                """
+                Rules:
+                1. Output EXACTLY 1 step - the immediate next action.
+                2. The step must be atomic and directly actionable.
+                3. Do NOT plan ahead - just the very next step.
+                4. If the task is already atomic, output it as-is.
+                """
+            ),
+            _ => ( // Balanced (default)
+                "Break down the following task into 3-6 logical, sequential steps",
+                """
+                Rules:
+                1. Each step must be specific and actionable.
+                2. Steps should be ordered logically (output of step N may be input to step N+1).
+                3. Steps should be roughly equal in complexity.
+                4. Do NOT include meta-steps like "review" or "finalize" unless truly necessary.
+                """
+            )
+        };
+        
         return $"""
-            You are a task decomposition expert. Break down the following task into 3-6 logical, sequential steps.
+            You are a task decomposition expert. {stepInstruction}.
             
-            Rules:
-            1. Each step must be specific and actionable.
-            2. Steps should be ordered logically (output of step N may be input to step N+1).
-            3. Steps should be roughly equal in complexity.
-            4. Do NOT include meta-steps like "review" or "finalize" unless truly necessary.
+            {rules}
             
             Output format: JSON array where each item is {jsonFormat}.
             Output ONLY the JSON array, no other text.

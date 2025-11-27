@@ -20,6 +20,20 @@ public interface IDecompositionStrategy
     string BuildDecompositionPrompt(string taskDescription, IReadOnlyDictionary<string, string> context);
     
     /// <summary>
+    /// Build the prompt for decomposing a task with specified granularity.
+    /// The LLM should output a JSON array of steps.
+    /// </summary>
+    /// <param name="taskDescription">The task to decompose.</param>
+    /// <param name="context">Domain context variables.</param>
+    /// <param name="granularity">Decomposition granularity hint.</param>
+    /// <returns>Prompt string for the LLM.</returns>
+    string BuildDecompositionPrompt(
+        string taskDescription, 
+        IReadOnlyDictionary<string, string> context,
+        DecompositionGranularity granularity)
+        => BuildDecompositionPrompt(taskDescription, context); // Default implementation for backward compatibility
+    
+    /// <summary>
     /// Determine if a task is atomic (cannot be decomposed further).
     /// This is used as a fallback when LLM-based atomicity assessment fails.
     /// </summary>

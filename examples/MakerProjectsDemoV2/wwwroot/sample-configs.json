@@ -13,6 +13,8 @@
         "maxTotalLlmCalls": 200,
         "maxTotalTokens": 500000,
         "maxDurationMinutes": 15,
+        "executionMode": "Production",
+        "granularity": "Balanced",
         "context": {
           "language": "中文",
           "style": "百科全书式",
@@ -33,6 +35,8 @@
         "maxTotalLlmCalls": 300,
         "maxTotalTokens": 800000,
         "maxDurationMinutes": 20,
+        "executionMode": "Academic",
+        "granularity": "Binary",
         "context": {
           "rigor": "严格数学证明",
           "audience": "高中数学水平"
@@ -55,6 +59,8 @@
         "maxTotalLlmCalls": 300,
         "maxTotalTokens": 1000000,
         "maxDurationMinutes": 20,
+        "executionMode": "Production",
+        "granularity": "Balanced",
         "context": {
           "perspective": "客观中立",
           "data_source": "2024年最新数据"
@@ -74,6 +80,8 @@
         "maxTotalLlmCalls": 800,
         "maxTotalTokens": 3000000,
         "maxDurationMinutes": 45,
+        "executionMode": "Production",
+        "granularity": "Balanced",
         "context": {
           "industry": "智能家居",
           "stage": "种子轮融资",
@@ -98,6 +106,8 @@
         "maxTotalLlmCalls": 500,
         "maxTotalTokens": 2000000,
         "maxDurationMinutes": 30,
+        "executionMode": "Academic",
+        "granularity": "Binary",
         "context": {
           "accuracy": "要求日期精确到日",
           "source": "主流历史学研究共识"
@@ -121,6 +131,8 @@
         "maxTotalLlmCalls": 300,
         "maxTotalTokens": 800000,
         "maxDurationMinutes": 20,
+        "executionMode": "Academic",
+        "granularity": "Single",
         "context": {
           "method": "逐步演绎推理",
           "verification": "需要验证答案满足所有条件"
@@ -143,6 +155,8 @@
         "maxTotalLlmCalls": 300,
         "maxTotalTokens": 1500000,
         "maxDurationMinutes": 25,
+        "executionMode": "Production",
+        "granularity": "Balanced",
         "context": {
           "tone": "悬疑、引人深思",
           "setting": "2050年",
@@ -170,6 +184,8 @@
         "maxTotalLlmCalls": 400,
         "maxTotalTokens": 1500000,
         "maxDurationMinutes": 25,
+        "executionMode": "Production",
+        "granularity": "Balanced",
         "context": {
           "format": "OpenAPI 3.0 YAML",
           "auth": "JWT Token",

@@ -515,6 +515,25 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         var options = _currentOptions ?? new MakerOptions();
         
+        // SAFETY NET: Hard depth cap to prevent StackOverflow
+        // This is NOT a business limit - it's the "architecture's underwear"
+        if (depth >= options.HardDepthCap)
+        {
+            AddRedFlag(taskId, $"🛑 HARD DEPTH CAP reached ({depth} >= {options.HardDepthCap}). Force-solving as atomic.");
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.RedFlag,
+                TaskId = taskId,
+                Message = $"🛑 HARD DEPTH CAP ({options.HardDepthCap}) reached. Force-solving to prevent StackOverflow.",
+                Depth = depth
+            });
+            
+            // Force solve as atomic - no more decomposition allowed
+            var (forceResult, forceNode) = await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
+            return (forceResult, forceNode);
+        }
+        
         // Check budget before proceeding
         var budgetStatus = CheckBudget(options);
         if (!budgetStatus.WithinBudget)
@@ -558,11 +577,51 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             Phase = MakerPhase.Assessing,
             TaskId = taskId,
-            Message = $"Assessing task complexity at depth {depth} (Budget: {CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls} calls)",
+            Message = $"[{options.Mode}] Assessing task at depth {depth} (Budget: {CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls} calls)",
             Depth = depth
         });
 
-        // Use LLM-based atomicity assessment
+        // =================================================================
+        //  EXECUTION MODE BRANCHING
+        //  - Production: Assess atomicity first, decompose only if needed
+        //  - Academic: Force decomposition (paper's "Maximal Decomposition")
+        // =================================================================
+        
+        if (options.Mode == ExecutionMode.Academic)
+        {
+            // ACADEMIC MODE: Default to decompose, only solve if decomposition fails
+            // This follows the paper's Algorithm 4: "Solve(x) -> try Decompose(x) -> fallback to Atomic(x)"
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Decomposing,
+                TaskId = taskId,
+                Message = $"[Academic] Attempting decomposition first (paper's Maximal Decomposition)",
+                Depth = depth
+            });
+            
+            // Try to decompose
+            var (decomposeResult, decomposeNode) = await TryDecomposeAsync(taskId, description, context, depth, ct);
+            
+            if (decomposeResult != null)
+            {
+                // Decomposition succeeded
+                return (decomposeResult, decomposeNode);
+            }
+            
+            // Decomposition failed (no valid subtasks) - treat as atomic
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Solving,
+                TaskId = taskId,
+                Message = $"[Academic] Decomposition returned empty/invalid, treating as atomic",
+                Depth = depth
+            });
+            
+            return await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
+        }
+        
+        // PRODUCTION MODE: Assess atomicity first (cost-efficient)
         var isAtomic = await AssessAtomicityAsync(description, depth, ct);
 
         if (isAtomic)
@@ -604,6 +663,35 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         }
 
         return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
+    }
+    
+    /// <summary>
+    /// Try to decompose a task. Returns null if decomposition fails or produces no valid subtasks.
+    /// Used by Academic mode for "default decompose" behavior.
+    /// </summary>
+    private async Task<(string? Result, TaskNode Node)> TryDecomposeAsync(
+        string taskId,
+        string description,
+        Dictionary<string, string> context,
+        int depth,
+        CancellationToken ct)
+    {
+        try
+        {
+            return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Decomposition failed for task {TaskId}, will treat as atomic", taskId);
+            return (null, new TaskNode
+            {
+                TaskId = taskId,
+                Description = description,
+                Depth = depth,
+                IsAtomic = true,
+                Result = null
+            });
+        }
     }
     
     /// <summary>
@@ -766,11 +854,12 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             Phase = MakerPhase.Decomposing,
             TaskId = taskId,
-            Message = "Decomposing into subtasks with worker agents",
+            Message = $"Decomposing into subtasks (granularity: {options.Granularity})",
             Depth = depth
         });
 
-        var decompPrompt = _decomposer.BuildDecompositionPrompt(description, context);
+        // Use granularity-aware decomposition prompt
+        var decompPrompt = _decomposer.BuildDecompositionPrompt(description, context, options.Granularity);
         var (decompResult, bestDecomp, decompSession) = await RunVotingWithWorkersAsync(
             taskId, decompPrompt, isSolution: false, options, depth, ct);
 
@@ -801,15 +890,17 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             Phase = MakerPhase.Executing,
             TaskId = taskId,
-            Message = $"Executing {steps.Count} subtasks",
+            Message = $"Executing {steps.Count} subtasks (context isolation: {options.ContextIsolation})",
             Depth = depth
         });
 
         var subtaskResults = new Dictionary<string, string>();
-        var childContext = new Dictionary<string, string>(context);
 
         foreach (var (stepId, stepDescription) in steps)
         {
+            // Apply context isolation mode
+            var childContext = BuildChildContext(context, subtaskResults, stepId, options.ContextIsolation);
+            
             var childTaskId = $"{taskId}:{stepId}";
             var (childResult, childNode) = await ExecuteTaskRecursiveAsync(
                 childTaskId, stepDescription, depth + 1, childContext, ct);
@@ -819,7 +910,6 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             if (childResult != null)
             {
                 subtaskResults[stepId] = childResult;
-                childContext[$"result_{stepId}"] = childResult;
             }
         }
 
@@ -851,6 +941,64 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             VotingSessions = sessions,
             Children = children
         });
+    }
+    
+    /// <summary>
+    /// Build child context based on isolation mode.
+    /// </summary>
+    private static Dictionary<string, string> BuildChildContext(
+        Dictionary<string, string> parentContext,
+        Dictionary<string, string> siblingResults,
+        string currentStepId,
+        ContextIsolationMode isolationMode)
+    {
+        return isolationMode switch
+        {
+            // Full: Inherit everything from parent + all sibling results
+            ContextIsolationMode.Full => new Dictionary<string, string>(parentContext)
+                .Concat(siblingResults.Select(kv => new KeyValuePair<string, string>($"result_{kv.Key}", kv.Value)))
+                .GroupBy(kv => kv.Key)
+                .ToDictionary(g => g.Key, g => g.Last().Value),
+            
+            // Minimal: Only inherit explicit domain context (keys without "result_" prefix)
+            // + only the immediately previous sibling's result
+            ContextIsolationMode.Minimal => BuildMinimalContext(parentContext, siblingResults, currentStepId),
+            
+            // None: Start completely fresh - no inheritance
+            ContextIsolationMode.None => new Dictionary<string, string>(),
+            
+            _ => new Dictionary<string, string>(parentContext)
+        };
+    }
+    
+    /// <summary>
+    /// Build minimal context - only essential domain info + previous step's result.
+    /// </summary>
+    private static Dictionary<string, string> BuildMinimalContext(
+        Dictionary<string, string> parentContext,
+        Dictionary<string, string> siblingResults,
+        string currentStepId)
+    {
+        var result = new Dictionary<string, string>();
+        
+        // Only inherit non-result keys from parent (domain context like "language", "style")
+        foreach (var kv in parentContext)
+        {
+            if (!kv.Key.StartsWith("result_", StringComparison.OrdinalIgnoreCase))
+            {
+                result[kv.Key] = kv.Value;
+            }
+        }
+        
+        // Only include the immediately previous sibling's result (if any)
+        // This maintains minimal sequential dependency
+        if (siblingResults.Count > 0)
+        {
+            var lastResult = siblingResults.Last();
+            result[$"previous_result"] = lastResult.Value;
+        }
+        
+        return result;
     }
 
     #endregion

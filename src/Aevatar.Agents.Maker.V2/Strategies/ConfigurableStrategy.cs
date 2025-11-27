@@ -87,6 +87,32 @@ public sealed record ProjectConfig
     public int MaxDurationMinutes { get; init; } = 10;
     
     /// <summary>
+    /// Execution mode: "Production" or "Academic".
+    /// Production: Assess atomicity first, optimize for cost.
+    /// Academic: Force decomposition, maximize correctness.
+    /// </summary>
+    [JsonPropertyName("executionMode")]
+    public string ExecutionMode { get; init; } = "Production";
+    
+    /// <summary>
+    /// Decomposition granularity: "Balanced", "Binary", or "Single".
+    /// Balanced: 3-6 steps per decomposition (default).
+    /// Binary: Exactly 2 steps (paper's m=1 approach).
+    /// Single: Only the immediate next step.
+    /// </summary>
+    [JsonPropertyName("granularity")]
+    public string Granularity { get; init; } = "Balanced";
+    
+    /// <summary>
+    /// Context isolation mode: "Full", "Minimal", or "None".
+    /// Full: Pass all context to children (may cause bloat).
+    /// Minimal: Only essential context + previous result.
+    /// None: No context inheritance.
+    /// </summary>
+    [JsonPropertyName("contextIsolation")]
+    public string ContextIsolation { get; init; } = "Full";
+    
+    /// <summary>
     /// Parse from JSON string.
     /// </summary>
     public static ProjectConfig FromJson(string json)
@@ -104,6 +130,18 @@ public sealed record ProjectConfig
             ? level 
             : ReliabilityLevel.Medium;
         
+        var executionMode = Enum.TryParse<ExecutionMode>(ExecutionMode, true, out var mode)
+            ? mode
+            : Aevatar.Agents.Maker.V2.ExecutionMode.Production;
+        
+        var granularity = Enum.TryParse<DecompositionGranularity>(Granularity, true, out var gran)
+            ? gran
+            : DecompositionGranularity.Balanced;
+        
+        var contextIsolation = Enum.TryParse<ContextIsolationMode>(ContextIsolation, true, out var ctx)
+            ? ctx
+            : ContextIsolationMode.Full;
+        
         return new MakerOptions
         {
             Reliability = reliability,
@@ -111,6 +149,9 @@ public sealed record ProjectConfig
             MaxTotalLlmCalls = MaxTotalLlmCalls,
             MaxTotalTokens = MaxTotalTokens,
             MaxDuration = TimeSpan.FromMinutes(MaxDurationMinutes),
+            Mode = executionMode,
+            Granularity = granularity,
+            ContextIsolation = contextIsolation,
             Context = Context,
             Decomposer = new ConfigurableDecomposer(Decomposition),
             Solver = new ConfigurableSolver(Solution),
@@ -189,6 +230,15 @@ public sealed class ConfigurableDecomposer : IDecompositionStrategy
 
     public string BuildDecompositionPrompt(string taskDescription, IReadOnlyDictionary<string, string> context)
     {
+        return BuildDecompositionPrompt(taskDescription, context, DecompositionGranularity.Balanced);
+    }
+    
+    public string BuildDecompositionPrompt(
+        string taskDescription, 
+        IReadOnlyDictionary<string, string> context,
+        DecompositionGranularity granularity)
+    {
+        // If custom template is provided, use it (ignores granularity)
         if (!string.IsNullOrEmpty(_config.PromptTemplate))
         {
             var prompt = _config.PromptTemplate
@@ -197,18 +247,44 @@ public sealed class ConfigurableDecomposer : IDecompositionStrategy
             return prompt;
         }
         
-        // Default template
+        // Default template with granularity support
         var contextSection = context.Count > 0
             ? $"\n[Context]\n{string.Join("\n", context.Select(kv => $"- {kv.Key}: {kv.Value}"))}\n"
             : "";
+        
+        var (stepInstruction, rules) = granularity switch
+        {
+            DecompositionGranularity.Binary => (
+                "Split the following task into EXACTLY 2 parts",
+                """
+                1. Output EXACTLY 2 subtasks.
+                2. Each part should handle roughly half the complexity.
+                3. Parts should be logically separable.
+                """
+            ),
+            DecompositionGranularity.Single => (
+                "Identify the SINGLE NEXT STEP for this task",
+                """
+                1. Output EXACTLY 1 step.
+                2. The step must be atomic and actionable.
+                3. Do NOT plan ahead.
+                """
+            ),
+            _ => (
+                "Break down the following task into 3-6 logical, sequential steps",
+                """
+                1. Each step must be specific and actionable.
+                2. Steps should be ordered logically.
+                3. Steps should be roughly equal in complexity.
+                """
+            )
+        };
 
         return $$"""
-            Break down the following task into 3-6 logical, sequential steps.
+            {{stepInstruction}}.
             
             Rules:
-            1. Each step must be specific and actionable.
-            2. Steps should be ordered logically.
-            3. Steps should be roughly equal in complexity.
+            {{rules}}
             4. Output ONLY a JSON array.
             
             Output format: [{"step_id": "S1", "description": "..."}, ...]

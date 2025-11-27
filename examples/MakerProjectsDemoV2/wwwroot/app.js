@@ -49,6 +49,7 @@ const APP_STATE = {
     projects: {},
     activeProjectId: null,
     eventSource: null,
+    eventSourceProjectId: null,  // Track which project the SSE is for
     proposals: {},       // taskId -> { content, success, error, promptTokens, completionTokens }
     tasks: [],           // { taskId, phase, message, depth }
     votingState: null,   // Current voting progress
@@ -63,8 +64,74 @@ const APP_STATE = {
         completionTokens: 0,
         totalTokens: 0
     },
-    dom: {}
+    dom: {},
+    // Project-level cache for state isolation
+    projectCache: {}     // projectId -> { proposals, tasks, votingState, files, artifacts, redFlags, tokenStats, snapshot }
 };
+
+// ============================================================
+//  Project State Cache Management
+// ============================================================
+
+function getEmptyProjectState() {
+    return {
+        proposals: {},
+        tasks: [],
+        votingState: null,
+        files: [],
+        activeFile: null,
+        artifacts: [],
+        redFlags: [],
+        tokenStats: { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        snapshot: null,
+        lastUpdated: Date.now()
+    };
+}
+
+function saveCurrentProjectState() {
+    const pid = APP_STATE.activeProjectId;
+    if (!pid) return;
+    
+    APP_STATE.projectCache[pid] = {
+        proposals: { ...APP_STATE.proposals },
+        tasks: [...APP_STATE.tasks],
+        votingState: APP_STATE.votingState ? { ...APP_STATE.votingState } : null,
+        files: [...APP_STATE.files],
+        activeFile: APP_STATE.activeFile,
+        artifacts: [...APP_STATE.artifacts],
+        redFlags: [...APP_STATE.redFlags],
+        tokenStats: { ...APP_STATE.tokenStats },
+        snapshot: APP_STATE.projectCache[pid]?.snapshot || null,
+        lastUpdated: Date.now()
+    };
+}
+
+function loadProjectState(projectId) {
+    const cached = APP_STATE.projectCache[projectId];
+    if (cached) {
+        APP_STATE.proposals = { ...cached.proposals };
+        APP_STATE.tasks = [...cached.tasks];
+        APP_STATE.votingState = cached.votingState ? { ...cached.votingState } : null;
+        APP_STATE.files = [...cached.files];
+        APP_STATE.activeFile = cached.activeFile;
+        APP_STATE.artifacts = [...cached.artifacts];
+        APP_STATE.redFlags = [...cached.redFlags];
+        APP_STATE.tokenStats = { ...cached.tokenStats };
+        return true;
+    }
+    return false;
+}
+
+function clearProjectState() {
+    APP_STATE.proposals = {};
+    APP_STATE.tasks = [];
+    APP_STATE.votingState = null;
+    APP_STATE.files = [];
+    APP_STATE.activeFile = null;
+    APP_STATE.artifacts = [];
+    APP_STATE.redFlags = [];
+    APP_STATE.tokenStats = { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+}
 
 // ============================================================
 //  Dynamic Project Creation (Zero-Code Config)
@@ -141,9 +208,11 @@ function loadSampleConfig(idx) {
     document.getElementById('new-cfg-desc').value = config.description;
     document.getElementById('new-cfg-task').value = config.task;
     document.getElementById('new-cfg-reliability').value = config.reliability;
-    document.getElementById('new-cfg-max-calls').value = config.maxTotalLlmCalls || 100;
-    document.getElementById('new-cfg-max-tokens').value = config.maxTotalTokens || 500000;
-    document.getElementById('new-cfg-max-duration').value = config.maxDurationMinutes || 10;
+    document.getElementById('new-cfg-max-calls').value = config.maxTotalLlmCalls || 500;
+    document.getElementById('new-cfg-max-tokens').value = config.maxTotalTokens || 2000000;
+    document.getElementById('new-cfg-max-duration').value = config.maxDurationMinutes || 30;
+    document.getElementById('new-cfg-mode').value = config.executionMode || 'Production';
+    document.getElementById('new-cfg-granularity').value = config.granularity || 'Balanced';
     
     // Also populate JSON mode
     document.getElementById('new-cfg-json').value = JSON.stringify(config, null, 2);
@@ -179,7 +248,9 @@ async function createProject() {
             reliability: document.getElementById('new-cfg-reliability').value,
             maxTotalLlmCalls: parseInt(document.getElementById('new-cfg-max-calls').value, 10),
             maxTotalTokens: parseInt(document.getElementById('new-cfg-max-tokens').value, 10),
-            maxDurationMinutes: parseInt(document.getElementById('new-cfg-max-duration').value, 10)
+            maxDurationMinutes: parseInt(document.getElementById('new-cfg-max-duration').value, 10),
+            executionMode: document.getElementById('new-cfg-mode').value,
+            granularity: document.getElementById('new-cfg-granularity').value
         };
     } else {
         // Parse JSON from textarea
@@ -257,6 +328,10 @@ function initDomCache() {
         cfgComposer: q('#cfg-composer'),
         cfgContext: q('#cfg-context'),
         configContextSection: q('#config-context-section'),
+        // Execution mode
+        cfgMode: q('#cfg-mode'),
+        cfgGranularity: q('#cfg-granularity'),
+        cfgHardDepth: q('#cfg-hard-depth'),
         // Advanced MAKER params
         cfgClustering: q('#cfg-clustering'),
         cfgSimilarity: q('#cfg-similarity'),
@@ -307,15 +382,25 @@ async function loadProjectList() {
 }
 
 function selectProject(id) {
+    // Skip if same project
+    if (APP_STATE.activeProjectId === id) return;
+    
+    // Save current project state before switching
+    saveCurrentProjectState();
+    
+    // Close SSE if switching projects
+    if (APP_STATE.eventSource && APP_STATE.eventSourceProjectId !== id) {
+        APP_STATE.eventSource.close();
+        APP_STATE.eventSource = null;
+        APP_STATE.eventSourceProjectId = null;
+    }
+    
     APP_STATE.activeProjectId = id;
-    APP_STATE.proposals = {};
-    APP_STATE.tasks = [];
-    APP_STATE.votingState = null;
-    APP_STATE.files = [];
-    APP_STATE.activeFile = null;
-    APP_STATE.artifacts = [];
-    APP_STATE.redFlags = [];
-    APP_STATE.tokenStats = { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    
+    // Try to load cached state, otherwise clear
+    if (!loadProjectState(id)) {
+        clearProjectState();
+    }
     
     // Update nav
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -333,11 +418,25 @@ function selectProject(id) {
         APP_STATE.dom.id.textContent = `ID: ${id}`;
     }
     
-    // Reset token displays
+    // Render cached data immediately (if available)
     renderTokenStats();
     renderRedFlags();
+    renderTasks();
+    renderWorkers();
+    renderFiles();
     
-    // Fetch current state
+    // Check if we have cached snapshot
+    const cached = APP_STATE.projectCache[id];
+    if (cached?.snapshot) {
+        // Render cached snapshot immediately for instant feedback
+        renderStatus({ status: cached.snapshot.status || 'idle' }, cached.snapshot);
+        renderConfig(cached.snapshot.config);
+        if (cached.snapshot.result?.content) {
+            renderResultContent(cached.snapshot.result.content);
+        }
+    }
+    
+    // Fetch fresh data in background
     refreshProject();
 }
 
@@ -353,7 +452,20 @@ async function refreshProject() {
             fetchJson(`/api/projects/${id}/files`)
         ]);
 
+        // Verify we're still on the same project (user might have switched during fetch)
+        if (APP_STATE.activeProjectId !== id) {
+            console.log(`[Refresh] Discarding stale data for ${id}, active is ${APP_STATE.activeProjectId}`);
+            return;
+        }
+
         APP_STATE.files = files || [];
+        
+        // Cache snapshot for this project
+        if (!APP_STATE.projectCache[id]) {
+            APP_STATE.projectCache[id] = getEmptyProjectState();
+        }
+        APP_STATE.projectCache[id].snapshot = snapshot;
+        APP_STATE.projectCache[id].lastUpdated = Date.now();
         
         renderStatus(status, snapshot);
         renderLogs(timeline);
@@ -417,32 +529,55 @@ async function handleStartRun() {
 // --- SSE Real-time Streaming ---
 
 function startEventStream(projectId) {
+    // Close existing connection if for different project
     if (APP_STATE.eventSource) {
         APP_STATE.eventSource.close();
+        APP_STATE.eventSource = null;
     }
     
+    APP_STATE.eventSourceProjectId = projectId;
     APP_STATE.eventSource = new EventSource(`/api/projects/${projectId}/events`);
     
     APP_STATE.eventSource.onmessage = (e) => {
         try {
             const event = JSON.parse(e.data);
-            handleSSEEvent(event);
+            
+            // CRITICAL: Only process events for the currently active project
+            // This prevents data corruption when user switches projects
+            if (APP_STATE.activeProjectId !== projectId) {
+                console.log(`[SSE] Ignoring event for inactive project ${projectId}, active is ${APP_STATE.activeProjectId}`);
+                return;
+            }
+            
+            handleSSEEvent(event, projectId);
         } catch (err) {
             console.warn("Failed to parse SSE event:", err);
         }
     };
     
     APP_STATE.eventSource.onerror = () => {
-        console.log("SSE connection closed");
-        APP_STATE.eventSource.close();
-        APP_STATE.eventSource = null;
-        refreshProject();
-        APP_STATE.dom.startBtn.disabled = false;
-        APP_STATE.dom.startBtn.textContent = '▶ INITIATE';
+        console.log("SSE connection closed for project:", projectId);
+        if (APP_STATE.eventSource) {
+            APP_STATE.eventSource.close();
+            APP_STATE.eventSource = null;
+        }
+        APP_STATE.eventSourceProjectId = null;
+        
+        // Only refresh if this is still the active project
+        if (APP_STATE.activeProjectId === projectId) {
+            refreshProject();
+            APP_STATE.dom.startBtn.disabled = false;
+            APP_STATE.dom.startBtn.textContent = '▶ INITIATE';
+        }
     };
 }
 
-function handleSSEEvent(event) {
+function handleSSEEvent(event, projectId) {
+    // Double-check project isolation (belt and suspenders)
+    if (projectId && APP_STATE.activeProjectId !== projectId) {
+        return;
+    }
+    
     switch (event.type) {
         case 'progress':
             // Update status to ACTIVE when receiving progress
@@ -544,6 +679,10 @@ function handleSSEEvent(event) {
                 renderResultContent(event.content);
             }
             addLogEntry(event.success ? 'COMPLETED' : 'FAILED', `Execution finished (${APP_STATE.tokenStats.totalTokens.toLocaleString()} tokens)`);
+            
+            // Save final state to cache after completion
+            saveCurrentProjectState();
+            
             setTimeout(() => refreshProject(), 500);
             break;
             
@@ -630,6 +769,13 @@ function renderConfig(config) {
     APP_STATE.dom.cfgMaxCalls.textContent = config.maxTotalLlmCalls || '-';
     APP_STATE.dom.cfgMaxTokens.textContent = config.maxTotalTokens ? `${(config.maxTotalTokens / 1000).toFixed(0)}K` : '-';
     APP_STATE.dom.cfgMaxDuration.textContent = config.maxDurationMinutes ? `${config.maxDurationMinutes}min` : '-';
+    
+    // Execution mode
+    const modeText = config.executionMode || 'Production';
+    APP_STATE.dom.cfgMode.textContent = modeText;
+    APP_STATE.dom.cfgMode.style.color = modeText === 'Academic' ? 'var(--accent-warn)' : 'var(--accent-main)';
+    APP_STATE.dom.cfgGranularity.textContent = config.granularity || 'Balanced';
+    APP_STATE.dom.cfgHardDepth.textContent = config.hardDepthCap || '50';
     
     // Update strategy types
     APP_STATE.dom.cfgDecomposer.textContent = config.decomposerType || 'Default';

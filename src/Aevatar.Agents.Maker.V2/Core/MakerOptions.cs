@@ -5,6 +5,54 @@ namespace Aevatar.Agents.Maker.V2;
 // ============================================================
 
 /// <summary>
+/// Execution mode: Production (cost-efficient) vs Academic (paper-faithful).
+/// </summary>
+public enum ExecutionMode
+{
+    /// <summary>
+    /// Production mode: Assess atomicity first, decompose only if needed.
+    /// Optimized for cost and speed. Good for real-world applications.
+    /// </summary>
+    Production,
+    
+    /// <summary>
+    /// Academic mode: Force decomposition by default (paper's "Maximal Decomposition").
+    /// Maximum correctness at high cost. Use for research or critical tasks.
+    /// </summary>
+    Academic
+}
+
+/// <summary>
+/// Context isolation mode for child tasks.
+/// </summary>
+public enum ContextIsolationMode
+{
+    /// <summary>Pass all parent context to children. May cause context bloat.</summary>
+    Full,
+    
+    /// <summary>Only pass explicitly relevant context keys.</summary>
+    Minimal,
+    
+    /// <summary>No context inheritance. Each task starts fresh.</summary>
+    None
+}
+
+/// <summary>
+/// Decomposition granularity - how many subtasks per decomposition.
+/// </summary>
+public enum DecompositionGranularity
+{
+    /// <summary>3-6 subtasks per decomposition. Good balance of depth and breadth.</summary>
+    Balanced,
+    
+    /// <summary>2 subtasks per decomposition (binary split). Paper's m=1 approach.</summary>
+    Binary,
+    
+    /// <summary>Only identify the immediate next step. Extreme granularity.</summary>
+    Single
+}
+
+/// <summary>
 /// Reliability level determines the voting parameters.
 /// Higher reliability = more samples = higher cost = lower error rate.
 /// </summary>
@@ -178,6 +226,44 @@ public sealed record MakerOptions
     /// Default: 3
     /// </summary>
     public int RedFlagThreshold { get; init; } = 3;
+    
+    // ============================================================
+    //  Execution Mode (Production vs Academic)
+    //  Production: Optimized for cost/speed, uses atomicity assessment
+    //  Academic: Follows paper's "Maximal Decomposition" philosophy
+    // ============================================================
+    
+    /// <summary>
+    /// Execution mode determines the decomposition strategy.
+    /// - Production (default): Assess atomicity first, decompose only if needed. Cost-efficient.
+    /// - Academic: Force decomposition by default (paper's approach). Maximum correctness, high cost.
+    /// </summary>
+    public ExecutionMode Mode { get; init; } = ExecutionMode.Production;
+    
+    /// <summary>
+    /// Hard depth cap - absolute maximum recursion depth to prevent StackOverflow.
+    /// This is NOT a business limit (use Budget for that), just a safety net.
+    /// If reached, task is force-solved as atomic regardless of other settings.
+    /// Default: 50 (should never be hit in normal operation)
+    /// </summary>
+    public int HardDepthCap { get; init; } = 50;
+    
+    /// <summary>
+    /// Context isolation mode.
+    /// - Full: Pass all parent context to children (current behavior, may cause context bloat)
+    /// - Minimal: Only pass explicitly relevant context (paper's approach)
+    /// - None: No context inheritance (extreme isolation)
+    /// Default: Full (for backward compatibility)
+    /// </summary>
+    public ContextIsolationMode ContextIsolation { get; init; } = ContextIsolationMode.Full;
+    
+    /// <summary>
+    /// Decomposition granularity hint.
+    /// - Balanced: 3-6 subtasks per decomposition (default, good for most tasks)
+    /// - Binary: 2 subtasks per decomposition (paper's m=1 approach, slower but more precise)
+    /// - Single: Only identify the immediate next step (extreme granularity)
+    /// </summary>
+    public DecompositionGranularity Granularity { get; init; } = DecompositionGranularity.Balanced;
     
     // ============================================================
     //  Computed Properties (from ReliabilityLevel)
