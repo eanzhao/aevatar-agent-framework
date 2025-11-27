@@ -73,7 +73,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     {
         var options = new ChatOptions
         {
-            Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
+            // TODO: Some models donot support temperature, need to fix
+            //Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };

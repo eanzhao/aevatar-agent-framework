@@ -34,12 +34,12 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     private ISolutionStrategy _solver = new DefaultSolver();
     private ICompositionStrategy _composer = new DefaultComposer();
     private IRedFlagStrategy _redFlagStrategy = new DefaultEnglishRedFlagStrategy();
-    
+
     // Runtime state (not persisted)
     private readonly Stopwatch _stopwatch = new();
     private readonly List<RedFlagEvent> _redFlags = [];
     private Action<MakerProgress>? _progressCallback;
-    
+
     // Async coordination
     private TaskCompletionSource<bool>? _initCompletionSource;
     private TaskCompletionSource<VoteResult>? _consensusCompletionSource;
@@ -52,13 +52,15 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     private string? _currentVotingRequestPrefix;
     private bool _isSolutionVoting;
     private int _currentDepth;
-    
+
     // Execution state
     private MakerResult? _cachedResult;
     private MakerOptions? _currentOptions;
     private Dictionary<string, string>? _currentContext;
 
-    public MakerCoordinatorGAgent() { }
+    public MakerCoordinatorGAgent()
+    {
+    }
 
     public override Task<string> GetDescriptionAsync()
     {
@@ -126,21 +128,194 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     /// Get total LLM calls made.
     /// </summary>
     public int GetTotalLlmCalls() => CustomState.TotalLlmCalls;
-    
+
     /// <summary>
     /// Get total tokens consumed.
     /// </summary>
     public long GetTotalTokens() => CustomState.TotalTokensUsed;
-    
+
     /// <summary>
     /// Get prompt tokens consumed.
     /// </summary>
     public long GetPromptTokens() => CustomState.TotalPromptTokens;
-    
+
     /// <summary>
     /// Get completion tokens consumed.
     /// </summary>
     public long GetCompletionTokens() => CustomState.TotalCompletionTokens;
+
+    // ============================================================
+    //  P0-2: State Persistence Methods
+    // ============================================================
+
+    /// <summary>
+    /// Persist current runtime state to protobuf state for recovery after restart.
+    /// Call this periodically during long-running executions.
+    /// </summary>
+    public void PersistRuntimeState()
+    {
+        // Save execution context
+        if (_currentContext != null)
+        {
+            CustomState.ExecutionContext.Clear();
+            foreach (var kvp in _currentContext)
+            {
+                CustomState.ExecutionContext[kvp.Key] = kvp.Value;
+            }
+        }
+
+        // Save MakerOptions
+        if (_currentOptions != null)
+        {
+            CustomState.Options = OptionsToProto(_currentOptions);
+        }
+
+        // Save result if completed
+        if (_cachedResult != null)
+        {
+            CustomState.ResultContent = _cachedResult.Content;
+            CustomState.ResultError = _cachedResult.Error ?? string.Empty;
+            CustomState.ResultTraceJson = JsonSerializer.Serialize(_cachedResult.Trace);
+        }
+
+        // Save elapsed time
+        CustomState.ElapsedMs = (long)_stopwatch.Elapsed.TotalMilliseconds;
+
+        CustomState.UpdatedAt = Timestamp.FromDateTime(DateTime.UtcNow);
+
+        Logger.LogDebug("Runtime state persisted for execution {ExecutionId}", CustomState.ExecutionId);
+    }
+
+    /// <summary>
+    /// Restore runtime state from persisted protobuf state.
+    /// Call this in OnActivateAsync to resume interrupted executions.
+    /// </summary>
+    public void RestoreRuntimeState()
+    {
+        // Restore execution context
+        if (CustomState.ExecutionContext.Count > 0)
+        {
+            _currentContext = new Dictionary<string, string>(CustomState.ExecutionContext);
+        }
+
+        // Restore MakerOptions
+        if (CustomState.Options != null)
+        {
+            _currentOptions = ProtoToOptions(CustomState.Options);
+        }
+
+        // Restore cached result if completed
+        if (!string.IsNullOrEmpty(CustomState.ResultContent) || !string.IsNullOrEmpty(CustomState.ResultError))
+        {
+            var defaultTrace = new MakerTrace
+            {
+                ExecutionId = CustomState.ExecutionId,
+                RootTask = new TaskNode
+                {
+                    TaskId = CustomState.ExecutionId,
+                    Description = CustomState.TaskDescription
+                }
+            };
+
+            MakerTrace? deserializedTrace = null;
+            if (!string.IsNullOrEmpty(CustomState.ResultTraceJson))
+            {
+                try
+                {
+                    deserializedTrace = JsonSerializer.Deserialize<MakerTrace>(CustomState.ResultTraceJson);
+                }
+                catch
+                {
+                    // Ignore deserialization errors, use default
+                }
+            }
+
+            _cachedResult = new MakerResult
+            {
+                Success = CustomState.Status == 3,
+                Content = CustomState.ResultContent,
+                Error = string.IsNullOrEmpty(CustomState.ResultError) ? null : CustomState.ResultError,
+                Trace = deserializedTrace ?? defaultTrace
+            };
+        }
+
+        // Restore red flags from state
+        foreach (var reason in CustomState.RedFlagReasons)
+        {
+            var parts = reason.Split(": ", 2);
+            _redFlags.Add(new RedFlagEvent
+            {
+                TaskId = parts.Length > 1 ? parts[0] : "unknown",
+                Reason = parts.Length > 1 ? parts[1] : reason,
+                Recovered = false
+            });
+        }
+
+        Logger.LogDebug("Runtime state restored for execution {ExecutionId}, status={Status}",
+            CustomState.ExecutionId, CustomState.Status);
+    }
+
+    /// <summary>
+    /// Check if there's an interrupted execution that can be resumed.
+    /// </summary>
+    public bool HasInterruptedExecution()
+    {
+        // Status 1=starting, 2=running means interrupted
+        return CustomState.Status is 1 or 2 && !string.IsNullOrEmpty(CustomState.ExecutionId);
+    }
+
+    /// <summary>
+    /// Convert MakerOptions to proto representation.
+    /// </summary>
+    private static MakerOptionsProto OptionsToProto(MakerOptions options)
+    {
+        return new MakerOptionsProto
+        {
+            ConsensusK = options.ConsensusK,
+            SamplesPerRound = options.SamplesPerRound,
+            MaxTotalLlmCalls = options.MaxTotalLlmCalls,
+            MaxTotalTokens = options.MaxTotalTokens,
+            MaxDurationMs = (long)options.MaxDuration.TotalMilliseconds,
+            DepthWarningThreshold = options.DepthWarningThreshold,
+            HardDepthCap = options.HardDepthCap,
+            BaseTemperature = options.BaseTemperature,
+            TemperatureVariance = options.TemperatureVariance,
+            SemanticSimilarityThreshold = options.SemanticSimilarityThreshold,
+            ClusteringMethod = options.ClusteringMethod ?? "semantic",
+            ExecutionMode = options.Mode.ToString()
+        };
+    }
+
+    /// <summary>
+    /// Convert proto representation back to MakerOptions.
+    /// </summary>
+    private static MakerOptions ProtoToOptions(MakerOptionsProto proto)
+    {
+        var mode = System.Enum.TryParse<ExecutionMode>(proto.ExecutionMode, out var parsedMode)
+            ? parsedMode
+            : ExecutionMode.Production;
+
+        return new MakerOptions
+        {
+            CustomK = proto.ConsensusK > 0 ? proto.ConsensusK : 3,
+            MaxTotalLlmCalls = proto.MaxTotalLlmCalls > 0 ? proto.MaxTotalLlmCalls : 100,
+            MaxTotalTokens = proto.MaxTotalTokens > 0 ? proto.MaxTotalTokens : 500_000,
+            MaxDuration = proto.MaxDurationMs > 0
+                ? TimeSpan.FromMilliseconds(proto.MaxDurationMs)
+                : TimeSpan.FromMinutes(10),
+            DepthWarningThreshold = proto.DepthWarningThreshold > 0 ? proto.DepthWarningThreshold : 10,
+            HardDepthCap = proto.HardDepthCap > 0 ? proto.HardDepthCap : 50,
+            BaseTemperature = proto.BaseTemperature > 0 ? proto.BaseTemperature : 0.7f,
+            TemperatureVariance = proto.TemperatureVariance,
+            SemanticSimilarityThreshold = proto.SemanticSimilarityThreshold > 0
+                ? proto.SemanticSimilarityThreshold
+                : 0.85f,
+            ClusteringMethod = !string.IsNullOrEmpty(proto.ClusteringMethod)
+                ? proto.ClusteringMethod
+                : "semantic",
+            Mode = mode
+        };
+    }
 
     #endregion
 
@@ -154,7 +329,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     {
         Logger.LogInformation("Coordinator {Id} received start request for task: {TaskDescription}",
             Id, request.TaskDescription[..Math.Min(50, request.TaskDescription.Length)]);
-        
+
         try
         {
             // Initialize state
@@ -167,7 +342,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             CustomState.TotalLlmCalls = 0;
             CustomState.RedFlagReasons.Clear();
             _redFlags.Clear();
-            
+
             // Budget limits
             CustomState.MaxTotalLlmCalls = request.MaxTotalLlmCalls > 0 ? request.MaxTotalLlmCalls : 100;
             CustomState.MaxTotalTokens = request.MaxTotalTokens > 0 ? request.MaxTotalTokens : 500_000;
@@ -221,10 +396,11 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 Phase = MakerPhase.Starting,
                 TaskId = request.ExecutionId,
-                Message = $"MAKER System Online - K={request.ConsensusK}, N={request.SamplesPerRound}, Budget: {CustomState.MaxTotalLlmCalls} calls / {CustomState.MaxTotalTokens:N0} tokens",
+                Message =
+                    $"MAKER System Online - K={request.ConsensusK}, N={request.SamplesPerRound}, Budget: {CustomState.MaxTotalLlmCalls} calls / {CustomState.MaxTotalTokens:N0} tokens",
                 Depth = 0
             });
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Starting,
@@ -244,7 +420,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 request.CoordinatorProviderName,
                 request.ProviderName,
                 request.ExecutionId);
-            
+
             // Re-initialize Coordinator with the determined provider (if different from default)
             if (coordinatorProvider != request.ProviderName)
             {
@@ -262,7 +438,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 var workerTemp = DecorrelateTemperature(request.BaseTemperature, i, request.TemperatureVariance);
                 var workerProvider = validProviders[i % validProviders.Count];
-                
+
                 await PublishAsync(new InitializeWorkerRequest
                 {
                     CoordinatorId = Id.ToString(),
@@ -270,7 +446,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     WorkerIndex = i,
                     Temperature = workerTemp
                 }, EventDirection.Down);
-                
+
                 Logger.LogDebug("Worker {Index} assigned to provider: {Provider}", i, workerProvider);
             }
 
@@ -282,20 +458,21 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             }
             catch (OperationCanceledException)
             {
-                throw new TimeoutException($"Workers failed to initialize within timeout. Got {_workersInitialized}/{_expectedWorkers}");
+                throw new TimeoutException(
+                    $"Workers failed to initialize within timeout. Got {_workersInitialized}/{_expectedWorkers}");
             }
 
             Logger.LogInformation("All {Count} workers initialized", _expectedWorkers);
 
             // Start execution
             CustomState.Status = 2; // Running
-            
-            var (result, node) = await ExecuteTaskRecursiveAsync(
+
+            var (result, node) = await ExecuteTaskAsync(
                 taskId: request.ExecutionId,
                 description: request.TaskDescription,
                 depth: 0,
                 context: _currentContext,
-                ct: default);
+                ct: CancellationToken.None);
 
             _stopwatch.Stop();
 
@@ -320,6 +497,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     CompletionTokens = CustomState.TotalCompletionTokens
                 }
             };
+
+            // P0-2: Persist final state for recovery/audit
+            PersistRuntimeState();
 
             ReportProgress(new MakerProgress
             {
@@ -421,7 +601,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             return;
         }
-        
+
         // Check if voting already completed (early termination)
         if (_consensusCompletionSource?.Task.IsCompleted == true)
         {
@@ -432,7 +612,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         _collectedProposals.Add(result);
         CustomState.PendingProposals = _collectedProposals.Count;
         CustomState.TotalLlmCalls++;
-        
+
         // Track token usage if available
         if (result.PromptTokens > 0 || result.CompletionTokens > 0)
         {
@@ -467,13 +647,13 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             Interlocked.Decrement(ref _activeWorkerRequests);
             return;
         }
-        
+
         // RED-FLAGGING PARSER: Validate content before entering vote pool
         var isValid = _redFlagStrategy.Validate(result.Content, result.ProposalId, out var redFlagReason);
         if (!isValid)
         {
             AddRedFlag(result.TaskId, redFlagReason!);
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.RedFlag,
@@ -481,7 +661,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 Message = $"🚩 Proposal {result.ProposalId} rejected: {redFlagReason}",
                 Depth = _currentDepth
             });
-            
+
             Interlocked.Decrement(ref _activeWorkerRequests);
             return;
         }
@@ -494,7 +674,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 : result.Content;
 
             var voteResult = await _currentVoteEngine.SubmitVoteAsync(cleanedContent, default);
-            
+
             var progress = _currentVoteEngine.GetProgress(
                 _isSolutionVoting ? VotingType.Solution : VotingType.Decomposition);
 
@@ -516,19 +696,19 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     "Early termination: Consensus reached after {Count} proposals (saved waiting for {Remaining} more)",
                     _collectedProposals.Count,
                     _activeWorkerRequests - 1);
-                    
+
                 _consensusCompletionSource?.TrySetResult(voteResult);
-                
+
                 // Cancel remaining workers - both local CTS and remote LLM calls
                 _votingCts?.Cancel();
-                
+
                 // Notify workers to cancel their in-progress LLM calls (saves tokens!)
                 await PublishAsync(new CancelCurrentRequest
                 {
                     CoordinatorId = Id.ToString(),
                     Reason = "consensus_reached"
                 }, EventDirection.Down);
-                
+
                 return;
             }
         }
@@ -538,199 +718,382 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
     #endregion
 
-    #region Recursive Task Execution
+    #region Task Execution
 
-    private async Task<(string? Result, TaskNode Node)> ExecuteTaskRecursiveAsync(
+    // ============================================================
+    //  Iterative Task Execution
+    //  Uses explicit stack to simulate recursion
+    // ============================================================
+
+    /// <summary>
+    /// Task execution state for iterative processing.
+    /// </summary>
+    private enum TaskExecutionPhase
+    {
+        Pending, // Not yet started
+        Assessing, // Assessing atomicity
+        Solving, // Solving as atomic
+        Decomposing, // Running decomposition voting
+        ExecutingChildren, // Executing subtasks
+        Composing, // Composing results
+        Completed // Done
+    }
+
+    /// <summary>
+    /// Execution context for a single task in the iterative stack.
+    /// </summary>
+    private sealed class TaskExecutionContext
+    {
+        public required string TaskId { get; init; }
+        public required string Description { get; init; }
+        public required int Depth { get; init; }
+        public required Dictionary<string, string> Context { get; init; }
+
+        public TaskExecutionPhase Phase { get; set; } = TaskExecutionPhase.Pending;
+        public TaskNode? Node { get; set; }
+        public string? Result { get; set; }
+
+        // For decomposition
+        public List<(string StepId, string Description)>? Subtasks { get; set; }
+        public int CurrentSubtaskIndex { get; set; }
+        public Dictionary<string, string> SubtaskResults { get; } = new();
+        public List<TaskNode> ChildNodes { get; } = [];
+        public List<VotingSession> VotingSessions { get; } = [];
+
+        // For atomic solve fallback
+        public bool SolveFailed { get; set; }
+        public string? BestCandidate { get; set; }
+    }
+
+    /// <summary>
+    /// Execute task using iterative approach (stack-based, no recursion).
+    /// This prevents StackOverflowException for deeply nested task trees.
+    /// 
+    /// Uses an explicit stack to manage task execution states.
+    /// </summary>
+    private async Task<(string? Result, TaskNode Node)> ExecuteTaskAsync(
         string taskId,
         string description,
         int depth,
         Dictionary<string, string> context,
         CancellationToken ct)
     {
-        CustomState.CurrentTaskId = taskId;
-        CustomState.CurrentDepth = depth;
-
         var options = _currentOptions ?? new MakerOptions();
-        
-        // SAFETY NET: Hard depth cap to prevent StackOverflow
-        // This is NOT a business limit - it's the "architecture's underwear"
-        if (depth >= options.HardDepthCap)
-        {
-            AddRedFlag(taskId, $"🛑 HARD DEPTH CAP reached ({depth} >= {options.HardDepthCap}). Force-solving as atomic.");
-            
-            ReportProgress(new MakerProgress
-            {
-                Phase = MakerPhase.RedFlag,
-                TaskId = taskId,
-                Message = $"🛑 HARD DEPTH CAP ({options.HardDepthCap}) reached. Force-solving to prevent StackOverflow.",
-                Depth = depth
-            });
-            
-            // Force solve as atomic - no more decomposition allowed
-            var (forceResult, forceNode) = await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
-            return (forceResult, forceNode);
-        }
-        
-        // Check budget before proceeding
-        var budgetStatus = CheckBudget(options);
-        if (!budgetStatus.WithinBudget)
-        {
-            AddRedFlag(taskId, $"Budget exhausted: {budgetStatus.Reason}");
-            
-            ReportProgress(new MakerProgress
-            {
-                Phase = MakerPhase.RedFlag,
-                TaskId = taskId,
-                Message = $"⚠️ Budget exhausted: {budgetStatus.Reason}. Using fallback.",
-                Depth = depth
-            });
-            
-            // Return null result - caller will handle fallback
-            return (null, new TaskNode
-            {
-                TaskId = taskId,
-                Description = description,
-                Depth = depth,
-                IsAtomic = true,
-                Result = null
-            });
-        }
-        
-        // Depth warning (not a hard limit, just informational)
-        if (depth >= options.DepthWarningThreshold)
-        {
-            AddRedFlag(taskId, $"Depth warning: reached depth {depth} (threshold: {options.DepthWarningThreshold})");
-            
-            ReportProgress(new MakerProgress
-            {
-                Phase = MakerPhase.Assessing,
-                TaskId = taskId,
-                Message = $"⚠️ Deep recursion warning: depth {depth}. Task may be too complex or poorly structured.",
-                Depth = depth
-            });
-        }
 
-        ReportProgress(new MakerProgress
+        // Task execution stack - replaces call stack
+        var taskStack = new Stack<TaskExecutionContext>();
+
+        // Results storage - maps taskId to (Result, Node)
+        var completedTasks = new Dictionary<string, (string? Result, TaskNode Node)>();
+
+        // Push initial task
+        taskStack.Push(new TaskExecutionContext
         {
-            Phase = MakerPhase.Assessing,
             TaskId = taskId,
-            Message = $"[{options.Mode}] Assessing task at depth {depth} (Budget: {CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls} calls)",
-            Depth = depth
+            Description = description,
+            Depth = depth,
+            Context = context,
+            Phase = TaskExecutionPhase.Pending
         });
 
-        // =================================================================
-        //  EXECUTION MODE BRANCHING
-        //  - Production: Assess atomicity first, decompose only if needed
-        //  - Academic: Force decomposition (paper's "Maximal Decomposition")
-        // =================================================================
-        
-        if (options.Mode == ExecutionMode.Academic)
+        // Main execution loop - process tasks until stack is empty
+        while (taskStack.Count > 0)
         {
-            // ACADEMIC MODE: Default to decompose, only solve if decomposition fails
-            // This follows the paper's Algorithm 4: "Solve(x) -> try Decompose(x) -> fallback to Atomic(x)"
-            
-            ReportProgress(new MakerProgress
-            {
-                Phase = MakerPhase.Decomposing,
-                TaskId = taskId,
-                Message = $"[Academic] Attempting decomposition first (paper's Maximal Decomposition)",
-                Depth = depth
-            });
-            
-            // Try to decompose
-            var (decomposeResult, decomposeNode) = await TryDecomposeAsync(taskId, description, context, depth, ct);
-            
-            if (decomposeResult != null)
-            {
-                // Decomposition succeeded
-                return (decomposeResult, decomposeNode);
-            }
-            
-            // Decomposition failed (no valid subtasks) - treat as atomic
-            ReportProgress(new MakerProgress
-            {
-                Phase = MakerPhase.Solving,
-                TaskId = taskId,
-                Message = $"[Academic] Decomposition returned empty/invalid, treating as atomic",
-                Depth = depth
-            });
-            
-            return await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
-        }
-        
-        // PRODUCTION MODE: Assess atomicity first (cost-efficient)
-        var isAtomic = await AssessAtomicityAsync(description, depth, ct);
+            ct.ThrowIfCancellationRequested();
 
-        if (isAtomic)
-        {
-            var (result, node) = await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
-            
-            if (result != null)
+            var current = taskStack.Peek();
+            CustomState.CurrentTaskId = current.TaskId;
+            CustomState.CurrentDepth = current.Depth;
+
+            switch (current.Phase)
             {
-                return (result, node);
+                case TaskExecutionPhase.Pending:
+                    // Initialize task node
+                    current.Node = new TaskNode
+                    {
+                        TaskId = current.TaskId,
+                        Description = current.Description,
+                        Depth = current.Depth,
+                        IsAtomic = false
+                    };
+
+                    // Hard depth cap check (safety net)
+                    if (current.Depth >= options.HardDepthCap)
+                    {
+                        AddRedFlag(current.TaskId, $"🛑 HARD DEPTH CAP reached ({current.Depth})");
+                        ReportProgress(new MakerProgress
+                        {
+                            Phase = MakerPhase.RedFlag,
+                            TaskId = current.TaskId,
+                            Message = $"🛑 HARD DEPTH CAP ({options.HardDepthCap}) reached.",
+                            Depth = current.Depth
+                        });
+
+                        // Force solve as atomic
+                        var (forceResult, forceNode) = await SolveAtomicTaskAsync(
+                            current.TaskId, current.Description, current.Context, current.Depth, ct);
+                        completedTasks[current.TaskId] = (forceResult, forceNode);
+                        taskStack.Pop();
+                        continue;
+                    }
+
+                    // Budget check
+                    var budgetStatus = CheckBudget(options);
+                    if (!budgetStatus.WithinBudget)
+                    {
+                        AddRedFlag(current.TaskId, $"Budget exhausted: {budgetStatus.Reason}");
+                        var budgetNode = new TaskNode
+                        {
+                            TaskId = current.TaskId,
+                            Description = current.Description,
+                            Depth = current.Depth,
+                            IsAtomic = true,
+                            Result = null
+                        };
+                        completedTasks[current.TaskId] = (null, budgetNode);
+                        taskStack.Pop();
+                        continue;
+                    }
+
+                    // Depth warning
+                    if (current.Depth >= options.DepthWarningThreshold)
+                    {
+                        AddRedFlag(current.TaskId, $"Depth warning: {current.Depth}");
+                    }
+
+                    current.Phase = TaskExecutionPhase.Assessing;
+                    continue;
+
+                case TaskExecutionPhase.Assessing:
+                    ReportProgress(new MakerProgress
+                    {
+                        Phase = MakerPhase.Assessing,
+                        TaskId = current.TaskId,
+                        Message = $"[{options.Mode}] Assessing at depth {current.Depth}",
+                        Depth = current.Depth
+                    });
+
+                    if (options.Mode == ExecutionMode.Academic)
+                    {
+                        // Academic mode: try decomposition first
+                        current.Phase = TaskExecutionPhase.Decomposing;
+                    }
+                    else
+                    {
+                        // Production mode: assess atomicity
+                        var isAtomic = await AssessAtomicityAsync(current.Description, current.Depth, ct);
+                        current.Phase = isAtomic ? TaskExecutionPhase.Solving : TaskExecutionPhase.Decomposing;
+                    }
+
+                    continue;
+
+                case TaskExecutionPhase.Solving:
+                    ReportProgress(new MakerProgress
+                    {
+                        Phase = MakerPhase.Solving,
+                        TaskId = current.TaskId,
+                        Message = $"Solving atomic task at depth {current.Depth}",
+                        Depth = current.Depth
+                    });
+
+                    var (solveResult, solveNode) = await SolveAtomicTaskAsync(
+                        current.TaskId, current.Description, current.Context, current.Depth, ct);
+
+                    if (solveResult != null)
+                    {
+                        completedTasks[current.TaskId] = (solveResult, solveNode);
+                        taskStack.Pop();
+                        continue;
+                    }
+
+                    // Solve failed - try decomposition if budget allows
+                    current.BestCandidate = solveNode.VotingSessions.Count > 0
+                        ? solveNode.VotingSessions[0].Candidates.OrderByDescending(c => c.Votes).FirstOrDefault()
+                            ?.Content
+                        : null;
+                    current.SolveFailed = true;
+                    current.VotingSessions.AddRange(solveNode.VotingSessions);
+
+                    if (CheckBudget(options).WithinBudget)
+                    {
+                        AddRedFlag(current.TaskId, $"Solution consensus failed, decomposing");
+                        current.Phase = TaskExecutionPhase.Decomposing;
+                    }
+                    else
+                    {
+                        // Budget exhausted - use best candidate as fallback
+                        if (current.BestCandidate != null)
+                        {
+                            solveNode.Result = current.BestCandidate;
+                            completedTasks[current.TaskId] = (current.BestCandidate, solveNode);
+                        }
+                        else
+                        {
+                            completedTasks[current.TaskId] = (null, solveNode);
+                        }
+
+                        taskStack.Pop();
+                    }
+
+                    continue;
+
+                case TaskExecutionPhase.Decomposing:
+                    ReportProgress(new MakerProgress
+                    {
+                        Phase = MakerPhase.Decomposing,
+                        TaskId = current.TaskId,
+                        Message = $"Decomposing at depth {current.Depth}",
+                        Depth = current.Depth
+                    });
+
+                    // Get decomposition
+                    var decompPrompt = _decomposer.BuildDecompositionPrompt(
+                        current.Description, current.Context, options.Granularity);
+                    var (decompResult, bestDecomp, decompSession) = await RunVotingWithWorkersAsync(
+                        current.TaskId, decompPrompt, isSolution: false, options, current.Depth, ct);
+
+                    if (decompSession != null) current.VotingSessions.Add(decompSession);
+
+                    var decompositionToUse = decompResult ?? bestDecomp;
+                    var steps = string.IsNullOrWhiteSpace(decompositionToUse)
+                        ? new List<(string, string)>()
+                        : _decomposer.ParseDecomposition(decompositionToUse).ToList();
+
+                    if (steps.Count == 0)
+                    {
+                        // No valid decomposition - solve as atomic
+                        if (!current.SolveFailed)
+                        {
+                            current.Phase = TaskExecutionPhase.Solving;
+                            continue;
+                        }
+
+                        // Already tried solving, use fallback
+                        var fallbackNode = new TaskNode
+                        {
+                            TaskId = current.TaskId,
+                            Description = current.Description,
+                            Depth = current.Depth,
+                            IsAtomic = true,
+                            Result = current.BestCandidate,
+                            VotingSessions = current.VotingSessions
+                        };
+                        completedTasks[current.TaskId] = (current.BestCandidate, fallbackNode);
+                        taskStack.Pop();
+                        continue;
+                    }
+
+                    // Store subtasks and push them to stack (in reverse order)
+                    current.Subtasks = steps;
+                    current.CurrentSubtaskIndex = 0;
+                    current.Phase = TaskExecutionPhase.ExecutingChildren;
+
+                    // Push subtasks in reverse so first subtask is processed first
+                    for (var i = steps.Count - 1; i >= 0; i--)
+                    {
+                        var (stepId, stepDesc) = steps[i];
+                        var childContext = BuildChildContext(
+                            current.Context, current.SubtaskResults, stepId, options.ContextIsolation);
+
+                        taskStack.Push(new TaskExecutionContext
+                        {
+                            TaskId = $"{current.TaskId}:{stepId}",
+                            Description = stepDesc,
+                            Depth = current.Depth + 1,
+                            Context = childContext,
+                            Phase = TaskExecutionPhase.Pending
+                        });
+                    }
+
+                    continue;
+
+                case TaskExecutionPhase.ExecutingChildren:
+                    // Check if all children are done
+                    var allChildrenDone = current.Subtasks!.All(s =>
+                        completedTasks.ContainsKey($"{current.TaskId}:{s.StepId}"));
+
+                    if (!allChildrenDone)
+                    {
+                        // Children still processing - this shouldn't happen with correct stack order
+                        // but just in case, skip to let children process
+                        continue;
+                    }
+
+                    // Collect child results
+                    foreach (var (stepId, _) in current.Subtasks!)
+                    {
+                        var childTaskId = $"{current.TaskId}:{stepId}";
+                        if (completedTasks.TryGetValue(childTaskId, out var childResult))
+                        {
+                            current.ChildNodes.Add(childResult.Node);
+                            if (childResult.Result != null)
+                            {
+                                current.SubtaskResults[stepId] = childResult.Result;
+                            }
+                        }
+                    }
+
+                    current.Phase = TaskExecutionPhase.Composing;
+                    continue;
+
+                case TaskExecutionPhase.Composing:
+                    ReportProgress(new MakerProgress
+                    {
+                        Phase = MakerPhase.Composing,
+                        TaskId = current.TaskId,
+                        Message = "Composing subtask results",
+                        Depth = current.Depth
+                    });
+
+                    // Compose results
+                    var composed = _composer.Compose(current.Description, current.SubtaskResults, current.Context);
+                    if (composed == null)
+                    {
+                        var synthPrompt = _composer.BuildSynthesisPrompt(
+                            current.Description, current.SubtaskResults, current.Context);
+                        var response = await GenerateResponseAsync(synthPrompt, ct);
+                        composed = response.Content?.Trim() ?? string.Join("\n\n", current.SubtaskResults.Values);
+                        CustomState.TotalLlmCalls++;
+                    }
+
+                    // Create final node with all children and results
+                    var composedNode = new TaskNode
+                    {
+                        TaskId = current.TaskId,
+                        Description = current.Description,
+                        Depth = current.Depth,
+                        IsAtomic = false,
+                        Result = composed,
+                        Children = current.ChildNodes,
+                        VotingSessions = current.VotingSessions
+                    };
+
+                    completedTasks[current.TaskId] = (composed, composedNode);
+                    taskStack.Pop();
+                    continue;
+
+                case TaskExecutionPhase.Completed:
+                    taskStack.Pop();
+                    continue;
             }
-            
-            // Solution failed - per MAKER paper, this means task is too complex
-            // Check if we still have budget to decompose
-            var budgetAfterSolve = CheckBudget(options);
-            if (budgetAfterSolve.WithinBudget)
-            {
-                Logger.LogInformation(
-                    "Task {TaskId}: Solution voting failed at depth {Depth}, attempting decomposition (MAKER paper: no consensus = needs breakdown)",
-                    taskId, depth);
-                    
-                AddRedFlag(taskId, $"Solution consensus failed at depth {depth}, decomposing further");
-                
-                return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
-            }
-            
-            // Budget exhausted with no consensus - use best candidate as fallback
-            if (node.VotingSessions.Count > 0 && node.VotingSessions[0].Candidates.Count > 0)
-            {
-                var bestCandidate = node.VotingSessions[0].Candidates
-                    .OrderByDescending(c => c.Votes)
-                    .First();
-                    
-                AddRedFlag(taskId, $"Budget exhausted without consensus, using best candidate (votes: {bestCandidate.Votes})");
-                node.Result = bestCandidate.Content;
-                return (bestCandidate.Content, node);
-            }
-            
-            return (null, node);
         }
 
-        return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
-    }
-    
-    /// <summary>
-    /// Try to decompose a task. Returns null if decomposition fails or produces no valid subtasks.
-    /// Used by Academic mode for "default decompose" behavior.
-    /// </summary>
-    private async Task<(string? Result, TaskNode Node)> TryDecomposeAsync(
-        string taskId,
-        string description,
-        Dictionary<string, string> context,
-        int depth,
-        CancellationToken ct)
-    {
-        try
+        // Return root task result
+        if (completedTasks.TryGetValue(taskId, out var rootResult))
         {
-            return await DecomposeAndExecuteAsync(taskId, description, context, depth, ct);
+            return rootResult;
         }
-        catch (Exception ex)
+
+        // Fallback - should not reach here
+        return (null, new TaskNode
         {
-            Logger.LogWarning(ex, "Decomposition failed for task {TaskId}, will treat as atomic", taskId);
-            return (null, new TaskNode
-            {
-                TaskId = taskId,
-                Description = description,
-                Depth = depth,
-                IsAtomic = true,
-                Result = null
-            });
-        }
+            TaskId = taskId,
+            Description = description,
+            Depth = depth,
+            IsAtomic = true
+        });
     }
-    
+
     /// <summary>
     /// Check if we're still within budget.
     /// </summary>
@@ -741,19 +1104,19 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             return (false, $"LLM calls exhausted ({CustomState.TotalLlmCalls}/{options.MaxTotalLlmCalls})");
         }
-        
+
         // Check tokens
         if (options.MaxTotalTokens > 0 && CustomState.TotalTokensUsed >= options.MaxTotalTokens)
         {
             return (false, $"Token budget exhausted ({CustomState.TotalTokensUsed:N0}/{options.MaxTotalTokens:N0})");
         }
-        
+
         // Check duration
         if (options.MaxDuration > TimeSpan.Zero && _stopwatch.Elapsed >= options.MaxDuration)
         {
             return (false, $"Time limit reached ({_stopwatch.Elapsed.TotalMinutes:F1} min)");
         }
-        
+
         return (true, null);
     }
 
@@ -785,43 +1148,43 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         // PRIORITY 2: LLM-based assessment with depth context
         var prompt = $$"""
-            You are a task complexity analyzer. Determine if the following task can be reliably solved in a SINGLE LLM inference step, or if it needs to be broken down into subtasks.
+                       You are a task complexity analyzer. Determine if the following task can be reliably solved in a SINGLE LLM inference step, or if it needs to be broken down into subtasks.
 
-            IMPORTANT CONTEXT:
-            - Current recursion depth: {{currentDepth}}
-            - This is a SUB-TASK of a larger problem
-            - If this looks like a leaf-level task (e.g., "Summarize Section X", "Calculate Y", "Write paragraph about Z"), it is probably ATOMIC
-            - DO NOT decompose tasks that are already specific enough
+                       IMPORTANT CONTEXT:
+                       - Current recursion depth: {{currentDepth}}
+                       - This is a SUB-TASK of a larger problem
+                       - If this looks like a leaf-level task (e.g., "Summarize Section X", "Calculate Y", "Write paragraph about Z"), it is probably ATOMIC
+                       - DO NOT decompose tasks that are already specific enough
 
-            Criteria for ATOMIC (return true):
-            - Task focuses on ONE specific section/topic/aspect
-            - Task can be answered with a single coherent response
-            - Task description already includes "Section", "Step", "Part", or similar specificity
-            - Task is a direct question or simple generation request
+                       Criteria for ATOMIC (return true):
+                       - Task focuses on ONE specific section/topic/aspect
+                       - Task can be answered with a single coherent response
+                       - Task description already includes "Section", "Step", "Part", or similar specificity
+                       - Task is a direct question or simple generation request
 
-            Criteria for DECOMPOSE (return false):
-            - Task requires covering MULTIPLE distinct topics
-            - Task explicitly mentions "comprehensive", "complete", "all aspects"
-            - Task would benefit from parallel independent subtasks
+                       Criteria for DECOMPOSE (return false):
+                       - Task requires covering MULTIPLE distinct topics
+                       - Task explicitly mentions "comprehensive", "complete", "all aspects"
+                       - Task would benefit from parallel independent subtasks
 
-            Task: {{taskDescription}}
+                       Task: {{taskDescription}}
 
-            Respond with ONLY valid JSON (no markdown):
-            {"atomic": true, "reason": "..."}
-            or
-            {"atomic": false, "reason": "..."}
-            """;
+                       Respond with ONLY valid JSON (no markdown):
+                       {"atomic": true, "reason": "..."}
+                       or
+                       {"atomic": false, "reason": "..."}
+                       """;
 
         try
         {
             var response = await GenerateResponseAsync(prompt, ct);
             CustomState.TotalLlmCalls++;
-            
+
             var content = response.Content?.Trim() ?? "";
-            
+
             // Parse JSON response
             var (isAtomic, reason) = ParseAtomicityResponse(content);
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Assessing,
@@ -829,14 +1192,14 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 Message = $"LLM atomicity assessment: {(isAtomic ? "ATOMIC" : "DECOMPOSE")} - {reason}",
                 Depth = currentDepth
             });
-            
+
             return isAtomic;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Atomicity assessment failed, falling back to heuristic");
             AddRedFlag(CustomState.CurrentTaskId ?? "unknown", $"Atomicity LLM failed: {ex.Message}");
-            
+
             // Fallback to strategy-based assessment (no depth limit)
             return _decomposer.IsAtomic(taskDescription, currentDepth);
         }
@@ -871,115 +1234,11 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             Depth = depth,
             IsAtomic = true,
             Result = result,
-            FallbackCandidate = bestCandidate,  // Store for potential fallback use
+            FallbackCandidate = bestCandidate, // Store for potential fallback use
             VotingSessions = sessions
         });
     }
 
-    private async Task<(string? Result, TaskNode Node)> DecomposeAndExecuteAsync(
-        string taskId,
-        string description,
-        Dictionary<string, string> context,
-        int depth,
-        CancellationToken ct)
-    {
-        var sessions = new List<VotingSession>();
-        var children = new List<TaskNode>();
-        var options = _currentOptions ?? new MakerOptions();
-
-        ReportProgress(new MakerProgress
-        {
-            Phase = MakerPhase.Decomposing,
-            TaskId = taskId,
-            Message = $"Decomposing into subtasks (granularity: {options.Granularity})",
-            Depth = depth
-        });
-
-        // Use granularity-aware decomposition prompt
-        var decompPrompt = _decomposer.BuildDecompositionPrompt(description, context, options.Granularity);
-        var (decompResult, bestDecomp, decompSession) = await RunVotingWithWorkersAsync(
-            taskId, decompPrompt, isSolution: false, options, depth, ct);
-
-        if (decompSession != null)
-        {
-            sessions.Add(decompSession);
-        }
-
-        // MAKER Paper: If decomposition voting fails, try best candidate as fallback
-        var decompositionToUse = decompResult ?? bestDecomp;
-        
-        var steps = string.IsNullOrWhiteSpace(decompositionToUse)
-            ? new List<(string, string)>()
-            : _decomposer.ParseDecomposition(decompositionToUse).ToList();
-
-        if (steps.Count == 0)
-        {
-            AddRedFlag(taskId, "Decomposition produced no valid steps, falling back to direct solution");
-            return await SolveAtomicTaskAsync(taskId, description, context, depth, ct);
-        }
-        
-        if (decompResult == null && bestDecomp != null)
-        {
-            AddRedFlag(taskId, $"Decomposition consensus failed, using best candidate with {decompSession?.Candidates.FirstOrDefault()?.Votes ?? 0} votes");
-        }
-
-        ReportProgress(new MakerProgress
-        {
-            Phase = MakerPhase.Executing,
-            TaskId = taskId,
-            Message = $"Executing {steps.Count} subtasks (context isolation: {options.ContextIsolation})",
-            Depth = depth
-        });
-
-        var subtaskResults = new Dictionary<string, string>();
-
-        foreach (var (stepId, stepDescription) in steps)
-        {
-            // Apply context isolation mode
-            var childContext = BuildChildContext(context, subtaskResults, stepId, options.ContextIsolation);
-            
-            var childTaskId = $"{taskId}:{stepId}";
-            var (childResult, childNode) = await ExecuteTaskRecursiveAsync(
-                childTaskId, stepDescription, depth + 1, childContext, ct);
-
-            children.Add(childNode);
-
-            if (childResult != null)
-            {
-                subtaskResults[stepId] = childResult;
-            }
-        }
-
-        ReportProgress(new MakerProgress
-        {
-            Phase = MakerPhase.Composing,
-            TaskId = taskId,
-            Message = "Composing subtask results",
-            Depth = depth
-        });
-
-        var composed = _composer.Compose(description, subtaskResults, context);
-
-        if (composed == null)
-        {
-            var synthPrompt = _composer.BuildSynthesisPrompt(description, subtaskResults, context);
-            var response = await GenerateResponseAsync(synthPrompt, ct);
-            composed = response.Content?.Trim() ?? string.Join("\n\n", subtaskResults.Values);
-            CustomState.TotalLlmCalls++;
-        }
-
-        return (composed, new TaskNode
-        {
-            TaskId = taskId,
-            Description = description,
-            Depth = depth,
-            IsAtomic = false,
-            Result = composed,
-            VotingSessions = sessions,
-            Children = children
-        });
-    }
-    
     /// <summary>
     /// Build child context based on isolation mode.
     /// </summary>
@@ -996,18 +1255,18 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 .Concat(siblingResults.Select(kv => new KeyValuePair<string, string>($"result_{kv.Key}", kv.Value)))
                 .GroupBy(kv => kv.Key)
                 .ToDictionary(g => g.Key, g => g.Last().Value),
-            
+
             // Minimal: Only inherit explicit domain context (keys without "result_" prefix)
             // + only the immediately previous sibling's result
             ContextIsolationMode.Minimal => BuildMinimalContext(parentContext, siblingResults, currentStepId),
-            
+
             // None: Start completely fresh - no inheritance
             ContextIsolationMode.None => new Dictionary<string, string>(),
-            
+
             _ => new Dictionary<string, string>(parentContext)
         };
     }
-    
+
     /// <summary>
     /// Build minimal context - only essential domain info + previous step's result.
     /// </summary>
@@ -1017,7 +1276,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         string currentStepId)
     {
         var result = new Dictionary<string, string>();
-        
+
         // Only inherit non-result keys from parent (domain context like "language", "style")
         foreach (var kv in parentContext)
         {
@@ -1026,7 +1285,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 result[kv.Key] = kv.Value;
             }
         }
-        
+
         // Only include the immediately previous sibling's result (if any)
         // This maintains minimal sequential dependency
         if (siblingResults.Count > 0)
@@ -1034,7 +1293,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             var lastResult = siblingResults.Last();
             result[$"previous_result"] = lastResult.Value;
         }
-        
+
         return result;
     }
 
@@ -1066,12 +1325,12 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     {
         // Get embedding generator from AIGAgentBase
         TryGetEmbeddingGenerator(out var embeddingGenerator);
-        
+
         // Create vote engine - supports continuous sampling
         var engine = new VoteEngine(
             options.ConsensusK,
             embeddingGenerator,
-            maxRounds: 10,  // Allow continuous sampling up to 10 batches
+            maxRounds: 10, // Allow continuous sampling up to 10 batches
             options.SemanticSimilarityThreshold);
 
         // Store for streaming race
@@ -1085,7 +1344,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         var maxTokens = isSolution ? 2048 : 1024;
         var baseTemperature = isSolution ? 0.2f : 0.3f;
-        
+
         // Maximum samples = 3 * N (prevent infinite loops)
         var maxTotalSamples = 3 * options.SamplesPerRound;
         var totalSamplesSent = 0;
@@ -1110,7 +1369,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 UsedSemanticClustering = embeddingGenerator != null
             }
         });
-        
+
         // Generate unique request prefix
         var requestPrefix = $"{taskId}:R{round}:";
         _currentVotingRequestPrefix = requestPrefix;
@@ -1120,7 +1379,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         // Setup consensus completion source for early termination
         _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
         _votingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        
+
         VoteResult? voteResult = null;
 
         // Continuous sampling loop
@@ -1128,7 +1387,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         {
             var batchSize = Math.Min(_expectedWorkers, maxTotalSamples - totalSamplesSent);
             _activeWorkerRequests = batchSize;
-            
+
             Logger.LogInformation(
                 "Dispatching batch {Round}: {BatchSize} workers (total sent: {Total}/{Max})",
                 round, batchSize, totalSamplesSent + batchSize, maxTotalSamples);
@@ -1137,7 +1396,8 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             for (var i = 0; i < batchSize; i++)
             {
                 var requestId = $"{requestPrefix}W{totalSamplesSent + i}";
-                var workerTemp = DecorrelateTemperature(baseTemperature, totalSamplesSent + i, options.TemperatureVariance);
+                var workerTemp =
+                    DecorrelateTemperature(baseTemperature, totalSamplesSent + i, options.TemperatureVariance);
 
                 await PublishAsync(new GenerateProposalRequest
                 {
@@ -1150,7 +1410,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     IsDecomposition = !isSolution
                 }, EventDirection.Down);
             }
-            
+
             totalSamplesSent += batchSize;
 
             // Wait for either:
@@ -1161,9 +1421,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 using var batchCts = CancellationTokenSource.CreateLinkedTokenSource(_votingCts.Token);
                 batchCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30s per batch
-                
+
                 voteResult = await _consensusCompletionSource.Task.WaitAsync(batchCts.Token);
-                
+
                 Logger.LogInformation(
                     "EARLY TERMINATION: Consensus reached in {Ms}ms after {Samples} samples",
                     _stopwatch.ElapsedMilliseconds,
@@ -1173,7 +1433,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 // Batch timeout - check if we should continue sampling
                 voteResult = engine.CheckConsensus();
-                
+
                 if (voteResult == null && totalSamplesSent < maxTotalSamples)
                 {
                     // No consensus yet, prepare next batch
@@ -1181,9 +1441,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     requestPrefix = $"{taskId}:R{round}:";
                     _currentVotingRequestPrefix = requestPrefix;
                     _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
-                    
+
                     var progress = engine.GetProgress(isSolution ? VotingType.Solution : VotingType.Decomposition);
-                    
+
                     ReportProgress(new MakerProgress
                     {
                         Phase = MakerPhase.Voting,
@@ -1204,10 +1464,10 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
 
         // Final consensus check
         voteResult ??= engine.CheckConsensus();
-        
+
         // Get best candidate even if no consensus (for fallback)
         var bestCandidate = engine.GetBestCandidate();
-        
+
         // Build session info
         var allCandidates = engine.GetAllCandidates();
         var candidates = allCandidates.Select(c => new VoteCandidate
@@ -1260,11 +1520,11 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     #endregion
 
     #region Helpers
-    
+
     // ============================================================
     //  LLM Provider Discovery and Validation
     // ============================================================
-    
+
     /// <summary>
     /// Discover and validate LLM providers based on configuration.
     /// 
@@ -1285,17 +1545,18 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     {
         // Step 1: Discover all candidate providers
         List<string> candidateProviders;
-        
+
         if (useMultipleProviders)
         {
             // Auto-discover all configured providers
             candidateProviders = LLMProviderFactory.GetAvailableProviderNames().ToList();
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Starting,
                 TaskId = executionId,
-                Message = $"Multi-provider mode: Discovered {candidateProviders.Count} configured provider(s): {string.Join(", ", candidateProviders)}",
+                Message =
+                    $"Multi-provider mode: Discovered {candidateProviders.Count} configured provider(s): {string.Join(", ", candidateProviders)}",
                 Depth = 0
             });
         }
@@ -1304,17 +1565,17 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             // Single provider mode
             candidateProviders = [defaultProviderName];
         }
-        
+
         // Add coordinator provider to candidates if specified and not already included
         if (!string.IsNullOrEmpty(coordinatorProviderName) && !candidateProviders.Contains(coordinatorProviderName))
         {
             candidateProviders.Add(coordinatorProviderName);
         }
-        
+
         // Step 2: Validate all providers
         var validProviders = new List<string>();
         var failedProviders = new List<(string Provider, string Error)>();
-        
+
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Starting,
@@ -1322,7 +1583,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             Message = $"Validating {candidateProviders.Count} LLM provider(s)...",
             Depth = 0
         });
-        
+
         foreach (var providerName in candidateProviders)
         {
             var (isValid, error) = await ValidateSingleProviderAsync(providerName, executionId);
@@ -1335,7 +1596,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 failedProviders.Add((providerName, error ?? "Unknown error"));
             }
         }
-        
+
         // Step 3: Check if we have any valid providers
         if (validProviders.Count == 0)
         {
@@ -1349,7 +1610,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             });
             throw new InvalidOperationException(errorMessage);
         }
-        
+
         // Step 4: Determine Coordinator's provider
         string coordinatorProvider;
         if (!string.IsNullOrEmpty(coordinatorProviderName) && validProviders.Contains(coordinatorProviderName))
@@ -1357,7 +1618,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             // Use dedicated Coordinator provider
             coordinatorProvider = coordinatorProviderName;
             Logger.LogInformation("Coordinator using dedicated provider: {Provider}", coordinatorProvider);
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Starting,
@@ -1372,7 +1633,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             coordinatorProvider = validProviders[0];
             Logger.LogInformation("Coordinator participating in round-robin, using: {Provider}", coordinatorProvider);
         }
-        
+
         // Summary with detailed error reasons
         if (failedProviders.Count > 0)
         {
@@ -1385,30 +1646,32 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 Depth = 0
             });
         }
-        
+
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Starting,
             TaskId = executionId,
-            Message = $"✓ {validProviders.Count} valid provider(s) for workers: {string.Join(", ", validProviders)} | Coordinator: {coordinatorProvider}",
+            Message =
+                $"✓ {validProviders.Count} valid provider(s) for workers: {string.Join(", ", validProviders)} | Coordinator: {coordinatorProvider}",
             Depth = 0
         });
-        
+
         return (validProviders, coordinatorProvider);
     }
-    
+
     /// <summary>
     /// Validate a single LLM provider with a test request.
     /// Returns (IsValid, ErrorReason) tuple.
     /// </summary>
-    private async Task<(bool IsValid, string? Error)> ValidateSingleProviderAsync(string providerName, string executionId)
+    private async Task<(bool IsValid, string? Error)> ValidateSingleProviderAsync(string providerName,
+        string executionId)
     {
         try
         {
             Logger.LogDebug("Validating LLM provider: {Provider}", providerName);
-            
+
             var provider = await LLMProviderFactory.GetProviderAsync(providerName);
-            
+
             var testRequest = new Aevatar.Agents.AI.Abstractions.AevatarLLMRequest
             {
                 SystemPrompt = "You are a test assistant.",
@@ -1417,15 +1680,18 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     Temperature = 0.1f,
                     MaxTokens = 10
                 },
-                Messages = [new AI.AevatarChatMessage 
-                { 
-                    Role = AI.AevatarChatRole.User, 
-                    Content = "Reply with 'OK'" 
-                }]
+                Messages =
+                [
+                    new AI.AevatarChatMessage
+                    {
+                        Role = AI.AevatarChatRole.User,
+                        Content = "Reply with 'OK'"
+                    }
+                ]
             };
-            
+
             var response = await provider.GenerateAsync(testRequest);
-            
+
             if (string.IsNullOrWhiteSpace(response.Content))
             {
                 // Log detailed response info for debugging
@@ -1433,8 +1699,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                                 $"StopReason={response.AevatarStopReason}, " +
                                 $"PromptTokens={response.Usage?.PromptTokens}, " +
                                 $"CompletionTokens={response.Usage?.CompletionTokens}";
-                Logger.LogWarning("Provider {Provider} returned empty response. Details: {Debug}", providerName, debugInfo);
-                
+                Logger.LogWarning("Provider {Provider} returned empty response. Details: {Debug}", providerName,
+                    debugInfo);
+
                 // Provide actionable error message based on stop reason
                 var error = response.AevatarStopReason switch
                 {
@@ -1446,7 +1713,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                     AI.Abstractions.AevatarStopReason.RateLimitReached => "Rate limited",
                     _ => $"Empty response (stop_reason: {response.AevatarStopReason})"
                 };
-                
+
                 ReportProgress(new MakerProgress
                 {
                     Phase = MakerPhase.Starting,
@@ -1456,7 +1723,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 });
                 return (false, error);
             }
-            
+
             Logger.LogInformation("Provider {Provider} validated successfully", providerName);
             ReportProgress(new MakerProgress
             {
@@ -1482,14 +1749,14 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             return (false, error);
         }
     }
-    
+
     /// <summary>
     /// Extract a concise, user-friendly error message from exception.
     /// </summary>
     private static string ExtractConciseError(Exception ex)
     {
         var msg = ex.Message;
-        
+
         // Common API error patterns
         if (msg.Contains("401") || msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
             return "Invalid API key";
@@ -1503,13 +1770,14 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             return "Provider server error";
         if (msg.Contains("timeout", StringComparison.OrdinalIgnoreCase))
             return "Connection timeout";
-        if (msg.Contains("connection", StringComparison.OrdinalIgnoreCase) && msg.Contains("refused", StringComparison.OrdinalIgnoreCase))
+        if (msg.Contains("connection", StringComparison.OrdinalIgnoreCase) &&
+            msg.Contains("refused", StringComparison.OrdinalIgnoreCase))
             return "Connection refused";
-        
+
         // Truncate if too long
         return msg.Length > 80 ? msg[..77] + "..." : msg;
     }
-    
+
     /// <summary>
     /// [Legacy] Validate all LLM providers - throws on failure.
     /// Kept for backward compatibility.
@@ -1517,7 +1785,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     private async Task ValidateProvidersAsync(List<string> providerNames, string executionId)
     {
         var uniqueProviders = providerNames.Distinct().ToList();
-        
+
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Starting,
@@ -1525,9 +1793,9 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             Message = $"Validating {uniqueProviders.Count} LLM provider(s): {string.Join(", ", uniqueProviders)}",
             Depth = 0
         });
-        
+
         var failedProviders = new List<(string Provider, string Error)>();
-        
+
         foreach (var providerName in uniqueProviders)
         {
             var (isValid, error) = await ValidateSingleProviderAsync(providerName, executionId);
@@ -1536,12 +1804,12 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 failedProviders.Add((providerName, error ?? "Unknown error"));
             }
         }
-        
+
         if (failedProviders.Count > 0)
         {
             var errorDetails = string.Join("\n", failedProviders.Select(f => $"  - {f.Provider}: {f.Error}"));
             var errorMessage = $"LLM provider validation failed:\n{errorDetails}";
-            
+
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Failed,
@@ -1549,10 +1817,10 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 Message = errorMessage,
                 Depth = 0
             });
-            
+
             throw new InvalidOperationException(errorMessage);
         }
-        
+
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Starting,
@@ -1561,7 +1829,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             Depth = 0
         });
     }
-    
+
     // ============================================================
     //  RED-FLAGGING is now handled by IRedFlagStrategy (injected)
     //  See: IRedFlagStrategy.cs for available implementations:
@@ -1570,7 +1838,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     //  - CodeAwareRedFlagStrategy
     //  - NoOpRedFlagStrategy (disable checking)
     // ============================================================
-    
+
     /// <summary>
     /// Parse atomicity assessment JSON response.
     /// Returns (isAtomic, reason).
@@ -1588,17 +1856,17 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
                 json = json.Substring(start, end - start + 1);
             }
         }
-        
+
         try
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            
+
             var isAtomic = root.TryGetProperty("atomic", out var atomicProp) && atomicProp.GetBoolean();
-            var reason = root.TryGetProperty("reason", out var reasonProp) 
+            var reason = root.TryGetProperty("reason", out var reasonProp)
                 ? reasonProp.GetString() ?? "no reason provided"
                 : "no reason provided";
-            
+
             return (isAtomic, reason);
         }
         catch (JsonException)
@@ -1609,6 +1877,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             {
                 return (true, "parsed from keywords");
             }
+
             return (false, "failed to parse JSON, defaulting to decompose");
         }
     }

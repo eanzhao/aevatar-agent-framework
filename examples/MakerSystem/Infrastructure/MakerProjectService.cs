@@ -224,6 +224,7 @@ public sealed class MakerProjectService
                 Granularity = DecompositionGranularity.Single,
                 // Multi-provider: auto-discovers all valid providers from config
                 UseMultipleProviders = true,
+                CoordinatorProviderName = "openai"
             }),
         
         // Paper Review Project - Multi-agent collaborative paper improvement

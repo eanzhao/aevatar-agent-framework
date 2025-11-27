@@ -43,6 +43,42 @@ message MakerCoordinatorState {
     int32 max_total_llm_calls = 19;
     int64 max_total_tokens = 20;
     int64 max_duration_ms = 21;
+    
+    // === P0-2: Runtime state persistence ===
+    
+    // Execution context (user-provided key-value pairs)
+    map<string, string> execution_context = 22;
+    
+    // Serialized MakerOptions for resumption
+    MakerOptionsProto options = 23;
+    
+    // Execution result (for completed runs)
+    string result_content = 24;
+    string result_error = 25;
+    string result_trace_json = 26;
+    
+    // Valid provider names (discovered during startup)
+    repeated string valid_providers = 27;
+    string coordinator_provider = 28;
+    
+    // Stopwatch elapsed time (for duration tracking across restarts)
+    int64 elapsed_ms = 29;
+}
+
+// Serializable version of MakerOptions for state persistence
+message MakerOptionsProto {
+    int32 consensus_k = 1;
+    int32 samples_per_round = 2;
+    int32 max_total_llm_calls = 3;
+    int64 max_total_tokens = 4;
+    int64 max_duration_ms = 5;
+    int32 depth_warning_threshold = 6;
+    int32 hard_depth_cap = 7;
+    float base_temperature = 8;
+    float temperature_variance = 9;
+    float semantic_similarity_threshold = 10;
+    string clustering_method = 11;
+    string execution_mode = 12;  // "Production" or "Academic"
 }
 
 message MakerCoordinatorConfig {
