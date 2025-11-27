@@ -364,10 +364,10 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     /// </summary>
     protected virtual void ConfigAI(AevatarAIAgentConfig config)
     {
-        // Set defaults
-        config.Model = "gpt-5";
-        config.Temperature = 0.7f;
-        config.MaxOutputTokens = 2000;
+        // Set defaults from centralized constants
+        config.Model = AevatarAIDefaults.DefaultModel;
+        config.Temperature = AevatarAIDefaults.DefaultTemperature;
+        config.MaxOutputTokens = AevatarAIDefaults.DefaultMaxOutputTokens;
 
         // Override in derived classes
     }

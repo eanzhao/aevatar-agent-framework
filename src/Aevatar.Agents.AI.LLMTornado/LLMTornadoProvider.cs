@@ -50,9 +50,9 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
     {
         var chatRequest = new LlmTornado.Chat.ChatRequest
         {
-            Model = new LlmTornado.Chat.Models.ChatModel(request.Settings?.ModelId ?? "gpt-5.1"),
-            Temperature = request.Settings?.Temperature ?? 0.7,
-            MaxTokens = request.Settings?.MaxTokens ?? 4096,
+            Model = new LlmTornado.Chat.Models.ChatModel(request.Settings?.ModelId ?? AevatarAIDefaults.DefaultModel),
+            Temperature = request.Settings?.Temperature ?? AevatarAIDefaults.DefaultTemperature,
+            MaxTokens = request.Settings?.MaxTokens ?? AevatarAIDefaults.DefaultMaxTokensExtended,
             Messages = []
         };
 
