@@ -238,31 +238,30 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
             _workersInitialized = 0;
             _initCompletionSource = new TaskCompletionSource<bool>();
 
-            // Prepare provider list for round-robin assignment
-            var providerNames = request.UseMultipleProviders && request.ProviderNames.Count > 0
-                ? request.ProviderNames.ToList()
-                : [request.ProviderName];
+            // Discover and validate LLM providers
+            var (validProviders, coordinatorProvider) = await DiscoverAndValidateProvidersAsync(
+                request.UseMultipleProviders,
+                request.CoordinatorProviderName,
+                request.ProviderName,
+                request.ExecutionId);
             
-            if (request.UseMultipleProviders && providerNames.Count > 1)
+            // Re-initialize Coordinator with the determined provider (if different from default)
+            if (coordinatorProvider != request.ProviderName)
             {
-                ReportProgress(new MakerProgress
+                await InitializeAsync(coordinatorProvider, config =>
                 {
-                    Phase = MakerPhase.Starting,
-                    TaskId = request.ExecutionId,
-                    Message = $"Multi-provider mode: {string.Join(", ", providerNames)} (round-robin)",
-                    Depth = 0
+                    config.Temperature = request.BaseTemperature;
+                    config.MaxOutputTokens = 4096;
                 });
+                Logger.LogInformation("Coordinator re-initialized with provider: {Provider}", coordinatorProvider);
             }
-            
-            // Validate all LLM providers before starting
-            await ValidateProvidersAsync(providerNames, request.ExecutionId);
 
             // Send initialization requests to workers (DOWN to children)
             // Round-robin provider assignment for decorrelation
             for (var i = 0; i < request.SamplesPerRound; i++)
             {
                 var workerTemp = DecorrelateTemperature(request.BaseTemperature, i, request.TemperatureVariance);
-                var workerProvider = providerNames[i % providerNames.Count];
+                var workerProvider = validProviders[i % validProviders.Count];
                 
                 await PublishAsync(new InitializeWorkerRequest
                 {
@@ -1263,12 +1262,257 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     #region Helpers
     
     // ============================================================
-    //  LLM Provider Validation
+    //  LLM Provider Discovery and Validation
     // ============================================================
     
     /// <summary>
-    /// Validate all LLM providers are accessible before starting task execution.
-    /// Sends a simple test prompt to each provider to verify API key and connectivity.
+    /// Discover and validate LLM providers based on configuration.
+    /// 
+    /// Logic:
+    /// 1. If UseMultipleProviders = true, auto-discover all configured providers
+    /// 2. Validate each provider with a simple test request
+    /// 3. Only use providers that pass validation
+    /// 4. Determine Coordinator's provider (dedicated or round-robin)
+    /// </summary>
+    /// <returns>
+    /// Tuple of (validProviders for workers, coordinatorProvider)
+    /// </returns>
+    private async Task<(List<string> ValidProviders, string CoordinatorProvider)> DiscoverAndValidateProvidersAsync(
+        bool useMultipleProviders,
+        string? coordinatorProviderName,
+        string defaultProviderName,
+        string executionId)
+    {
+        // Step 1: Discover all candidate providers
+        List<string> candidateProviders;
+        
+        if (useMultipleProviders)
+        {
+            // Auto-discover all configured providers
+            candidateProviders = LLMProviderFactory.GetAvailableProviderNames().ToList();
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Starting,
+                TaskId = executionId,
+                Message = $"Multi-provider mode: Discovered {candidateProviders.Count} configured provider(s): {string.Join(", ", candidateProviders)}",
+                Depth = 0
+            });
+        }
+        else
+        {
+            // Single provider mode
+            candidateProviders = [defaultProviderName];
+        }
+        
+        // Add coordinator provider to candidates if specified and not already included
+        if (!string.IsNullOrEmpty(coordinatorProviderName) && !candidateProviders.Contains(coordinatorProviderName))
+        {
+            candidateProviders.Add(coordinatorProviderName);
+        }
+        
+        // Step 2: Validate all providers
+        var validProviders = new List<string>();
+        var failedProviders = new List<(string Provider, string Error)>();
+        
+        ReportProgress(new MakerProgress
+        {
+            Phase = MakerPhase.Starting,
+            TaskId = executionId,
+            Message = $"Validating {candidateProviders.Count} LLM provider(s)...",
+            Depth = 0
+        });
+        
+        foreach (var providerName in candidateProviders)
+        {
+            var (isValid, error) = await ValidateSingleProviderAsync(providerName, executionId);
+            if (isValid)
+            {
+                validProviders.Add(providerName);
+            }
+            else
+            {
+                failedProviders.Add((providerName, error ?? "Unknown error"));
+            }
+        }
+        
+        // Step 3: Check if we have any valid providers
+        if (validProviders.Count == 0)
+        {
+            var errorMessage = $"No valid LLM providers found. Checked: {string.Join(", ", candidateProviders)}";
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Failed,
+                TaskId = executionId,
+                Message = errorMessage,
+                Depth = 0
+            });
+            throw new InvalidOperationException(errorMessage);
+        }
+        
+        // Step 4: Determine Coordinator's provider
+        string coordinatorProvider;
+        if (!string.IsNullOrEmpty(coordinatorProviderName) && validProviders.Contains(coordinatorProviderName))
+        {
+            // Use dedicated Coordinator provider
+            coordinatorProvider = coordinatorProviderName;
+            Logger.LogInformation("Coordinator using dedicated provider: {Provider}", coordinatorProvider);
+            
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Starting,
+                TaskId = executionId,
+                Message = $"Coordinator using dedicated provider: {coordinatorProvider}",
+                Depth = 0
+            });
+        }
+        else
+        {
+            // Coordinator participates in round-robin (use first valid provider)
+            coordinatorProvider = validProviders[0];
+            Logger.LogInformation("Coordinator participating in round-robin, using: {Provider}", coordinatorProvider);
+        }
+        
+        // Summary with detailed error reasons
+        if (failedProviders.Count > 0)
+        {
+            var failedDetails = string.Join(", ", failedProviders.Select(f => $"{f.Provider}({f.Error})"));
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Starting,
+                TaskId = executionId,
+                Message = $"⚠️ {failedProviders.Count} provider(s) failed: {failedDetails}",
+                Depth = 0
+            });
+        }
+        
+        ReportProgress(new MakerProgress
+        {
+            Phase = MakerPhase.Starting,
+            TaskId = executionId,
+            Message = $"✓ {validProviders.Count} valid provider(s) for workers: {string.Join(", ", validProviders)} | Coordinator: {coordinatorProvider}",
+            Depth = 0
+        });
+        
+        return (validProviders, coordinatorProvider);
+    }
+    
+    /// <summary>
+    /// Validate a single LLM provider with a test request.
+    /// Returns (IsValid, ErrorReason) tuple.
+    /// </summary>
+    private async Task<(bool IsValid, string? Error)> ValidateSingleProviderAsync(string providerName, string executionId)
+    {
+        try
+        {
+            Logger.LogDebug("Validating LLM provider: {Provider}", providerName);
+            
+            var provider = await LLMProviderFactory.GetProviderAsync(providerName);
+            
+            var testRequest = new Aevatar.Agents.AI.Abstractions.AevatarLLMRequest
+            {
+                SystemPrompt = "You are a test assistant.",
+                Settings = new Aevatar.Agents.AI.Abstractions.AevatarLLMSettings
+                {
+                    Temperature = 0.1f,
+                    MaxTokens = 10
+                },
+                Messages = [new AI.AevatarChatMessage 
+                { 
+                    Role = AI.AevatarChatRole.User, 
+                    Content = "Reply with 'OK'" 
+                }]
+            };
+            
+            var response = await provider.GenerateAsync(testRequest);
+            
+            if (string.IsNullOrWhiteSpace(response.Content))
+            {
+                // Log detailed response info for debugging
+                var debugInfo = $"Content='{response.Content ?? "null"}', " +
+                                $"StopReason={response.AevatarStopReason}, " +
+                                $"PromptTokens={response.Usage?.PromptTokens}, " +
+                                $"CompletionTokens={response.Usage?.CompletionTokens}";
+                Logger.LogWarning("Provider {Provider} returned empty response. Details: {Debug}", providerName, debugInfo);
+                
+                // Provide actionable error message based on stop reason
+                var error = response.AevatarStopReason switch
+                {
+                    AI.Abstractions.AevatarStopReason.ContentFilter => "Content filtered by safety policy",
+                    AI.Abstractions.AevatarStopReason.MaxTokens => "Response truncated (max tokens too low)",
+                    AI.Abstractions.AevatarStopReason.Complete => "Empty response (model returned nothing)",
+                    AI.Abstractions.AevatarStopReason.Error => "API returned error",
+                    AI.Abstractions.AevatarStopReason.Timeout => "Request timeout",
+                    AI.Abstractions.AevatarStopReason.RateLimitReached => "Rate limited",
+                    _ => $"Empty response (stop_reason: {response.AevatarStopReason})"
+                };
+                
+                ReportProgress(new MakerProgress
+                {
+                    Phase = MakerPhase.Starting,
+                    TaskId = executionId,
+                    Message = $"✗ Provider '{providerName}': {error}",
+                    Depth = 0
+                });
+                return (false, error);
+            }
+            
+            Logger.LogInformation("Provider {Provider} validated successfully", providerName);
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Starting,
+                TaskId = executionId,
+                Message = $"✓ Provider '{providerName}' is available",
+                Depth = 0
+            });
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            // Extract concise error message
+            var error = ExtractConciseError(ex);
+            Logger.LogWarning(ex, "Provider {Provider} validation failed: {Message}", providerName, error);
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Starting,
+                TaskId = executionId,
+                Message = $"✗ Provider '{providerName}': {error}",
+                Depth = 0
+            });
+            return (false, error);
+        }
+    }
+    
+    /// <summary>
+    /// Extract a concise, user-friendly error message from exception.
+    /// </summary>
+    private static string ExtractConciseError(Exception ex)
+    {
+        var msg = ex.Message;
+        
+        // Common API error patterns
+        if (msg.Contains("401") || msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
+            return "Invalid API key";
+        if (msg.Contains("403") || msg.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+            return "Access denied (check API key permissions)";
+        if (msg.Contains("404") || msg.Contains("Not Found", StringComparison.OrdinalIgnoreCase))
+            return "Endpoint not found (check base URL)";
+        if (msg.Contains("429") || msg.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+            return "Rate limited";
+        if (msg.Contains("500") || msg.Contains("Internal Server Error", StringComparison.OrdinalIgnoreCase))
+            return "Provider server error";
+        if (msg.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+            return "Connection timeout";
+        if (msg.Contains("connection", StringComparison.OrdinalIgnoreCase) && msg.Contains("refused", StringComparison.OrdinalIgnoreCase))
+            return "Connection refused";
+        
+        // Truncate if too long
+        return msg.Length > 80 ? msg[..77] + "..." : msg;
+    }
+    
+    /// <summary>
+    /// [Legacy] Validate all LLM providers - throws on failure.
+    /// Kept for backward compatibility.
     /// </summary>
     private async Task ValidateProvidersAsync(List<string> providerNames, string executionId)
     {
@@ -1286,52 +1530,10 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         
         foreach (var providerName in uniqueProviders)
         {
-            try
+            var (isValid, error) = await ValidateSingleProviderAsync(providerName, executionId);
+            if (!isValid)
             {
-                Logger.LogDebug("Validating LLM provider: {Provider}", providerName);
-                
-                // Create a temporary provider instance for validation
-                var provider = await LLMProviderFactory.GetProviderAsync(providerName);
-                
-                // Send a minimal test request
-                var testRequest = new Aevatar.Agents.AI.Abstractions.AevatarLLMRequest
-                {
-                    SystemPrompt = "You are a test assistant.",
-                    Settings = new Aevatar.Agents.AI.Abstractions.AevatarLLMSettings
-                    {
-                        Temperature = 0.1f,
-                        MaxTokens = 10
-                    },
-                    Messages = [new AI.AevatarChatMessage 
-                    { 
-                        Role = AI.AevatarChatRole.User, 
-                        Content = "Reply with 'OK'" 
-                    }]
-                };
-                
-                var response = await provider.GenerateAsync(testRequest);
-                
-                if (string.IsNullOrWhiteSpace(response.Content))
-                {
-                    failedProviders.Add((providerName, "Empty response from provider"));
-                    Logger.LogWarning("Provider {Provider} returned empty response", providerName);
-                }
-                else
-                {
-                    Logger.LogInformation("Provider {Provider} validated successfully", providerName);
-                    ReportProgress(new MakerProgress
-                    {
-                        Phase = MakerPhase.Starting,
-                        TaskId = executionId,
-                        Message = $"✓ Provider '{providerName}' is available",
-                        Depth = 0
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                failedProviders.Add((providerName, ex.Message));
-                Logger.LogError(ex, "Provider {Provider} validation failed", providerName);
+                failedProviders.Add((providerName, error ?? "Unknown error"));
             }
         }
         

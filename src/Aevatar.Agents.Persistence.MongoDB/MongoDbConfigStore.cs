@@ -28,15 +28,8 @@ public class MongoDbConfigStore<TConfig> : IConfigStore<TConfig>
         var name = collectionName ?? $"agent_configs_{typeof(TConfig).Name}";
         _collection = database.GetCollection<AgentConfigDocument<TConfig>>(name);
 
-        // Create compound index on AgentType + AgentId for unique configuration per agent type
-        var indexBuilder = Builders<AgentConfigDocument<TConfig>>.IndexKeys;
-        var indexKeys = indexBuilder.Combine(
-            indexBuilder.Ascending(x => x.AgentType),
-            indexBuilder.Ascending(x => x.AgentId)
-        );
-        var indexOptions = new CreateIndexOptions { Unique = true };
-        var indexModel = new CreateIndexModel<AgentConfigDocument<TConfig>>(indexKeys, indexOptions);
-        _collection.Indexes.CreateOne(indexModel);
+        // Ensure indexes are created (idempotent, runs once per collection per process)
+        MongoDBIndexManager.EnsureConfigStoreIndexes(_collection);
     }
 
     /// <summary>

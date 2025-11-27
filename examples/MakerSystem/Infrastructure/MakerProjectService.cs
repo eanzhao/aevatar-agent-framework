@@ -222,9 +222,8 @@ public sealed class MakerProjectService
                 MaxTotalTokens = 500_000,
                 Mode = ExecutionMode.Academic,
                 Granularity = DecompositionGranularity.Single,
-                // Multi-provider mode for decorrelation
+                // Multi-provider: auto-discovers all valid providers from config
                 UseMultipleProviders = true,
-                ProviderNames = ["deepseek", "bigmodel"],
             }),
         
         // Paper Review Project - Multi-agent collaborative paper improvement
@@ -320,6 +319,7 @@ public sealed class MakerProjectService
             Reliability = "Medium",
             MaxTotalLlmCalls = 50,
             MaxTotalTokens = 200_000,
+            UseMultipleProviders = false,  // Single provider mode
             Context = new Dictionary<string, string>
             {
                 ["domain"] = "data analysis",
@@ -335,6 +335,8 @@ public sealed class MakerProjectService
             Reliability = "High",
             MaxTotalLlmCalls = 100,
             MaxTotalTokens = 500_000,
+            UseMultipleProviders = true,  // Auto-discover all valid providers
+            CoordinatorProviderName = null,  // null = Coordinator joins round-robin
             Context = new Dictionary<string, string>
             {
                 ["language"] = "Chinese",

@@ -113,6 +113,21 @@ public sealed record ProjectConfig
     public string ContextIsolation { get; init; } = "Full";
     
     /// <summary>
+    /// Enable multi-provider mode for LLM decorrelation.
+    /// When true, auto-discovers all valid providers from configuration.
+    /// </summary>
+    [JsonPropertyName("useMultipleProviders")]
+    public bool UseMultipleProviders { get; init; } = false;
+    
+    /// <summary>
+    /// Dedicated LLM provider for Coordinator (synthesis tasks).
+    /// If null, Coordinator participates in round-robin with workers.
+    /// Example: "gpt-4" for Coordinator while workers use others.
+    /// </summary>
+    [JsonPropertyName("coordinatorProviderName")]
+    public string? CoordinatorProviderName { get; init; }
+    
+    /// <summary>
     /// Parse from JSON string.
     /// </summary>
     public static ProjectConfig FromJson(string json)
@@ -152,6 +167,8 @@ public sealed record ProjectConfig
             Mode = executionMode,
             Granularity = granularity,
             ContextIsolation = contextIsolation,
+            UseMultipleProviders = UseMultipleProviders,
+            CoordinatorProviderName = CoordinatorProviderName,
             Context = Context,
             Decomposer = new ConfigurableDecomposer(Decomposition),
             Solver = new ConfigurableSolver(Solution),

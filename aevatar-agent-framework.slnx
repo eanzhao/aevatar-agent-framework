@@ -63,6 +63,8 @@
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Persistence.MongoDB.Tests\Aevatar.Agents.Persistence.MongoDB.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
     <File Path="test/README.md" />
