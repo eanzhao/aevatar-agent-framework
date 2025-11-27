@@ -510,7 +510,7 @@ public abstract class GAgentBase : IGAgent
     public virtual Task PrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
     {
         Logger.LogDebug("Preparing resource context for Agent {Id} with {ResourceCount} resources",
-            Id, context.AvailableResources.Count);
+            Id, context.Count);
 
         return OnPrepareResourceContextAsync(context, ct);
     }

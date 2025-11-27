@@ -152,16 +152,6 @@ public class ToolExecutionCoordinator
     }
 
     /// <summary>
-    /// Parse tool arguments (legacy method for backward compatibility).
-    /// Returns empty dictionary on parse failure.
-    /// </summary>
-    [Obsolete("Use TryParseToolArguments for structured error handling")]
-    public Dictionary<string, object> ParseToolArguments(string argumentsJson)
-    {
-        return TryParseToolArguments(argumentsJson).Parameters;
-    }
-
-    /// <summary>
     /// Create ChatResponse with tool execution information.
     /// </summary>
     public ChatResponse CreateResponseWithToolInfo(

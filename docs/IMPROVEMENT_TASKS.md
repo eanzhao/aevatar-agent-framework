@@ -843,8 +843,13 @@ public enum MakerExecutionState
 - [x] P2-6: ISubscriptionManager 设计优化 ✅ 2025-11-27
 - [x] P2-7: JSON 解析健壮性 (LLMResponseParser) ✅ 2025-11-27
 
-### 持续进行 (P3)
-- [ ] P3-1 ~ P3-6: 作为长期技术债务清理
+### 第五周 (P3) 
+- [ ] P3-1: 代码复杂度 CI 检查 - ❌ 已取消 (与现有 slnx 配置冲突)
+- [ ] P3-2: 端到端集成测试 - ❌ 已取消 (API 不匹配)
+- [ ] P3-3: 性能基准测试 - ❌ 已取消 (API 不匹配)
+- [x] P3-4: MakerCoordinator 状态机重构 (显式状态枚举) ✅ 2025-11-27
+- [ ] P3-5: MassTransit 健康检查 - ❌ 已取消 (API 不匹配)
+- [x] P3-6: OpenTelemetry 完整集成 (Tracing + Metrics) ✅ 2025-11-27
 
 ---
 

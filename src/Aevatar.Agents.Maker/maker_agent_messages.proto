@@ -6,6 +6,35 @@ option csharp_namespace = "Aevatar.Agents.Maker.Messages";
 import "google/protobuf/timestamp.proto";
 
 // ============================================================
+//  MAKER Execution State Machine (P3-4)
+//  Explicit state machine for clear execution flow
+// ============================================================
+
+enum MakerExecutionState {
+    MAKER_STATE_IDLE = 0;
+    MAKER_STATE_INITIALIZING_WORKERS = 1;
+    MAKER_STATE_ASSESSING_ATOMICITY = 2;
+    MAKER_STATE_DECOMPOSING = 3;
+    MAKER_STATE_SOLVING_ATOMIC = 4;
+    MAKER_STATE_VOTING = 5;
+    MAKER_STATE_COMPOSING = 6;
+    MAKER_STATE_COMPLETED = 7;
+    MAKER_STATE_FAILED = 8;
+    MAKER_STATE_CANCELLED = 9;
+}
+
+// ============================================================
+//  MAKER Worker State Machine
+// ============================================================
+
+enum MakerWorkerStatus {
+    WORKER_STATUS_IDLE = 0;
+    WORKER_STATUS_WORKING = 1;
+    WORKER_STATUS_COMPLETED = 2;
+    WORKER_STATUS_ERROR = 3;
+}
+
+// ============================================================
 //  MAKER Coordinator Agent State
 // ============================================================
 
@@ -17,8 +46,12 @@ message MakerCoordinatorState {
     int32 samples_per_round = 5;
     int32 total_llm_calls = 6;
     
-    // Status (0=idle, 1=starting, 2=running, 3=completed, 4=failed, 5=cancelled)
-    int32 status = 7;
+    // Execution state machine (replaces legacy int32 status)
+    MakerExecutionState execution_state = 30;
+    
+    // DEPRECATED: Legacy status field (0=idle, 1=starting, 2=running, 3=completed, 4=failed, 5=cancelled)
+    // Keep for backward compatibility, will be removed in future version
+    int32 status = 7 [deprecated = true];
     string current_task_id = 8;
     int32 current_depth = 9;
     
@@ -116,8 +149,12 @@ message MakerWorkerState {
     int32 successful_proposals = 6;
     int32 failed_proposals = 7;
     
-    // Status (0=idle, 1=working, 2=completed)
-    int32 status = 8;
+    // Worker state machine (replaces legacy int32 status)
+    MakerWorkerStatus worker_status = 10;
+    
+    // DEPRECATED: Legacy status field (0=idle, 1=working, 2=completed)
+    // Keep for backward compatibility, will be removed in future version
+    int32 status = 8 [deprecated = true];
     
     google.protobuf.Timestamp last_activity = 9;
 }

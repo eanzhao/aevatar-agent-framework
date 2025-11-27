@@ -1,30 +1,25 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Core;
-using Aevatar.Agents.Workflow;
+using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.EventPublisher;
 using FluentAssertions;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
 
 namespace Aevatar.Agents.Workflow.Tests;
 
+/// <summary>
+/// Unit tests for WorkerTestGAgent
+/// </summary>
 public class WorkerTestGAgentTests
 {
-    private readonly Mock<ILogger<WorkerTestGAgent>> _mockLogger;
-    private readonly Mock<IEventPublisher> _mockEventPublisher;
+    private readonly TestEventPublisher _eventPublisher = new();
 
-    public WorkerTestGAgentTests()
+    private WorkerTestGAgent CreateAgent()
     {
-        _mockLogger = new Mock<ILogger<WorkerTestGAgent>>();
-        _mockEventPublisher = new Mock<IEventPublisher>();
-    }
-
-    private WorkerTestGAgent CreateAgent(Guid? id = null)
-    {
-        var agentId = id ?? Guid.NewGuid();
-        var agent = new WorkerTestGAgent(agentId, _mockLogger.Object);
-        agent.SetEventPublisher(_mockEventPublisher.Object);
+        var agent = new WorkerTestGAgent();
+        AgentEventPublisherInjector.InjectEventPublisher(agent, _eventPublisher);
         return agent;
     }
 
@@ -33,7 +28,7 @@ public class WorkerTestGAgentTests
     {
         // Arrange & Act
         var agent = CreateAgent();
-        await agent.OnActivateAsync();
+        await agent.ActivateAsync();
 
         // Assert
         agent.Id.Should().NotBe(Guid.Empty);
@@ -50,19 +45,15 @@ public class WorkerTestGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var setInputEvent = new SetInputEvent
         {
             Input = "Hello World",
             Reason = "Test"
         };
 
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Act
         var result = await agent.ChatAsync();
@@ -76,18 +67,14 @@ public class WorkerTestGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var failureEvent = new SetFailureSummaryEvent
         {
             FailureSummary = "Test failure"
         };
 
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(failureEvent)
-        };
-
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(failureEvent.CreateEventEnvelope());
 
         // Act & Assert
         var act = async () => await agent.ChatAsync();
@@ -100,19 +87,15 @@ public class WorkerTestGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var failureEvent = new SetFailureSummaryEvent
         {
             FailureSummary = "Test failure summary"
         };
 
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(failureEvent)
-        };
-
         // Act
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(failureEvent.CreateEventEnvelope());
 
         // Assert
         var state = agent.GetState();
@@ -120,11 +103,13 @@ public class WorkerTestGAgentTests
         agent.GetFailureSummary().Should().Be("Test failure summary");
     }
 
-    [Fact(DisplayName = "OnConfigureAsync should set failure summary from configuration")]
-    public async Task OnConfigureAsync_ShouldSetFailureSummaryFromConfiguration()
+    [Fact(DisplayName = "ConfigureAsync should set failure summary from configuration")]
+    public async Task ConfigureAsync_ShouldSetFailureSummaryFromConfiguration()
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var config = new WorkerTestConfiguration
         {
             Input = "Test Input",
@@ -145,6 +130,8 @@ public class WorkerTestGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var config = new WorkerTestConfiguration
         {
             Input = "Test Input",
@@ -164,6 +151,8 @@ public class WorkerTestGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var config = new WorkerTestConfiguration
         {
             Input = "Test Input",
@@ -180,12 +169,15 @@ public class WorkerTestGAgentTests
     }
 
     [Fact(DisplayName = "GetFailureSummary should return current failure summary")]
-    public void GetFailureSummary_ShouldReturnCurrentFailureSummary()
+    public async Task GetFailureSummary_ShouldReturnCurrentFailureSummary()
     {
         // Arrange
         var agent = CreateAgent();
-        var state = agent.GetState();
-        state.FailureSummary = "Test failure";
+        await agent.ActivateAsync();
+
+        // Set failure summary through event handling
+        var failureEvent = new SetFailureSummaryEvent { FailureSummary = "Test failure" };
+        await agent.HandleEventAsync(failureEvent.CreateEventEnvelope());
 
         // Act
         var result = agent.GetFailureSummary();
@@ -195,12 +187,15 @@ public class WorkerTestGAgentTests
     }
 
     [Fact(DisplayName = "GetMemberName should return current member name")]
-    public void GetMemberName_ShouldReturnCurrentMemberName()
+    public async Task GetMemberName_ShouldReturnCurrentMemberName()
     {
         // Arrange
         var agent = CreateAgent();
-        var state = agent.GetState();
-        state.MemberName = "TestMember";
+        await agent.ActivateAsync();
+
+        // Set member name through configuration
+        var config = new WorkerTestConfiguration { Input = "Test", MemberName = "TestMember" };
+        await agent.ConfigureAsync(config);
 
         // Act
         var result = agent.GetMemberName();
@@ -209,4 +204,3 @@ public class WorkerTestGAgentTests
         result.Should().Be("TestMember");
     }
 }
-

@@ -120,63 +120,6 @@ public class ResourceContext
         _resources.Clear();
         Metadata.Clear();
     }
-
-    #region Legacy API (backward compatible)
-
-    /// <summary>
-    /// Available resources dictionary (legacy API)
-    /// </summary>
-    [Obsolete("Use Get<T>/Set<T> methods for type safety. This property will be removed in future versions.")]
-    public Dictionary<string, object> AvailableResources
-    {
-        get => new(_resources);
-        set
-        {
-            _resources.Clear();
-            Metadata.Clear();
-            foreach (var kv in value)
-            {
-                _resources[kv.Key] = kv.Value;
-                Metadata[kv.Key] = new ResourceMetadata
-                {
-                    Key = kv.Key,
-                    Type = kv.Value?.GetType().Name ?? "null",
-                    Description = string.Empty,
-                    AddedAt = DateTime.UtcNow
-                };
-            }
-        }
-    }
-
-    /// <summary>
-    /// Add resource (legacy API)
-    /// </summary>
-    [Obsolete("Use Set<T> method for type safety")]
-    public void AddResource(string key, object resource, string? description = null)
-    {
-        _resources[key] = resource;
-        Metadata[key] = new ResourceMetadata
-        {
-            Key = key,
-            Type = resource.GetType().Name,
-            Description = description ?? string.Empty,
-            AddedAt = DateTime.UtcNow
-        };
-    }
-
-    /// <summary>
-    /// Get resource (legacy API)
-    /// </summary>
-    [Obsolete("Use Get<T> method for type safety")]
-    public T? GetResource<T>(string key) where T : class => Get<T>(key);
-
-    /// <summary>
-    /// Remove resource (legacy API)
-    /// </summary>
-    [Obsolete("Use Remove method instead")]
-    public bool RemoveResource(string key) => Remove(key);
-
-    #endregion
 }
 
 /// <summary>
