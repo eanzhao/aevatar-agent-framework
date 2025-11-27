@@ -79,6 +79,8 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 decomposer: options.Decomposer ?? _decomposer,
                 solver: options.Solver ?? _solver,
                 composer: options.Composer ?? _composer,
+                redFlagStrategy: options.RedFlagStrategy,
+                redFlagOptions: options.RedFlagOptions,
                 progressCallback: options.OnProgress);
 
             // Step 3: Create Worker Actors and establish parent-child relationships

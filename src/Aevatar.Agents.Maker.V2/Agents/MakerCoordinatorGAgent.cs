@@ -33,6 +33,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     private IDecompositionStrategy _decomposer = new DefaultDecomposer();
     private ISolutionStrategy _solver = new DefaultSolver();
     private ICompositionStrategy _composer = new DefaultComposer();
+    private IRedFlagStrategy _redFlagStrategy = new DefaultEnglishRedFlagStrategy();
     
     // Runtime state (not persisted)
     private readonly Stopwatch _stopwatch = new();
@@ -75,11 +76,14 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         IDecompositionStrategy? decomposer = null,
         ISolutionStrategy? solver = null,
         ICompositionStrategy? composer = null,
+        IRedFlagStrategy? redFlagStrategy = null,
+        RedFlagOptions? redFlagOptions = null,
         Action<MakerProgress>? progressCallback = null)
     {
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
         _composer = composer ?? new DefaultComposer();
+        _redFlagStrategy = redFlagStrategy ?? new DefaultEnglishRedFlagStrategy(redFlagOptions ?? new RedFlagOptions());
         _progressCallback = progressCallback;
     }
 
@@ -440,7 +444,7 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
         }
         
         // RED-FLAGGING PARSER: Validate content before entering vote pool
-        var (isValid, redFlagReason) = ValidateProposalContent(result.Content, result.ProposalId);
+        var isValid = _redFlagStrategy.Validate(result.Content, result.ProposalId, out var redFlagReason);
         if (!isValid)
         {
             AddRedFlag(result.TaskId, redFlagReason!);
@@ -1225,110 +1229,13 @@ public class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState, MakerC
     #region Helpers
     
     // ============================================================
-    //  RED-FLAGGING PARSER
-    //  Per MAKER paper: Reject garbage before it pollutes the vote pool
-    //  
-    //  Design Principles:
-    //  1. Only check START patterns (LLM refusal is at the beginning)
-    //  2. Don't keyword-match in body (causes false positives)
-    //  3. Focus on structure, not content
+    //  RED-FLAGGING is now handled by IRedFlagStrategy (injected)
+    //  See: IRedFlagStrategy.cs for available implementations:
+    //  - DefaultEnglishRedFlagStrategy (default)
+    //  - ChineseRedFlagStrategy
+    //  - CodeAwareRedFlagStrategy
+    //  - NoOpRedFlagStrategy (disable checking)
     // ============================================================
-    
-    private const int MaxContentLength = 8000;  // Reject over-long responses (increased from 4000)
-    private const int MinContentLength = 10;    // Reject suspiciously short responses
-    
-    // Only check if content STARTS with these refusal patterns
-    // "I'm sorry" in the middle of an apology letter is fine!
-    private static readonly string[] RefusalPrefixes = 
-    [
-        "I cannot", "I can't", "I'm unable", "I am unable",
-        "I don't have", "I do not have", "I'm not able",
-        "As an AI language model", "As a large language model",
-        "I apologize, but I cannot", "I'm sorry, but I cannot",
-        "I'm afraid I can't", "Unfortunately, I cannot"
-    ];
-    
-    // Structural degeneration patterns (LLM output collapsed)
-    private static readonly string[] DegenerationPatterns =
-    [
-        "```json```json", "```\n```\n```",  // Broken code blocks
-        "---\n---\n---", "...\n...\n...",   // Filler patterns
-        "NULL", "undefined", "NaN"           // Garbage output
-    ];
-    
-    /// <summary>
-    /// Red-Flagging Parser: Validate content before entering vote pool.
-    /// Returns (isValid, redFlagReason).
-    /// 
-    /// Philosophy: We only reject content that is STRUCTURALLY broken,
-    /// not content that happens to contain certain keywords.
-    /// </summary>
-    private static (bool IsValid, string? RedFlagReason) ValidateProposalContent(string content, string proposalId)
-    {
-        // Check 1: Over-length (LLM went into infinite generation loop)
-        if (content.Length > MaxContentLength)
-        {
-            return (false, $"Content too long ({content.Length} chars). Likely generation loop.");
-        }
-        
-        // Check 2: Under-length (empty/meaningless response)
-        if (content.Length < MinContentLength)
-        {
-            return (false, $"Content too short ({content.Length} chars). Empty response.");
-        }
-        
-        // Check 3: Refusal at START only (not in the middle!)
-        // "I'm sorry" in a sad story is fine, "I'm sorry, I cannot" at start is refusal
-        var trimmed = content.TrimStart();
-        foreach (var prefix in RefusalPrefixes)
-        {
-            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return (false, $"LLM refused task: starts with '{prefix}'");
-            }
-        }
-        
-        // Check 4: Structural degeneration (broken output format)
-        foreach (var pattern in DegenerationPatterns)
-        {
-            if (content.Contains(pattern, StringComparison.Ordinal))
-            {
-                return (false, $"Degenerate output: contains '{pattern}'");
-            }
-        }
-        
-        // Check 5: Repetition ratio (same substring repeated many times)
-        // This catches LLM getting stuck in a loop
-        if (HasExcessiveRepetition(content))
-        {
-            return (false, "Excessive repetition detected. Output degenerated.");
-        }
-        
-        // All structural checks passed - let voting handle semantic quality
-        return (true, null);
-    }
-    
-    /// <summary>
-    /// Detect if content has excessive repetition (degenerate output).
-    /// </summary>
-    private static bool HasExcessiveRepetition(string content, int minRepetitions = 5, int windowSize = 50)
-    {
-        if (content.Length < windowSize * 2) return false;
-        
-        // Check if any 50-char window appears 5+ times
-        var seen = new Dictionary<string, int>();
-        for (var i = 0; i <= content.Length - windowSize; i += windowSize / 2)
-        {
-            var window = content.Substring(i, windowSize);
-            seen.TryGetValue(window, out var count);
-            seen[window] = count + 1;
-            
-            if (count + 1 >= minRepetitions)
-                return true;
-        }
-        
-        return false;
-    }
     
     /// <summary>
     /// Parse atomicity assessment JSON response.

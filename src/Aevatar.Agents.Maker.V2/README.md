@@ -248,6 +248,31 @@ The main configuration object for MAKER execution.
 | `TemperatureVariance` | `float` | `0.1` | Temperature decorrelation range |
 | `UseMultipleProviders` | `bool` | `false` | Use multiple LLM providers (future) |
 | `RedFlagThreshold` | `int` | `3` | Max red flags before abort |
+| `RedFlagStrategy` | `IRedFlagStrategy?` | `null` | Custom content validation strategy |
+| `RedFlagOptions` | `RedFlagOptions` | `(see below)` | Options for default red flag strategy |
+
+#### RedFlagOptions (Content Validation Settings)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `MaxContentLength` | `int` | `8000` | Maximum allowed content length (increase for novels) |
+| `MinContentLength` | `int` | `10` | Minimum required content length |
+| `EnableRefusalDetection` | `bool` | `true` | Detect LLM refusals at content start |
+| `EnableDegenerationDetection` | `bool` | `true` | Detect repetitive output (generation loop) |
+| `EnableLengthValidation` | `bool` | `true` | Validate content length limits |
+| `CustomRefusalPrefixes` | `IReadOnlyList<string>?` | `null` | Custom refusal prefixes (e.g., for Chinese) |
+| `DegenerationMinLength` | `int` | `3` | Min pattern length for degeneration detection |
+| `DegenerationMaxRepetitions` | `int` | `10` | Max repetitions before flagging |
+
+**Available Red Flag Strategies:**
+
+| Strategy | Use Case |
+|----------|----------|
+| `DefaultEnglishRedFlagStrategy` | English content (default) |
+| `ChineseRedFlagStrategy` | Chinese content (中文) |
+| `CodeAwareRedFlagStrategy` | Code generation (relaxed refusal detection) |
+| `CompositeRedFlagStrategy` | Combine multiple strategies |
+| `NoOpRedFlagStrategy` | Disable all checks |
 
 #### Strategy Overrides
 
@@ -696,15 +721,61 @@ var result = await maker.ExecuteAsync(config.Task, options);
 
 ## Red Flag System
 
-MAKER includes a quality control system that rejects problematic LLM outputs:
+MAKER includes a pluggable quality control system (`IRedFlagStrategy`) that rejects problematic LLM outputs before they enter the voting pool.
+
+### Default Checks (DefaultEnglishRedFlagStrategy)
 
 | Red Flag | Trigger | Action |
 |----------|---------|--------|
-| Content Too Long | > 5000 chars | Reject from voting |
-| LLM Refusal | Starts with "I cannot", "I'm sorry" | Reject from voting |
-| Excessive Repetition | Same 3+ chars repeated 10+ times | Reject from voting |
+| Content Too Long | > MaxContentLength (8000) | Reject from voting |
+| Content Too Short | < MinContentLength (10) | Reject from voting |
+| LLM Refusal | Starts with "I cannot", "I'm sorry", etc. | Reject from voting |
+| Excessive Repetition | Same pattern repeated many times | Reject from voting |
 | Decomposition Failed | No valid steps parsed | Fallback to direct solve |
 | Consensus Failed | No consensus after max samples | Use best candidate |
+
+### Custom Red Flag Strategies
+
+```csharp
+// For Chinese content
+var options = new MakerOptions
+{
+    RedFlagStrategy = new ChineseRedFlagStrategy(new RedFlagOptions
+    {
+        MaxContentLength = 10000
+    })
+};
+
+// For code generation (relaxed)
+var options = new MakerOptions
+{
+    RedFlagStrategy = new CodeAwareRedFlagStrategy()
+};
+
+// Disable all checks
+var options = new MakerOptions
+{
+    RedFlagStrategy = NoOpRedFlagStrategy.Instance
+};
+
+// Custom strategy
+public class MyDomainRedFlagStrategy : IRedFlagStrategy
+{
+    public bool Validate(string content, string proposalId, out string? reason)
+    {
+        reason = null;
+        
+        // Your domain-specific validation logic
+        if (content.Contains("ILLEGAL_MOVE"))
+        {
+            reason = "Invalid game move detected";
+            return false;
+        }
+        
+        return true;
+    }
+}
+```
 
 ---
 

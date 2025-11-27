@@ -227,6 +227,19 @@ public sealed record MakerOptions
     /// </summary>
     public int RedFlagThreshold { get; init; } = 3;
     
+    /// <summary>
+    /// Custom red flag strategy for content validation.
+    /// If null, uses DefaultEnglishRedFlagStrategy with RedFlagOptions.
+    /// Implement IRedFlagStrategy for domain-specific validation (e.g., code, Chinese text).
+    /// </summary>
+    public IRedFlagStrategy? RedFlagStrategy { get; init; }
+    
+    /// <summary>
+    /// Options for the default red flag strategy.
+    /// Only used if RedFlagStrategy is null.
+    /// </summary>
+    public RedFlagOptions RedFlagOptions { get; init; } = new();
+    
     // ============================================================
     //  Execution Mode (Production vs Academic)
     //  Production: Optimized for cost/speed, uses atomicity assessment

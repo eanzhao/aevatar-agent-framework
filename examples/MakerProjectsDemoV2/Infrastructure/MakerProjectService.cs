@@ -214,7 +214,9 @@ public sealed class MakerProjectService
                 Decomposer = new PaperDecomposer(),
                 Solver = new PaperSolver(),
                 MaxTotalLlmCalls = 100,
-                MaxTotalTokens = 500_000
+                MaxTotalTokens = 500_000,
+                Mode = ExecutionMode.Academic,
+                Granularity = DecompositionGranularity.Single,
             })
     ];
 

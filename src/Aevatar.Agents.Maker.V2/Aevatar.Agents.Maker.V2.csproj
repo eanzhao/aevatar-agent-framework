@@ -28,5 +28,9 @@
     <Protobuf Include="maker_agent_messages.proto" GrpcServices="None" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Reviews\" />
+  </ItemGroup>
+
 </Project>
 
