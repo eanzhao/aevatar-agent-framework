@@ -118,6 +118,9 @@ public class CounterAgent : GAgentBase<CounterState>
 }
 
 // 3. Create and Use
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.DependencyInjection;
+
 var services = new ServiceCollection().AddLogging(b => b.AddConsole());
 
 services.AddAevatarAgentSystem(builder =>
@@ -129,6 +132,11 @@ var sp = services.BuildServiceProvider();
 var factory = sp.GetRequiredService<IGAgentActorFactory>();
 
 var actor = await factory.CreateGAgentActorAsync<CounterAgent>(Guid.NewGuid());
+
+// Access the agent directly for method calls
+var counter = (CounterAgent)actor.GetAgent();
+
+// Or publish events
 await actor.PublishEventAsync(new EventEnvelope
 {
     Id = Guid.NewGuid().ToString(),
@@ -139,12 +147,13 @@ await actor.PublishEventAsync(new EventEnvelope
 Need to swap the default in-memory stores for your own persistence? Pass `GAgentOptions` when bootstrapping:
 
 ```csharp
-services.AddAevatarAgentSystem(options =>
+services.AddAevatarAgentSystem(
+    configureStores: options =>
     {
         options.StateStoreType = typeof(MyStateStore<>);         // open generic
         options.EventStoreType = typeof(MyEventStore);           // concrete type
     },
-    builder =>
+    configure: builder =>
     {
         builder.UseLocalRuntime();
     });
@@ -296,19 +305,33 @@ public class BankAccountAgent : EventSourcedGAgentBase<BankAccountState>
 
 ```
 src/
-├── Aevatar.Agents.Abstractions/           # Core Interfaces
-├── Aevatar.Agents.Core/                   # Base Implementations
-├── Aevatar.Agents.Runtime.Local/          # Local Runtime
-├── Aevatar.Agents.Runtime.Orleans/        # Orleans Runtime
-├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor Runtime
-├── Aevatar.Agents.AI.Abstractions/        # AI Abstractions
-├── Aevatar.Agents.AI.Core/                # AI Core Implementation
-└── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI Integration
+├── Aevatar.Agents.Abstractions/           # Core Interfaces & Event Contracts
+├── Aevatar.Agents.Core/                   # Base Implementations & EventSourcing
+├── Aevatar.Agents.Runtime/                # Runtime Base Abstractions
+├── Aevatar.Agents.Runtime.Local/          # Local Runtime (In-Process)
+├── Aevatar.Agents.Runtime.Orleans/        # Orleans Runtime (Distributed)
+├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor Runtime (High Performance)
+├── Aevatar.Agents.AI.Abstractions/        # AI Provider Interfaces
+├── Aevatar.Agents.AI.Core/                # AI Core (Conversation, Embeddings)
+├── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI Integration
+├── Aevatar.Agents.AI.LLMTornado/          # LLMTornado Provider
+├── Aevatar.Agents.AI.WithTool/            # AI Tool Calling (Function Calling)
+├── Aevatar.Agents.AI.WithProcessStrategy/ # AI Process Strategies (CoT, ReAct)
+├── Aevatar.Agents.CreativeReasoning/      # Creative Reasoning Agents
+├── Aevatar.Agents.Maker/                  # MAKER: Massively Decomposed Agents
+├── Aevatar.Agents.Persistence.MongoDB/    # MongoDB Persistence
+└── Aevatar.Agents.Plugins.MassTransit/    # MassTransit Stream Plugin (Kafka/RabbitMQ)
 
 examples/
 ├── SimpleDemo/                  # 5-minute Quickstart
 ├── EventSourcingDemo/           # EventSourcing Example
+├── AIAgentWithToolDemo/         # AI Tool Calling Demo
+├── AIEventSourcingDemo/         # AI + EventSourcing
+├── MCPToolDemo/                 # Model Context Protocol Demo
+├── CreativeSystem/              # Creative Reasoning Web App
+├── MakerSystem/                 # MAKER Framework Demo
 ├── MongoDBEventStoreDemo/       # MongoDB Persistence
+├── KafkaStreamDemo/             # Kafka Stream Integration
 ├── Demo.Agents/                 # Various Agent Implementations
 ├── Demo.Api/                    # Web API Integration
 └── Demo.AppHost/                # Aspire Deployment
@@ -389,6 +412,9 @@ You will see the interaction between Calculator and Weather agents.
 | **Actor** | Proto.Actor | 1.8.0 |
 | **Distributed** | Microsoft Orleans | 9.2.1 |
 | **AI** | Microsoft.Extensions.AI | 10.0.0 |
+| **AI Provider** | LLMTornado | 3.8.23 |
+| **MCP** | ModelContextProtocol.Core | 0.4.0-preview.3 |
+| **Messaging** | MassTransit | 8.3.0 |
 | **Testing** | xUnit + Moq | 2.9.2 / 4.20.72 |
 | **Observability** | OpenTelemetry + Aspire | 1.10.0 / 9.5.2 |
 
@@ -409,4 +435,4 @@ You will see the interaction between Calculator and Weather agents.
 
 **Aevatar Agent Framework** - Bringing distributed agent development back to simplicity and essence 🌌
 
-**Latest Update**: 2025-11-13 | **.NET 10** | **Runtime Simplified** | **Docs Consolidated**
+**Latest Update**: 2025-11-28 | **.NET 10** | **MAKER Framework** | **MCP Support** | **MassTransit Plugin**
