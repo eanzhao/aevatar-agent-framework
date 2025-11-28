@@ -4,7 +4,6 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Maker.Messages;
-using Aevatar.Agents.Maker.Resilience;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Aevatar.Agents.AI;
@@ -20,6 +19,9 @@ namespace Aevatar.Agents.Maker.Agents;
 //  - Cancellation support for early termination
 //  - TTFT (Time To First Token) monitoring
 //  - Progressive format validation
+//
+//  Note: Resilience (retry, circuit breaker) is built into
+//  AevatarLLMProviderBase - no manual wrapping needed.
 // ============================================================
 
 /// <summary>
@@ -40,34 +42,8 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
     // Active prefix tracking - requests not matching this prefix are skipped immediately
     // This prevents wasting LLM calls on stale requests that would be discarded anyway
     private volatile string? _activePrefix;
-    
-    // Resilience: Wrap LLM provider with retry and circuit breaker
-    private LLMResiliencePolicy? _resiliencePolicy;
-    private ResilientLLMWrapper? _resilientLLM;
 
     public MakerWorkerGAgent() { }
-    
-    /// <summary>
-    /// Set resilience policy (called by executor after creation).
-    /// </summary>
-    public void SetResiliencePolicy(LLMResiliencePolicy? policy)
-    {
-        _resiliencePolicy = policy;
-        
-        // If already initialized, wrap the existing provider
-        if (policy != null && _isInitialized && LLMProvider != null)
-        {
-            _resilientLLM = new ResilientLLMWrapper(
-                LLMProvider,
-                CustomConfig.LlmProviderName ?? "default",
-                policy,
-                Logger);
-            Logger.LogDebug("[RESILIENCE] Worker {WorkerId} wrapped LLM with resilience policy", CustomState.WorkerId);
-        }
-    }
-    
-    // Helper to get the effective LLM provider (resilient or direct)
-    private IAevatarLLMProvider EffectiveLLMProvider => _resilientLLM ?? LLMProvider;
 
     public override Task<string> GetDescriptionAsync()
     {
@@ -88,6 +64,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         try
         {
             // Initialize AI capabilities
+            // Note: LLMProvider has built-in resilience (retry, circuit breaker)
             await InitializeAsync(request.ProviderName, config =>
             {
                 config.Temperature = request.Temperature;
@@ -109,17 +86,6 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             CustomConfig.DefaultTemperature = request.Temperature;
             CustomConfig.DefaultMaxTokens = 2048;
             CustomConfig.WorkerIndex = request.WorkerIndex;
-            
-            // Wrap LLM provider with resilience if policy is set
-            if (_resiliencePolicy != null && LLMProvider != null)
-            {
-                _resilientLLM = new ResilientLLMWrapper(
-                    LLMProvider,
-                    request.ProviderName,
-                    _resiliencePolicy,
-                    Logger);
-                Logger.LogInformation("[RESILIENCE] Worker {WorkerId} LLM wrapped with retry policy", CustomState.WorkerId);
-            }
 
             // Notify coordinator that worker is ready (UP to parent)
             await PublishAsync(new WorkerInitialized
@@ -255,8 +221,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
                 Messages = [new AevatarChatMessage { Role = AevatarChatRole.User, Content = request.UserPrompt }]
             };
 
-            // Try streaming first, fallback to non-streaming
-            // Use original LLMProvider for model info, but EffectiveLLMProvider for actual calls
+            // Check if streaming is supported
             var modelInfo = await LLMProvider.GetModelInfoAsync(cts.Token);
             
             if (modelInfo.SupportsStreaming)
@@ -266,8 +231,8 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             }
             else
             {
-                // Fallback: non-streaming with cancellation support (using resilient wrapper)
-                var response = await EffectiveLLMProvider.GenerateAsync(llmRequest, cts.Token);
+                // Fallback: non-streaming (LLMProvider has built-in resilience)
+                var response = await LLMProvider.GenerateAsync(llmRequest, cts.Token);
                 content = response.Content;
                 
                 if (response.Usage != null)
@@ -295,6 +260,22 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             Logger.LogInformation("Worker {WorkerId} request {RequestId} was cancelled (early termination)",
                 CustomState.WorkerId, request.RequestId);
             error = "Cancelled (early termination - consensus reached)";
+            CustomState.FailedProposals++;
+        }
+        catch (CircuitBreakerOpenException cbEx)
+        {
+            // Circuit breaker is open - LLM provider is temporarily unavailable
+            Logger.LogWarning("Worker {WorkerId} circuit breaker open for {Provider} until {Until}",
+                CustomState.WorkerId, cbEx.ProviderName, cbEx.OpenUntil);
+            error = $"Provider temporarily unavailable (circuit breaker open until {cbEx.OpenUntil:HH:mm:ss})";
+            CustomState.FailedProposals++;
+        }
+        catch (LLMCallException llmEx)
+        {
+            // LLM call failed after all retries
+            Logger.LogWarning("Worker {WorkerId} LLM call failed after {Attempts} attempts: {Error}",
+                CustomState.WorkerId, llmEx.AttemptsUsed, llmEx.Message);
+            error = $"LLM call failed after {llmEx.AttemptsUsed} attempts: {llmEx.InnerException?.Message ?? llmEx.Message}";
             CustomState.FailedProposals++;
         }
         catch (Exception ex)
@@ -369,8 +350,8 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         Logger.LogWarning("[STREAMING] Worker {WorkerId} ({Provider}) starting streaming for task {TaskId}, proposalId={ProposalId}",
             CustomState.WorkerId, CustomConfig.LlmProviderName, CustomState.CurrentTaskId, proposalId);
 
-        // Use resilient LLM wrapper for automatic retry on transient failures
-        await foreach (var token in EffectiveLLMProvider.GenerateStreamAsync(request, ct))
+        // LLMProvider has built-in resilience for initial connection
+        await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct))
         {
             // Track Time To First Token
             var isFirst = !firstTokenReceived;

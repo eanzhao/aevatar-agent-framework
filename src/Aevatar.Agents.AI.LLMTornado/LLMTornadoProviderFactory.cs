@@ -10,7 +10,9 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Agents.AI.LLMTornado;
 
 /// <summary>
-/// LlmTornado implementation of LLM Provider Factory
+/// LlmTornado implementation of LLM Provider Factory.
+/// Supports OpenAI, Anthropic, Google (Gemini), Azure, Groq, Cohere.
+/// Also supports OpenAI-compatible APIs (DeepSeek, Moonshot, etc.) via custom endpoint.
 /// </summary>
 public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
 {
@@ -27,32 +29,45 @@ public sealed class LLMTornadoProviderFactory : LLMProviderFactoryBase
     public override IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig,
         CancellationToken cancellationToken = default)
     {
-        var config = new LlmTornadoConfig
-        {
-            ApiKey = providerConfig.ApiKey,
-            Provider = ParseProvider(providerConfig.ProviderType)
-        };
+        var providerType = ParseProvider(providerConfig.ProviderType);
+        var endpoint = providerConfig.Endpoint;
+        var apiKey = providerConfig.ApiKey ?? throw new ArgumentException("ApiKey is required");
+        var model = providerConfig.Model;
 
-        var api = new TornadoApi(new List<ProviderAuthentication>
+        // Create TornadoApi with correct endpoint handling
+        TornadoApi api;
+        
+        if (!string.IsNullOrEmpty(endpoint))
         {
-            new(config.Provider, config.ApiKey)
-        });
+            // Custom endpoint (DeepSeek, Moonshot, vLLM, Ollama, etc.)
+            // Use the constructor designed for self-hosted / custom providers
+            api = new TornadoApi(new Uri(endpoint), apiKey, providerType);
+        }
+        else
+        {
+            // Native provider (OpenAI, Anthropic, Google, etc.)
+            // Use ProviderAuthentication for built-in provider routing
+            var auth = new ProviderAuthentication(providerType, apiKey);
+            api = new TornadoApi([auth]);
+        }
 
         var logger = _serviceProvider.GetRequiredService<ILogger<LLMTornadoProvider>>();
-        return new LLMTornadoProvider(api, logger);
+        return new LLMTornadoProvider(api, logger, providerType, model);
     }
 
-    private LLmProviders ParseProvider(string providerType)
+    private static LLmProviders ParseProvider(string? providerType)
     {
-        return providerType.ToLowerInvariant() switch
+        return (providerType?.ToLowerInvariant()) switch
         {
             "openai" => LLmProviders.OpenAi,
-            "anthropic" => LLmProviders.Anthropic,
+            "anthropic" or "claude" => LLmProviders.Anthropic,
             "azure" or "azureopenai" => LLmProviders.AzureOpenAi,
             "google" or "gemini" => LLmProviders.Google,
             "cohere" => LLmProviders.Cohere,
             "groq" => LLmProviders.Groq,
-            _ => LLmProviders.OpenAi // Default to OpenAI
+            // OpenAI-compatible APIs use OpenAI protocol
+            "deepseek" or "moonshot" or "qwen" or "openai_compatible" => LLmProviders.OpenAi,
+            _ => LLmProviders.OpenAi
         };
     }
 }

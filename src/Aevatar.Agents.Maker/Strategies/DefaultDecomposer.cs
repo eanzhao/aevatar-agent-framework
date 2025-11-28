@@ -146,11 +146,31 @@ public sealed class DefaultDecomposer : IDecompositionStrategy
                 if (element.ValueKind == JsonValueKind.Object)
                 {
                     stepId = element.TryGetProperty("step_id", out var sid) ? sid.GetString() : null;
+                    
+                    // Try multiple field names for description (LLMs may vary)
                     description = element.TryGetProperty("description", out var desc)
                         ? desc.GetString()
                         : element.TryGetProperty("task", out var task)
                             ? task.GetString()
-                            : null;
+                            : element.TryGetProperty("section", out var section)
+                                ? section.GetString()  // Paper revision uses "section"
+                                : element.TryGetProperty("title", out var title)
+                                    ? title.GetString()
+                                    : null;
+                    
+                    // If still no description, try to build one from other fields
+                    if (string.IsNullOrWhiteSpace(description))
+                    {
+                        // Look for any string property as fallback
+                        foreach (var prop in element.EnumerateObject())
+                        {
+                            if (prop.Name != "step_id" && prop.Value.ValueKind == JsonValueKind.String)
+                            {
+                                description = prop.Value.GetString();
+                                break;
+                            }
+                        }
+                    }
                 }
                 else if (element.ValueKind == JsonValueKind.String)
                 {

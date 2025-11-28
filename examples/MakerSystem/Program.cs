@@ -1,4 +1,7 @@
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.Core.Embeddings;
+using Aevatar.Agents.AI.LLMTornado;
+using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
@@ -92,7 +95,6 @@ builder.Services.AddMassTransitStreamPlugin(
 // Add Aevatar Local Runtime (provides IGAgentActorFactory)
 builder.Services.AddAevatarLocalRuntime();
 
-// Add MEAI LLM infrastructure
 builder.Services.AddMEAI();
 
 // Add MAKER - Agent-based execution with Worker Agents

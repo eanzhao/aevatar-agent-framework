@@ -28,7 +28,7 @@ builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();
 
 // Add UoT Creative Reasoning (with default provider)
-builder.Services.AddUoTCreativeReasoning("deepseek");
+builder.Services.AddUoTCreativeReasoning("claude");
 
 // Creative Project service
 builder.Services.AddSingleton<CreativeProjectService>();

@@ -60,7 +60,8 @@ public partial class MakerCoordinatorGAgent
             ? "You are a precise problem solver. Provide clear, direct answers."
             : "You are a precise task decomposition agent. Output ONLY valid JSON.";
 
-        var maxTokens = isSolution ? 2048 : 1024;
+        // Token limits from options (configurable per task type)
+        var maxTokens = isSolution ? options.MaxSolutionTokens : options.MaxDecompositionTokens;
         var baseTemperature = isSolution ? 0.2f : 0.3f;
 
         // Maximum samples = 3 * N (prevent infinite loops)

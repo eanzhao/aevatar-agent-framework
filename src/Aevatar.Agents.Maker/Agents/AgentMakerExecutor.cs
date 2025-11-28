@@ -1,8 +1,9 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
+using Aevatar.Agents.Maker.Checkpoint;
 using Aevatar.Agents.Maker.Messages;
-using Aevatar.Agents.Maker.Resilience;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -11,6 +12,9 @@ namespace Aevatar.Agents.Maker.Agents;
 // ============================================================
 //  Agent-based MAKER Executor
 //  Uses Aevatar Actor Framework with proper hierarchy
+//
+//  Note: LLM resilience (retry, circuit breaker) is built into
+//  AevatarLLMProviderBase - Workers automatically benefit from it.
 // ============================================================
 
 /// <summary>
@@ -29,8 +33,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
     private readonly ISolutionStrategy _solver;
     private readonly ICompositionStrategy _composer;
     
-    // Resilience components
-    private readonly LLMResiliencePolicy _resiliencePolicy;
+    // Checkpoint store for recovery
     private readonly ICheckpointStore _checkpointStore;
 
     public AgentMakerExecutor(
@@ -48,9 +51,6 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
         _composer = composer ?? new DefaultComposer();
-        
-        // Initialize resilience components with default config
-        _resiliencePolicy = new LLMResiliencePolicy(null, logger);
         _checkpointStore = checkpointStore ?? new InMemoryCheckpointStore();
     }
 
@@ -85,9 +85,9 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 throw new InvalidOperationException("Failed to get MakerCoordinatorGAgent from actor");
             }
             
-            // Initialize checkpoint manager if resilience is enabled
+            // Initialize checkpoint manager if checkpointing is enabled
             TaskCheckpointManager? checkpointManager = null;
-            if (options.EnableResilience && options.EnableCheckpointing)
+            if (options.EnableCheckpointing)
             {
                 var store = !string.IsNullOrEmpty(options.CheckpointDirectory)
                     ? new FileCheckpointStore(options.CheckpointDirectory, _logger)
@@ -97,27 +97,8 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                     executionId.ToString("N")[..8],
                     taskDescription,
                     options);
-                _logger.LogInformation("[RESILIENCE] Checkpoint tracking enabled for execution {ExecutionId}", 
+                _logger.LogInformation("[CHECKPOINT] Checkpoint tracking enabled for execution {ExecutionId}", 
                     executionId.ToString("N")[..8]);
-            }
-            
-            // Create resilience policy with options
-            LLMResiliencePolicy? resiliencePolicy = null;
-            if (options.EnableResilience)
-            {
-                var resilienceConfig = new LLMResilienceConfig
-                {
-                    MaxRetries = options.MaxRetries,
-                    InitialRetryDelay = options.InitialRetryDelay,
-                    MaxRetryDelay = options.MaxRetryDelay,
-                    CircuitBreakerThreshold = options.CircuitBreakerThreshold,
-                    CircuitBreakerDuration = options.CircuitBreakerDuration,
-                    EnableJitter = true,
-                    CallTimeout = options.StepTimeout
-                };
-                resiliencePolicy = new LLMResiliencePolicy(resilienceConfig, _logger);
-                _logger.LogInformation("[RESILIENCE] LLM retry policy enabled: {Retries} retries, circuit breaker at {Threshold}",
-                    options.MaxRetries, options.CircuitBreakerThreshold);
             }
             
             coordinator.SetDependencies(
@@ -127,21 +108,14 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 redFlagStrategy: options.RedFlagStrategy,
                 redFlagOptions: options.RedFlagOptions,
                 progressCallback: options.OnProgress,
-                checkpointManager: checkpointManager,
-                resiliencePolicy: resiliencePolicy);
+                checkpointManager: checkpointManager);
 
             // Step 3: Create Worker Actors and establish parent-child relationships
+            // Note: Workers automatically benefit from LLM resilience built into Provider
             for (var i = 0; i < workerCount; i++)
             {
                 var workerId = Guid.NewGuid();
                 var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId, ct);
-                
-                // Inject resilience policy to worker
-                if (resiliencePolicy != null)
-                {
-                    var worker = workerActor.GetAgent() as MakerWorkerGAgent;
-                    worker?.SetResiliencePolicy(resiliencePolicy);
-                }
                 
                 // Establish parent-child relationship via ActorHierarchyCoordinator
                 await ActorHierarchyCoordinator.LinkAsync(coordinatorActor, workerActor, _logger, ct);
@@ -150,8 +124,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 _logger.LogDebug("Created and linked worker actor {WorkerId} (index: {Index})", workerId, i);
             }
 
-            _logger.LogInformation("Created {Count} worker actors with hierarchy{Resilience}", 
-                workerCount, resiliencePolicy != null ? " (with resilience)" : "");
+            _logger.LogInformation("Created {Count} worker actors with hierarchy", workerCount);
 
             // Step 4: Start execution by sending StartMakerTaskRequest event
             var providerName = options.ProviderName ?? _defaultProviderName;
@@ -191,8 +164,6 @@ public sealed class AgentMakerExecutor : IMakerExecutor
             }
 
             // Send start event directly to coordinator (triggers EventHandler)
-            // Note: We use HandleEventAsync instead of PublishEventAsync because
-            // PublishEventAsync with Down direction sends to children, not self
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
@@ -227,7 +198,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                     if (result.Success && checkpointManager != null)
                     {
                         await checkpointManager.CompleteExecutionAsync(ct);
-                        _logger.LogDebug("[RESILIENCE] Checkpoint cleaned up for successful execution");
+                        _logger.LogDebug("[CHECKPOINT] Checkpoint cleaned up for successful execution");
                     }
                     
                     _logger.LogInformation(
@@ -342,13 +313,5 @@ public sealed class AgentMakerExecutor : IMakerExecutor
     {
         var checkpointManager = new TaskCheckpointManager(_checkpointStore, _logger);
         return checkpointManager.ListRecoverableExecutionsAsync(ct);
-    }
-    
-    /// <summary>
-    /// Get health status of all LLM providers (circuit breaker state).
-    /// </summary>
-    public Dictionary<string, ProviderHealthStatus> GetProviderHealthStatus()
-    {
-        return _resiliencePolicy.GetHealthStatus();
     }
 }

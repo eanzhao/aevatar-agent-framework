@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using Aevatar.Agents.AI.Abstractions;
 using LlmTornado;
+using LlmTornado.Chat.Models;
 using LlmTornado.Code;
 using Microsoft.Extensions.Logging;
 
@@ -9,36 +11,50 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
 {
     private readonly TornadoApi _api;
     private readonly ILogger<LLMTornadoProvider> _logger;
+    private readonly LLMCallPolicy _policy;
+    private readonly LLmProviders _providerType;
+    private readonly string _modelName;
 
-    public LLMTornadoProvider(TornadoApi api, ILogger<LLMTornadoProvider> logger)
+    public LLMTornadoProvider(
+        TornadoApi api,
+        ILogger<LLMTornadoProvider> logger,
+        LLmProviders providerType,
+        string modelName,
+        LLMCallPolicy? policy = null)
     {
         _api = api;
         _logger = logger;
+        _providerType = providerType;
+        _modelName = modelName;
+        _policy = policy ?? LLMCallPolicy.Default;
     }
 
-    public override async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
+    protected override LLMCallPolicy Policy => _policy;
+    protected override ILogger? Logger => _logger;
+    protected override string ProviderName => $"LLMTornado:{_providerType}";
+
+    protected override async Task<AevatarLLMResponse> GenerateCoreAsync(
+        AevatarLLMRequest request,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var chatRequest = MapToChatRequest(request);
             var response = await _api.Chat.CreateChatCompletion(chatRequest);
-
             return MapToLLMResponse(response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating response from LlmTornado");
+            _logger.LogError(ex, "Error generating response from LlmTornado ({Provider})", _providerType);
             throw;
         }
     }
 
-    public override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
-        [System.Runtime.CompilerServices.EnumeratorCancellation]
-        CancellationToken cancellationToken = default)
+    protected override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamCoreAsync(
+        AevatarLLMRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var chatRequest = MapToChatRequest(request);
-        // Stream property is read-only, handled by StreamChatEnumerable
 
         await foreach (var chunk in _api.Chat.StreamChatEnumerable(chatRequest).WithCancellation(cancellationToken))
         {
@@ -48,9 +64,15 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
 
     private LlmTornado.Chat.ChatRequest MapToChatRequest(AevatarLLMRequest request)
     {
+        // Use model from request settings, or fall back to configured model
+        var modelId = request.Settings?.ModelId ?? _modelName;
+        
+        // Create ChatModel with model name and provider type for correct routing
+        var chatModel = new ChatModel(modelId, _providerType);
+        
         var chatRequest = new LlmTornado.Chat.ChatRequest
         {
-            Model = new LlmTornado.Chat.Models.ChatModel(request.Settings?.ModelId ?? AevatarAIDefaults.DefaultModel),
+            Model = chatModel,
             Temperature = request.Settings?.Temperature ?? AevatarAIDefaults.DefaultTemperature,
             MaxTokens = request.Settings?.MaxTokens ?? AevatarAIDefaults.DefaultMaxTokensExtended,
             Messages = []
@@ -75,10 +97,6 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
                     Content = msg.Content
                 };
 
-                // Handle Tool Call ID for Tool messages
-                // Note: AevatarChatMessage currently doesn't support ToolCallId directly.
-                // We might need to use Metadata if supported in future.
-                
                 chatRequest.Messages.Add(chatMsg);
             }
         }
@@ -86,7 +104,6 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         // Add System Prompt if exists and not already in messages
         if (!string.IsNullOrEmpty(request.SystemPrompt))
         {
-            // Check if system prompt is already added
             if (chatRequest.Messages.All(m => m.Role != ChatMessageRoles.System))
             {
                 chatRequest.Messages.Insert(0, new LlmTornado.Chat.ChatMessage
@@ -147,8 +164,7 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         if (choice.Message?.ToolCalls != null && choice.Message.ToolCalls.Count > 0)
         {
             var toolCall = choice.Message.ToolCalls[0];
-            
-            // Try to access FunctionCall property (guessing name)
+
             if (toolCall.FunctionCall != null)
             {
                 result.AevatarFunctionCall = new AevatarFunctionCall
@@ -162,7 +178,7 @@ public class LLMTornadoProvider : AevatarLLMProviderBase
         return result;
     }
 
-    private AevatarLLMToken MapToLLMToken(LlmTornado.Chat.ChatResult? chunk)
+    private static AevatarLLMToken MapToLLMToken(LlmTornado.Chat.ChatResult? chunk)
     {
         if (chunk == null || chunk.Choices == null || chunk.Choices.Count == 0)
             return new AevatarLLMToken { Content = string.Empty };

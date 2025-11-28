@@ -3,7 +3,7 @@ using System.Text.Json;
 using Aevatar.Agents.Maker.Messages;
 using Microsoft.Extensions.Logging;
 
-namespace Aevatar.Agents.Maker.Resilience;
+namespace Aevatar.Agents.Maker.Checkpoint;
 
 // ============================================================
 //  Task Checkpoint Manager

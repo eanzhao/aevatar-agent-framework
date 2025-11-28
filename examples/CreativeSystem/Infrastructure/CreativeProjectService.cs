@@ -149,7 +149,7 @@ public class CreativeProjectService
             // Build UoT options with progress callback
             var options = new UoTOptions
             {
-                ProviderName = "deepseek",
+                ProviderName = "claude",
                 DomainHint = request.DomainHint,
                 MaxAnalogies = request.MaxAnalogies,
                 MaxCandidates = request.MaxCandidates,

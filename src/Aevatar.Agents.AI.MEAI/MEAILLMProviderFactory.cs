@@ -75,7 +75,9 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
         var clientOptions = new OpenAIClientOptions
         {
-            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider)
+            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider),
+            // Increase network timeout for large token generation (20K+ tokens can take 5+ minutes)
+            NetworkTimeout = TimeSpan.FromMinutes(10)
         };
 
         if (!string.IsNullOrWhiteSpace(config.Endpoint))
@@ -94,7 +96,9 @@ public sealed class MEAILLMProviderFactory : LLMProviderFactoryBase
 
         var clientOptions = new AzureOpenAIClientOptions
         {
-            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider)
+            ClientLoggingOptions = MEAIClientLoggingOptionsBuilder.Create(_serviceProvider),
+            // Increase network timeout for large token generation (20K+ tokens can take 5+ minutes)
+            NetworkTimeout = TimeSpan.FromMinutes(10)
         };
 
         var azureClient = new AzureOpenAIClient(

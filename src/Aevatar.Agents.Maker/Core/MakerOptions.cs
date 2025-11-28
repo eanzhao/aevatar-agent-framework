@@ -239,6 +239,20 @@ public sealed record MakerOptions
     public int RedFlagThreshold { get; init; } = 3;
     
     /// <summary>
+    /// Maximum response tokens for decomposition requests.
+    /// Decomposition generates structured JSON with subtask descriptions.
+    /// Default: 10240 (enough for ~40 subtasks with detailed descriptions)
+    /// </summary>
+    public int MaxDecompositionTokens { get; init; } = 1024 * 10;
+    
+    /// <summary>
+    /// Maximum response tokens for solution requests.
+    /// Solution generates the actual content (e.g., revised paper sections).
+    /// Default: 20480 (enough for substantial text generation)
+    /// </summary>
+    public int MaxSolutionTokens { get; init; } = 1024 * 20;
+    
+    /// <summary>
     /// Custom red flag strategy for content validation.
     /// If null, uses DefaultEnglishRedFlagStrategy with RedFlagOptions.
     /// Implement IRedFlagStrategy for domain-specific validation (e.g., code, Chinese text).

@@ -3,8 +3,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Maker.Checkpoint;
 using Aevatar.Agents.Maker.Messages;
-using Aevatar.Agents.Maker.Resilience;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -46,11 +46,10 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     private IRedFlagStrategy _redFlagStrategy = new DefaultEnglishRedFlagStrategy();
     
     // ============================================================
-    //  Resilience Components (injected via SetDependencies)
+    //  Checkpoint Manager (injected via SetDependencies)
     // ============================================================
     
     private TaskCheckpointManager? _checkpointManager;
-    private LLMResiliencePolicy? _resiliencePolicy;
 
     // ============================================================
     //  Runtime State (not persisted, rebuilt on activation)
@@ -106,8 +105,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
         IRedFlagStrategy? redFlagStrategy = null,
         RedFlagOptions? redFlagOptions = null,
         Action<MakerProgress>? progressCallback = null,
-        TaskCheckpointManager? checkpointManager = null,
-        LLMResiliencePolicy? resiliencePolicy = null)
+        TaskCheckpointManager? checkpointManager = null)
     {
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
@@ -115,13 +113,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
         _redFlagStrategy = redFlagStrategy ?? new DefaultEnglishRedFlagStrategy(redFlagOptions ?? new RedFlagOptions());
         _progressCallback = progressCallback;
         _checkpointManager = checkpointManager;
-        _resiliencePolicy = resiliencePolicy;
     }
-    
-    /// <summary>
-    /// Get the resilience policy (for Worker to use).
-    /// </summary>
-    public LLMResiliencePolicy? GetResiliencePolicy() => _resiliencePolicy;
 
     /// <summary>
     /// Get the execution result (called after checking status is completed).
