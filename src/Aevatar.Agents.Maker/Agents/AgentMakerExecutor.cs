@@ -65,7 +65,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         try
         {
             // Step 1: Create Coordinator Actor
-            coordinatorActor = await _actorFactory.CreateGAgentActorAsync<MakerCoordinatorGAgent>(executionId);
+            coordinatorActor = await _actorFactory.CreateGAgentActorAsync<MakerCoordinatorGAgent>(executionId, ct);
             _logger.LogDebug("Created coordinator actor {CoordinatorId}", executionId);
 
             // Step 2: Inject dependencies into coordinator via GetAgent()
@@ -87,7 +87,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
             for (var i = 0; i < workerCount; i++)
             {
                 var workerId = Guid.NewGuid();
-                var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId);
+                var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId, ct);
                 
                 // Establish parent-child relationship via ActorHierarchyCoordinator
                 await ActorHierarchyCoordinator.LinkAsync(coordinatorActor, workerActor, _logger, ct);

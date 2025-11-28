@@ -3,7 +3,7 @@ using System.Diagnostics;
 using Aevatar.Agents.Maker;
 using MakerSystem.Projects;
 
-namespace MakerSystem.Infrastructure;
+namespace MakerSystem;
 
 // ============================================================
 //  Project Service - Clean, Simple, ~150 lines

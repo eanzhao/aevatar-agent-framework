@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C-UoT Creative Reasoning Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="brand">
+                <span class="brand-icon">◈</span>
+                <h1>Universe of Thoughts</h1>
+                <span class="brand-sub">C-UoT Creative Reasoning</span>
+            </div>
+            <div class="header-info">
+                <a href="https://arxiv.org/html/2511.20471v2" target="_blank" class="paper-link">📄 Paper</a>
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle Light/Dark Theme">
+                    <span class="theme-toggle-icon" id="theme-icon">🌙</span>
+                    <span class="theme-toggle-label" id="theme-label">DARK</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Left Panel: Problem Input -->
+            <aside class="input-panel">
+                <div class="panel-header">
+                    <h2>🎯 Problem Definition</h2>
+                </div>
+                
+                <!-- Sample Problems -->
+                <div class="sample-section">
+                    <label>Sample Problems</label>
+                    <div id="sample-list" class="sample-grid"></div>
+                </div>
+
+                <!-- Problem Input -->
+                <div class="form-group">
+                    <label>Problem Description</label>
+                    <textarea id="problem-input" rows="5" placeholder="Describe the problem you want to solve creatively..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Domain Hint (optional)</label>
+                    <input type="text" id="domain-hint" placeholder="e.g., transportation, business, technology">
+                </div>
+
+                <!-- Advanced Options -->
+                <details class="options-panel">
+                    <summary>⚙️ Advanced Options</summary>
+                    <div class="options-grid">
+                        <div class="option-item">
+                            <label>Max Analogies</label>
+                            <input type="number" id="opt-analogies" value="5" min="1" max="10">
+                        </div>
+                        <div class="option-item">
+                            <label>Max Candidates</label>
+                            <input type="number" id="opt-candidates" value="10" min="1" max="20">
+                        </div>
+                        <div class="option-item">
+                            <label>Feasibility Threshold</label>
+                            <input type="number" id="opt-feasibility" value="0.6" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="option-item">
+                            <label>Utility Weight</label>
+                            <input type="number" id="opt-utility" value="0.5" min="0" max="1" step="0.1">
+                        </div>
+                        <div class="option-item">
+                            <label>Novelty Weight</label>
+                            <input type="number" id="opt-novelty" value="0.5" min="0" max="1" step="0.1">
+                        </div>
+                    </div>
+                </details>
+
+                <button id="btn-solve" class="btn-primary" onclick="startSolve()">
+                    <span class="btn-icon">⚡</span> Start Creative Reasoning
+                </button>
+            </aside>
+
+            <!-- Right Panel: Results -->
+            <main class="result-panel">
+                <!-- Progress Section -->
+                <section class="progress-section" id="progress-section" style="display: none;">
+                    <div class="progress-header">
+                        <h2>🧠 C-UoT Progress</h2>
+                        <span id="status-badge" class="status-badge">Running</span>
+                    </div>
+                    
+                    <!-- Progress Bar -->
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                    </div>
+                    
+                    <!-- Phase Info -->
+                    <div class="phase-display">
+                        <span class="phase-label">Phase:</span>
+                        <span id="current-phase" class="phase-value">Starting</span>
+                    </div>
+
+                    <!-- Stats Grid -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-analogies">0</div>
+                            <div class="stat-label">Analogies</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-thoughts">0</div>
+                            <div class="stat-label">Thoughts</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-candidates">0</div>
+                            <div class="stat-label">Candidates</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-passed">0</div>
+                            <div class="stat-label">Passed</div>
+                        </div>
+                    </div>
+
+                    <!-- Timeline -->
+                    <div class="timeline-section">
+                        <h3>📜 Event Timeline</h3>
+                        <ul id="timeline" class="timeline-list"></ul>
+                    </div>
+                </section>
+
+                <!-- Results Section -->
+                <section class="results-section" id="results-section" style="display: none;">
+                    <div class="results-header">
+                        <h2>✨ Creative Solutions</h2>
+                        <div class="result-meta">
+                            <span id="result-count"></span>
+                            <span id="result-llm-calls"></span>
+                        </div>
+                    </div>
+
+                    <!-- Best Solution -->
+                    <div class="best-solution" id="best-solution">
+                        <div class="solution-header">
+                            <span class="solution-badge best">🏆 Best Solution</span>
+                            <div class="score-pills">
+                                <span class="score-pill feasibility" id="best-feasibility">F: --</span>
+                                <span class="score-pill utility" id="best-utility">U: --</span>
+                                <span class="score-pill novelty" id="best-novelty">N: --</span>
+                                <span class="score-pill composite" id="best-composite">Score: --</span>
+                            </div>
+                        </div>
+                        <div class="solution-content" id="best-content"></div>
+                    </div>
+
+                    <!-- All Candidates -->
+                    <div class="candidates-section">
+                        <h3>📋 All Candidates (ranked)</h3>
+                        <div id="candidates-list" class="candidates-list"></div>
+                    </div>
+
+                    <!-- Trace Info -->
+                    <details class="trace-section">
+                        <summary>🔍 Execution Trace</summary>
+                        <div id="trace-info" class="trace-content"></div>
+                    </details>
+                </section>
+
+                <!-- Empty State -->
+                <div class="empty-state" id="empty-state">
+                    <div class="empty-icon">🌌</div>
+                    <h3>Universe of Thoughts</h3>
+                    <p>Select a sample problem or describe your own to start creative reasoning.</p>
+                    <div class="uot-steps">
+                        <div class="step">1️⃣ Analogical Retrieval</div>
+                        <div class="step">2️⃣ Thought Decomposition</div>
+                        <div class="step">3️⃣ Host Selection</div>
+                        <div class="step">4️⃣ Donor Selection</div>
+                        <div class="step">5️⃣ Synthesis</div>
+                        <div class="step">6️⃣ Evaluation</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

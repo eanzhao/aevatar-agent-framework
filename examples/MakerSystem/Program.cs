@@ -3,7 +3,7 @@ using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
-using MakerSystem.Infrastructure;
+using MakerSystem;
 
 var builder = WebApplication.CreateBuilder(args);
 

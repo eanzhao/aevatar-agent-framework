@@ -7,6 +7,7 @@
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
   <Folder Name="/apps/">
+    <Project Path="examples\CreativeSystem\CreativeSystem.csproj" Type="Classic C#" />
     <Project Path="examples\MakerSystem\MakerSystem.csproj" />
   </Folder>
   <Folder Name="/docs/">
@@ -43,6 +44,7 @@
     <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
