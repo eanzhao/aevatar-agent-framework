@@ -117,7 +117,7 @@ Why Protobuf?
 #### Constructors
 *   **Do NOT** use constructors with parameters.
 *   **Do NOT** initialize State in the constructor.
-*   The Framework uses `AIGAgentFactory` to inject dependencies and IDs.
+*   The Framework uses `IGAgentFactory` (implemented by `AIGAgentFactory`) to inject dependencies and IDs.
 
 **Correct:**
 ```csharp
@@ -173,28 +173,46 @@ await PublishAsync(new CommandEvent(), EventDirection.Down);
 The `Aevatar.Agents.AI` package provides LLM capabilities.
 
 ### Usage
-Inherit from `AIGAgentBase<TState>` (or `AIGAgentBase<TState, TConfig>`).
+Inherit from `AIGAgentBase` (which extends `GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>`).
 
 ```csharp
-public class SmartAgent : AIGAgentBase<SmartState>
+public class SmartAgent : AIGAgentBase
 {
-    public override async Task OnActivateAsync(CancellationToken ct)
-    {
-        await base.OnActivateAsync(ct);
-        
-        // Initialize with a provider configured in appsettings.json
-        await InitializeAsync("openai-gpt4"); 
-        
-        // Or with custom config
-        // await InitializeAsync(new LLMProviderConfig { ... });
-    }
+    public override string SystemPrompt => "You are a helpful AI assistant.";
 
     [EventHandler]
     public async Task HandleUserQuery(QueryEvent evt)
     {
-        // Access the LLM
-        var response = await LLMProvider.ChatAsync(evt.Prompt);
-        await PublishAsync(new AnswerEvent { Text = response });
+        // Must initialize first (typically done once via factory)
+        if (!_isInitialized)
+        {
+            await InitializeAsync("openai-gpt4"); // From appsettings.json
+        }
+
+        // Use ChatAsync for simple conversations
+        var response = await ChatAsync(CreateChatRequest(evt.Prompt));
+        await PublishAsync(new AnswerEvent { Text = response.Content });
+    }
+}
+
+// For custom state, use AIGAgentBase.TCustomState or AIGAgentBase.TCustomState.TCustomConfig
+public class MyAIAgent : AIGAgentBase<MyCustomState, MyCustomConfig>
+{
+    // Custom state and config types (must be Protobuf messages)
+}
+```
+
+### AI Agent with Tools (Function Calling)
+For agents that need to call external tools:
+
+```csharp
+public class ToolAgent : AIGAgentWithToolBase<MyState, MyConfig>
+{
+    protected override void RegisterTools()
+    {
+        // Register tools that the AI can call
+        RegisterTool(new WeatherTool());
+        RegisterTool(new CalculatorTool());
     }
 }
 ```

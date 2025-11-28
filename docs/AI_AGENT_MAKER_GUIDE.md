@@ -77,29 +77,41 @@ public class MyAgent : AIGAgentBase<MyState, MyConfig>
 
 ## 3. Configuration Helper (配置助手)
 
-The framework provides extension methods for each runtime to simplify setup. Choose the one that matches your target runtime.
+The framework provides a fluent builder pattern for runtime configuration.
 
 ### A. Local Runtime (Development/Testing)
 ```csharp
-using Aevatar.Agents.Runtime.Local.Extensions;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.DependencyInjection;
 
-builder.Services.AddAevatarLocalRuntime();
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseLocalRuntime();
+});
 ```
 
 ### B. Proto.Actor Runtime (High Performance)
 ```csharp
-using Aevatar.Agents.Runtime.ProtoActor.Extensions;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Runtime.ProtoActor;
 
-builder.Services.AddAevatarProtoActorRuntime();
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseProtoActorRuntime();
+});
 ```
 
 ### C. Orleans Runtime (Distributed)
 *Note: Requires Orleans Silo configuration.*
 
 ```csharp
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Orleans.Extensions;
 
-builder.Services.AddAevatarOrleansRuntime();
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseOrleansRuntime();
+});
 ```
 
 ---
@@ -130,10 +142,12 @@ For every agent you create, generate a `README.md` following this structure:
 Use `IGAgentFactory` to create the agent instance with all dependencies injected.
 
 ```csharp
+using Aevatar.Agents.Core.Extensions;
+
 // 1. Setup minimal container
 var services = new ServiceCollection();
 services.AddLogging();
-services.AddAevatarLocalRuntime(); // Registers factory
+services.AddAevatarAgentSystem(builder => builder.UseLocalRuntime());
 var sp = services.BuildServiceProvider();
 
 // 2. Get Factory
@@ -150,7 +164,8 @@ await agent.HandleEventAsync(new EventEnvelope { ... });
 **Required for**: Multiple agents, Event Sourcing, Pub/Sub.
 
 ```csharp
-using Aevatar.Agents.Runtime.Local.Extensions;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -172,7 +187,7 @@ builder.Services.AddLogging(logging =>
 });
 
 // 4. Use the Runtime Extension
-builder.Services.AddAevatarLocalRuntime();
+builder.Services.AddAevatarAgentSystem(cfg => cfg.UseLocalRuntime());
 
 var app = builder.Build();
 await app.StartAsync();

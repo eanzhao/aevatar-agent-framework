@@ -116,20 +116,45 @@ public class CounterAgent : GAgentBase<CounterState>
 }
 
 // 3. 创建和使用
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Core.DependencyInjection;
+
 var services = new ServiceCollection().AddLogging(b => b.AddConsole());
-services.AddSingleton<LocalGAgentActorFactory>();
-services.AddSingleton<LocalGAgentActorManager>();
-services.AddSingleton<LocalMessageStreamRegistry>();
+
+services.AddAevatarAgentSystem(builder =>
+{
+    builder.UseLocalRuntime();
+});
 
 var sp = services.BuildServiceProvider();
-var factory = sp.GetRequiredService<LocalGAgentActorFactory>();
+var factory = sp.GetRequiredService<IGAgentActorFactory>();
 
 var actor = await factory.CreateGAgentActorAsync<CounterAgent>(Guid.NewGuid());
+
+// 直接访问 Agent 调用方法
+var counter = (CounterAgent)actor.GetAgent();
+
+// 或者发布事件
 await actor.PublishEventAsync(new EventEnvelope
 {
     Id = Guid.NewGuid().ToString(),
     Payload = Any.Pack(new IncrementEvent { Amount = 5 })
 });
+```
+
+需要自定义持久化？通过 `GAgentOptions` 配置：
+
+```csharp
+services.AddAevatarAgentSystem(
+    configureStores: options =>
+    {
+        options.StateStoreType = typeof(MyStateStore<>);         // 开放泛型
+        options.EventStoreType = typeof(MyEventStore);           // 具体类型
+    },
+    configure: builder =>
+    {
+        builder.UseLocalRuntime();
+    });
 ```
 
 运行 `examples/SimpleDemo/` 查看完整示例。
@@ -278,56 +303,50 @@ public class BankAccountAgent : EventSourcedGAgentBase<BankAccountState>
 
 ```
 src/
-├── Aevatar.Agents.Abstractions/           # 核心接口
-│   ├── IGAgent, IGAgentActor
-│   ├── IGAgentActorManager
-│   └── IMessageStream
+├── Aevatar.Agents.Abstractions/           # 核心接口与事件协议
+│   ├── IGAgent, IGAgentActor              # Agent与Actor接口
+│   ├── IGAgentActorManager                # Actor管理器
+│   └── IMessageStream                     # 消息流抽象
 │
 ├── Aevatar.Agents.Core/                   # 基础实现
-│   ├── GAgentBase<TState>
-│   ├── EventRouting, Subscription
-│   └── EventSourcing, Observability
+│   ├── GAgentBase<TState>                 # 带状态的Agent基类
+│   ├── GAgentBase<TState, TConfig>        # 带配置的Agent基类
+│   ├── EventSourcing/                     # 事件溯源
+│   └── DependencyInjection/               # 依赖注入扩展
 │
-├── Aevatar.Agents.Runtime.Local/          # Local运行时
-│   ├── LocalGAgentActor
-│   ├── LocalGAgentActorManager
-│   └── LocalMessageStream (Channel-based)
+├── Aevatar.Agents.Runtime.Local/          # Local运行时（进程内）
+├── Aevatar.Agents.Runtime.Orleans/        # Orleans运行时（分布式）
+├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor运行时（高性能）
 │
-├── Aevatar.Agents.Runtime.Orleans/        # Orleans运行时
-│   ├── OrleansGAgentGrain
-│   ├── OrleansGAgentActorManager
-│   └── OrleansMessageStream (Stream-based)
+├── Aevatar.Agents.AI.Abstractions/        # AI Provider接口
+├── Aevatar.Agents.AI.Core/                # AI核心（对话、Embedding）
+├── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI集成
+├── Aevatar.Agents.AI.LLMTornado/          # LLMTornado Provider
+├── Aevatar.Agents.AI.WithTool/            # AI工具调用（Function Calling）
+├── Aevatar.Agents.AI.WithProcessStrategy/ # AI处理策略（CoT、ReAct）
 │
-├── Aevatar.Agents.Runtime.ProtoActor/     # ProtoActor运行时
-│   ├── ProtoActorGAgentActor
-│   ├── ProtoActorGAgentActorManager
-│   └── ProtoActorMessageStream
-│
-├── Aevatar.Agents.AI.Abstractions/        # AI抽象
-│   ├── IAevatarTool, ILLMProvider
-│   └── Prompt, Memory接口
-│
-├── Aevatar.Agents.AI.Core/                # AI核心实现
-│   ├── AIGAgentBase<TState>
-│   ├── Tool系统，Strategy
-│   └── ConversationHistoryManager（含 ToolAwareConversationHistoryManager）
-│
-└── Aevatar.Agents.AI.MEAI/                # Microsoft.Extensions.AI集成
-    ├── MEAIGAgentBase<TState>
-    └── MEAILLMProvider
+├── Aevatar.Agents.CreativeReasoning/      # 创意推理Agent
+├── Aevatar.Agents.Maker/                  # MAKER：极致分解的Agent系统
+├── Aevatar.Agents.Persistence.MongoDB/    # MongoDB持久化
+└── Aevatar.Agents.Plugins.MassTransit/    # MassTransit流插件（Kafka/RabbitMQ）
 
 examples/
 ├── SimpleDemo/                  # 5分钟入门
 ├── EventSourcingDemo/           # EventSourcing示例
+├── AIAgentWithToolDemo/         # AI工具调用示例
+├── AIEventSourcingDemo/         # AI + EventSourcing
+├── MCPToolDemo/                 # Model Context Protocol示例
+├── CreativeSystem/              # 创意推理Web应用
+├── MakerSystem/                 # MAKER框架示例
 ├── MongoDBEventStoreDemo/       # MongoDB持久化
+├── KafkaStreamDemo/             # Kafka流集成
 ├── Demo.Agents/                 # 各种Agent实现
 ├── Demo.Api/                    # Web API集成
 └── Demo.AppHost/                # Aspire部署
 
 test/
 ├── Aevatar.Agents.Core.Tests/            # 核心测试
-├── Aevatar.Agents.*.Tests/               # 各Runtime测试
-└── README.md                             # 测试说明
+└── Aevatar.Agents.*.Tests/               # 各Runtime测试
 ```
 
 ---
@@ -339,7 +358,8 @@ test/
 | 文档 | 内容 |
 |------|------|
 | [docs/AEVATAR_FRAMEWORK_GUIDE.md](docs/AEVATAR_FRAMEWORK_GUIDE.md) | **全能指南**：架构、开发、AI、Runtime集成 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 顶层架构设计原理 |
+| [docs/ARCHITECTURE_REFERENCE.md](docs/ARCHITECTURE_REFERENCE.md) | 深度架构参考文档 |
+| [docs/CONSTITUTION.md](docs/CONSTITUTION.md) | 框架设计哲学宪章 |
 
 **开始阅读**: [docs/AEVATAR_FRAMEWORK_GUIDE.md](docs/AEVATAR_FRAMEWORK_GUIDE.md) - 这是你唯一需要阅读的开发者手册。
 
@@ -417,6 +437,9 @@ dotnet run
 | **Actor** | Proto.Actor | 1.8.0 |
 | **分布式** | Microsoft Orleans | 9.2.1 |
 | **AI** | Microsoft.Extensions.AI | 10.0.0 |
+| **AI Provider** | LLMTornado | 3.8.23 |
+| **MCP** | ModelContextProtocol.Core | 0.4.0-preview.3 |
+| **消息队列** | MassTransit | 8.3.0 |
 | **测试** | xUnit + Moq | 2.9.2 / 4.20.72 |
 | **可观测性** | OpenTelemetry + Aspire | 1.10.0 / 9.5.2 |
 
@@ -536,14 +559,16 @@ var sub = await stream.SubscribeAsync(...);  // 内存泄漏！
 - ✅ **三种Runtime**: 稳定运行
 - ✅ **EventSourcing**: 生产可用
 - ✅ **AI集成**: Microsoft.Extensions.AI 10.0
-- ✅ **测试覆盖**: 95%+ (182/191 tests passing)
-- ✅ **文档**: 精简到5个核心文档
+- ✅ **工具调用**: Function Calling + MCP协议
+- ✅ **MAKER框架**: 极致分解的Agent系统
+- ✅ **消息队列**: MassTransit插件（Kafka/RabbitMQ）
 
 ### 近期里程碑
 
-- **2025-11-13**: .NET 10升级 + Runtime抽象移除 + 文档整理
-- **2025-11-11**: Microsoft.Extensions.AI集成 + 对话管理重构
-- **2025-11-10**: Protobuf强制规则 + Stream架构优化
+- **2025-11-28**: MAKER框架 + MCP协议支持 + 文档更新
+- **2025-11-20**: MassTransit Stream插件
+- **2025-11-13**: .NET 10升级 + Runtime抽象移除
+- **2025-11-11**: Microsoft.Extensions.AI集成
 
 ---
 
@@ -607,4 +632,4 @@ MIT License - 详见 [LICENSE](LICENSE)
 
 **Aevatar Agent Framework** - 让分布式智能体开发回归简洁和本质 🌌
 
-**Latest Update**: 2025-11-13 | **.NET 10** | **Runtime Simplified** | **Docs Consolidated**
+**最近更新**: 2025-11-28 | **.NET 10** | **MAKER框架** | **MCP支持** | **MassTransit插件**

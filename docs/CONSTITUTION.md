@@ -194,10 +194,6 @@ The Aevatar Agent Framework exists to:
 3. Core maintainer review
 4. Consensus or supermajority approval
 5. Update constitution with version and date
-
-### Version History
-- v1.0.0 (2024-01-XX): Initial Constitution
-
 ---
 
 ## Signatures
@@ -217,4 +213,4 @@ The Aevatar Agent Framework exists to:
 
 This document is a living artifact, evolving with our understanding and the needs of our community, yet anchored in immutable principles that define our framework's essence.
 
-最終更新 | Last Updated | Dernière mise à jour: 2024-01
+最終更新 | Last Updated | Dernière mise à jour: 2025-11
