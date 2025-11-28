@@ -96,7 +96,7 @@ builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();
 
 // Add MAKER - Agent-based execution with Worker Agents
-builder.Services.AddMakerSystem("deepseek");
+builder.Services.AddMakerSystem("claude");
 
 // Project service
 builder.Services.AddSingleton<MakerProjectService>();

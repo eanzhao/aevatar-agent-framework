@@ -7,8 +7,8 @@
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
   <Folder Name="/apps/">
-    <Project Path="examples\CreativeSystem\CreativeSystem.csproj" Type="C#" />
-    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
+    <Project Path="apps/Aevatar.AppHost/Aevatar.AppHost.csproj" />
+    <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
@@ -22,15 +22,16 @@
     <File Path="docs\MASSTRANSIT_INTEGRATION_GUIDE.md" />
   </Folder>
   <Folder Name="/examples/">
-    <Project Path="examples/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
     <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" />
     <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" />
+    <Project Path="examples\CreativeSystem\CreativeSystem.csproj" Type="C#" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
+    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />

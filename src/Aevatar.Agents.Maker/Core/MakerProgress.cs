@@ -70,6 +70,12 @@ public sealed record StreamingTokenProgress
     /// <summary>Sequence number for ordering.</summary>
     public int TokenIndex { get; init; }
     
+    /// <summary>System prompt sent to LLM (for chat display).</summary>
+    public string? SystemPrompt { get; init; }
+    
+    /// <summary>User prompt sent to LLM (for chat display).</summary>
+    public string? UserPrompt { get; init; }
+    
     /// <summary>Whether this is the first token (TTFT indicator).</summary>
     public bool IsFirstToken { get; init; }
     

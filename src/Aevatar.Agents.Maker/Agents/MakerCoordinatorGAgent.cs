@@ -4,6 +4,7 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Maker.Messages;
+using Aevatar.Agents.Maker.Resilience;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -43,6 +44,13 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     private ISolutionStrategy _solver = new DefaultSolver();
     private ICompositionStrategy _composer = new DefaultComposer();
     private IRedFlagStrategy _redFlagStrategy = new DefaultEnglishRedFlagStrategy();
+    
+    // ============================================================
+    //  Resilience Components (injected via SetDependencies)
+    // ============================================================
+    
+    private TaskCheckpointManager? _checkpointManager;
+    private LLMResiliencePolicy? _resiliencePolicy;
 
     // ============================================================
     //  Runtime State (not persisted, rebuilt on activation)
@@ -97,14 +105,23 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
         ICompositionStrategy? composer = null,
         IRedFlagStrategy? redFlagStrategy = null,
         RedFlagOptions? redFlagOptions = null,
-        Action<MakerProgress>? progressCallback = null)
+        Action<MakerProgress>? progressCallback = null,
+        TaskCheckpointManager? checkpointManager = null,
+        LLMResiliencePolicy? resiliencePolicy = null)
     {
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
         _composer = composer ?? new DefaultComposer();
         _redFlagStrategy = redFlagStrategy ?? new DefaultEnglishRedFlagStrategy(redFlagOptions ?? new RedFlagOptions());
         _progressCallback = progressCallback;
+        _checkpointManager = checkpointManager;
+        _resiliencePolicy = resiliencePolicy;
     }
+    
+    /// <summary>
+    /// Get the resilience policy (for Worker to use).
+    /// </summary>
+    public LLMResiliencePolicy? GetResiliencePolicy() => _resiliencePolicy;
 
     /// <summary>
     /// Get the execution result (called after checking status is completed).
@@ -212,8 +229,13 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     {
         if (token.IsFirstToken)
         {
-            Logger.LogWarning("[COORD-STREAMING] Received first token from Worker {WorkerId}, task={TaskId}, proposalId={ProposalId}",
-                token.WorkerId, token.TaskId, token.ProposalId);
+            Logger.LogInformation("[STREAMING] ▶ Worker {WorkerId} ({Provider}) started: task={TaskId}",
+                token.WorkerId, token.ProviderName, token.TaskId);
+        }
+        else if (token.IsLastToken)
+        {
+            Logger.LogInformation("[STREAMING] ✓ Worker {WorkerId} ({Provider}) completed: {ContentLen} chars",
+                token.WorkerId, token.ProviderName, token.AccumulatedContent?.Length ?? 0);
         }
         
         // Forward streaming token to progress callback for real-time UI display
@@ -234,7 +256,10 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 TokenIndex = token.TokenIndex,
                 IsFirstToken = token.IsFirstToken,
                 IsLastToken = token.IsLastToken,
-                ProviderName = token.ProviderName
+                ProviderName = token.ProviderName,
+                // Chat context for SYSTEM_NODES display (only populated on first token)
+                SystemPrompt = token.IsFirstToken ? token.SystemPrompt : null,
+                UserPrompt = token.IsFirstToken ? token.UserPrompt : null
             }
         });
 
@@ -247,16 +272,18 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     [EventHandler]
     public async Task HandleProposalResult(ProposalResult result)
     {
-        Logger.LogDebug("Received proposal {ProposalId} from worker {WorkerId} for task {TaskId}",
-            result.ProposalId, result.WorkerId, result.TaskId);
+        var recvMsg = $">>> [PROPOSAL-RECV] {result.ProposalId} from {result.WorkerId} ({result.ProviderName}), RequestId='{result.RequestId}', CurrentPrefix='{_currentVotingRequestPrefix ?? "null"}', ContentLen={result.Content?.Length ?? 0}";
+        Logger.LogWarning(recvMsg);  // Use Warning level for visibility
 
         // Check if this proposal belongs to current voting session
         if (_currentVotingRequestPrefix == null || !result.RequestId.StartsWith(_currentVotingRequestPrefix))
         {
-            Logger.LogWarning(
-                "Discarding late proposal {ProposalId} from {WorkerId}: RequestId '{RequestId}' does not match current prefix '{Prefix}'. " +
-                "This usually indicates the proposal arrived after batch timeout. Consider increasing timeout for large documents.",
-                result.ProposalId, result.WorkerId, result.RequestId, _currentVotingRequestPrefix ?? "null");
+            var discardMsg = $">>> [PROPOSAL-DISCARD] {result.ProposalId} from {result.WorkerId}: RequestId='{result.RequestId}' vs Prefix='{_currentVotingRequestPrefix ?? "null"}'";
+            Logger.LogWarning(discardMsg);
+            
+            // Don't report to UI - these are normal early termination results
+            // The proposals are not "late" in a bad way, they're just no longer needed
+            // because we already achieved consensus with earlier proposals
             return;
         }
 
@@ -511,6 +538,30 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
         }
 
         var providerLabel = string.IsNullOrEmpty(result.ProviderName) ? "" : $" [{result.ProviderName}]";
+        
+        // ============================================================
+        // 📋 Detailed proposal logging
+        // ============================================================
+        var contentPreview = result.Content?.Length > 200 
+            ? result.Content[..200].Replace("\n", " ") + "..." 
+            : result.Content?.Replace("\n", " ") ?? "(empty)";
+        var votingType = _isSolutionVoting ? "SOLUTION" : "DECOMPOSITION";
+        
+        Logger.LogInformation(
+            "[{VotingType}] Worker {WorkerId}{Provider} submitted proposal #{ProposalNum}:\n" +
+            "  📄 Content preview: {ContentPreview}\n" +
+            "  📊 Tokens: {PromptTokens} prompt + {CompletionTokens} completion = {TotalTokens} total\n" +
+            "  ⏱️ Latency: {LatencyMs}ms",
+            votingType,
+            result.WorkerId,
+            providerLabel,
+            _collectedProposals.Count,
+            contentPreview,
+            result.PromptTokens,
+            result.CompletionTokens,
+            result.TotalTokens,
+            result.LatencyMs);
+        
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Voting,
@@ -531,6 +582,8 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.Content))
         {
+            Logger.LogWarning("[{VotingType}] Worker {WorkerId} proposal FAILED: {Error}", 
+                votingType, result.WorkerId, result.Error);
             Interlocked.Decrement(ref _activeWorkerRequests);
             return;
         }
@@ -572,10 +625,28 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
 
             if (voteResult != null)
             {
+                // ============================================================
+                // ✅ CONSENSUS REACHED - Log the winning content
+                // ============================================================
+                var winningPreview = voteResult.WinningContent?.Length > 500
+                    ? voteResult.WinningContent[..500].Replace("\n", " ") + "..."
+                    : voteResult.WinningContent?.Replace("\n", " ") ?? "(empty)";
+                
                 Logger.LogInformation(
-                    "Early termination: Consensus reached after {Count} proposals (saved waiting for {Remaining} more)",
+                    "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                    "║ ✅ CONSENSUS REACHED ({VotingType})                           \n" +
+                    "╠══════════════════════════════════════════════════════════════╣\n" +
+                    "║ 📊 Votes: {LeaderVotes}/{VotesNeeded} (K={K})                 \n" +
+                    "║ 📝 Proposals collected: {ProposalCount}                       \n" +
+                    "║ 🏆 Winning content preview:                                   \n" +
+                    "║    {WinningPreview}                                           \n" +
+                    "╚══════════════════════════════════════════════════════════════╝",
+                    _isSolutionVoting ? "SOLUTION" : "DECOMPOSITION",
+                    voteResult.LeaderVotes,
+                    progress.VotesNeeded,
+                    _currentOptions?.ConsensusK ?? 0,
                     _collectedProposals.Count,
-                    _activeWorkerRequests - 1);
+                    winningPreview);
 
                 _consensusCompletionSource?.TrySetResult(voteResult);
                 _votingCts?.Cancel();

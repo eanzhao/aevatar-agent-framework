@@ -15,7 +15,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\MakerSystem\MakerSystem.csproj" />
+        <ProjectReference Include="..\..\examples\MakerSystem\MakerSystem.csproj" />
     </ItemGroup>
 
 </Project>

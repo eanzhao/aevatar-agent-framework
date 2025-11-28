@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Maker.Messages;
+using Aevatar.Agents.Maker.Resilience;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +28,10 @@ public sealed class AgentMakerExecutor : IMakerExecutor
     private readonly IDecompositionStrategy _decomposer;
     private readonly ISolutionStrategy _solver;
     private readonly ICompositionStrategy _composer;
+    
+    // Resilience components
+    private readonly LLMResiliencePolicy _resiliencePolicy;
+    private readonly ICheckpointStore _checkpointStore;
 
     public AgentMakerExecutor(
         IGAgentActorFactory actorFactory,
@@ -34,7 +39,8 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         string? defaultProviderName = null,
         IDecompositionStrategy? decomposer = null,
         ISolutionStrategy? solver = null,
-        ICompositionStrategy? composer = null)
+        ICompositionStrategy? composer = null,
+        ICheckpointStore? checkpointStore = null)
     {
         _actorFactory = actorFactory;
         _logger = logger;
@@ -42,6 +48,10 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
         _composer = composer ?? new DefaultComposer();
+        
+        // Initialize resilience components with default config
+        _resiliencePolicy = new LLMResiliencePolicy(null, logger);
+        _checkpointStore = checkpointStore ?? new InMemoryCheckpointStore();
     }
 
     /// <inheritdoc />
@@ -75,19 +85,63 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 throw new InvalidOperationException("Failed to get MakerCoordinatorGAgent from actor");
             }
             
+            // Initialize checkpoint manager if resilience is enabled
+            TaskCheckpointManager? checkpointManager = null;
+            if (options.EnableResilience && options.EnableCheckpointing)
+            {
+                var store = !string.IsNullOrEmpty(options.CheckpointDirectory)
+                    ? new FileCheckpointStore(options.CheckpointDirectory, _logger)
+                    : _checkpointStore;
+                checkpointManager = new TaskCheckpointManager(store, _logger);
+                checkpointManager.BeginExecution(
+                    executionId.ToString("N")[..8],
+                    taskDescription,
+                    options);
+                _logger.LogInformation("[RESILIENCE] Checkpoint tracking enabled for execution {ExecutionId}", 
+                    executionId.ToString("N")[..8]);
+            }
+            
+            // Create resilience policy with options
+            LLMResiliencePolicy? resiliencePolicy = null;
+            if (options.EnableResilience)
+            {
+                var resilienceConfig = new LLMResilienceConfig
+                {
+                    MaxRetries = options.MaxRetries,
+                    InitialRetryDelay = options.InitialRetryDelay,
+                    MaxRetryDelay = options.MaxRetryDelay,
+                    CircuitBreakerThreshold = options.CircuitBreakerThreshold,
+                    CircuitBreakerDuration = options.CircuitBreakerDuration,
+                    EnableJitter = true,
+                    CallTimeout = options.StepTimeout
+                };
+                resiliencePolicy = new LLMResiliencePolicy(resilienceConfig, _logger);
+                _logger.LogInformation("[RESILIENCE] LLM retry policy enabled: {Retries} retries, circuit breaker at {Threshold}",
+                    options.MaxRetries, options.CircuitBreakerThreshold);
+            }
+            
             coordinator.SetDependencies(
                 decomposer: options.Decomposer ?? _decomposer,
                 solver: options.Solver ?? _solver,
                 composer: options.Composer ?? _composer,
                 redFlagStrategy: options.RedFlagStrategy,
                 redFlagOptions: options.RedFlagOptions,
-                progressCallback: options.OnProgress);
+                progressCallback: options.OnProgress,
+                checkpointManager: checkpointManager,
+                resiliencePolicy: resiliencePolicy);
 
             // Step 3: Create Worker Actors and establish parent-child relationships
             for (var i = 0; i < workerCount; i++)
             {
                 var workerId = Guid.NewGuid();
                 var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId, ct);
+                
+                // Inject resilience policy to worker
+                if (resiliencePolicy != null)
+                {
+                    var worker = workerActor.GetAgent() as MakerWorkerGAgent;
+                    worker?.SetResiliencePolicy(resiliencePolicy);
+                }
                 
                 // Establish parent-child relationship via ActorHierarchyCoordinator
                 await ActorHierarchyCoordinator.LinkAsync(coordinatorActor, workerActor, _logger, ct);
@@ -96,7 +150,8 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 _logger.LogDebug("Created and linked worker actor {WorkerId} (index: {Index})", workerId, i);
             }
 
-            _logger.LogInformation("Created {Count} worker actors with hierarchy", workerCount);
+            _logger.LogInformation("Created {Count} worker actors with hierarchy{Resilience}", 
+                workerCount, resiliencePolicy != null ? " (with resilience)" : "");
 
             // Step 4: Start execution by sending StartMakerTaskRequest event
             var providerName = options.ProviderName ?? _defaultProviderName;
@@ -167,6 +222,13 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 if (status >= 3)
                 {
                     var result = coordinator.GetResult();
+                    
+                    // Clean up checkpoint on successful completion
+                    if (result.Success && checkpointManager != null)
+                    {
+                        await checkpointManager.CompleteExecutionAsync(ct);
+                        _logger.LogDebug("[RESILIENCE] Checkpoint cleaned up for successful execution");
+                    }
                     
                     _logger.LogInformation(
                         "MAKER execution {ExecutionId} completed. Success: {Success}, LLM Calls: {Calls}",
@@ -256,5 +318,37 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 }
             }
         }
+    }
+    
+    // ============================================================
+    //  Recovery API
+    // ============================================================
+    
+    /// <summary>
+    /// Attempt to recover a previously interrupted execution from checkpoint.
+    /// </summary>
+    public async Task<RecoveryResult> TryRecoverAsync(
+        string executionId,
+        CancellationToken ct = default)
+    {
+        var checkpointManager = new TaskCheckpointManager(_checkpointStore, _logger);
+        return await checkpointManager.TryRecoverAsync(executionId, ct);
+    }
+    
+    /// <summary>
+    /// List all recoverable executions that have checkpoints.
+    /// </summary>
+    public Task<IReadOnlyList<string>> ListRecoverableExecutionsAsync(CancellationToken ct = default)
+    {
+        var checkpointManager = new TaskCheckpointManager(_checkpointStore, _logger);
+        return checkpointManager.ListRecoverableExecutionsAsync(ct);
+    }
+    
+    /// <summary>
+    /// Get health status of all LLM providers (circuit breaker state).
+    /// </summary>
+    public Dictionary<string, ProviderHealthStatus> GetProviderHealthStatus()
+    {
+        return _resiliencePolicy.GetHealthStatus();
     }
 }

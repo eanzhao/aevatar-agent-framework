@@ -48,7 +48,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         
         try
         {
-            _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
+            _logger.LogInformation("[MEAI] Calling model: {Model}, Endpoint: {Endpoint}", 
+                _config.Model, _config.Endpoint ?? "default");
             LLMTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
             
             // Record full conversation for debugging
@@ -60,7 +61,12 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
             var messages = BuildChatMessages(request);
             var options = BuildChatOptions(request);
+            
+            _logger.LogInformation("[MEAI] Sending request with {MsgCount} messages", messages.Count);
             var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+            _logger.LogInformation("[MEAI] Got response: Text='{Text}', MsgCount={MsgCount}", 
+                response.Text?.Substring(0, Math.Min(100, response.Text?.Length ?? 0)) ?? "(null)",
+                response.Messages?.Count ?? 0);
 
             sw.Stop();
             activity?.SetTag("llm.duration_ms", sw.ElapsedMilliseconds);
@@ -84,6 +90,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[MEAI] Error calling model {Model}: {Message}", _config.Model, ex.Message);
             LLMTelemetry.RecordError(activity, ex);
             throw;
         }
@@ -312,9 +319,68 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// </summary>
     private AevatarLLMResponse CreateAevatarLLMResponse(Microsoft.Extensions.AI.ChatResponse response)
     {
+        // Extract text content - try response.Text first, then fallback to Messages
+        var content = response.Text;
+        
+        // Detailed logging for troubleshooting
+        _logger.LogInformation(
+            "[MEAI] ChatResponse structure: Text='{Text}', MessageCount={MsgCount}, ModelId={ModelId}",
+            content ?? "(null)",
+            response.Messages?.Count ?? 0,
+            response.ModelId ?? "(null)");
+        
+        // Log each message's structure for debugging
+        if (response.Messages?.Count > 0)
+        {
+            try
+            {
+                // Force materialization to avoid lazy evaluation issues
+                var messageList = response.Messages.ToList();
+                _logger.LogInformation("[MEAI] Materialized {Count} messages", messageList.Count);
+                
+                for (var i = 0; i < messageList.Count; i++)
+                {
+                    var msg = messageList[i];
+                    _logger.LogInformation(
+                        "[MEAI] Message[{Index}]: Role={Role}, Text='{Text}', ContentsCount={ContentsCount}",
+                        i,
+                        msg.Role,
+                        msg.Text ?? "(null)",
+                        msg.Contents?.Count ?? 0);
+                    
+                    // Log each content item
+                    if (msg.Contents != null)
+                    {
+                        var contentList = msg.Contents.ToList();
+                        for (var j = 0; j < contentList.Count; j++)
+                        {
+                            var c = contentList[j];
+                            var rawRepr = c.RawRepresentation?.ToString() ?? "(no raw)";
+                            _logger.LogInformation("[MEAI] Content[{Index}]: Type={Type}, Text={Text}, Raw={Raw}",
+                                j,
+                                c.GetType().Name,
+                                c is TextContent tc ? tc.Text ?? "(null)" : "(not text)",
+                                rawRepr.Length > 200 ? rawRepr[..200] + "..." : rawRepr);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MEAI] Error iterating messages: {Message}", ex.Message);
+            }
+        }
+        
+        // Fallback: Extract text from Messages if response.Text is empty
+        if (string.IsNullOrEmpty(content) && response.Messages?.Count > 0)
+        {
+            content = ExtractTextFromMessages(response.Messages.ToList());
+            _logger.LogInformation("[MEAI] Fallback extraction result: '{Content}'", content ?? "(null)");
+        }
+        
         var result = new AevatarLLMResponse
         {
-            Content = response.Text,
+            Content = content,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete,
             Usage = CreateTokenUsage(
@@ -331,6 +397,43 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         }
 
         return result;
+    }
+    
+    /// <summary>
+    /// Extract text content from ChatMessage collection.
+    /// Fallback when ChatResponse.Text returns empty.
+    /// </summary>
+    private static string? ExtractTextFromMessages(IReadOnlyList<ChatMessage> messages)
+    {
+        var sb = new StringBuilder();
+        
+        foreach (var message in messages)
+        {
+            // Only extract from assistant messages
+            if (message.Role != ChatRole.Assistant)
+                continue;
+                
+            // Try Text property first
+            if (!string.IsNullOrEmpty(message.Text))
+            {
+                sb.Append(message.Text);
+                continue;
+            }
+            
+            // Extract from Contents collection
+            if (message.Contents == null) 
+                continue;
+                
+            foreach (var part in message.Contents)
+            {
+                if (part is TextContent textContent && !string.IsNullOrEmpty(textContent.Text))
+                {
+                    sb.Append(textContent.Text);
+                }
+            }
+        }
+        
+        return sb.Length > 0 ? sb.ToString() : null;
     }
 
     public override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,

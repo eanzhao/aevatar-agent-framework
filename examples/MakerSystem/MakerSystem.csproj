@@ -26,5 +26,13 @@
     <ProjectReference Include="../../src/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Update="appsettings.secrets.json.bak">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
 
