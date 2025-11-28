@@ -42,11 +42,9 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("[Factory] Creating Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
-        var actorLogger = _loggerFactory.CreateLogger<LocalGAgentActor>();
         var actor = new LocalGAgentActor(
             agent,
             _streamRegistry,
-            actorLogger,
             _externalStreamProvider,
             _providerOptions);
 
