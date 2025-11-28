@@ -121,7 +121,11 @@ public class AIGAgentTests
         // Arrange
         var serviceProvider = new Mock<IServiceProvider>();
         var logger = new Mock<ILogger<MEAILLMProvider>>();
+        var loggerFactory = new Mock<ILoggerFactory>();
+        loggerFactory.Setup(x => x.CreateLogger(It.IsAny<string>())).Returns(Mock.Of<ILogger>());
+
         serviceProvider.Setup(x => x.GetService(typeof(ILogger<MEAILLMProvider>))).Returns(logger.Object);
+        serviceProvider.Setup(x => x.GetService(typeof(ILoggerFactory))).Returns(loggerFactory.Object);
 
         // 从配置创建 LLMProvidersConfig
         var providersConfig = new LLMProvidersConfig

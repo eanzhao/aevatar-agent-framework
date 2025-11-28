@@ -16,6 +16,13 @@
       <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
       <PackageReference Include="Elastic.Clients.Elasticsearch" />
       <PackageReference Include="Newtonsoft.Json" />
+      <!-- OpenTelemetry Integration (P3-6) -->
+      <PackageReference Include="OpenTelemetry" />
+      <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+      <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+      <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+      <PackageReference Include="OpenTelemetry.Exporter.Console" />
+      <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     </ItemGroup>
 
 </Project>

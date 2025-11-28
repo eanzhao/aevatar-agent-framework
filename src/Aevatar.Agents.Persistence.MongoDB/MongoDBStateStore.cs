@@ -27,6 +27,9 @@ public class MongoDBStateStore<TState> : IVersionedStateStore<TState>
     {
         var name = collectionName ?? $"agent_states_{typeof(TState).Name}";
         _collection = database.GetCollection<AgentStateDocument<TState>>(name);
+
+        // Ensure indexes are created (idempotent, runs once per collection per process)
+        MongoDBIndexManager.EnsureStateStoreIndexes(_collection);
     }
 
     /// <summary>
@@ -129,17 +132,26 @@ public class MongoDBStateStore<TState> : IVersionedStateStore<TState>
 public static class MongoDBStateStoreFactory
 {
     /// <summary>
-    /// Create MongoDB state store factory function
+    /// Create MongoDB state store factory function using DI-registered IMongoDatabase
+    /// 
+    /// Preferred usage:
+    /// <code>
+    /// services.AddAevatarMongoDB("mongodb://localhost:27017");
+    /// services.AddMongoDBStateStore&lt;MyState&gt;();
+    /// </code>
     /// </summary>
-    public static Func<IServiceProvider, object> Create<TState>(string? connectionString = null,
-        string? databaseName = null)
+    /// <typeparam name="TState">State type</typeparam>
+    /// <param name="collectionName">Optional custom collection name</param>
+    /// <returns>Factory function for DI</returns>
+    public static Func<IServiceProvider, object> Create<TState>(string? collectionName = null)
         where TState : class
     {
         return sp =>
         {
-            var mongoClient = new MongoClient(connectionString ?? "mongodb://localhost:27017");
-            var database = mongoClient.GetDatabase(databaseName ?? "aevatar");
-            return new MongoDBStateStore<TState>(database);
+            var database = sp.GetService(typeof(IMongoDatabase)) as IMongoDatabase
+                ?? throw new InvalidOperationException(
+                    "IMongoDatabase not registered. Call services.AddAevatarMongoDB() first.");
+            return new MongoDBStateStore<TState>(database, collectionName);
         };
     }
 }

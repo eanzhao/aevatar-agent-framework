@@ -15,13 +15,14 @@ public class LocalGAgentActor : GAgentActorBase
 {
     private static int _activeActorCount = 0;
     private readonly LocalMessageStreamRegistry _streamRegistry;
-    
+
     // Abstracted Stream
     private readonly IMessageStreamProvider? _externalStreamProvider;
     private readonly MessageStreamProviderOptions _providerOptions;
-    
+
     // My Stream
     private IMessageStream? _myStream;
+    private IMessageStreamSubscription? _selfStreamSubscription;
     private IMessageStreamSubscription? _parentStreamSubscription;
 
     // Cache for other actors' streams (when using external provider)
@@ -30,16 +31,14 @@ public class LocalGAgentActor : GAgentActorBase
     public LocalGAgentActor(
         IGAgent agent,
         LocalMessageStreamRegistry streamRegistry,
-        ILogger<LocalGAgentActor> logger, // Added logger
         IMessageStreamProvider? externalStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(agent)
     {
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _streamRegistry = streamRegistry ?? throw new ArgumentNullException(nameof(streamRegistry));
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions?.Value ?? new MessageStreamProviderOptions();
-        
+
         InitializeStream();
     }
 
@@ -90,8 +89,9 @@ public class LocalGAgentActor : GAgentActorBase
                 // But we can return a placeholder or throw immediately
                 // For compatibility, we'll try to get it, assuming caller handles null check
                 // However, the signature returns IMessageStream, so we rely on _streamRegistry handling
-                 return _streamRegistry.GetOrCreateStream(actorId); // Auto-create stream if missing in Local?
+                return _streamRegistry.GetOrCreateStream(actorId); // Auto-create stream if missing in Local?
             }
+
             return stream;
         }
     }
@@ -101,7 +101,7 @@ public class LocalGAgentActor : GAgentActorBase
     // Note: Local hierarchy logic heavily relies on _streamRegistry for parent/child discovery.
     // If using MassTransit, we need to decide if we use MT for hierarchy or Local registry.
     // For now, let's assume Hierarchy control remains Local-registry based for simplicity unless migrated fully.
-    
+
     // ... (Hierarchy implementation omitted for brevity, will rely on base or specific local logic)
     // Ideally, SetParentAsync should use GetActorStream(parentId) to subscribe.
 
@@ -118,26 +118,22 @@ public class LocalGAgentActor : GAgentActorBase
         var parentStream = GetActorStream(parentId);
         if (parentStream != null)
         {
-             bool CombinedFilter(EventEnvelope envelope)
+            bool CombinedFilter(EventEnvelope envelope)
             {
                 // ... (Same filter logic)
                 if (envelope.Direction == EventDirection.Down) return false;
-                if (envelope.Direction == EventDirection.Up && envelope.Publishers.Contains(Id.ToString())) return false;
+                if (envelope.Direction == EventDirection.Up && envelope.Publishers.Contains(Id.ToString()))
+                    return false;
                 return true;
             }
 
             _parentStreamSubscription = await parentStream.SubscribeAsync<EventEnvelope>(
                 async envelope =>
                 {
-                    // ... (Same handler logic)
                     try
                     {
-                        var handleMethod = Agent.GetType().GetMethod("HandleEventAsync", [typeof(EventEnvelope), typeof(CancellationToken)]);
-                        if (handleMethod != null)
-                        {
-                            var task = handleMethod.Invoke(Agent, new object[] { envelope, ct }) as Task;
-                            if (task != null) await task;
-                        }
+                        // Direct call - no reflection needed since IGAgent defines HandleEventAsync
+                        await Agent.HandleEventAsync(envelope, ct);
 
                         if (envelope.Direction == EventDirection.Down)
                         {
@@ -152,7 +148,8 @@ public class LocalGAgentActor : GAgentActorBase
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error handling event {EventId} from parent stream on agent {AgentId}", envelope.Id, Id);
+                        Logger.LogError(ex, "Error handling event {EventId} from parent stream on agent {AgentId}",
+                            envelope.Id, Id);
                     }
                 },
                 CombinedFilter,
@@ -174,27 +171,6 @@ public class LocalGAgentActor : GAgentActorBase
 
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
-        // Self-handling: directly invoke Agent's HandleEventAsync
-        // This ensures the publisher processes its own event immediately
-        // 
-        // NOTE: This does NOT cause infinite loop because:
-        // 1. HandleEventAsync processes the event and updates state
-        // 2. HandleEventAsync does NOT call PublishEventAsync again
-        // 3. We only publish to stream AFTER handling (for children to receive)
-        // 4. Agent does NOT subscribe to its own stream
-        
-        try
-        {
-            await Agent.HandleEventAsync(envelope, ct);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error handling self event {EventId} on agent {AgentId}", 
-                envelope.Id, Id);
-        }
-        
-        // Publish to stream for children (they subscribe to parent's stream via SetParentAsync)
-        // This is safe because Agent itself does not subscribe to _myStream
         if (_myStream != null)
         {
             await _myStream.ProduceAsync(envelope, ct);
@@ -203,7 +179,7 @@ public class LocalGAgentActor : GAgentActorBase
 
     protected override async Task SendEventToActorAsync(Guid actorId, EventEnvelope envelope, CancellationToken ct)
     {
-        try 
+        try
         {
             var targetStream = GetActorStream(actorId);
             await targetStream.ProduceAsync(envelope, ct);
@@ -218,27 +194,45 @@ public class LocalGAgentActor : GAgentActorBase
 
     protected override async Task OnActivateAsync(CancellationToken ct)
     {
-        // Note: Agent does NOT subscribe to its own stream.
-        // SendToSelfAsync directly calls Agent.HandleEventAsync for self-events.
-        // _myStream is only for children to subscribe (via SetParentAsync).
-        // This avoids duplicate event processing.
+        if (_myStream != null)
+        {
+            // Store subscription handle for proper cleanup in OnDeactivateAsync
+            _selfStreamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(
+                async envelope =>
+                {
+                    Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from stream", Id,
+                        envelope.Id);
+                    await HandleEventAsync(envelope, ct);
+                },
+                null,
+                ct);
+        }
 
         Logger.LogInformation("LocalGAgentActor {Id} activated", Id);
-        await Task.CompletedTask;
 
         var count = Interlocked.Increment(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
     }
 
-    protected override Task OnDeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         Logger.LogInformation("Deactivating agent {AgentId}", Id);
 
-        // If using Local Registry, remove it. If MassTransit, the provider handles it (or we unsubscribe)
-        // MassTransit streams are persistent, but subscriptions are memory-bound.
-        // We should explicitly unsubscribe if we held a handle, but currently _myStream.SubscribeAsync returns a handle we didn't store for self (fixed below)
-        
-        // Note: In local registry, RemoveStream stops the channel. 
+        // Unsubscribe from self stream
+        if (_selfStreamSubscription != null)
+        {
+            await _selfStreamSubscription.UnsubscribeAsync();
+            _selfStreamSubscription = null;
+        }
+
+        // Unsubscribe from parent stream (if still subscribed)
+        if (_parentStreamSubscription != null)
+        {
+            await _parentStreamSubscription.UnsubscribeAsync();
+            _parentStreamSubscription = null;
+        }
+
+        // Clean up local stream registry
         if (_myStream is LocalMessageStream)
         {
             _streamRegistry.RemoveStream(Id);
@@ -246,7 +240,5 @@ public class LocalGAgentActor : GAgentActorBase
 
         var count = Interlocked.Decrement(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);
-
-        return Task.CompletedTask;
     }
 }

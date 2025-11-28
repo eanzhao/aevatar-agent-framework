@@ -1,12 +1,12 @@
 using Aevatar.Agents;
-using Aevatar.Agents.Core;
-using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.Abstractions.EventSourcing;
-using Microsoft.Extensions.Logging;
+using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.EventSourcing;
+using Demo.Agents;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using Demo.Agents;
+using Microsoft.Extensions.Logging;
 
 namespace Demo.Agents;
 
@@ -40,7 +40,7 @@ public class BankAccountAgent : GAgentBase<BankAccountState>
             Description = deposit.Description
         };
         
-        // ✅ V2 API: Raise and Confirm
+        // ✅ API: Raise and Confirm
         RaiseEvent(stateChange);
         await ConfirmEventsAsync();
     }
@@ -60,7 +60,7 @@ public class BankAccountAgent : GAgentBase<BankAccountState>
                 Description = withdraw.Description
             };
             
-            // ✅ V2 API: Raise and Confirm
+            // ✅ API: Raise and Confirm
             RaiseEvent(stateChange);
             await ConfirmEventsAsync();
         }
@@ -71,7 +71,7 @@ public class BankAccountAgent : GAgentBase<BankAccountState>
     }
     
     /// <summary>
-    /// Pure functional state transition (V2 API)
+    /// Pure functional state transition
     /// Framework automatically clones state, just modify it directly
     /// </summary>
     protected override void TransitionState(BankAccountState state, IMessage evt)

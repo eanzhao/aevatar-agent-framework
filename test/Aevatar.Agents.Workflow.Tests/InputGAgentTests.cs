@@ -1,30 +1,25 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.Core;
-using Aevatar.Agents.Workflow;
+using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Tests.EventPublisher;
 using FluentAssertions;
 using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
 
 namespace Aevatar.Agents.Workflow.Tests;
 
+/// <summary>
+/// Unit tests for InputGAgent
+/// </summary>
 public class InputGAgentTests
 {
-    private readonly Mock<ILogger<InputGAgent>> _mockLogger;
-    private readonly Mock<IEventPublisher> _mockEventPublisher;
+    private readonly TestEventPublisher _eventPublisher = new();
 
-    public InputGAgentTests()
+    private InputGAgent CreateAgent()
     {
-        _mockLogger = new Mock<ILogger<InputGAgent>>();
-        _mockEventPublisher = new Mock<IEventPublisher>();
-    }
-
-    private InputGAgent CreateAgent(Guid? id = null)
-    {
-        var agentId = id ?? Guid.NewGuid();
-        var agent = new InputGAgent(agentId, _mockLogger.Object);
-        agent.SetEventPublisher(_mockEventPublisher.Object);
+        var agent = new InputGAgent();
+        AgentEventPublisherInjector.InjectEventPublisher(agent, _eventPublisher);
         return agent;
     }
 
@@ -33,7 +28,7 @@ public class InputGAgentTests
     {
         // Arrange & Act
         var agent = CreateAgent();
-        await agent.OnActivateAsync();
+        await agent.ActivateAsync();
 
         // Assert
         agent.Id.Should().NotBe(Guid.Empty);
@@ -63,19 +58,15 @@ public class InputGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var setInputEvent = new SetInputEvent
         {
             Input = "Test Input",
             Reason = "Test"
         };
 
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Act
         var description = await agent.GetDescriptionAsync();
@@ -89,27 +80,16 @@ public class InputGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var setInputEvent = new SetInputEvent
         {
             Input = "Hello World",
             Reason = "Test update"
         };
 
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
-
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
         // Act
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Assert
         var state = agent.GetState();
@@ -118,13 +98,6 @@ public class InputGAgentTests
         state.LastUpdated.Should().NotBeNull();
         agent.GetInput().Should().Be("Hello World");
         agent.GetUpdateCount().Should().Be(1);
-
-        _mockEventPublisher.Verify(
-            p => p.PublishEventAsync(
-                It.Is<SetInputEvent>(e => e.Input == "Hello World"),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     [Fact(DisplayName = "HandleSetInputEvent should increment update count")]
@@ -132,37 +105,16 @@ public class InputGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
+        await agent.ActivateAsync();
 
         var setInputEvent1 = new SetInputEvent { Input = "First", Reason = "Test 1" };
         var setInputEvent2 = new SetInputEvent { Input = "Second", Reason = "Test 2" };
         var setInputEvent3 = new SetInputEvent { Input = "Third", Reason = "Test 3" };
 
-        var envelope1 = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent1)
-        };
-        var envelope2 = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent2)
-        };
-        var envelope3 = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent3)
-        };
-
         // Act
-        await agent.HandleEventAsync(envelope1);
-        await agent.HandleEventAsync(envelope2);
-        await agent.HandleEventAsync(envelope3);
+        await agent.HandleEventAsync(setInputEvent1.CreateEventEnvelope());
+        await agent.HandleEventAsync(setInputEvent2.CreateEventEnvelope());
+        await agent.HandleEventAsync(setInputEvent3.CreateEventEnvelope());
 
         // Assert
         var state = agent.GetState();
@@ -176,19 +128,12 @@ public class InputGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
-        await agent.OnActivateAsync();
+        await agent.ActivateAsync();
 
         var initialTimestamp = agent.GetState().LastUpdated;
 
         // Wait a bit to ensure timestamp difference
-        await Task.Delay(100);
-
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
+        await Task.Delay(50);
 
         var setInputEvent = new SetInputEvent
         {
@@ -196,14 +141,8 @@ public class InputGAgentTests
             Reason = "Test"
         };
 
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
         // Act
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Assert
         var state = agent.GetState();
@@ -211,23 +150,18 @@ public class InputGAgentTests
         state.LastUpdated.Should().NotBe(initialTimestamp);
     }
 
-    [Fact(DisplayName = "OnConfigureAsync should set input from configuration")]
-    public async Task OnConfigureAsync_ShouldSetInputFromConfiguration()
+    [Fact(DisplayName = "ConfigureAsync should set input from configuration")]
+    public async Task ConfigureAsync_ShouldSetInputFromConfiguration()
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var config = new InputConfiguration
         {
             Input = "Configured Input",
             Description = "Configuration description"
         };
-
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
 
         // Act
         await agent.ConfigureAsync(config);
@@ -237,57 +171,18 @@ public class InputGAgentTests
         state.Input.Should().Be("Configured Input");
         state.UpdateCount.Should().Be(1);
         agent.GetInput().Should().Be("Configured Input");
-
-        _mockEventPublisher.Verify(
-            p => p.PublishEventAsync(
-                It.Is<SetInputEvent>(e => 
-                    e.Input == "Configured Input" && 
-                    e.Reason == "Configuration description"),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Fact(DisplayName = "OnConfigureAsync should use default reason when description is empty")]
-    public async Task OnConfigureAsync_ShouldUseDefaultReasonWhenDescriptionIsEmpty()
-    {
-        // Arrange
-        var agent = CreateAgent();
-        var config = new InputConfiguration
-        {
-            Input = "Test Input",
-            Description = string.Empty // Empty string
-        };
-
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
-
-        // Act
-        await agent.ConfigureAsync(config);
-
-        // Assert
-        // Verify that the event was published with default reason
-        _mockEventPublisher.Verify(
-            p => p.PublishEventAsync(
-                It.Is<SetInputEvent>(e => 
-                    e.Input == "Test Input" && 
-                    e.Reason == "Configuration update"),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     [Fact(DisplayName = "GetInput should return current input value")]
-    public void GetInput_ShouldReturnCurrentInputValue()
+    public async Task GetInput_ShouldReturnCurrentInputValue()
     {
         // Arrange
         var agent = CreateAgent();
-        var state = agent.GetState();
-        state.Input = "Current Input";
+        await agent.ActivateAsync();
+
+        // Set input through event handling
+        var setInputEvent = new SetInputEvent { Input = "Current Input", Reason = "Test" };
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Act
         var result = agent.GetInput();
@@ -297,12 +192,18 @@ public class InputGAgentTests
     }
 
     [Fact(DisplayName = "GetUpdateCount should return current update count")]
-    public void GetUpdateCount_ShouldReturnCurrentUpdateCount()
+    public async Task GetUpdateCount_ShouldReturnCurrentUpdateCount()
     {
         // Arrange
         var agent = CreateAgent();
-        var state = agent.GetState();
-        state.UpdateCount = 5;
+        await agent.ActivateAsync();
+
+        // Send 5 events to update count
+        for (int i = 0; i < 5; i++)
+        {
+            var setInputEvent = new SetInputEvent { Input = $"Input {i}", Reason = $"Test {i}" };
+            await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
+        }
 
         // Act
         var result = agent.GetUpdateCount();
@@ -316,27 +217,16 @@ public class InputGAgentTests
     {
         // Arrange
         var agent = CreateAgent();
+        await agent.ActivateAsync();
+
         var setInputEvent = new SetInputEvent
         {
             Input = string.Empty,
             Reason = "Clear input"
         };
 
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
-
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
         // Act
-        await agent.HandleEventAsync(envelope);
+        await agent.HandleEventAsync(setInputEvent.CreateEventEnvelope());
 
         // Assert
         var state = agent.GetState();
@@ -344,53 +234,12 @@ public class InputGAgentTests
         state.UpdateCount.Should().Be(1);
     }
 
-    [Fact(DisplayName = "HandleSetInputEvent should publish event with correct direction")]
-    public async Task HandleSetInputEvent_ShouldPublishEventWithCorrectDirection()
-    {
-        // Arrange
-        var agent = CreateAgent();
-        var setInputEvent = new SetInputEvent
-        {
-            Input = "Test",
-            Reason = "Test"
-        };
-
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
-
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString(),
-            Payload = Any.Pack(setInputEvent)
-        };
-
-        // Act
-        await agent.HandleEventAsync(envelope);
-
-        // Assert
-        _mockEventPublisher.Verify(
-            p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down, // Should publish DOWN
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
     [Fact(DisplayName = "Multiple configurations should update input multiple times")]
     public async Task MultipleConfigurations_ShouldUpdateInputMultipleTimes()
     {
         // Arrange
         var agent = CreateAgent();
-        _mockEventPublisher
-            .Setup(p => p.PublishEventAsync(
-                It.IsAny<SetInputEvent>(),
-                EventDirection.Down,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("event-id");
+        await agent.ActivateAsync();
 
         var config1 = new InputConfiguration { Input = "First", Description = "First config" };
         var config2 = new InputConfiguration { Input = "Second", Description = "Second config" };

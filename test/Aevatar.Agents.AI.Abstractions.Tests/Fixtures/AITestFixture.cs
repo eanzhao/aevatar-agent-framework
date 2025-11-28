@@ -4,10 +4,12 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.Abstractions.Tests.Embedding;
 using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Abstractions.Tests.Memory;
 using Aevatar.Agents.AI.Abstractions.Tests.ToolManager;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.Core.Tests.Fixtures;
 using Microsoft.Extensions.Configuration;
@@ -64,6 +66,7 @@ public class AITestFixture : CoreTestFixture
 
         // Register test implementations
         services.AddSingleton<ILLMProviderFactory, MockLLMProviderFactory>();
+        services.AddSingleton<IAIAgentEmbeddingFactory, MockEmbeddingFactory>();
 
         services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
 

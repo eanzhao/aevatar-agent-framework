@@ -1,16 +1,16 @@
-using Aevatar.Agents.Abstractions;
 using System.Reflection;
-using Microsoft.Extensions.AI;
-using AIAgentWithToolDemo;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Aevatar.Agents.AI.MEAI;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.MEAI;
 using Aevatar.Agents.Runtime.Local;
+using AIAgentWithToolDemo;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 // REFLECTION DEBUG START
 Console.WriteLine("Inspecting AIFunctionFactory:");

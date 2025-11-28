@@ -1,13 +1,13 @@
-using Aevatar.Agents.AI.Core;
-using Aevatar.Agents.Core.EventSourcing;
-using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.Abstractions.Attributes;
-using Google.Protobuf.WellKnownTypes;
-using Microsoft.Extensions.Logging;
 using System.Text;
 using Aevatar.Agents;
+using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.EventSourcing;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
 
 namespace LlmTornadoDemo;
 

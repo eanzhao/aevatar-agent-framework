@@ -51,7 +51,7 @@ public class AIGAgentFactory : IGAgentFactory
         {
             // Use ActivatorUtilities to support Dependency Injection (e.g. IConfiguration)
             agent = (IGAgent)ActivatorUtilities.CreateInstance(_serviceProvider, agentType);
-            
+
             // Set ID for agents created with parameterless constructor or DI
             // This allows recovery scenarios without requiring ID constructor
             if (agent is GAgentBase baseAgent)
@@ -71,6 +71,11 @@ public class AIGAgentFactory : IGAgentFactory
         if (AIAgentLLMProviderFactoryInjector.HasLLMProviderFactory(agent))
         {
             AIAgentLLMProviderFactoryInjector.InjectLLMProviderFactory(agent, _serviceProvider);
+        }
+
+        if (AIAgentEmbeddingFactoryInjector.HasEmbeddingFactory(agent))
+        {
+            AIAgentEmbeddingFactoryInjector.InjectEmbeddingFactory(agent, _serviceProvider);
         }
 
         if (AgentEventStoreInjector.HasEventStore(agent))

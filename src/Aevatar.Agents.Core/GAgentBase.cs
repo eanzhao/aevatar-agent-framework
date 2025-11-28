@@ -1,18 +1,18 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
-using Aevatar.Agents.Core.Observability;
+using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.Helpers;
+using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.StateProtection;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Diagnostics;
-using Aevatar.Agents.Abstractions.Helpers;
-using Google.Protobuf.WellKnownTypes;
-using System.Linq;
 using Type = System.Type;
 
 namespace Aevatar.Agents.Core;
@@ -46,6 +46,58 @@ public abstract class GAgentBase : IGAgent
     private static readonly ConcurrentDictionary<Type, EventHandlerMetadata[]> HandlerCache = new();
     private static readonly IEventHandlerDiscoverer DefaultDiscoverer = new ReflectionEventHandlerDiscoverer();
 
+    // Cached Unpack method info to avoid repeated reflection lookups
+    private static MethodInfo? _cachedUnpackMethod;
+    private static bool _cachedUnpackMethodIsInstance;
+    private static readonly object _unpackMethodLock = new();
+
+    /// <summary>
+    /// Finds the Unpack method definition using reflection.
+    /// This method is cached after first successful lookup.
+    /// </summary>
+    /// <param name="isInstanceMethod">Output: whether the found method is an instance method</param>
+    /// <returns>The MethodInfo for Unpack, or null if not found</returns>
+    private static MethodInfo? FindUnpackMethodDefinition(out bool isInstanceMethod)
+    {
+        lock (_unpackMethodLock)
+        {
+            if (_cachedUnpackMethod != null)
+            {
+                isInstanceMethod = _cachedUnpackMethodIsInstance;
+                return _cachedUnpackMethod;
+            }
+
+            // 1. Try instance method Unpack<T>() first
+            var instanceMethod = typeof(Any).GetMethod("Unpack", Type.EmptyTypes);
+            if (instanceMethod is { IsGenericMethod: true })
+            {
+                _cachedUnpackMethod = instanceMethod;
+                _cachedUnpackMethodIsInstance = true;
+                isInstanceMethod = true;
+                return instanceMethod;
+            }
+
+            // 2. Fallback: Find Unpack<T> extension method dynamically
+            var extensionMethod = typeof(Any).Assembly
+                .GetTypes()
+                .SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
+                .FirstOrDefault(m => m is { Name: "Unpack", IsGenericMethod: true }
+                    && m.GetParameters().Length == 1
+                    && m.GetParameters()[0].ParameterType == typeof(Any));
+
+            if (extensionMethod != null)
+            {
+                _cachedUnpackMethod = extensionMethod;
+                _cachedUnpackMethodIsInstance = false;
+                isInstanceMethod = false;
+                return extensionMethod;
+            }
+
+            isInstanceMethod = false;
+            return null;
+        }
+    }
+
     /// <summary>
     /// Metadata for cached event handlers to avoid repeated reflection
     /// </summary>
@@ -73,31 +125,14 @@ public abstract class GAgentBase : IGAgent
             {
                 try
                 {
-                    MethodInfo? unpackMethodDef = null;
-                    bool isInstanceMethod = false;
-
-                    // 1. Try to find instance method Unpack<T>() first (as used in previous implementation)
-                    unpackMethodDef = typeof(Any).GetMethod("Unpack", Type.EmptyTypes);
-                    
-                    if (unpackMethodDef != null && unpackMethodDef.IsGenericMethod)
-                    {
-                        isInstanceMethod = true;
-                    }
-                    else
-                    {
-                        // 2. Fallback: Find Unpack<T> extension method dynamically
-                        unpackMethodDef = typeof(Any).Assembly
-                            .GetTypes()
-                            .SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
-                            .FirstOrDefault(m => m is { Name: "Unpack", IsGenericMethod: true } && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(Any));
-                    }
+                    var unpackMethodDef = FindUnpackMethodDefinition(out var isInstanceMethod);
 
                     if (unpackMethodDef != null)
                     {
                         var unpackMethod = unpackMethodDef.MakeGenericMethod(ParameterType);
-                        
+
                         var anyParam = System.Linq.Expressions.Expression.Parameter(typeof(Any), "any");
-                        
+
                         System.Linq.Expressions.MethodCallExpression call;
                         if (isInstanceMethod)
                         {
@@ -347,19 +382,17 @@ public abstract class GAgentBase : IGAgent
                         {
                             Logger.LogDebug("Unpacker is null for handler {HandlerName}. Attempting reflection fallback.", handler.Method.Name);
                             
-                            // Fallback: Try to unpack using reflection if Unpacker is missing
+                            // Fallback: Try to unpack using cached reflection method
                             try
                             {
-                                // Find Unpack method dynamically
-                                var unpackMethod = typeof(Any).Assembly
-                                    .GetTypes()
-                                    .SelectMany(t => t.GetMethods(BindingFlags.Static | BindingFlags.Public))
-                                    .FirstOrDefault(m => m.Name == "Unpack" && m.IsGenericMethod && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(Any));
-                                    
-                                if (unpackMethod != null)
+                                var unpackMethodDef = FindUnpackMethodDefinition(out var isInstanceMethod);
+
+                                if (unpackMethodDef != null)
                                 {
-                                    var genericUnpack = unpackMethod.MakeGenericMethod(handler.ParameterType);
-                                    message = (IMessage?)genericUnpack.Invoke(null, new object[] { envelope.Payload });
+                                    var genericUnpack = unpackMethodDef.MakeGenericMethod(handler.ParameterType);
+                                    message = isInstanceMethod
+                                        ? (IMessage?)genericUnpack.Invoke(envelope.Payload, null)
+                                        : (IMessage?)genericUnpack.Invoke(null, [envelope.Payload]);
                                     Logger.LogDebug("Unpacked message of type {MessageType} for handler {HandlerName} using reflection fallback",
                                         message?.GetType().Name ?? "null", handler.Method.Name);
                                 }
@@ -370,7 +403,7 @@ public abstract class GAgentBase : IGAgent
                             }
                             catch (Exception ex)
                             {
-                            Logger.LogDebug(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
+                                Logger.LogDebug(ex, "Failed to unpack payload for handler {HandlerName} using reflection fallback.", handler.Method.Name);
                             }
                         }
                     }
@@ -477,7 +510,7 @@ public abstract class GAgentBase : IGAgent
     public virtual Task PrepareResourceContextAsync(ResourceContext context, CancellationToken ct = default)
     {
         Logger.LogDebug("Preparing resource context for Agent {Id} with {ResourceCount} resources",
-            Id, context.AvailableResources.Count);
+            Id, context.Count);
 
         return OnPrepareResourceContextAsync(context, ct);
     }

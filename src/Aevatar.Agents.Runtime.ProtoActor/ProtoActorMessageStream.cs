@@ -1,7 +1,7 @@
+using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Proto;
-using System.Collections.Concurrent;
 
 namespace Aevatar.Agents.Runtime.ProtoActor;
 

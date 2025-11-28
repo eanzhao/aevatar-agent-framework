@@ -1,10 +1,10 @@
-using Shouldly;
+using System.Reflection;
+using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
-using Aevatar.Agents.Abstractions.Attributes;
-using System.Reflection;
 using Google.Protobuf.WellKnownTypes;
-using Aevatar.Agents.Core.Helpers;
+using Shouldly;
 
 namespace Aevatar.Agents.Core.Tests;
 

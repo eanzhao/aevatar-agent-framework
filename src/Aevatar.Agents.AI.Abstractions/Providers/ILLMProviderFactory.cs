@@ -11,6 +11,8 @@ public interface ILLMProviderFactory
     IAevatarLLMProvider GetDefaultProvider();
     IReadOnlyList<string> GetAvailableProviderNames();
     bool HasProvider(string providerName);
+    LLMProviderConfig GetProviderConfig(string providerName);
+    LLMProviderConfig GetDefaultProviderConfig();
     IAevatarLLMProvider CreateProvider(LLMProviderConfig providerConfig, CancellationToken cancellationToken = default);
     Task<IAevatarLLMProvider> GetProviderAsync(string providerName, CancellationToken cancellationToken = default);
     Task<IAevatarLLMProvider> GetDefaultProviderAsync(CancellationToken cancellationToken = default);

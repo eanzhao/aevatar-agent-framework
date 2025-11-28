@@ -1,10 +1,10 @@
-using Aevatar.Agents.AI.Abstractions;
-using Microsoft.Extensions.Logging;
 using System.Net.Http;
 using System.Text.Json;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Tools.CustomTools;
 

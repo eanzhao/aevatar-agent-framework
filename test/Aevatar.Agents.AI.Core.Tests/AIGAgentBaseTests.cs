@@ -2,9 +2,9 @@ using System.ComponentModel;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Abstractions.Tests.Fixtures;
+using Aevatar.Agents.AI.Abstractions.Tests.LLMProvider;
 using Aevatar.Agents.AI.Core.Helpers;
 using Aevatar.Agents.AI.Core.Tests.TestAgents;
 using Aevatar.Agents.Core.Helpers;
@@ -51,6 +51,20 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
         aiConfig.Should().NotBeNull();
         aiConfig.Model.Should().Be("test-model");
         aiConfig.Temperature.Should().Be(0.5f);
+    }
+
+    [Fact]
+    [DisplayName("Initialize should configure embedding generator when available")]
+    public async Task Initialize_ShouldConfigureEmbeddingGenerator()
+    {
+        var agent = _agentFactory.CreateGAgent<TestAIGAgent>();
+
+        await agent.InitializeAsync("openai-provider");
+
+        agent.HasEmbeddings.Should().BeTrue();
+        var embedding = await agent.GenerateEmbeddingForTestAsync("embedding-test");
+        embedding.Should().NotBeNull();
+        embedding!.Vector.Length.Should().BeGreaterThan(0);
     }
 
     [Fact]

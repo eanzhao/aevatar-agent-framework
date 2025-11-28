@@ -1,9 +1,9 @@
 using System.ComponentModel;
-using DataAnnotations = System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text.Json;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
+using DataAnnotations = System.ComponentModel.DataAnnotations;
 
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
 

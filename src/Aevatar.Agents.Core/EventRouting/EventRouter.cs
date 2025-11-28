@@ -22,10 +22,12 @@ public class EventRouter(
     Func<Guid, EventEnvelope, CancellationToken, Task> sendToActorAsync,
     Func<EventEnvelope, CancellationToken, Task> sendToSelfAsync,
     ILogger? logger = null,
-    IEventRouterStore? store = null)
+    IEventRouterStore? store = null,
+    EventRouterOptions? options = null)
 {
     private readonly ILogger _logger = logger ?? NullLogger.Instance;
     private readonly IEventRouterStore? _store = store;
+    private readonly EventRouterOptions _options = options ?? EventRouterOptions.Default;
 
     // Hierarchy relationships
     private Guid? _parentId;
@@ -143,9 +145,9 @@ public class EventRouter(
             PublisherId = agentId.ToString(),
             Direction = direction,
             ShouldStopPropagation = false,
-            MaxHopCount = 50, // Set a reasonable default max hop count to prevent infinite recursion
+            MaxHopCount = _options.DefaultMaxHopCount,
             CurrentHopCount = 0,
-            MinHopCount = -1,
+            MinHopCount = _options.DefaultMinHopCount,
             Message = $"Published by {agentId}",
         };
 
@@ -247,12 +249,11 @@ public class EventRouter(
         }
 
         // Safety check: If current hop count is abnormally high, force stop to prevent stack overflow
-        const int safetyMaxHops = 100;
-        if (envelope.CurrentHopCount >= safetyMaxHops)
+        if (envelope.CurrentHopCount >= _options.SafetyMaxHopCount)
         {
             _logger.LogError(
                 "Event {EventId} exceeded safety max hop count {SafetyMax}, force stopping to prevent stack overflow",
-                envelope.Id, safetyMaxHops);
+                envelope.Id, _options.SafetyMaxHopCount);
             return;
         }
 

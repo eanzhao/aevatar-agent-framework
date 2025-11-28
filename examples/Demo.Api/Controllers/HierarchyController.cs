@@ -1,10 +1,10 @@
-using Microsoft.AspNetCore.Mvc;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.Core.Hierarchy;
 using Demo.Agents;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Demo.Api.Controllers;
 

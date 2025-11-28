@@ -11,11 +11,11 @@ Before writing code, determine the Agent's nature based on user requirements:
 ### A. Inheritance Path (继承路径)
 | Requirement | Base Class | Generics | Note |
 |-------------|------------|----------|------|
-| **Standard Logic** | `GAgentBase<TState>` | `<TState>` | Pure business logic, no LLM. |
-| **Standard + Config** | `GAgentBase<TState, TConfig>` | `<TState, TConfig>` | Needs static config (e.g. thresholds). |
-| **AI Capabilities** | `AIGAgentBase<TState, TConfig>` | `<TState, TConfig>` | Needs LLM/ChatGPT. **Must** have Config. |
-| **Event Sourcing** | `GAgentBaseWithEventSourcing<TState>` | `<TState>` | Audit trails, finance, replayability. |
-| **AI + Event Sourcing** | `AIGAgentBaseWithEventSourcing<TState, TConfig>` | `<TState, TConfig>` | AI with audit history. |
+| **Standard Logic** | `GAgentBase<TState>` | `<TState>` | Includes built-in state persistence hooks. |
+| **Standard + Config** | `GAgentBase<TState, TConfig>` | `<TState, TConfig>` | When agent needs persisted configuration. |
+| **AI Capabilities** | `AIGAgentBase<TState, TConfig>` | `<TState, TConfig>` | Wraps `IAevatarLLMProvider` (MEAI/LLMTornado). |
+| **Event Sourcing** | `GAgentBase<TState>` + `IEventStore` | `<TState>` | Call `RaiseEvent`/`ConfirmEventsAsync` once DI injects `IEventStore`. |
+| **AI + Event Sourcing** | `AIGAgentBase<TState, TConfig>` + `IEventStore` | `<TState, TConfig>` | Same pattern; `AgentEventStoreInjector` wires the store. |
 
 ### B. Protobuf Requirement (铁律)
 *   **State (`TState`)**: MUST be a Protobuf message.

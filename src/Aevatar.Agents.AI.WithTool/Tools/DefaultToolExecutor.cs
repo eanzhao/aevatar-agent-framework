@@ -1,9 +1,9 @@
+using System.Diagnostics;
 using Aevatar.Agents.AI.Core.Messages; // For AevatarAIErrorEvent
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages; // For AevatarToolExecutedEvent
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Tools;
 

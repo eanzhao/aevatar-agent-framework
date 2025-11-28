@@ -1,63 +1,74 @@
 <Solution>
   <Folder Name="/agents/">
-    <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" Type="C#" />
-    <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" Type="C#" />
-    <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" Type="C#" />
-    <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" Type="C#" />
-    <Project Path="agents\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" Type="C#" />
-    <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" Type="C#" />
+    <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" />
+    <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" />
+    <Project Path="agents\Aevatar.Agents.Twitter\Aevatar.Agents.Twitter.csproj" />
+    <Project Path="agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />
+    <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
-  <Folder Name="/apps/" />
+  <Folder Name="/apps/">
+    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
+  </Folder>
   <Folder Name="/docs/">
     <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
     <File Path="docs\CONSTITUTION.md" />
     <File Path="docs\ARCHITECTURE_REFERENCE.md" />
     <File Path="docs\AI_AGENT_MAKER_GUIDE.md" />
+    <File Path="docs\ABP_ADMIN_UI_SETUP.md" />
+    <File Path="docs\MAKER_ARCHITECTURAL_DESIGN.md" />
+    <File Path="docs\MASSTRANSIT_INTEGRATION_PLAN.md" />
+    <File Path="docs\MAKER_ARCHITECTURAL_DESIGN_zh.md" />
+    <File Path="docs\MASSTRANSIT_INTEGRATION_GUIDE.md" />
   </Folder>
   <Folder Name="/examples/">
-    <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" Type="C#" />
-    <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" Type="C#" />
+    <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" />
+    <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
-    <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" Type="C#" />
-    <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" Type="C#" />
-    <Project Path="examples\MakerBaziDemo\MakerBaziDemo.csproj" Type="C#" />
-    <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" Type="Classic C#" />
-    <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" Type="C#" />
+    <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" />
+    <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
+    <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
+    <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
-    <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" Type="C#" />
+    <Project Path="examples\StateStoreDemo\StateStoreDemo.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
-    <Project Path="src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.AI.LLMTornado\Aevatar.Agents.AI.LLMTornado.csproj" />
     <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
-    <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" Type="C#" />
-    <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
+    <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
-    <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <Project Path="src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
-    <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.ProtoActor\Aevatar.Agents.Runtime.ProtoActor.csproj" />
-    <Project Path="src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" Type="C#" />
+    <Project Path="src\Aevatar.Agents.Runtime\Aevatar.Agents.Runtime.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj" />
-    <Project Path="test\Aevatar.Agents.Abstractions.Tests\Aevatar.Agents.Abstractions.Tests.csproj" Type="C#" />
-    <Project Path="test\Aevatar.Agents.AI.Abstractions.Tests\Aevatar.Agents.AI.Abstractions.Tests.csproj" Type="C#" />
-    <Project Path="test\Aevatar.Agents.AI.LLMTornado.Tests\Aevatar.Agents.AI.LLMTornado.Tests.csproj" Type="C#" />
-    <Project Path="test\Aevatar.Agents.AI.Tests\Aevatar.Agents.AI.Tests.csproj" Type="C#" />
-    <Project Path="test\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" Type="C#" />
+    <Project Path="test\Aevatar.Agents.Abstractions.Tests\Aevatar.Agents.Abstractions.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.AI.Abstractions.Tests\Aevatar.Agents.AI.Abstractions.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.AI.LLMTornado.Tests\Aevatar.Agents.AI.LLMTornado.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.AI.Tests\Aevatar.Agents.AI.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" />
     <Project Path="test\Aevatar.Agents.Core.Tests\Aevatar.Agents.Core.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
-    <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" Type="C#" />
+    <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Persistence.MongoDB.Tests\Aevatar.Agents.Persistence.MongoDB.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" Type="Classic C#" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
+    <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" Type="Classic C#" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

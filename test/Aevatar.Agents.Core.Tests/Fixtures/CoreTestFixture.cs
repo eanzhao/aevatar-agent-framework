@@ -1,9 +1,9 @@
-using Microsoft.Extensions.DependencyInjection;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.Persistence;
 using Aevatar.Agents.Core.Tests.EventPublisher;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Tests.Fixtures;
 

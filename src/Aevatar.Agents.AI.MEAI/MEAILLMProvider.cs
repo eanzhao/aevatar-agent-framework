@@ -1,12 +1,12 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 // ReSharper disable InconsistentNaming
 namespace Aevatar.Agents.AI.MEAI;
@@ -22,6 +22,20 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>
+    /// Get model info - MEAI supports streaming for most models.
+    /// </summary>
+    public Task<AevatarModelInfo> GetModelInfoAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new AevatarModelInfo
+        {
+            Name = _config.Model,
+            MaxTokens = _config.MaxTokens,
+            SupportsStreaming = true,  // MEAI supports streaming via GetStreamingResponseAsync
+            SupportsFunctions = true   // MEAI supports tools/functions
+        });
     }
 
     public override async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
@@ -73,7 +87,8 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     {
         var options = new ChatOptions
         {
-            Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
+            // TODO: Some models donot support temperature, need to fix
+            //Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };
@@ -309,14 +324,35 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// Extracts streaming text from chat update using reflection.
     /// Uses reflection to maintain resilience against Microsoft.Extensions.AI SDK changes.
     /// Attempts multiple property paths: TextDelta, Text, Message.Text, and Message.Content collection.
+    /// Also extracts reasoning_content for reasoning models (e.g., DeepSeek-reasoner).
     /// </summary>
-    private static string ExtractStreamingText(object chatUpdate)
+    private string ExtractStreamingText(object chatUpdate)
     {
         if (chatUpdate == null)
         {
             return string.Empty;
         }
 
+        var sb = new StringBuilder();
+
+        // ============================================================
+        // DeepSeek-reasoner: Extract reasoning_content (thinking process)
+        // ============================================================
+        var reasoningContent = ExtractReasoningContent(chatUpdate);
+        if (!string.IsNullOrEmpty(reasoningContent))
+        {
+            // Log reasoning content for debugging (optional)
+            _logger.LogDebug("[REASONING] {Content}", reasoningContent);
+            
+            // Optionally include reasoning in output (wrapped for visibility)
+            // Uncomment below to show thinking process in UI:
+            // sb.Append($"💭 {reasoningContent}");
+        }
+
+        // ============================================================
+        // Standard content extraction
+        // ============================================================
+        
         // Try TextDelta or Text properties directly
         var text = StreamingPropertyCache.GetValue(chatUpdate, "TextDelta") as string;
         if (string.IsNullOrEmpty(text))
@@ -326,30 +362,31 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         if (!string.IsNullOrEmpty(text))
         {
-            return text;
+            sb.Append(text);
+            return sb.ToString();
         }
 
         // Try Message.Text property
         var message = StreamingPropertyCache.GetValue(chatUpdate, "Message");
         if (message == null)
         {
-            return string.Empty;
+            return sb.ToString();
         }
 
         text = StreamingPropertyCache.GetValue(message, "Text") as string;
         if (!string.IsNullOrEmpty(text))
         {
-            return text;
+            sb.Append(text);
+            return sb.ToString();
         }
 
         // Aggregate text from Message.Content collection
         var content = StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable;
         if (content == null)
         {
-            return string.Empty;
+            return sb.ToString();
         }
 
-        var sb = new StringBuilder();
         foreach (var part in content)
         {
             if (part == null) continue;
@@ -361,5 +398,50 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Extract reasoning_content from DeepSeek-reasoner or similar reasoning models.
+    /// The reasoning content represents the model's internal thinking process.
+    /// </summary>
+    private static string? ExtractReasoningContent(object chatUpdate)
+    {
+        // Try direct reasoning_content property (some SDKs expose this directly)
+        var reasoning = StreamingPropertyCache.GetValue(chatUpdate, "ReasoningContent") as string;
+        if (!string.IsNullOrEmpty(reasoning))
+        {
+            return reasoning;
+        }
+
+        // Try Delta.reasoning_content (DeepSeek API structure)
+        var delta = StreamingPropertyCache.GetValue(chatUpdate, "Delta");
+        if (delta != null)
+        {
+            reasoning = StreamingPropertyCache.GetValue(delta, "ReasoningContent") as string;
+            if (!string.IsNullOrEmpty(reasoning))
+            {
+                return reasoning;
+            }
+            
+            // Also try snake_case version
+            reasoning = StreamingPropertyCache.GetValue(delta, "reasoning_content") as string;
+            if (!string.IsNullOrEmpty(reasoning))
+            {
+                return reasoning;
+            }
+        }
+
+        // Try Message.ReasoningContent
+        var message = StreamingPropertyCache.GetValue(chatUpdate, "Message");
+        if (message != null)
+        {
+            reasoning = StreamingPropertyCache.GetValue(message, "ReasoningContent") as string;
+            if (!string.IsNullOrEmpty(reasoning))
+            {
+                return reasoning;
+            }
+        }
+
+        return null;
     }
 }

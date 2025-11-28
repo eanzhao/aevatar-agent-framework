@@ -59,7 +59,7 @@ Aevatar.Agents.Abstractions/
 ├── IGAgentActorManager.cs        # Actor 管理器接口
 ├── IEventPublisher.cs            # 事件发布接口
 ├── IMessageStream.cs             # 消息流接口
-├── IStateDispatcher.cs           # 状态分发接口
+├── StreamingOptions.cs           # 流配置
 ├── messages.proto                # Protobuf 消息定义
 └── Attributes/                   # 特性标记
     ├── EventHandlerAttribute.cs
@@ -70,55 +70,62 @@ Aevatar.Agents.Abstractions/
 ### 核心实现 (Core)
 ```
 Aevatar.Agents.Core/
-├── GAgentBase.cs                         # 基础 Agent 实现
-├── GAgentBaseWithConfiguration.cs        # 带配置的 Agent
-├── GAgentBaseWithEvent.cs               # 带事件的 Agent
-├── GAgentBaseWithEventSourcing.cs       # EventSourcing Agent
-├── GAgentActorBase.cs                   # Actor 基类
-├── StateDispatcher.cs                   # 状态分发器
+├── GAgentBase.cs                        # 无状态基类（事件调度、生命周期）
+├── GAgentBase.TState.cs                 # 带状态 + EventSourcing 的核心实现
+├── GAgentBase.TState.TConfig.cs         # 带状态 + 配置（ConfigStore）
+├── GAgentActorBase.cs                   # Actor 包装器基类
 ├── EventRouting/
-│   └── EventRouter.cs                   # 事件路由器
-├── EventSourcing/
-│   ├── InMemoryEventStore.cs           # 内存事件存储
-│   └── EventSourcedGAgentBase.cs       # 事件溯源基类
+│   ├── EventRouter.cs                   # 事件路由 / Up-Down-Both 传播
+│   └── EventRouterHierarchy.cs          # 父子关系持久化模型
+├── Hierarchy/ActorHierarchyCoordinator.cs # 父子关系原子操作
+├── Helpers/
+│   ├── AgentEventPublisherInjector.cs
+│   ├── AgentEventStoreInjector.cs
+│   ├── AgentStateStoreInjector.cs
+│   └── LoggerInjector.cs
+├── Subscription/
+│   ├── BaseSubscriptionManager.cs       # 订阅管理器
+│   └── RetryPolicies.cs
 └── Observability/
-    ├── AgentMetrics.cs                  # 指标收集
-    └── LoggingScope.cs                  # 日志作用域
+    ├── AgentMetrics.cs
+    └── LoggingScope.cs
 ```
 
 ### 运行时实现
 
 #### Local Runtime (进程内)
 ```
-Aevatar.Agents.Local/
-├── LocalGAgentActor.cs              # 本地 Actor 实现
-├── LocalGAgentActorFactory.cs       # 本地工厂
-├── LocalGAgentActorManager.cs       # 本地管理器
-├── LocalMessageStream.cs            # Channel 消息流
-└── LocalMessageStreamRegistry.cs    # 消息流注册表
+Aevatar.Agents.Runtime.Local/
+├── LocalGAgentActor.cs               # In-memory actor实现
+├── LocalGAgentActorFactory.cs
+├── LocalGAgentActorManager.cs
+├── LocalMessageStream.cs             # 基于 Channel 的消息流
+├── LocalMessageStreamRegistry.cs
+├── Subscription/LocalSubscriptionManager.cs
+└── DependencyInjection/ServiceCollectionExtensions.cs
 ```
 
 #### ProtoActor Runtime (Actor 模型)
 ```
-Aevatar.Agents.ProtoActor/
-├── ProtoActorGAgentActor.cs         # ProtoActor 包装
-├── ProtoActorGAgentActorFactory.cs  # ProtoActor 工厂
-├── ProtoActorGAgentActorManager.cs  # ProtoActor 管理器
-├── AgentActor.cs                    # IActor 实现
-└── ProtoActorMessageStream.cs       # ProtoActor 消息流
+Aevatar.Agents.Runtime.ProtoActor/
+├── ProtoActorGAgentActor.cs
+├── ProtoActorGAgentActorFactory.cs
+├── ProtoActorGAgentActorManager.cs
+├── ProtoActorMessageStream.cs
+├── AgentActor.cs                     # Proto.Actor IActor 实现
+└── DependencyInjection/ServiceCollectionExtensions.cs
 ```
 
 #### Orleans Runtime (虚拟 Actor)
 ```
-Aevatar.Agents.Orleans/
-├── OrleansGAgentGrain.cs            # Orleans Grain
-├── OrleansGAgentActor.cs            # Orleans Actor 适配器
-├── OrleansGAgentActorFactory.cs     # Orleans 工厂
-├── OrleansGAgentActorManager.cs     # Orleans 管理器
-├── OrleansMessageStream.cs          # Orleans Stream
-├── IGAgentGrain.cs                  # Grain 接口
-└── EventSourcing/
-    └── JournaledGAgentGrain.cs      # JournaledGrain 支持
+Aevatar.Agents.Runtime.Orleans/
+├── OrleansGAgentGrain.cs             # 运行在 Silo 内的 Grain
+├── OrleansGAgentActor.cs             # Actor 包装器
+├── OrleansGAgentActorFactory.cs
+├── OrleansGAgentActorManager.cs
+├── OrleansMessageStream.cs / Subscription/
+├── IGAgentGrain.cs
+└── EventSourcing/OrleansEventStore.cs # Orleans EventStore + 持久化 Grain
 ```
 
 ## 🔄 事件系统
@@ -126,30 +133,28 @@ Aevatar.Agents.Orleans/
 ### EventEnvelope (Protobuf)
 ```protobuf
 message EventEnvelope {
-    string id = 1;
-    int64 timestamp = 2;
-    google.protobuf.Any event = 3;
-    string source_agent_id = 4;
-    string target_agent_id = 5;
-    EventDirection direction = 6;
-    repeated string tags = 7;
-    map<string, string> metadata = 8;
-    int32 priority = 9;
-    int64 version = 10;
-    int32 current_hop_count = 11;
-    int32 max_hop_count = 12;
-    int32 min_hop_count = 13;
-    repeated string visited_agents = 14;
-    string correlation_id = 15;
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  int64 version = 3;
+  google.protobuf.Any payload = 4;
+
+  string correlation_id = 5;
+  string publisher_id = 6;
+  EventDirection direction = 7;
+  bool should_stop_propagation = 8;
+  int32 max_hop_count = 9;
+  int32 current_hop_count = 10;
+  int32 min_hop_count = 11;
+  string message = 12;
+  repeated string publishers = 13;
 }
 ```
 
 ### 事件路由方向
 
 - **Down**: 向子 Agent 传播
-- **Up**: 向父 Agent 传播  
-- **UpThenDown**: 先向上再向下（兄弟广播）
-- **Bidirectional**: 双向传播
+- **Up**: 向父 Agent 传播（同时广播给兄弟）
+- **Both**: 同时向上、向下各发送一条 Envelope
 
 ### 事件处理器
 
@@ -172,10 +177,22 @@ public async Task HandleAsync(GeneralConfigEvent evt) { }
 ```csharp
 public interface IEventStore
 {
-    Task<long> AppendEventAsync(Guid streamId, object @event);
-    Task<IReadOnlyList<object>> GetEventsAsync(Guid streamId, long fromVersion = 0);
-    Task<object?> GetSnapshotAsync(Guid streamId);
-    Task SaveSnapshotAsync(Guid streamId, object snapshot, long version);
+    Task<long> AppendEventsAsync(
+        Guid agentId,
+        IEnumerable<AgentStateEvent> events,
+        long expectedVersion,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<AgentStateEvent>> GetEventsAsync(
+        Guid agentId,
+        long? fromVersion = null,
+        long? toVersion = null,
+        int? maxCount = null,
+        CancellationToken ct = default);
+
+    Task<long> GetLatestVersionAsync(Guid agentId, CancellationToken ct = default);
+    Task SaveSnapshotAsync(Guid agentId, AgentSnapshot snapshot, CancellationToken ct = default);
+    Task<AgentSnapshot?> GetLatestSnapshotAsync(Guid agentId, CancellationToken ct = default);
 }
 ```
 
@@ -261,6 +278,13 @@ public class MyAgentState  // 手动定义的类无法正确序列化
 >
 > 详细规则请查看 [全能指南 - 序列化](docs/AEVATAR_FRAMEWORK_GUIDE.md#defining-state--events-protobuf)
 
+## 🧠 Embedding 通道
+
+- `LLMProviderConfig` 新增 `Embeddings` 节点，描述 `model/deployment/apiKey/endpoint/dimensions` 等向量模型参数。配置缺失或未显式启用时，Agent 将不具备向量能力。这是遵循 **"Pay for what you use"** 原则，避免未声明的外部依赖初始化带来的资源开销。
+- `IAIAgentEmbeddingFactory` 负责把配置翻译成 `IEmbeddingGenerator<string, Embedding<float>>`（默认实现 `MEAIEmbeddingFactory` 使用 Microsoft.Extensions.AI OpenAI/Azure SDK，并复用统一的 `ClientLoggingOptions`）。
+- `AIGAgentBase` 在 `InitializeAsync` 时读取 `Embeddings` 配置并注入生成器，提供 `GenerateEmbeddingAsync`、`GenerateEmbeddingsAsync` 与 `CosineSimilarity` 等受保护 API，方便派生 Agent 做记忆召回、工具排序等语义操作。
+- `AIGAgentFactory` 会自动注入 `IAIAgentEmbeddingFactory`（类似 LLM Provider Factory），因此业务 Agent 只需声明 `LLMProviders:Providers:<name>:Embeddings` 即可获得统一的 embedding 管道。
+
 ## 🔌 消息流 (Streaming)
 
 每个 Agent 拥有独立的消息流，支持异步消息传递和背压控制。
@@ -286,6 +310,8 @@ var stream = streamProvider.GetStream<byte[]>(StreamId.Create("AgentStream", age
 ```
 
 ## 📊 性能指标
+
+> 以下数值为当前内部压测的目标区间，用于指导优化方向，并非公开基准。
 
 | 指标 | Local | ProtoActor | Orleans |
 |-----|-------|-----------|---------|

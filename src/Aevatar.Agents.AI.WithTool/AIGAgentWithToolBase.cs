@@ -280,13 +280,31 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
     /// <summary>
     /// Creates the tool manager. Override to customize.
+    /// Uses inherited Logger from GAgentBase for consistent logging.
     /// </summary>
     protected virtual IAevatarToolManager CreateToolManager()
     {
-        // Default implementation creates a AevatarToolManager
-        // Use a null logger for now, can be enhanced later
-        var logger = NullLogger<AevatarToolManager>.Instance;
+        // Create a typed logger wrapper that uses the inherited Logger
+        var logger = new LoggerAdapter<AevatarToolManager>(Logger);
         return new AevatarToolManager(logger);
+    }
+
+    /// <summary>
+    /// Logger adapter to convert ILogger to ILogger{T}
+    /// </summary>
+    private sealed class LoggerAdapter<T> : ILogger<T>
+    {
+        private readonly ILogger _inner;
+
+        public LoggerAdapter(ILogger inner) => _inner = inner;
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+            => _inner.BeginScope(state);
+
+        public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => _inner.Log(logLevel, eventId, state, exception, formatter);
     }
 
     protected override ConversationHistoryManager CreateConversationHistoryManager()

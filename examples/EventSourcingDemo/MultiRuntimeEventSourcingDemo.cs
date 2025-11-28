@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace EventSourcingDemo;
 
 /// <summary>
-/// 多运行时 EventSourcing 演示（V2）
+/// 多运行时 EventSourcing 演示
 /// 使用新的 WithEventSourcingAsync 扩展方法
 /// </summary>
 public static class MultiRuntimeEventSourcingDemo
@@ -18,7 +18,7 @@ public static class MultiRuntimeEventSourcingDemo
     {
         Console.WriteLine("\n\n");
         Console.WriteLine("🌌 ═══════════════════════════════════════════════════");
-        Console.WriteLine("   Multi-Runtime EventSourcing Demo V2");
+        Console.WriteLine("   Multi-Runtime EventSourcing Demo");
         Console.WriteLine("   展示 EventSourcing 在不同运行时下的统一API");
         Console.WriteLine("═══════════════════════════════════════════════════\n");
         
@@ -35,7 +35,7 @@ public static class MultiRuntimeEventSourcingDemo
         // 2. Orleans 运行时说明
         ShowOrleansInstructions();
         
-        Console.WriteLine("\n✅ Multi-Runtime EventSourcing Demo V2 完成！");
+        Console.WriteLine("\n✅ Multi-Runtime EventSourcing Demo 完成！");
         Console.WriteLine("🌟 所有运行时都使用统一的 EventSourcing API！");
     }
     
@@ -44,7 +44,7 @@ public static class MultiRuntimeEventSourcingDemo
     /// </summary>
     private static async Task DemoLocalRuntime(InMemoryEventStore eventStore, IServiceProvider serviceProvider)
     {
-        Console.WriteLine("📍 Local Runtime EventSourcing (V2)");
+        Console.WriteLine("📍 Local Runtime EventSourcing");
         Console.WriteLine("════════════════════════════════════════");
         
         var agentId = Guid.NewGuid();
@@ -72,7 +72,7 @@ public static class MultiRuntimeEventSourcingDemo
         Console.WriteLine("  ✓ EventSourcing 自动启用");
         
         // 执行交易
-        await agent.CreateAccountAsync("Local User V2", 1000);
+        await agent.CreateAccountAsync("Local User", 1000);
         await agent.DepositAsync(500, "Salary");
         await agent.WithdrawAsync(200, "Shopping");
         
@@ -125,7 +125,7 @@ public static class MultiRuntimeEventSourcingDemo
             if (recoveredAgent.GetState().Balance == 1650.0 && 
                 recoveredAgent.GetCurrentVersion() == 7)  // 1 create + 2 individual + 3 batch + 0 (batch is 1 commit)
             {
-                Console.WriteLine($"\n  🎉 Local Runtime EventSourcing V2 验证成功!");
+                Console.WriteLine($"\n  🎉 Local Runtime EventSourcing 验证成功!");
             }
         }
         
@@ -150,11 +150,11 @@ public static class MultiRuntimeEventSourcingDemo
     }
     
     /// <summary>
-    /// Orleans 运行时说明（V2 更新）
+    /// Orleans 运行时说明
     /// </summary>
     private static void ShowOrleansInstructions()
     {
-        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing (V2)");
+        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing");
         Console.WriteLine("════════════════════════════════════════════");
         Console.WriteLine("✅ Orleans 现在使用统一的 IEventStore 接口！\n");
         

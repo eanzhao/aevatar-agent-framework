@@ -1,9 +1,9 @@
-using Aevatar.Agents.AI.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithProcessStrategy.Abstractions;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithProcessStrategy.Strategies;
 

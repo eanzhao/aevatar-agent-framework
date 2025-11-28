@@ -1,6 +1,6 @@
+using Aevatar.Agents.Core.StateProtection;
 using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
-using Aevatar.Agents.Core.StateProtection;
 using Shouldly;
 
 namespace Aevatar.Agents.Core.Tests;

@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Xunit;
-using Shouldly;
+using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Tests.Agents;
 using Aevatar.Agents.Core.Tests.Fixtures;
-using Microsoft.Extensions.DependencyInjection;
-using Aevatar.Agents.Core.Helpers;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using Shouldly;
+using Xunit;
 
 namespace Aevatar.Agents.Core.Tests;
 

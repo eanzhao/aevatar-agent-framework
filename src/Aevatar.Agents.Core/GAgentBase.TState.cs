@@ -1,14 +1,14 @@
-﻿using Aevatar.Agents.Abstractions;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Reflection;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Persistence;
-using Aevatar.Agents.Core.StateProtection;
-using System.Diagnostics;
-using Google.Protobuf;
-using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.StateProtection;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
-using System.Collections.Concurrent;
-using System.Reflection;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Core;

@@ -1,8 +1,8 @@
 using Aevatar.Agents.AI.Abstractions;
+using LlmTornado.Code;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Xunit;
-using LlmTornado.Code;
 
 namespace Aevatar.Agents.AI.LLMTornado.Tests;
 

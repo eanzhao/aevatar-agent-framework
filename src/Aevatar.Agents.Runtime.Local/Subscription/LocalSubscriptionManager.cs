@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Logging;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Subscription;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Runtime.Local.Subscription;
 

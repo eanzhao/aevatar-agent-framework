@@ -1,13 +1,13 @@
+using System.Diagnostics;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.EventDeduplication;
+using Aevatar.Agents.Core.EventRouting;
 using Aevatar.Agents.Core.Helpers;
-using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.Internal;
+using Aevatar.Agents.Core.Observability;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Diagnostics;
 
 namespace Aevatar.Agents.Core;
 

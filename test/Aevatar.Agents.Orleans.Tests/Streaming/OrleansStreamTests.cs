@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Runtime.Orleans;
+using Google.Protobuf;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,7 +15,6 @@ using Orleans.Serialization;
 using Orleans.Streams;
 using Orleans.TestingHost;
 using Xunit;
-using Google.Protobuf;
 
 namespace Aevatar.Agents.Orleans.Tests.Streaming;
 

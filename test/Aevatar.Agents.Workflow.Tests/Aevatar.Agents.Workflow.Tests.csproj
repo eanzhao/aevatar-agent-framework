@@ -29,10 +29,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />
+    <ProjectReference Include="..\..\agents\Aevatar.Agents.Workflow\Aevatar.Agents.Workflow.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <ProjectReference Include="..\Aevatar.Agents.Core.Tests.Agents\Aevatar.Agents.Core.Tests.Agents.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,9 +1,9 @@
 using Aevatar.Agents.Abstractions.Attributes;
-using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
-using Microsoft.Extensions.Logging;
+using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.Chat;
 
