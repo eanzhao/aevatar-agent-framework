@@ -28,7 +28,16 @@ public static class ServiceCollectionExtensions
         // Also register the provider directly for simple use cases
         services.AddSingleton<TornadoApi>(sp => new TornadoApi(config.ApiKey, config.Provider));
 
-        services.AddSingleton<IAevatarLLMProvider, LLMTornadoProvider>();
+        // =========================================================================
+        //  LLMTornadoProvider requires explicit construction
+        //  Constructor: (TornadoApi, ILogger, LLmProviders, modelName, policy?)
+        // =========================================================================
+        services.AddSingleton<IAevatarLLMProvider>(sp =>
+        {
+            var api = sp.GetRequiredService<TornadoApi>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LLMTornadoProvider>>();
+            return new LLMTornadoProvider(api, logger, config.Provider, config.Model);
+        });
 
         return services;
     }
