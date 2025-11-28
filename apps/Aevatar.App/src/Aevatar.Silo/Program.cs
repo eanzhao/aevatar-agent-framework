@@ -20,7 +20,9 @@ using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Orleans.CQRS;
-using Aevatar.Agents.Core.CQRS;  // Use Core's CQRS implementation
+using Aevatar.Agents.Plugins.CQRS;
+using Aevatar.Agents.Plugins.CQRS.Batching;
+using Aevatar.Agents.Plugins.CQRS.Elasticsearch;  // Use Core's CQRS implementation
 
 namespace Aevatar.Silo;
 

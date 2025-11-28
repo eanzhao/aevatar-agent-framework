@@ -1,10 +1,14 @@
 using Aevatar.Agents.Abstractions.CQRS;
+using Aevatar.Agents.Plugins.CQRS.Batching;
+using Aevatar.Agents.Plugins.CQRS.Elasticsearch;
+using Aevatar.Agents.Plugins.CQRS.Forwarding;
+using Aevatar.Agents.Plugins.CQRS.Logging;
 using Elastic.Clients.Elasticsearch;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS;
 
 /// <summary>
 /// Extension methods for configuring CQRS services.

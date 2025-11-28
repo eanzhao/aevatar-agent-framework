@@ -2,7 +2,7 @@ using Aevatar.Agents;
 using Aevatar.Agents.Abstractions.CQRS;
 using Microsoft.Extensions.Logging;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS.Elasticsearch;
 
 /// <summary>
 /// Elasticsearch implementation of IStateProjector.

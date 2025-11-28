@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
+    <ProjectReference Include="../../Aevatar.Agents.Abstractions/Aevatar.Agents.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

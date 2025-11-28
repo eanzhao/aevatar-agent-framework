@@ -3,7 +3,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.CQRS;
 using Microsoft.Extensions.Logging;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS.Forwarding;
 
 /// <summary>
 /// Stream forwarding implementation of IStateProjector.
@@ -62,77 +62,6 @@ public class StreamForwardingProjector : IStateProjector
                 wrapper.AgentId);
             throw;
         }
-    }
-}
-
-/// <summary>
-/// Composite projector that delegates to multiple projectors.
-/// Use this when you need both direct ES projection and stream forwarding.
-/// </summary>
-public class CompositeStateProjector : IStateProjector
-{
-    private readonly IEnumerable<IStateProjector> _projectors;
-    private readonly ILogger<CompositeStateProjector> _logger;
-
-    public CompositeStateProjector(
-        IEnumerable<IStateProjector> projectors,
-        ILogger<CompositeStateProjector> logger)
-    {
-        _projectors = projectors;
-        _logger = logger;
-    }
-
-    public async Task ProjectAsync(StateWrapper wrapper, CancellationToken ct = default)
-    {
-        var exceptions = new List<Exception>();
-
-        foreach (var projector in _projectors)
-        {
-            try
-            {
-                await projector.ProjectAsync(wrapper, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Error in projector {ProjectorType} for {AgentId}",
-                    projector.GetType().Name, wrapper.AgentId);
-                exceptions.Add(ex);
-            }
-        }
-
-        if (exceptions.Count > 0)
-        {
-            throw new AggregateException(
-                $"One or more projectors failed for {wrapper.AgentId}",
-                exceptions);
-        }
-    }
-}
-
-/// <summary>
-/// Logging projector for debugging and development.
-/// Simply logs state changes without persisting them.
-/// </summary>
-public class LoggingStateProjector : IStateProjector
-{
-    private readonly ILogger<LoggingStateProjector> _logger;
-
-    public LoggingStateProjector(ILogger<LoggingStateProjector> logger)
-    {
-        _logger = logger;
-    }
-
-    public Task ProjectAsync(StateWrapper wrapper, CancellationToken ct = default)
-    {
-        _logger.LogInformation(
-            "[State Projected] AgentId: {AgentId}, Type: {AgentType}, Version: {Version}, PublishedAt: {PublishedAt}",
-            wrapper.AgentId,
-            wrapper.AgentType,
-            wrapper.Version,
-            wrapper.PublishedAt?.ToDateTime());
-
-        return Task.CompletedTask;
     }
 }
 

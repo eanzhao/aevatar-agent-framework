@@ -1,4 +1,4 @@
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS.Batching;
 
 /// <summary>
 /// Configuration options for batched state projection.

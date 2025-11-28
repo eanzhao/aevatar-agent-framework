@@ -5,7 +5,7 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS;
 
 /// <summary>
 /// Shared converter for transforming StateWrapper to StateIndexDocument.

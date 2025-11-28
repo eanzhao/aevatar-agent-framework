@@ -4,7 +4,7 @@ using Aevatar.Agents.Abstractions.CQRS;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS.Batching;
 
 /// <summary>
 /// Batched state projector that accumulates state changes and flushes them in batches.

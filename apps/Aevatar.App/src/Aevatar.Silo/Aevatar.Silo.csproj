@@ -62,7 +62,8 @@
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans/Aevatar.Agents.Runtime.Orleans.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Persistence.MongoDB/Aevatar.Agents.Persistence.MongoDB.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans.MongoDB/Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
-    <ProjectReference Include="../../../../src/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
+    <ProjectReference Include="../../../../src/plugins/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
+    <ProjectReference Include="../../../../src/plugins/Aevatar.Agents.Plugins.CQRS/Aevatar.Agents.Plugins.CQRS.csproj" />
     
     <!-- Business Server Projects -->
     <ProjectReference Include="..\Aevatar.App.Domain\Aevatar.App.Domain.csproj" />

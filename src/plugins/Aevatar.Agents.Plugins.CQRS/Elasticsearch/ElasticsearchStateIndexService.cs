@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using ProtobufTimestamp = Google.Protobuf.WellKnownTypes.Timestamp;
 using EsField = Elastic.Clients.Elasticsearch.Field;
 
-namespace Aevatar.Agents.Core.CQRS;
+namespace Aevatar.Agents.Plugins.CQRS.Elasticsearch;
 
 /// <summary>
 /// Elasticsearch implementation of IStateIndexService.
@@ -475,26 +475,5 @@ public class ElasticsearchStateIndexService : IStateIndexService
     }
 
     #endregion
-}
-
-/// <summary>
-/// Configuration options for Elasticsearch state indexing.
-/// </summary>
-public class ElasticsearchOptions
-{
-    /// <summary>
-    /// Elasticsearch URL
-    /// </summary>
-    public string Url { get; set; } = "http://localhost:9200";
-
-    /// <summary>
-    /// Index name prefix
-    /// </summary>
-    public string IndexPrefix { get; set; } = "aevatar-state";
-
-    /// <summary>
-    /// Refresh policy for write operations
-    /// </summary>
-    public Refresh RefreshPolicy { get; set; } = Refresh.WaitFor;
 }
 

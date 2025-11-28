@@ -13,7 +13,7 @@
     <ProjectReference Include="../../../../src/Aevatar.Agents.Core/Aevatar.Agents.Core.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.AI.Core/Aevatar.Agents.AI.Core.csproj" />
     <ProjectReference Include="../../../../src/Aevatar.Agents.Runtime.Orleans/Aevatar.Agents.Runtime.Orleans.csproj" />
-    <ProjectReference Include="../../../../src/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
+    <ProjectReference Include="../../../../src/plugins/Aevatar.Agents.Plugins.MassTransit/Aevatar.Agents.Plugins.MassTransit.csproj" />
   </ItemGroup>
 
   <ItemGroup>
