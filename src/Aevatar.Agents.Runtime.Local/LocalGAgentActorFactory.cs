@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Factory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -13,10 +14,12 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
     private readonly LocalMessageStreamRegistry _streamRegistry;
     private readonly IMessageStreamProvider? _externalStreamProvider;
     private readonly IOptions<MessageStreamProviderOptions>? _providerOptions;
+    private readonly ILoggerFactory _loggerFactory;
 
     public LocalGAgentActorFactory(
         IServiceProvider serviceProvider,
         ILogger<LocalGAgentActorFactory> logger,
+        ILoggerFactory loggerFactory,
         IMessageStreamProvider? externalStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
         : base(serviceProvider, logger)
@@ -24,6 +27,7 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         _streamRegistry = new LocalMessageStreamRegistry();
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions;
+        _loggerFactory = loggerFactory;
     }
 
     protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
@@ -38,9 +42,11 @@ public class LocalGAgentActorFactory : GAgentActorFactoryBase
         _logger.LogDebug("[Factory] Creating Actor for Agent - Type: {AgentType}, Id: {Id}",
             agent.GetType().Name, id);
 
+        var actorLogger = _loggerFactory.CreateLogger<LocalGAgentActor>();
         var actor = new LocalGAgentActor(
             agent,
             _streamRegistry,
+            actorLogger,
             _externalStreamProvider,
             _providerOptions);
 

@@ -174,6 +174,27 @@ public class LocalGAgentActor : GAgentActorBase
 
     protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
     {
+        // Self-handling: directly invoke Agent's HandleEventAsync
+        // This ensures the publisher processes its own event immediately
+        // 
+        // NOTE: This does NOT cause infinite loop because:
+        // 1. HandleEventAsync processes the event and updates state
+        // 2. HandleEventAsync does NOT call PublishEventAsync again
+        // 3. We only publish to stream AFTER handling (for children to receive)
+        // 4. Agent does NOT subscribe to its own stream
+        
+        try
+        {
+            await Agent.HandleEventAsync(envelope, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error handling self event {EventId} on agent {AgentId}", 
+                envelope.Id, Id);
+        }
+        
+        // Publish to stream for children (they subscribe to parent's stream via SetParentAsync)
+        // This is safe because Agent itself does not subscribe to _myStream
         if (_myStream != null)
         {
             await _myStream.ProduceAsync(envelope, ct);
@@ -197,19 +218,13 @@ public class LocalGAgentActor : GAgentActorBase
 
     protected override async Task OnActivateAsync(CancellationToken ct)
     {
-        if (_myStream != null)
-        {
-            await _myStream.SubscribeAsync<EventEnvelope>(
-                async envelope =>
-                {
-                    Logger.LogDebug("[SUBSCRIPTION] Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
-                    await HandleEventAsync(envelope, ct);
-                },
-                null,
-                ct);
-        }
+        // Note: Agent does NOT subscribe to its own stream.
+        // SendToSelfAsync directly calls Agent.HandleEventAsync for self-events.
+        // _myStream is only for children to subscribe (via SetParentAsync).
+        // This avoids duplicate event processing.
 
         Logger.LogInformation("LocalGAgentActor {Id} activated", Id);
+        await Task.CompletedTask;
 
         var count = Interlocked.Increment(ref _activeActorCount);
         AgentMetrics.UpdateActiveActorCount(count);

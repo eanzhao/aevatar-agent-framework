@@ -64,9 +64,10 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         // 1. Create uninitialized actor instance (implemented by subclasses)
         var actor = await CreateActorInstanceAsync(agent, id.Value, ct);
 
-        // 2. Inject dependencies (Logger, EventRouterFactory)
+        // 2. Inject dependencies (Logger, EventRouterFactory, StateProjector)
         LoggerInjector.InjectLogger(actor, _serviceProvider);
         EventRouterFactoryInjector.InjectEventRouterFactory(actor, _serviceProvider);
+        StateProjectorInjector.InjectStateProjector(agent, _serviceProvider);
 
         // 3. Activate actor (starts streams, loads state, etc.)
         await actor.ActivateAsync(ct);

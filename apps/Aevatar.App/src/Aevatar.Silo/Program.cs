@@ -19,6 +19,8 @@ using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Aevatar.Agents.Runtime.Orleans.CQRS;
+using Aevatar.Silo.CQRS;
 
 namespace Aevatar.Silo;
 
@@ -124,6 +126,25 @@ public class Program
                 }, builder => builder.UseOrleansRuntime());
                 
                 Log.Information("✅ Aevatar Agent System configured with MongoDB stores");
+
+                // CQRS State Projection (Orleans Stream)
+                services.AddOrleansCQRS(options =>
+                {
+                    options.StreamProviderName = "Default";
+                    options.StreamNamespace = "StateProjection";
+                });
+                
+                // Add Logging Projector (for debugging)
+                services.AddStateProjector<LoggingStateProjector>();
+                
+                // Add Elasticsearch CQRS (write + query)
+                services.AddElasticsearchCQRS(context.Configuration);
+                
+                // Register ES Projector as IStateProjector
+                services.AddSingleton<Aevatar.Agents.Abstractions.CQRS.IStateProjector>(sp => 
+                    sp.GetRequiredService<ElasticsearchStateProjector>());
+                
+                Log.Information("✅ CQRS State Projection configured (Logging + Elasticsearch)");
             });
     }
 }

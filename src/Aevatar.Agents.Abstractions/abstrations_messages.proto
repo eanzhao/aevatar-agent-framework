@@ -163,3 +163,29 @@ message AgentInitializedEvent {
   string agent_type = 2;
   google.protobuf.Any initial_state = 3;
 }
+
+// ============================================================
+// CQRS State Projection Messages
+// ============================================================
+
+// State wrapper for CQRS projection
+// Used to wrap state data for streaming to external systems
+message StateWrapper {
+  // Agent identifier
+  string agent_id = 1;
+  
+  // Agent type (full name)
+  string agent_type = 2;
+  
+  // State data (wrapped in Any for flexibility)
+  google.protobuf.Any state_data = 3;
+  
+  // Version number for optimistic concurrency
+  int64 version = 4;
+  
+  // Timestamp when published
+  google.protobuf.Timestamp published_at = 5;
+  
+  // Optional metadata
+  map<string, string> metadata = 6;
+}

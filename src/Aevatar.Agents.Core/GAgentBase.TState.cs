@@ -1,4 +1,5 @@
 ﻿using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.Persistence;
 using Aevatar.Agents.Core.StateProtection;
 using System.Diagnostics;
@@ -100,6 +101,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// </summary>
     protected IStateStore<TState>? StateStore { get; set; }
 
+
     // ============ Event Sourcing Dependencies ============
 
     private static readonly IEventTypeResolver _defaultResolver = new ProtobufEventTypeResolver();
@@ -132,6 +134,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
+        
+        // StateProjector is injected by StateProjectorInjector after agent creation
         
         // 1. Load State from StateStore if available
         if (StateStore != null)
@@ -184,6 +188,71 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         if (StateStore != null)
         {
             await StateStore.SaveAsync(Id, _state, ct);
+        }
+
+        // 5. State change hook - notify external systems
+        await OnStateChangedAsync(_state, ct);
+    }
+
+    // ============ State Change Hook ============
+
+    /// <summary>
+    /// State projector for CQRS pattern (injected from DI)
+    /// </summary>
+    protected IStateProjector? StateProjector { get; set; }
+
+    /// <summary>
+    /// Called after state has been changed and saved.
+    /// Default implementation projects state to CQRS read model if StateProjector is configured.
+    /// Override to customize state change notifications.
+    /// </summary>
+    /// <param name="state">The current state after changes</param>
+    /// <param name="ct">Cancellation token</param>
+    protected virtual async Task OnStateChangedAsync(TState state, CancellationToken ct = default)
+    {
+        // Default: project to CQRS read model if configured
+        if (StateProjector != null)
+        {
+            await ProjectStateAsync(state, ct);
+        }
+    }
+
+    /// <summary>
+    /// Project state to CQRS read model.
+    /// Can be called manually or automatically via OnStateChangedAsync.
+    /// This is the unified entry point for CQRS projection, independent of stream implementation.
+    /// </summary>
+    protected async Task ProjectStateAsync(TState state, CancellationToken ct = default)
+    {
+        if (StateProjector == null)
+        {
+            Logger?.LogDebug("StateProjector not configured, state will not be projected");
+            return;
+        }
+
+        try
+        {
+            // Use event sourcing version if available, otherwise use timestamp for optimistic concurrency
+            var projectionVersion = _currentVersion > 0 ? _currentVersion : DateTime.UtcNow.Ticks;
+            
+            var wrapper = new StateWrapper
+            {
+                AgentId = Id.ToString(),
+                AgentType = GetType().FullName ?? GetType().Name,
+                StateData = Any.Pack(state),
+                Version = projectionVersion,
+                PublishedAt = Timestamp.FromDateTime(DateTime.UtcNow)
+            };
+
+            await StateProjector.ProjectAsync(wrapper, ct);
+
+            Logger?.LogDebug(
+                "Projected state for agent {AgentId}, version: {Version}",
+                Id, _currentVersion);
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "Error projecting state for agent {AgentId}", Id);
         }
     }
 

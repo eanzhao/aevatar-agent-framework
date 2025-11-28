@@ -26,28 +26,21 @@ MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kaf
 ```mermaid
 graph TD
     A[Sender Agent] -->|Publish| B(GAgentActor)
-    B -->|GetStream(Category)| C[MassTransitMessageStreamProvider]
+    B -->|"GetStream(Category)"| C[MassTransitMessageStreamProvider]
     C -->|Lookup Topic| D{Topic Mapping?}
-    
     D -->|Found| E[Target Topic]
-    D -->|Not Found| F[Default Topic (TopicPrefix)]
-    
-    E -->|ProduceAsync (Key=StreamId)| G((Kafka))
-    F -->|ProduceAsync (Key=StreamId)| G
-    
+    D -->|Not Found| F["Default Topic (TopicPrefix)"]
+    E -->|"ProduceAsync (Key=StreamId)"| G((Kafka))
+    F -->|"ProduceAsync (Key=StreamId)"| G
     G -->|MassTransit Consumer| H[StreamMessageDispatcher]
     H -->|Dispatch by StreamId| I{Stream Exists?}
-    
     I -->|Yes| J[MassTransitMessageStream]
     I -->|No| K[IStreamNotFoundHandler]
-    
     K -->|Orleans Mode| L[OrleansStreamNotFoundHandler]
     L -->|Activate| M(Orleans Grain)
     M -->|Register Stream| J
-    
     K -->|Local Mode| N[LocalStreamNotFoundHandler]
-    N -->|Log Warning / Error| O[End / Retry]
-    
+    N -->|"Log Warning / Error"| O["End / Retry"]
     J -->|Deserialize| P[EventEnvelope]
     P -->|HandleEventAsync| Q(GAgentActor)
     Q -->|ProcessEvent| R[Receiver Agent]

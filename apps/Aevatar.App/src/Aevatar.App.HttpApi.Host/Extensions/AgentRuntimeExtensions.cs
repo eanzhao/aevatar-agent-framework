@@ -1,12 +1,17 @@
 using System;
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions.EventSourcing;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Core.CQRS;
 using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.EventDeduplication;
 using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.Subscription;
+using Aevatar.App.Controllers;
+using Aevatar.App.HttpApi.Host.Services;
+using Elastic.Clients.Elasticsearch;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -84,6 +89,95 @@ public static class AgentRuntimeExtensions
                 MaxCachedEvents = 10_000,
                 EnableAutoCleanup = true
             }));
+        
+        // CQRS Services - State Projection and Query
+        // Pass runtimeType to determine if Projector should be registered
+        RegisterCQRSServices(services, runtimeType);
+    }
+
+    /// <summary>
+    /// Register CQRS services for state projection and query
+    /// </summary>
+    /// <param name="services">Service collection</param>
+    /// <param name="runtimeType">Runtime type - determines if projector is registered</param>
+    /// <remarks>
+    /// For Orleans mode: Only query services are registered here.
+    /// IStateProjector is registered in Silo since Agent runs there.
+    /// For Local mode: All services including IStateProjector are registered here.
+    /// </remarks>
+    private static void RegisterCQRSServices(IServiceCollection services, AgentRuntimeType runtimeType)
+    {
+        Log.Information("📊 Configuring CQRS Services...");
+        
+        // Get ES configuration from IConfiguration
+        var config = services.BuildServiceProvider().GetRequiredService<IConfiguration>();
+        var esUrl = config.GetValue<string>("Elasticsearch:Url") ?? "http://localhost:9200";
+        var esPrefix = config.GetValue<string>("Elasticsearch:IndexPrefix") ?? "aevatar-state";
+        
+        Log.Information("   Elasticsearch URL: {Url}", esUrl);
+        Log.Information("   Index Prefix: {Prefix}", esPrefix);
+        Log.Information("   Runtime Type: {RuntimeType}", runtimeType);
+        
+        // Elasticsearch client - needed for both query and projection
+        services.AddSingleton(sp =>
+        {
+            var settings = new ElasticsearchClientSettings(new Uri(esUrl))
+                .DefaultIndex("aevatar-state")
+                .RequestTimeout(TimeSpan.FromSeconds(30));
+            return new ElasticsearchClient(settings);
+        });
+        
+        // State Index Service - Elasticsearch (needed for query)
+        services.AddSingleton<IStateIndexService>(sp =>
+        {
+            var client = sp.GetRequiredService<ElasticsearchClient>();
+            var logger = sp.GetRequiredService<ILogger<ElasticsearchStateIndexService>>();
+            var options = new ElasticsearchOptions { IndexPrefix = esPrefix };
+            return new ElasticsearchStateIndexService(client, logger, options);
+        });
+        
+        // State Query Service - needed for HttpApi to query ES
+        services.AddScoped<IStateQueryService, StateQueryService>();
+        
+        // State Projector - ONLY for Local mode
+        // In Orleans mode, Agent runs in Silo, so Silo registers IStateProjector
+        if (runtimeType == AgentRuntimeType.Local)
+        {
+            var useBatching = config.GetValue<bool>("CQRS:UseBatching", true);
+            Log.Information("   Use Batching: {UseBatching} (Local mode - projector registered here)", useBatching);
+            
+            if (useBatching)
+            {
+                Log.Information("   Using BatchedStateProjector (high throughput)");
+                
+                // Configure batch options from config
+                services.Configure<BatchProjectorOptions>(opts =>
+                {
+                    opts.BatchSize = config.GetValue("CQRS:BatchSize", 15);
+                    opts.BatchTimeoutSeconds = config.GetValue("CQRS:BatchTimeoutSeconds", 1);
+                    opts.MaxBatchSize = config.GetValue("CQRS:MaxBatchSize", 100);
+                    opts.MaxRetryCount = config.GetValue("CQRS:MaxRetryCount", 3);
+                });
+                
+                services.AddSingleton<IStateProjector, BatchedStateProjector>();
+            }
+            else
+            {
+                Log.Information("   Using ElasticsearchStateProjector (direct)");
+                services.AddSingleton<IStateProjector>(sp =>
+                {
+                    var indexService = sp.GetRequiredService<IStateIndexService>();
+                    var logger = sp.GetRequiredService<ILogger<ElasticsearchStateProjector>>();
+                    return new ElasticsearchStateProjector(indexService, logger);
+                });
+            }
+        }
+        else
+        {
+            Log.Information("   ⚠️ Orleans mode - IStateProjector NOT registered here (Silo handles it)");
+        }
+        
+        Log.Information("   ✅ CQRS query services configured");
     }
 
     /// <summary>
