@@ -3,7 +3,13 @@ using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
+using HealthChecks.UI.Client;
 using MakerSystem;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +20,67 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+
+// -------------------------------------------------------------------------
+// OpenTelemetry Configuration - Enables Aspire Dashboard integration
+// -------------------------------------------------------------------------
+var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+var serviceName = "maker-system";
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(serviceName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation()
+            // Filter out LLM API calls - they use HTTP streaming which doesn't close spans properly
+            .AddHttpClientInstrumentation(options =>
+            {
+                options.FilterHttpRequestMessage = request =>
+                {
+                    var host = request.RequestUri?.Host ?? "";
+                    // Skip LLM API endpoints (they use streaming which breaks span completion)
+                    if (host.Contains("deepseek.com") || 
+                        host.Contains("dashscope.aliyuncs.com") ||
+                        host.Contains("openai.com") ||
+                        host.Contains("anthropic.com"))
+                    {
+                        return false; // Don't trace these
+                    }
+                    return true;
+                };
+            })
+            .AddSource("Aevatar.Agents.*")     // Capture agent traces
+            .AddSource("Aevatar.Agents.LLM");  // Capture LLM streaming traces (our custom spans)
+        
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            tracing.AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter("Aevatar.Agents.*")      // Capture agent metrics
+            .AddMeter("Aevatar.Agents.LLM");   // Capture LLM metrics (TTFT, tokens, etc.)
+        
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            metrics.AddOtlpExporter();
+    });
+
+// OpenTelemetry Logging
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.IncludeScopes = true;
+    logging.IncludeFormattedMessage = true;
+    
+    if (!string.IsNullOrEmpty(otlpEndpoint))
+        logging.AddOtlpExporter();
+});
+
+// Health checks
+builder.Services.AddHealthChecks();
 
 // Add MassTransit Stream Plugin (supports Kafka/RabbitMQ/InMemory)
 // Scans assemblies for [StreamTopic] attributes to auto-configure topic routing
@@ -39,6 +106,12 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
 var app = builder.Build();
+
+// Health check endpoint for Aspire
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
 
 // Static files
 app.UseDefaultFiles();

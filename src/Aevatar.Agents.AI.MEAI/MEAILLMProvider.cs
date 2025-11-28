@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.MEAI.Telemetry;
 using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -41,13 +43,50 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     public override async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
+        using var activity = LLMTelemetry.StartGeneration(_config.Model);
+        var sw = Stopwatch.StartNew();
+        
+        try
+        {
+            _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
+            LLMTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+            
+            // Record full conversation for debugging
+            var messageHistory = request.Messages?.Select(m => (
+                Role: m.Role == AevatarChatRole.User ? "user" : "assistant",
+                Content: m.Content ?? ""
+            ));
+            LLMTelemetry.RecordRequest(activity, request.SystemPrompt, request.UserPrompt, messageHistory);
 
-        var messages = BuildChatMessages(request);
-        var options = BuildChatOptions(request);
-        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+            var messages = BuildChatMessages(request);
+            var options = BuildChatOptions(request);
+            var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
 
-        return CreateAevatarLLMResponse(response);
+            sw.Stop();
+            activity?.SetTag("llm.duration_ms", sw.ElapsedMilliseconds);
+            LLMTelemetry.ResponseTime.Record(sw.ElapsedMilliseconds, new KeyValuePair<string, object?>("model", _config.Model));
+            
+            var result = CreateAevatarLLMResponse(response);
+            
+            // Record response content for debugging
+            LLMTelemetry.RecordResponse(activity, result.Content);
+            
+            // Record token usage
+            if (result.Usage != null)
+            {
+                activity?.SetTag("llm.tokens.prompt", result.Usage.PromptTokens);
+                activity?.SetTag("llm.tokens.completion", result.Usage.CompletionTokens);
+                LLMTelemetry.InputTokens.Add(result.Usage.PromptTokens, new KeyValuePair<string, object?>("model", _config.Model));
+                LLMTelemetry.OutputTokens.Add(result.Usage.CompletionTokens, new KeyValuePair<string, object?>("model", _config.Model));
+            }
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            LLMTelemetry.RecordError(activity, ex);
+            throw;
+        }
     }
 
     /// <summary>
@@ -297,7 +336,24 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     public override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        using var activity = LLMTelemetry.StartStreaming(_config.Model);
+        var sw = Stopwatch.StartNew();
+        var chunkIndex = 0;
+        var totalTokens = 0;
+        var firstTokenReceived = false;
+        var responseBuilder = new StringBuilder();  // Collect full response for telemetry
+        
         _logger.LogDebug("Generating streaming response using MEAI provider: {Model}", _config.Model);
+        LLMTelemetry.RequestCount.Add(1, 
+            new KeyValuePair<string, object?>("model", _config.Model),
+            new KeyValuePair<string, object?>("streaming", true));
+        
+        // Record full conversation for debugging
+        var messageHistory = request.Messages?.Select(m => (
+            Role: m.Role == AevatarChatRole.User ? "user" : "assistant",
+            Content: m.Content ?? ""
+        ));
+        LLMTelemetry.RecordRequest(activity, request.SystemPrompt, request.UserPrompt, messageHistory);
 
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
@@ -310,12 +366,45 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 continue;
             }
 
+            // ============================================================
+            // Telemetry: Track streaming progress
+            // ============================================================
+            
+            // Time to First Token (TTFT) - critical latency metric
+            if (!firstTokenReceived)
+            {
+                firstTokenReceived = true;
+                var ttft = sw.ElapsedMilliseconds;
+                LLMTelemetry.RecordFirstToken(activity, ttft);
+                _logger.LogDebug("First token received in {TTFT}ms", ttft);
+            }
+            
+            // Approximate token count (rough estimate: 1 token ≈ 4 chars)
+            var estimatedTokens = Math.Max(1, chunk.Length / 4);
+            totalTokens += estimatedTokens;
+            chunkIndex++;
+            
+            // Collect response for telemetry
+            responseBuilder.Append(chunk);
+            
+            // Add event for each chunk (visible in trace details)
+            LLMTelemetry.AddStreamingChunk(activity, chunkIndex, chunk.Length);
+
             yield return new AevatarLLMToken
             {
                 Content = chunk,
                 IsComplete = false
             };
         }
+
+        // ============================================================
+        // Telemetry: Complete streaming span with full response
+        // ============================================================
+        sw.Stop();
+        LLMTelemetry.CompleteStreaming(activity, chunkIndex, totalTokens, sw.ElapsedMilliseconds);
+        LLMTelemetry.RecordStreamingResponse(activity, responseBuilder.ToString());
+        _logger.LogDebug("Streaming complete: {Chunks} chunks, ~{Tokens} tokens in {Duration}ms", 
+            chunkIndex, totalTokens, sw.ElapsedMilliseconds);
 
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
     }

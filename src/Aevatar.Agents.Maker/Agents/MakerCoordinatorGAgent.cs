@@ -126,7 +126,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                     Depth = 0,
                     IsAtomic = false
                 },
-                TotalLLMCalls = CustomState.TotalLlmCalls,
+                TotalLLMCalls = GetTotalLlmCalls(),  // Includes embedding calls
                 TotalTokens = CustomState.TotalTokensUsed,
                 PromptTokens = CustomState.TotalPromptTokens,
                 CompletionTokens = CustomState.TotalCompletionTokens,
@@ -141,8 +141,8 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
     /// </summary>
     public int GetStatus() => CustomState.Status;
 
-    /// <summary>Get total LLM calls made.</summary>
-    public int GetTotalLlmCalls() => CustomState.TotalLlmCalls;
+    /// <summary>Get total LLM calls made (including embedding calls).</summary>
+    public int GetTotalLlmCalls() => CustomState.TotalLlmCalls + (_currentVoteEngine?.EmbeddingCallCount ?? 0);
 
     /// <summary>Get total tokens consumed.</summary>
     public long GetTotalTokens() => CustomState.TotalTokensUsed;
@@ -426,7 +426,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 {
                     ExecutionId = request.ExecutionId,
                     RootTask = node,
-                    TotalLLMCalls = CustomState.TotalLlmCalls,
+                    TotalLLMCalls = GetTotalLlmCalls(),  // Includes embedding calls
                     Duration = _stopwatch.Elapsed,
                     RedFlags = _redFlags.ToList(),
                     TotalTokens = CustomState.TotalTokensUsed,
@@ -451,7 +451,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 Success = success,
                 Content = result ?? string.Empty,
                 Error = success ? string.Empty : "Task execution failed",
-                TotalLlmCalls = CustomState.TotalLlmCalls,
+                TotalLlmCalls = GetTotalLlmCalls(),  // Includes embedding calls
                 DurationMs = (long)_stopwatch.Elapsed.TotalMilliseconds,
             TraceJson = JsonSerializer.Serialize(_cachedResult.Trace)
             });
@@ -478,7 +478,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                         Depth = 0,
                         IsAtomic = false
                     },
-                    TotalLLMCalls = CustomState.TotalLlmCalls,
+                    TotalLLMCalls = GetTotalLlmCalls(),  // Includes embedding calls
                     Duration = _stopwatch.Elapsed,
                     RedFlags = _redFlags.ToList(),
                     TotalTokens = CustomState.TotalTokensUsed,
@@ -492,7 +492,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 ExecutionId = request.ExecutionId,
                 Success = false,
                 Error = ex.Message,
-                TotalLlmCalls = CustomState.TotalLlmCalls,
+                TotalLlmCalls = GetTotalLlmCalls(),  // Includes embedding calls
                 DurationMs = (long)_stopwatch.Elapsed.TotalMilliseconds
             });
     }

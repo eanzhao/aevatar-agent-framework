@@ -8,6 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- OpenTelemetry for Aspire integration -->
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    
+    <!-- Health checks -->
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />

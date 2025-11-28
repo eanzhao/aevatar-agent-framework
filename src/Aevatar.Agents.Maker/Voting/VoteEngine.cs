@@ -30,7 +30,14 @@ public sealed class VoteEngine : IDisposable
     private readonly ReaderWriterLockSlim _rwLock = new(LockRecursionPolicy.NoRecursion);
     private int _totalVotes;
     private int _currentRound = 1;
+    private int _embeddingCalls;
     private bool _disposed;
+    
+    /// <summary>
+    /// Total number of embedding API calls made by this VoteEngine.
+    /// Used for budget tracking.
+    /// </summary>
+    public int EmbeddingCallCount => _embeddingCalls;
 
     /// <summary>
     /// Creates a new vote engine with semantic clustering.
@@ -108,6 +115,7 @@ public sealed class VoteEngine : IDisposable
             try
             {
                 var embeddings = await _embeddingGenerator.GenerateAsync([content], cancellationToken: ct);
+                Interlocked.Increment(ref _embeddingCalls);  // Track embedding API calls for budget
                 newEmbedding = embeddings.FirstOrDefault()?.Vector.ToArray();
             }
             catch
@@ -150,6 +158,7 @@ public sealed class VoteEngine : IDisposable
             try
             {
                 var embeddings = _embeddingGenerator.GenerateAsync([content]).GetAwaiter().GetResult();
+                Interlocked.Increment(ref _embeddingCalls);  // Track embedding API calls for budget
                 newEmbedding = embeddings.FirstOrDefault()?.Vector.ToArray();
             }
             catch
