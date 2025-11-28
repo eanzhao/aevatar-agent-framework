@@ -49,7 +49,10 @@ public class StateDocumentConverter
 
     #region State Resolution
 
-    private Type? ResolveStateType(string agentType, Google.Protobuf.WellKnownTypes.Any? stateData)
+    /// <summary>
+    /// Resolve the state type from agent type and state data.
+    /// </summary>
+    public Type? ResolveStateType(string agentType, Google.Protobuf.WellKnownTypes.Any? stateData)
     {
         if (stateData == null)
             return null;

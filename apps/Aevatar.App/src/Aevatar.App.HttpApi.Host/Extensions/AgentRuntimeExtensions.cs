@@ -43,7 +43,7 @@ public static class AgentRuntimeExtensions
         Log.Information("  RuntimeType: {RuntimeType}", runtimeOptions.RuntimeType);
 
         // Register common services (shared by all runtimes)
-        RegisterCommonServices(services);
+        RegisterCommonServices(services, runtimeOptions.RuntimeType);
         
         // Register factory provider (required for agent creation)
         services.AddGAgentActorFactoryProvider();
@@ -76,7 +76,7 @@ public static class AgentRuntimeExtensions
     /// <summary>
     /// Register common services shared by all runtimes
     /// </summary>
-    private static void RegisterCommonServices(IServiceCollection services)
+    private static void RegisterCommonServices(IServiceCollection services, AgentRuntimeType runtimeType)
     {
         // Event Store for Event Sourcing
         services.AddSingleton<IEventStore, InMemoryEventStore>();
