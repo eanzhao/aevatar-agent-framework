@@ -21,6 +21,7 @@
         <PackageReference Include="Microsoft.Extensions.AI" />
         <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
         <PackageReference Include="Google.Protobuf" />
+        <PackageReference Include="OpenAI" />
     </ItemGroup>
 
     <ItemGroup>

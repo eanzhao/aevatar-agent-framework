@@ -166,6 +166,9 @@ public partial class MakerCoordinatorGAgent
             Depth = current.Depth,
             IsAtomic = false
         };
+        
+        // Checkpoint: Task started
+        _checkpointManager?.OnTaskStarted(current.TaskId, current.Description, current.Depth, current.Context);
 
         // Hard depth cap check (safety net)
         if (current.Depth >= options.HardDepthCap)
@@ -182,7 +185,7 @@ public partial class MakerCoordinatorGAgent
             // Force solve as atomic
             var (forceResult, forceNode) = await SolveAtomicTaskAsync(
                 current.TaskId, current.Description, current.Context, current.Depth, ct);
-            completedTasks[current.TaskId] = (forceResult, forceNode);
+            await CompleteTaskWithCheckpointAsync(current.TaskId, forceResult, completedTasks, forceNode, ct);
             taskStack.Pop();
             return;
         }
@@ -219,6 +222,23 @@ public partial class MakerCoordinatorGAgent
         MakerOptions options,
         CancellationToken ct)
     {
+        var taskPreview = current.Description.Length > 100 
+            ? current.Description[..100].Replace("\n", " ") + "..." 
+            : current.Description.Replace("\n", " ");
+        
+        Logger.LogInformation(
+            "\n┌─────────────────────────────────────────────────────────────────┐\n" +
+            "│ 📋 ASSESSING TASK [{Mode}]                                      \n" +
+            "├─────────────────────────────────────────────────────────────────┤\n" +
+            "│ Task ID: {TaskId}                                               \n" +
+            "│ Depth: {Depth}                                                  \n" +
+            "│ Description: {TaskPreview}                                      \n" +
+            "└─────────────────────────────────────────────────────────────────┘",
+            options.Mode,
+            current.TaskId,
+            current.Depth,
+            taskPreview);
+        
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Assessing,
@@ -230,12 +250,17 @@ public partial class MakerCoordinatorGAgent
         if (options.Mode == ExecutionMode.Academic)
         {
             // Academic mode: try decomposition first
+            Logger.LogInformation("[ACADEMIC] Depth {Depth}: Forcing DECOMPOSITION (Academic mode always decomposes first)", current.Depth);
             current.Phase = TaskExecutionPhase.Decomposing;
         }
         else
         {
             // Production mode: assess atomicity
             var isAtomic = await AssessAtomicityAsync(current.Description, current.Depth, ct);
+            Logger.LogInformation("[PRODUCTION] Depth {Depth}: Task assessed as {Result} → {NextPhase}",
+                current.Depth,
+                isAtomic ? "ATOMIC" : "COMPLEX",
+                isAtomic ? "SOLVING" : "DECOMPOSING");
             current.Phase = isAtomic ? TaskExecutionPhase.Solving : TaskExecutionPhase.Decomposing;
         }
     }
@@ -260,7 +285,18 @@ public partial class MakerCoordinatorGAgent
 
         if (solveResult != null)
         {
-            completedTasks[current.TaskId] = (solveResult, solveNode);
+            var resultPreview = solveResult.Length > 300 
+                ? solveResult[..300].Replace("\n", " ") + "..." 
+                : solveResult.Replace("\n", " ");
+            Logger.LogInformation(
+                "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                "║ ✅ SOLVE SUCCESSFUL                                           \n" +
+                "╠══════════════════════════════════════════════════════════════╣\n" +
+                "║ Task: {TaskId} (depth {Depth})                                \n" +
+                "║ Result preview: {ResultPreview}                               \n" +
+                "╚══════════════════════════════════════════════════════════════╝",
+                current.TaskId, current.Depth, resultPreview);
+            await CompleteTaskWithCheckpointAsync(current.TaskId, solveResult, completedTasks, solveNode, ct);
             taskStack.Pop();
             return;
         }
@@ -272,9 +308,34 @@ public partial class MakerCoordinatorGAgent
         current.SolveFailed = true;
         current.VotingSessions.AddRange(solveNode.VotingSessions);
 
+        // ============================================================
+        // ⚠️ SOLVE FAILED - Log voting results and next action
+        // ============================================================
+        var votingStats = solveNode.VotingSessions.FirstOrDefault();
+        var candidateInfo = votingStats?.Candidates?.OrderByDescending(c => c.Votes)
+            .Take(3)
+            .Select((c, i) => $"#{i + 1}: {c.Votes} votes")
+            .ToList() ?? new List<string>();
+        
+        Logger.LogWarning(
+            "\n╔══════════════════════════════════════════════════════════════╗\n" +
+            "║ ⚠️ SOLVE FAILED - NO CONSENSUS                                \n" +
+            "╠══════════════════════════════════════════════════════════════╣\n" +
+            "║ Task: {TaskId} (depth {Depth})                                \n" +
+            "║ Voting results: {VotingResults}                               \n" +
+            "║ Best candidate saved: {HasBestCandidate}                      \n" +
+            "║ Next action: {NextAction}                                     \n" +
+            "╚══════════════════════════════════════════════════════════════╝",
+            current.TaskId,
+            current.Depth,
+            string.Join(", ", candidateInfo),
+            current.BestCandidate != null ? "Yes" : "No",
+            CheckBudget(options).WithinBudget ? "RE-DECOMPOSE (finer granularity)" : "USE BEST CANDIDATE (budget exhausted)");
+
         if (CheckBudget(options).WithinBudget)
         {
             AddRedFlag(current.TaskId, "Solution consensus failed, decomposing");
+            Logger.LogInformation("[SOLVE→DECOMPOSE] Task {TaskId}: Consensus failed, triggering finer-grained decomposition", current.TaskId);
             current.Phase = TaskExecutionPhase.Decomposing;
         }
         else
@@ -301,17 +362,30 @@ public partial class MakerCoordinatorGAgent
         MakerOptions options,
         CancellationToken ct)
     {
+        var isFallbackDecomposition = current.SolveFailed;
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Decomposing,
             TaskId = current.TaskId,
-            Message = $"Decomposing at depth {current.Depth}",
+            Message = isFallbackDecomposition 
+                ? $"Re-decomposing after solve failure at depth {current.Depth}" 
+                : $"Decomposing at depth {current.Depth}",
             Depth = current.Depth
         });
 
-        // Get decomposition
+        // Build context with solve failure info for smarter decomposition
+        var decompContext = new Dictionary<string, string>(current.Context)
+        {
+            ["current_depth"] = current.Depth.ToString(),
+            ["solve_failed"] = isFallbackDecomposition.ToString().ToLower(),
+            ["best_candidate_preview"] = isFallbackDecomposition && current.BestCandidate != null
+                ? current.BestCandidate.Length > 500 ? current.BestCandidate[..500] + "..." : current.BestCandidate
+                : ""
+        };
+
+        // Get decomposition with enriched context
         var decompPrompt = _decomposer.BuildDecompositionPrompt(
-            current.Description, current.Context, options.Granularity);
+            current.Description, decompContext, options.Granularity);
         var (decompResult, bestDecomp, decompSession) = await RunVotingWithWorkersAsync(
             current.TaskId, decompPrompt, isSolution: false, options, current.Depth, ct);
 
@@ -327,11 +401,17 @@ public partial class MakerCoordinatorGAgent
             // No valid decomposition - solve as atomic
             if (!current.SolveFailed)
             {
+                Logger.LogInformation(
+                    "[DECOMPOSITION] Task {TaskId} at depth {Depth}: No subtasks returned → treating as ATOMIC, switching to SOLVING",
+                    current.TaskId, current.Depth);
                 current.Phase = TaskExecutionPhase.Solving;
                 return;
             }
 
             // Already tried solving, use fallback
+            Logger.LogWarning(
+                "[DECOMPOSITION] Task {TaskId} at depth {Depth}: Both SOLVING and DECOMPOSING failed! Using best candidate as fallback.",
+                current.TaskId, current.Depth);
             var fallbackNode = new TaskNode
             {
                 TaskId = current.TaskId,
@@ -346,6 +426,22 @@ public partial class MakerCoordinatorGAgent
             return;
         }
 
+        // ============================================================
+        // 🔀 Decomposition successful - log subtasks
+        // ============================================================
+        Logger.LogInformation(
+            "\n╔══════════════════════════════════════════════════════════════╗\n" +
+            "║ 🔀 DECOMPOSITION SUCCESSFUL                                   \n" +
+            "╠══════════════════════════════════════════════════════════════╣\n" +
+            "║ Task: {TaskId} (depth {Depth})                                \n" +
+            "║ Decomposed into {SubtaskCount} subtasks:                      \n" +
+            "{SubtaskList}" +
+            "╚══════════════════════════════════════════════════════════════╝",
+            current.TaskId,
+            current.Depth,
+            steps.Count,
+            string.Join("", steps.Select((s, i) => $"║   {i + 1}. [{s.Item1}] {(s.Item2.Length > 60 ? s.Item2[..60] + "..." : s.Item2)}\n")));
+        
         // Store subtasks and push them to stack (in reverse order)
         current.Subtasks = steps;
         current.CurrentSubtaskIndex = 0;
@@ -445,7 +541,7 @@ public partial class MakerCoordinatorGAgent
             VotingSessions = current.VotingSessions
         };
 
-        completedTasks[current.TaskId] = (composed, composedNode);
+        await CompleteTaskWithCheckpointAsync(current.TaskId, composed, completedTasks, composedNode, ct);
         taskStack.Pop();
     }
 
@@ -478,6 +574,34 @@ public partial class MakerCoordinatorGAgent
 
         return (true, null);
     }
+    
+    // ============================================================
+    //  Task Completion with Checkpointing
+    // ============================================================
+    
+    /// <summary>
+    /// Complete a task with checkpoint persistence.
+    /// </summary>
+    private async Task CompleteTaskWithCheckpointAsync(
+        string taskId,
+        string? result,
+        Dictionary<string, (string? Result, TaskNode Node)> completedTasks,
+        TaskNode node,
+        CancellationToken ct)
+    {
+        completedTasks[taskId] = (result, node);
+        
+        // Persist checkpoint for recovery
+        if (_checkpointManager != null)
+        {
+            await _checkpointManager.OnTaskCompletedAsync(
+                taskId,
+                result,
+                CustomState.TotalLlmCalls,
+                CustomState.TotalTokensUsed,
+                ct);
+        }
+    }
 
     // ============================================================
     //  Atomicity Assessment
@@ -485,17 +609,38 @@ public partial class MakerCoordinatorGAgent
 
     /// <summary>
     /// LLM-based atomicity assessment with strategy override.
-    /// Priority: 1. Strategy says atomic → atomic (no LLM needed)
-    ///           2. LLM assessment
-    ///           3. Fallback heuristics
+    /// 
+    /// Academic Mode: LLM always decides (strategy IsAtomic is ignored)
+    /// Production Mode: Strategy IsAtomic is checked first, then LLM
+    /// 
+    /// Priority (Production): 1. Strategy says atomic → atomic (no LLM needed)
+    ///                        2. LLM assessment
+    ///                        3. Fallback heuristics
+    /// Priority (Academic):   1. LLM assessment (always)
+    ///                        2. Fallback to strategy heuristics on error
     /// </summary>
     private async Task<bool> AssessAtomicityAsync(
         string taskDescription,
         int currentDepth,
         CancellationToken ct)
     {
-        // PRIORITY 1: Strategy-defined atomicity
-        if (_decomposer.IsAtomic(taskDescription, currentDepth))
+        var options = _currentOptions ?? new MakerOptions();
+        
+        // ACADEMIC MODE: Skip strategy check, let LLM decide decomposition depth
+        // This ensures maximum exploration and correctness over efficiency
+        if (options.Mode == ExecutionMode.Academic)
+        {
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Assessing,
+                TaskId = CustomState.CurrentTaskId ?? "unknown",
+                Message = $"[ACADEMIC] LLM will decide atomicity at depth {currentDepth}",
+                Depth = currentDepth
+            });
+            // Fall through to LLM assessment below
+        }
+        // PRODUCTION MODE: Strategy-defined atomicity takes priority (faster)
+        else if (_decomposer.IsAtomic(taskDescription, currentDepth))
         {
             ReportProgress(new MakerProgress
             {
@@ -679,14 +824,15 @@ public partial class MakerCoordinatorGAgent
         string prompt,
         string taskId,
         string operationType,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? systemPrompt = null)
     {
         var sb = new StringBuilder();
         var proposalId = $"COORD_{operationType}_{Guid.NewGuid():N}"[..24];
         var tokenIndex = 0;
         var isFirstToken = true;
 
-        Logger.LogWarning("[STREAMING] Coordinator {OpType} starting for task {TaskId}, proposalId={ProposalId}",
+        Logger.LogTrace("[STREAMING] Coordinator {OpType} starting for task {TaskId}, proposalId={ProposalId}",
             operationType, taskId, proposalId);
 
         await foreach (var token in GenerateResponseStreamAsync(prompt, ct))
@@ -697,7 +843,7 @@ public partial class MakerCoordinatorGAgent
 
             if (isFirstToken)
             {
-                Logger.LogWarning("[STREAMING] Coordinator {OpType} first token received: '{Token}'",
+                Logger.LogTrace("[STREAMING] Coordinator {OpType} first token received: '{Token}'",
                     operationType, token.Length > 50 ? token[..50] + "..." : token);
             }
 
@@ -718,14 +864,17 @@ public partial class MakerCoordinatorGAgent
                     TokenIndex = tokenIndex++,
                     IsFirstToken = isFirstToken,
                     IsLastToken = false,
-                    ProviderName = CustomConfig.LlmProviderName
+                    ProviderName = CustomConfig.LlmProviderName,
+                    // Include prompts on first token for chat card display
+                    SystemPrompt = isFirstToken ? systemPrompt : null,
+                    UserPrompt = isFirstToken ? prompt : null
                 }
             });
 
             isFirstToken = false;
         }
 
-        // Send final token marker
+        // Send final token marker with prompts for card creation
         ReportProgress(new MakerProgress
         {
             Phase = MakerPhase.Streaming,
@@ -741,7 +890,10 @@ public partial class MakerCoordinatorGAgent
                 TokenIndex = tokenIndex,
                 IsFirstToken = false,
                 IsLastToken = true,
-                ProviderName = CustomConfig.LlmProviderName
+                ProviderName = CustomConfig.LlmProviderName,
+                // Include prompts on final token for card creation
+                SystemPrompt = systemPrompt,
+                UserPrompt = prompt
             }
         });
 

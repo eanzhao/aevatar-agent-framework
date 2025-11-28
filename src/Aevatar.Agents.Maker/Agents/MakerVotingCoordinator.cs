@@ -60,7 +60,8 @@ public partial class MakerCoordinatorGAgent
             ? "You are a precise problem solver. Provide clear, direct answers."
             : "You are a precise task decomposition agent. Output ONLY valid JSON.";
 
-        var maxTokens = isSolution ? 2048 : 1024;
+        // Token limits from options (configurable per task type)
+        var maxTokens = isSolution ? options.MaxSolutionTokens : options.MaxDecompositionTokens;
         var baseTemperature = isSolution ? 0.2f : 0.3f;
 
         // Maximum samples = 3 * N (prevent infinite loops)
@@ -93,6 +94,26 @@ public partial class MakerCoordinatorGAgent
         _currentVotingRequestPrefix = requestPrefix;
         _collectedProposals.Clear();
         CustomState.PendingProposals = 0;
+        
+        var startMsg = $">>> [VOTING-START] Prefix='{requestPrefix}' for task={taskId}, round={round}, isSolution={isSolution}";
+        Logger.LogWarning(startMsg);  // Use Warning level for visibility in Aspire
+        
+        // ============================================================
+        //  CRITICAL: Notify workers of new active prefix BEFORE dispatching requests
+        //  Workers will skip any stale requests that don't match this prefix
+        // ============================================================
+        Logger.LogWarning(">>> [PREFIX-SEND] Broadcasting UpdateActivePrefix='{Prefix}' to workers", requestPrefix);
+        await PublishAsync(new UpdateActivePrefix
+        {
+            CoordinatorId = Id.ToString(),
+            ActivePrefix = requestPrefix
+        }, EventDirection.Down);
+        
+        // ============================================================
+        //  OPTIMIZATION: Brief delay to allow workers to process prefix update
+        //  This helps workers skip stale requests before starting new LLM calls
+        // ============================================================
+        await Task.Delay(100, ct);  // 100ms to propagate prefix update
 
         // Setup consensus completion source for early termination
         _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
@@ -179,6 +200,16 @@ public partial class MakerCoordinatorGAgent
                     requestPrefix = $"{taskId}:R{round}:";
                     _currentVotingRequestPrefix = requestPrefix;
                     _consensusCompletionSource = new TaskCompletionSource<VoteResult>();
+                    
+                    var nextMsg = $">>> [VOTING-NEXT-ROUND] Prefix='{requestPrefix}' for round={round}";
+                    Logger.LogWarning(nextMsg);  // Use Warning level for visibility
+                    
+                    // Update workers with new active prefix
+                    await PublishAsync(new UpdateActivePrefix
+                    {
+                        CoordinatorId = Id.ToString(),
+                        ActivePrefix = requestPrefix
+                    }, EventDirection.Down);
 
                     var progress = engine.GetProgress(isSolution ? VotingType.Solution : VotingType.Decomposition);
 
@@ -195,6 +226,8 @@ public partial class MakerCoordinatorGAgent
         }
 
         // Cleanup
+        var endMsg = $">>> [VOTING-END] Clearing prefix (was '{_currentVotingRequestPrefix}'), collected {_collectedProposals.Count} proposals";
+        Logger.LogWarning(endMsg);  // Use Warning level for visibility
         _currentVotingRequestPrefix = null;
         _currentVoteEngine = null;
         _votingCts?.Dispose();
@@ -231,14 +264,72 @@ public partial class MakerCoordinatorGAgent
                 : null
         };
 
+        // ============================================================
+        // 📊 Final Voting Summary with Provider Distribution
+        // ============================================================
+        var votingType = isSolution ? "SOLUTION" : "DECOMPOSITION";
+        var topCandidates = candidates.OrderByDescending(c => c.Votes).Take(5).ToList();
+        var votingSummary = string.Join("\n", topCandidates.Select((c, i) => 
+            $"    {i + 1}. {c.Votes} votes (cluster size: {c.ClusterSize}) - {(c.Content?.Length > 80 ? c.Content[..80].Replace("\n", " ") + "..." : c.Content?.Replace("\n", " "))}"));
+        
+        // Provider distribution
+        var providerCounts = _collectedProposals
+            .Where(p => !string.IsNullOrEmpty(p.ProviderName))
+            .GroupBy(p => p.ProviderName)
+            .ToDictionary(g => g.Key!, g => g.Count());
+        var providerDistribution = providerCounts.Count > 0
+            ? string.Join(", ", providerCounts.Select(kv => $"{kv.Key}: {kv.Value}"))
+            : "N/A";
+        
+        Logger.LogInformation(
+            "[PROVIDER-DISTRIBUTION] Collected {TotalProposals} proposals from: {Distribution}",
+            _collectedProposals.Count, providerDistribution);
+        
         if (voteResult?.Success != true)
         {
             // Per MAKER paper: No consensus means task is too complex
-            var reason = $"No consensus (K={options.ConsensusK} needed, best={bestCandidate?.Votes ?? 0})";
-            Logger.LogInformation("Task {TaskId}: {Reason} - task may need decomposition", taskId, reason);
+            Logger.LogWarning(
+                "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                "║ ❌ NO CONSENSUS ({VotingType})                                 \n" +
+                "╠══════════════════════════════════════════════════════════════╣\n" +
+                "║ Task: {TaskId}                                                \n" +
+                "║ Votes needed (K): {VotesNeeded}                               \n" +
+                "║ Best candidate votes: {BestVotes}                             \n" +
+                "║ Total clusters: {ClusterCount}                                \n" +
+                "║ Top candidates:                                               \n" +
+                "{TopCandidates}\n" +
+                "║ → Task may need finer decomposition                           \n" +
+                "╚══════════════════════════════════════════════════════════════╝",
+                votingType,
+                taskId,
+                options.ConsensusK,
+                bestCandidate?.Votes ?? 0,
+                candidates.Count,
+                votingSummary);
         }
         else
         {
+            var winnerPreview = voteResult.WinningContent?.Length > 200
+                ? voteResult.WinningContent[..200].Replace("\n", " ") + "..."
+                : voteResult.WinningContent?.Replace("\n", " ");
+            
+            Logger.LogInformation(
+                "\n╔══════════════════════════════════════════════════════════════╗\n" +
+                "║ ✅ CONSENSUS ACHIEVED ({VotingType})                          \n" +
+                "╠══════════════════════════════════════════════════════════════╣\n" +
+                "║ Task: {TaskId}                                                \n" +
+                "║ Winner: {LeaderVotes}/{VotesNeeded} votes                     \n" +
+                "║ Total clusters: {ClusterCount}                                \n" +
+                "║ Winning content:                                              \n" +
+                "║   {WinnerPreview}                                             \n" +
+                "╚══════════════════════════════════════════════════════════════╝",
+                votingType,
+                taskId,
+                voteResult.LeaderVotes,
+                options.ConsensusK,
+                candidates.Count,
+                winnerPreview);
+            
             ReportProgress(new MakerProgress
             {
                 Phase = MakerPhase.Voting,

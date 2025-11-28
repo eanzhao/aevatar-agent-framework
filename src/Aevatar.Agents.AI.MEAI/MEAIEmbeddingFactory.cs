@@ -11,7 +11,7 @@ using OpenAI.Embeddings;
 
 namespace Aevatar.Agents.AI.MEAI;
 
-internal sealed class MEAIEmbeddingFactory : IAIAgentEmbeddingFactory
+public sealed class MEAIEmbeddingFactory : IAIAgentEmbeddingFactory
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MEAIEmbeddingFactory> _logger;
