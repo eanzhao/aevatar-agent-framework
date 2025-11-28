@@ -20,7 +20,7 @@ using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Orleans.CQRS;
-using Aevatar.Silo.CQRS;
+using Aevatar.Agents.Core.CQRS;  // Use Core's CQRS implementation
 
 namespace Aevatar.Silo;
 
@@ -134,17 +134,28 @@ public class Program
                     options.StreamNamespace = "StateProjection";
                 });
                 
-                // Add Logging Projector (for debugging)
-                services.AddStateProjector<LoggingStateProjector>();
+                // Use Core's CQRS implementation (same as HttpApi.Host in Local mode)
+                var esUrl = context.Configuration.GetValue<string>("Elasticsearch:Url") ?? "http://localhost:9200";
+                var esPrefix = context.Configuration.GetValue<string>("Elasticsearch:IndexPrefix") ?? "aevatar-state";
                 
-                // Add Elasticsearch CQRS (write + query)
-                services.AddElasticsearchCQRS(context.Configuration);
+                services.AddCQRS(options =>
+                {
+                    options.UseElasticsearch(es =>
+                    {
+                        es.Url = esUrl;
+                        es.IndexPrefix = esPrefix;
+                    });
+                    options.UseBatchedProjection(batch =>
+                    {
+                        var cqrsConfig = context.Configuration.GetSection("CQRS:Projector");
+                        batch.BatchSize = cqrsConfig.GetValue("BatchSize", 50);
+                        batch.MaxBatchSize = cqrsConfig.GetValue("MaxBatchSize", 200);
+                        batch.BatchTimeoutSeconds = Math.Max(1, cqrsConfig.GetValue("FlushIntervalMs", 1000) / 1000);
+                        batch.MaxRetryCount = cqrsConfig.GetValue("MaxRetryCount", 3);
+                    });
+                });
                 
-                // Register ES Projector as IStateProjector
-                services.AddSingleton<Aevatar.Agents.Abstractions.CQRS.IStateProjector>(sp => 
-                    sp.GetRequiredService<ElasticsearchStateProjector>());
-                
-                Log.Information("✅ CQRS State Projection configured (Logging + Elasticsearch)");
+                Log.Information("✅ CQRS configured with Core.BatchedStateProjector (ES: {EsUrl})", esUrl);
             });
     }
 }

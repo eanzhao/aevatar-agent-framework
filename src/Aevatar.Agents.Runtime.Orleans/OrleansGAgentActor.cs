@@ -9,269 +9,215 @@ using Orleans.Streams;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans Agent Actor
-/// 继承自 GAgentActorBase,使用 IMessageStream (Orleans Streams 或 MassTransit) 进行事件传输
+/// Orleans Agent Actor - Lightweight Grain Proxy
+/// 
+/// This actor acts as a proxy to the OrleansGAgentGrain.
+/// All business logic is executed in the Grain (Silo) side.
+/// 
+/// Responsibilities:
+/// 1. Forward events to Grain via RPC
+/// 2. Manage local stream subscriptions for hierarchy navigation
+/// 3. Provide IGAgentActor interface for HttpApi layer
 /// </summary>
-public class OrleansGAgentActor : GAgentActorBase
+public class OrleansGAgentActor : IGAgentActor
 {
     private readonly IGrainFactory _grainFactory;
-    
-    // Orleans Stream Specifics
-    private readonly IStreamProvider _orleansStreamProvider;
+    private readonly IStreamProvider? _orleansStreamProvider;
     private readonly StreamingOptions _streamingOptions;
-    
-    // Abstracted Stream
     private readonly IMessageStreamProvider? _externalStreamProvider;
     private readonly MessageStreamProviderOptions _providerOptions;
     
-    // Cache for other actors' streams
-    private readonly Dictionary<Guid, IMessageStream> _actorStreams = new();
+    // Cached Grain reference
+    private IGAgentGrain? _grain;
     
-    // My Stream
-    private IMessageStream? _myStream;
-    private IMessageStreamSubscription? _streamSubscription;
+    // Agent metadata (from Grain)
+    private Guid _id;
+    private string _agentTypeName;
+    
+    // Logger
+    protected ILogger Logger { get; }
 
-    // ============ 构造函数 ============
+    public Guid Id => _id;
 
-    /// <summary>
-    /// 主构造函数
-    /// </summary>
     public OrleansGAgentActor(
-        IGAgent agent,
+        Guid id,
+        string agentTypeName,
         IGrainFactory grainFactory,
-        IStreamProvider orleansStreamProvider,
+        IStreamProvider? orleansStreamProvider,
         StreamingOptions streamingOptions,
         ILogger<OrleansGAgentActor> logger,
         IMessageStreamProvider? externalStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
-        : base(agent)
     {
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _id = id;
+        _agentTypeName = agentTypeName;
         _grainFactory = grainFactory ?? throw new ArgumentNullException(nameof(grainFactory));
         _orleansStreamProvider = orleansStreamProvider;
         _streamingOptions = streamingOptions ?? new StreamingOptions();
+        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _externalStreamProvider = externalStreamProvider;
         _providerOptions = providerOptions?.Value ?? new MessageStreamProviderOptions();
-
-        InitializeStream();
     }
 
-    private void InitializeStream()
+    #region IGAgentActor Implementation
+
+    /// <summary>
+    /// Activate actor - Initialize Grain with Agent type
+    /// </summary>
+    public async Task ActivateAsync(CancellationToken ct = default)
     {
-        try
+        Logger.LogInformation("Activating Orleans Actor proxy {ActorId}", _id);
+
+        // Get Grain reference
+        _grain = _grainFactory.GetGrain<IGAgentGrain>(_id.ToString());
+
+        // Initialize Agent in Grain (Silo side)
+        var success = await _grain.InitializeAgentAsync(_agentTypeName);
+        if (!success)
         {
-            // Determine which provider to use
-            // Priority: Configuration > Default (Orleans)
-            var providerType = _providerOptions.Provider;
-            
-            Logger.LogWarning("DEBUG: [OrleansGAgentActor] Initializing stream. Default Provider: {Provider}", providerType);
-
-            // Check runtime-specific override
-            if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
-            {
-                providerType = runtimeProvider;
-                Logger.LogWarning("DEBUG: [OrleansGAgentActor] Runtime 'Orleans' override: {Provider}", providerType);
-            }
-
-            Logger.LogWarning("DEBUG: [OrleansGAgentActor] Final ProviderType: {ProviderType}, ExternalProvider: {HasExternalProvider}", 
-                providerType, _externalStreamProvider != null);
-
-            if (providerType == "MassTransit" && _externalStreamProvider != null)
-            {
-                // Use External Provider (MassTransit)
-                // Pass Agent Category as Category for dynamic routing
-                var agentCategory = Agent.GetAgentCategory();
-                _myStream = _externalStreamProvider.GetStream(Id, agentCategory);
-                Logger.LogWarning("DEBUG: Agent {AgentId} using MassTransit stream. Category: {Category}", Id, agentCategory);
-            }
-            else
-            {
-                // Use Orleans Stream (Default)
-                var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-                var streamId = StreamId.Create(streamNamespace, Id.ToString());
-                var orleansStream = _orleansStreamProvider.GetStream<byte[]>(streamId);
-                
-                // Wrap in OrleansMessageStream
-                _myStream = new OrleansMessageStream(Id, orleansStream);
-                Logger.LogWarning("DEBUG: Agent {AgentId} using Orleans stream (Namespace: {Namespace})", Id, streamNamespace);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to initialize stream for Agent {AgentId}", Id);
-            _myStream = null;
-        }
-    }
-
-    private IMessageStream GetActorStream(Guid actorId)
-    {
-        if (_actorStreams.TryGetValue(actorId, out var stream))
-        {
-            return stream;
+            throw new InvalidOperationException(
+                $"Failed to initialize Agent {_agentTypeName} in Grain {_id}");
         }
 
-        IMessageStream newStream;
-        var providerType = _providerOptions.Provider;
-        if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
-        {
-            providerType = runtimeProvider;
-        }
-
-        if (providerType == "MassTransit" && _externalStreamProvider != null)
-        {
-            // For external actors, we don't know their type/category by default.
-            // We pass null, which will default to TopicPrefix.
-            // TODO: Implement a mechanism to resolve target agent type if strict topic isolation is required.
-            newStream = _externalStreamProvider.GetStream(actorId, null);
-        }
-        else
-        {
-            var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-            var streamId = StreamId.Create(streamNamespace, actorId.ToString());
-            var orleansStream = _orleansStreamProvider.GetStream<byte[]>(streamId);
-            newStream = new OrleansMessageStream(actorId, orleansStream);
-        }
-
-        _actorStreams[actorId] = newStream;
-        return newStream;
+        Logger.LogInformation("✅ Orleans Actor proxy {ActorId} activated, Agent running in Silo", _id);
     }
 
     /// <summary>
-    /// 获取内部的 Grain 引用（兼容性支持）
+    /// Deactivate actor
     /// </summary>
-    public IGAgentGrain? GetGrain() => null;
-
-    // ============ 抽象方法实现 ============
-
-    /// <summary>
-    /// 发送事件给自己
-    /// </summary>
-    protected override async Task SendToSelfAsync(EventEnvelope envelope, CancellationToken ct)
+    public async Task DeactivateAsync(CancellationToken ct = default)
     {
-        if (_myStream != null)
+        Logger.LogInformation("Deactivating Orleans Actor proxy {ActorId}", _id);
+
+        if (_grain != null)
         {
-            await _myStream.ProduceAsync(envelope, ct);
-        }
-        else
-        {
-            // Fallback: 直接调用处理
-            await HandleEventAsync(envelope, ct);
+            await _grain.DeactivateAsync();
         }
     }
 
     /// <summary>
-    /// 发送事件到指定 Actor
+    /// Publish event - Forward to Grain
     /// </summary>
-    protected override async Task SendEventToActorAsync(Guid actorId, EventEnvelope envelope, CancellationToken ct)
+    public async Task<string> PublishEventAsync<TEvent>(
+        TEvent evt, 
+        EventDirection direction = EventDirection.Down, 
+        CancellationToken ct = default) 
+        where TEvent : IMessage
     {
-        try
-        {
-            var stream = GetActorStream(actorId);
-            await stream.ProduceAsync(envelope, ct);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to send event {EventId} to Actor {ActorId}", envelope.Id, actorId);
+        EnsureGrain();
 
-            // Fallback: 如果是 Orleans 环境，尝试直接通过 Grain 调用 (仅当 stream 失败时)
-            // 注意：如果是 MassTransit 模式，这个 fallback 可能不适用，或者依然可以通过 RPC 调用 Grain
-            try
-            {
-                var grain = _grainFactory.GetGrain<IGAgentGrain>(actorId.ToString());
-                using var stream = new MemoryStream();
-                using var codedOutput = new CodedOutputStream(stream);
-                envelope.WriteTo(codedOutput);
-                codedOutput.Flush();
-                await grain.HandleEventAsync(stream.ToArray());
-            }
-            catch (Exception fallbackEx)
-            {
-                Logger.LogError(fallbackEx, "Fallback to Grain call also failed for Actor {ActorId}", actorId);
-                throw;
-            }
+        // Create EventEnvelope
+        var envelope = new EventEnvelope
+        {
+            Id = Guid.NewGuid().ToString(),
+            PublisherId = _id.ToString(),
+            Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
+            Direction = direction,
+            Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+            CorrelationId = Guid.NewGuid().ToString()
+        };
+
+        // Serialize and forward to Grain
+        using var stream = new MemoryStream();
+        using var codedOutput = new CodedOutputStream(stream);
+        envelope.WriteTo(codedOutput);
+        codedOutput.Flush();
+
+        await _grain!.HandleEventAsync(stream.ToArray());
+
+        return envelope.Id;
+    }
+
+    /// <summary>
+    /// Handle event - Forward to Grain for processing in Silo
+    /// </summary>
+    public async Task HandleEventAsync(EventEnvelope envelope, CancellationToken ct = default)
+    {
+        EnsureGrain();
+
+        Logger.LogDebug("Forwarding event {EventId} to Grain {GrainId}", envelope.Id, _id);
+
+        // Serialize and forward to Grain
+        using var stream = new MemoryStream();
+        using var codedOutput = new CodedOutputStream(stream);
+        envelope.WriteTo(codedOutput);
+        codedOutput.Flush();
+
+        await _grain!.HandleEventAsync(stream.ToArray());
+    }
+
+    /// <summary>
+    /// Get agent description from Grain
+    /// </summary>
+    public async Task<string> GetDescriptionAsync()
+    {
+        EnsureGrain();
+        return await _grain!.GetDescriptionAsync();
+    }
+
+    #endregion
+
+    #region Hierarchy Management
+
+    public async Task SetParentAsync(Guid parentId)
+    {
+        EnsureGrain();
+        await _grain!.SetParentAsync(parentId);
+    }
+
+    public async Task ClearParentAsync()
+    {
+        EnsureGrain();
+        await _grain!.ClearParentAsync();
+    }
+
+    public async Task AddChildAsync(Guid childId)
+    {
+        EnsureGrain();
+        await _grain!.AddChildAsync(childId);
+    }
+
+    public async Task RemoveChildAsync(Guid childId)
+    {
+        EnsureGrain();
+        await _grain!.RemoveChildAsync(childId);
+    }
+
+    public async Task<Guid?> GetParentAsync()
+    {
+        EnsureGrain();
+        return await _grain!.GetParentAsync();
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetChildrenAsync()
+    {
+        EnsureGrain();
+        return await _grain!.GetChildrenAsync();
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    private void EnsureGrain()
+    {
+        if (_grain == null)
+        {
+            _grain = _grainFactory.GetGrain<IGAgentGrain>(_id.ToString());
         }
     }
 
     /// <summary>
-    /// 激活 Actor - 订阅 Stream
+    /// Get Agent instance - Not available in Orleans mode
+    /// Agent runs in Silo, not in Client
     /// </summary>
-    protected override async Task OnActivateAsync(CancellationToken ct)
+    public IGAgent GetAgent()
     {
-        Logger.LogInformation("Activating Orleans Actor {ActorId}", Id);
-
-        // 订阅自己的 Stream
-        if (_myStream != null)
-        {
-            try
-            {
-                _streamSubscription = await _myStream.SubscribeAsync<EventEnvelope>(async envelope =>
-                {
-                    Logger.LogDebug("Agent {AgentId} received event {EventId} from stream", Id, envelope.Id);
-                    await HandleEventAsync(envelope, CancellationToken.None);
-                }, ct);
-                
-                Logger.LogDebug("Successfully subscribed to stream for Agent {AgentId}", Id);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to subscribe to stream for Agent {AgentId}", Id);
-            }
-        }
-
-        // 如果 Agent 支持事件溯源,触发事件回放
-        var agentType = Agent.GetType();
-        var baseType = agentType.BaseType;
-        while (baseType != null && baseType != typeof(object))
-        {
-            if (baseType.IsGenericType &&
-                baseType.GetGenericTypeDefinition().Name == "GAgentBaseWithEventSourcing`1")
-            {
-                var replayMethod = baseType.GetMethod("ReplayEventsAsync", new[] { typeof(CancellationToken) });
-                if (replayMethod != null)
-                {
-                    Logger.LogInformation("Agent {AgentId} supports event sourcing, triggering replay", Id);
-                    try
-                    {
-                        var task = (Task)replayMethod.Invoke(Agent, new object[] { ct })!;
-                        await task;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex, "Error replaying events for Agent {AgentId}", Id);
-                    }
-                }
-                break;
-            }
-            baseType = baseType.BaseType;
-        }
-
-        Logger.LogInformation("Orleans Actor {ActorId} activated successfully", Id);
+        throw new NotSupportedException(
+            "Agent instance is not available on client side. " +
+            "In Orleans mode, Agent runs in Silo (Grain). " +
+            "Use Grain RPC methods instead.");
     }
 
-    /// <summary>
-    /// 停用 Actor - 取消订阅并清理资源
-    /// </summary>
-    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
-    {
-        Logger.LogInformation("Deactivating Orleans Actor {ActorId}", Id);
-
-        // 取消 Stream 订阅
-        if (_streamSubscription != null)
-        {
-            try
-            {
-                await _streamSubscription.UnsubscribeAsync();
-                Logger.LogDebug("Successfully unsubscribed from stream for Agent {AgentId}", Id);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to unsubscribe from stream for Agent {AgentId}", Id);
-            }
-        }
-
-        // 清空 Stream 缓存
-        _actorStreams.Clear();
-
-        Logger.LogInformation("Orleans Actor {ActorId} deactivated", Id);
-    }
+    #endregion
 }

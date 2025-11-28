@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.App.Agents.Agents;
@@ -12,7 +13,9 @@ namespace Aevatar.App.Controllers;
 /// <summary>
 /// Agent Demo Controller
 /// Demonstrates Aevatar Agent Framework integration
-/// Supports both Local and Orleans runtimes
+/// 
+/// NOTE: In Orleans mode, Agent runs in Silo (Grain).
+/// All operations go through Actor proxy which forwards to Grain via RPC.
 /// </summary>
 [Route("api/agent-demo")]
 [ApiController]
@@ -42,14 +45,13 @@ public class AgentDemoController : AbpControllerBase
 
         try
         {
-            // Create and register agent actor (managed lifecycle)
+            // Create and register agent actor (Agent is created in Silo/Grain)
             var actor = await _actorManager.CreateAndRegisterAsync<SimpleBusinessAgent>(agentId);
 
-            // Get description from the agent
-            var agent = actor.GetAgent();
-            var description = await agent.GetDescriptionAsync();
+            // Get description via Actor proxy (calls Grain RPC)
+            var description = await actor.GetDescriptionAsync();
 
-            _logger.LogInformation("✅ Agent {AgentId} created successfully", agentId);
+            _logger.LogInformation("✅ Agent {AgentId} created successfully (running in Silo)", agentId);
 
             return Ok(new AgentCreatedResponse
             {
@@ -93,22 +95,24 @@ public class AgentDemoController : AbpControllerBase
                 actor = await _actorManager.CreateAndRegisterAsync<SimpleBusinessAgent>(id);
             }
 
-            // Cast to specific agent type to call business methods
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null)
+            // Publish event to Agent (processed in Silo/Grain)
+            var evt = new Business.Server.BusinessMessageEvent
             {
-                return StatusCode(500, "Agent type mismatch");
-            }
+                Message = request.Message,
+                Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+            };
 
-            // Process message
-            var result = await agent.ProcessMessageAsync(request.Message);
+            await actor.PublishEventAsync(evt, EventDirection.Down);
 
-            _logger.LogInformation("✅ Message processed successfully");
+            // Get updated description
+            var description = await actor.GetDescriptionAsync();
+
+            _logger.LogInformation("✅ Message sent to agent (processed in Silo)");
 
             return Ok(new AgentMessageResponse
             {
                 AgentId = agentId,
-                Response = result,
+                Response = description,
                 ProcessedAt = DateTime.UtcNow
             });
         }
@@ -143,20 +147,15 @@ public class AgentDemoController : AbpControllerBase
                 return NotFound($"Agent {agentId} not found");
             }
 
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null)
-            {
-                return StatusCode(500, "Agent type mismatch");
-            }
-
-            var stats = await agent.GetStatisticsAsync();
+            // Get description via Grain RPC (contains stats info)
+            var description = await actor.GetDescriptionAsync();
 
             return Ok(new AgentStatsResponse
             {
-                AgentId = stats.AgentId,
-                ProcessedEventsCount = stats.ProcessedCount,
-                LastMessage = stats.LastMessage,
-                LastUpdated = stats.LastUpdated?.ToDateTime() ?? DateTime.MinValue
+                AgentId = agentId,
+                ProcessedEventsCount = 0, // Stats are embedded in description
+                LastMessage = description,
+                LastUpdated = DateTime.UtcNow
             });
         }
         catch (Exception ex)
@@ -216,19 +215,16 @@ public class AgentDemoController : AbpControllerBase
             var actor = await _actorManager.GetActorAsync(id);
             if (actor == null) return NotFound($"Agent {agentId} not found");
 
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null) return StatusCode(500, "Agent type mismatch");
-
-            // Create event and publish
+            // Create event and publish via Actor proxy (processed in Silo/Grain)
             var evt = new Business.Server.BusinessMessageEvent
             {
                 Message = request.Message,
                 Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
             };
 
-            await agent.ProcessMessageAsync(request.Message);
+            await actor.PublishEventAsync(evt, EventDirection.Down);
             
-            _logger.LogInformation("✅ Event published to agent {AgentId}", agentId);
+            _logger.LogInformation("✅ Event published to agent {AgentId} (processed in Silo)", agentId);
             return Ok(new { message = "Event published successfully", eventData = request.Message });
         }
         catch (Exception ex)
@@ -281,4 +277,3 @@ public class AgentEventRequest
 {
     public string Message { get; set; } = string.Empty;
 }
-

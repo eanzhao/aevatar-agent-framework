@@ -6,6 +6,7 @@ namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
 /// Orleans Grain 接口
+/// Agent 业务逻辑在 Grain (Silo) 内执行
 /// </summary>
 public interface IGAgentGrain : IGrainWithStringKey
 {
@@ -15,7 +16,24 @@ public interface IGAgentGrain : IGrainWithStringKey
     Task<Guid> GetIdAsync();
 
     /// <summary>
-    /// 处理事件（使用 byte[] 以避免 Orleans 序列化问题）
+    /// 初始化 Agent 实例（在 Silo 内创建）
+    /// </summary>
+    /// <param name="agentTypeName">Agent 类型的程序集限定名</param>
+    /// <returns>是否成功初始化</returns>
+    Task<bool> InitializeAgentAsync(string agentTypeName);
+
+    /// <summary>
+    /// 检查 Agent 是否已初始化
+    /// </summary>
+    Task<bool> IsInitializedAsync();
+
+    /// <summary>
+    /// 获取 Agent 描述
+    /// </summary>
+    Task<string> GetDescriptionAsync();
+
+    /// <summary>
+    /// 处理事件（在 Silo 内执行业务逻辑）
     /// </summary>
     Task HandleEventAsync(byte[] envelopeBytes);
 
@@ -50,10 +68,9 @@ public interface IGAgentGrain : IGrainWithStringKey
     Task<Guid?> GetParentAsync();
 
     /// <summary>
-    /// 激活并设置Agent类型
+    /// 激活并设置Agent类型（已废弃，请使用 InitializeAgentAsync）
     /// </summary>
-    /// <param name="agentTypeName">Agent类型的完全限定名</param>
-    /// <param name="stateTypeName">State类型的完全限定名</param>
+    [Obsolete("Use InitializeAgentAsync instead")]
     Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null);
 
     /// <summary>

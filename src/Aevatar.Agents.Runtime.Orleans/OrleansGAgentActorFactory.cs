@@ -1,8 +1,4 @@
-using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
-using Aevatar.Agents.Core.Factory;
-using Aevatar.Agents.Core.Helpers;
-using Microsoft.CodeAnalysis.Options;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,11 +7,16 @@ using Orleans.Streams;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans 运行时的 Agent Actor 工厂
+/// Orleans Agent Actor Factory
+/// 
+/// Creates lightweight actor proxies that forward to Grains.
+/// Agent instances are created and executed in the Grain (Silo) side.
 /// </summary>
-public class OrleansGAgentActorFactory : GAgentActorFactoryBase
+public class OrleansGAgentActorFactory : IGAgentActorFactory
 {
+    private readonly IServiceProvider _serviceProvider;
     private readonly IClusterClient _clusterClient;
+    private readonly ILogger<OrleansGAgentActorFactory> _logger;
     private readonly IStreamProvider? _streamProvider;
     private readonly StreamingOptions _streamingOptions;
     private readonly IMessageStreamProvider? _messageStreamProvider;
@@ -27,17 +28,18 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         ILogger<OrleansGAgentActorFactory> logger,
         IMessageStreamProvider? messageStreamProvider = null,
         IOptions<MessageStreamProviderOptions>? providerOptions = null)
-        : base(serviceProvider, logger)
     {
+        _serviceProvider = serviceProvider;
         _clusterClient = clusterClient;
+        _logger = logger;
         _messageStreamProvider = messageStreamProvider;
         _providerOptions = providerOptions;
 
-        // Get StreamingOptions from configuration (with fallback to default)
+        // Get StreamingOptions from configuration
         _streamingOptions = serviceProvider.GetService<IOptions<StreamingOptions>>()?.Value
                             ?? new StreamingOptions();
 
-        // Orleans Stream Provider (依然需要初始化，作为 fallback 或默认)
+        // Orleans Stream Provider
         var streamProviderName = _streamingOptions.StreamProviderName;
         try 
         {
@@ -45,39 +47,54 @@ public class OrleansGAgentActorFactory : GAgentActorFactoryBase
         }
         catch (Exception ex)
         {
-            // 如果配置了 MassTransit，Orleans Stream Provider 失败可能是预期的
-            // 只有在没配置 MassTransit 时才抛出异常
             if (messageStreamProvider == null || providerOptions?.Value.Provider != "MassTransit")
             {
-                logger.LogWarning(ex, "Stream provider '{StreamProviderName}' not found", streamProviderName);
+                _logger.LogWarning(ex, "Stream provider '{StreamProviderName}' not found", streamProviderName);
             }
         }
     }
 
-    protected override Task<IGAgentActor> CreateActorInstanceAsync(IGAgent agent, Guid id,
+    /// <summary>
+    /// Create agent actor by type
+    /// </summary>
+    public async Task<IGAgentActor> CreateGAgentActorAsync(
+        Type agentType, 
+        Guid? id = null, 
         CancellationToken ct = default)
     {
-        _logger.LogDebug("[Factory] Creating Orleans Actor for Agent - Type: {AgentType}, Id: {Id}",
-            agent.GetType().Name, id);
+        var actorId = id ?? Guid.NewGuid();
+        var agentTypeName = agentType.AssemblyQualifiedName ?? agentType.FullName ?? agentType.Name;
 
-        // 使用标准 Grain (所有 Agent 都使用相同的 Grain)
-        var grain = _clusterClient.GetGrain<IGAgentGrain>(id.ToString());
-        _logger.LogDebug("Using Standard Grain for agent {Id}", id);
+        _logger.LogInformation("Creating Orleans Actor proxy for Agent - Type: {AgentType}, Id: {Id}",
+            agentType.Name, actorId);
 
-        // 创建 Orleans Actor
-        // 传入所有必要的依赖，包括可选的 MessageStreamProvider
+        // Create lightweight actor proxy (Agent will be created in Grain/Silo)
         var actor = new OrleansGAgentActor(
-            agent, 
-            _clusterClient, // IGrainFactory
-            _streamProvider!, // IStreamProvider (可能为 null，但在 Actor 中会检查)
+            actorId,
+            agentTypeName,
+            _clusterClient,
+            _streamProvider,
             _streamingOptions,
             _serviceProvider.GetRequiredService<ILogger<OrleansGAgentActor>>(),
             _messageStreamProvider,
             _providerOptions);
 
-        _logger.LogInformation("Created Orleans agent actor instance {Id} with grain type {GrainType}",
-            id, grain.GetType().Name);
+        // Activate - This will initialize Agent in the Grain (Silo side)
+        await actor.ActivateAsync(ct);
 
-        return Task.FromResult<IGAgentActor>(actor);
+        _logger.LogInformation("✅ Created Orleans Actor proxy {Id}, Agent running in Silo", actorId);
+
+        return actor;
+    }
+
+    /// <summary>
+    /// Create agent actor by generic type
+    /// </summary>
+    public Task<IGAgentActor> CreateGAgentActorAsync<TAgent>(
+        Guid? id = null, 
+        CancellationToken ct = default) 
+        where TAgent : IGAgent
+    {
+        return CreateGAgentActorAsync(typeof(TAgent), id, ct);
     }
 }
