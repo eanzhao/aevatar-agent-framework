@@ -609,17 +609,38 @@ public partial class MakerCoordinatorGAgent
 
     /// <summary>
     /// LLM-based atomicity assessment with strategy override.
-    /// Priority: 1. Strategy says atomic → atomic (no LLM needed)
-    ///           2. LLM assessment
-    ///           3. Fallback heuristics
+    /// 
+    /// Academic Mode: LLM always decides (strategy IsAtomic is ignored)
+    /// Production Mode: Strategy IsAtomic is checked first, then LLM
+    /// 
+    /// Priority (Production): 1. Strategy says atomic → atomic (no LLM needed)
+    ///                        2. LLM assessment
+    ///                        3. Fallback heuristics
+    /// Priority (Academic):   1. LLM assessment (always)
+    ///                        2. Fallback to strategy heuristics on error
     /// </summary>
     private async Task<bool> AssessAtomicityAsync(
         string taskDescription,
         int currentDepth,
         CancellationToken ct)
     {
-        // PRIORITY 1: Strategy-defined atomicity
-        if (_decomposer.IsAtomic(taskDescription, currentDepth))
+        var options = _currentOptions ?? new MakerOptions();
+        
+        // ACADEMIC MODE: Skip strategy check, let LLM decide decomposition depth
+        // This ensures maximum exploration and correctness over efficiency
+        if (options.Mode == ExecutionMode.Academic)
+        {
+            ReportProgress(new MakerProgress
+            {
+                Phase = MakerPhase.Assessing,
+                TaskId = CustomState.CurrentTaskId ?? "unknown",
+                Message = $"[ACADEMIC] LLM will decide atomicity at depth {currentDepth}",
+                Depth = currentDepth
+            });
+            // Fall through to LLM assessment below
+        }
+        // PRODUCTION MODE: Strategy-defined atomicity takes priority (faster)
+        else if (_decomposer.IsAtomic(taskDescription, currentDepth))
         {
             ReportProgress(new MakerProgress
             {

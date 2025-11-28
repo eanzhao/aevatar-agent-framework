@@ -235,9 +235,12 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         long? ttftMs = null;
 
         // Generate proposal ID early for streaming events
+        // CRITICAL: Increment counter FIRST to avoid race condition with concurrent requests
+        // Each Worker may receive multiple requests in parallel, must ensure unique IDs
+        CustomState.TotalProposals++;
         var proposalId = request.IsDecomposition
-            ? $"D{CustomState.TotalProposals + 1}"
-            : $"S{CustomState.TotalProposals + 1}";
+            ? $"D{CustomState.TotalProposals}"
+            : $"S{CustomState.TotalProposals}";
 
         try
         {
@@ -314,8 +317,6 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         }
 
         var latencyMs = (long)((Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency);
-        
-        CustomState.TotalProposals++;
 
         // Send result back to coordinator (UP direction to parent stream)
         Logger.LogInformation("[PROPOSAL-SEND] Worker {WorkerId} ({Provider}) sending proposal {ProposalId}, RequestId='{RequestId}', TaskId='{TaskId}', ContentLen={ContentLen}, Success={Success}",
