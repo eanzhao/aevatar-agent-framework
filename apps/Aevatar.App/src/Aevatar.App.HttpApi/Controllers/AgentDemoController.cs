@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
@@ -242,6 +243,160 @@ public class AgentDemoController : AbpControllerBase
     {
         return Ok(new { Status = "Healthy", Timestamp = DateTime.UtcNow });
     }
+
+    // ========== Complex State Agent Endpoints (for CQRS ES testing) ==========
+
+    /// <summary>
+    /// Create a complex state agent with test data.
+    /// Used for testing ES handling of complex types (List, Dict, nested objects).
+    /// </summary>
+    [HttpPost("complex-agent")]
+    public async Task<ActionResult<ComplexAgentCreatedResponse>> CreateComplexAgent()
+    {
+        var agentId = Guid.NewGuid();
+        
+        _logger.LogInformation("🧪 Creating ComplexStateAgent with ID: {AgentId}", agentId);
+
+        try
+        {
+            // Create and register complex state agent
+            var actor = await _actorManager.CreateAndRegisterAsync<ComplexStateAgent>(agentId);
+
+            // Get the agent instance to initialize test data
+            // Note: In Local mode, we can get the agent directly
+            // In Orleans mode, we need to call through Actor/Grain RPC
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                await agent.InitializeTestDataAsync();
+            }
+            else
+            {
+                _logger.LogWarning("Could not get agent instance directly (Orleans mode). " +
+                    "Use /complex-agent/{id}/init to initialize test data.");
+            }
+
+            var description = await actor.GetDescriptionAsync();
+
+            _logger.LogInformation("✅ ComplexStateAgent {AgentId} created with test data", agentId);
+
+            return Ok(new ComplexAgentCreatedResponse
+            {
+                AgentId = agentId.ToString(),
+                Description = description,
+                AgentType = "Aevatar.App.Agents.Agents.ComplexStateAgent",
+                CreatedAt = DateTime.UtcNow,
+                TestDataInitialized = agent != null
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error creating ComplexStateAgent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Initialize test data for existing complex agent (for Orleans mode).
+    /// </summary>
+    [HttpPost("complex-agent/{agentId}/init")]
+    public async Task<IActionResult> InitComplexAgentTestData([FromRoute] string agentId)
+    {
+        if (!Guid.TryParse(agentId, out var id))
+        {
+            return BadRequest("Invalid agent ID format");
+        }
+
+        try
+        {
+            var actor = await _actorManager.GetActorAsync(id);
+            if (actor == null)
+            {
+                return NotFound($"Agent {agentId} not found");
+            }
+
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                await agent.InitializeTestDataAsync();
+                return Ok(new { message = "Test data initialized", agentId });
+            }
+            else
+            {
+                return BadRequest("Agent is not a ComplexStateAgent or not accessible (Orleans mode)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error initializing test data for agent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Get complex agent state (for verification).
+    /// </summary>
+    [HttpGet("complex-agent/{agentId}/state")]
+    public async Task<ActionResult<object>> GetComplexAgentState([FromRoute] string agentId)
+    {
+        if (!Guid.TryParse(agentId, out var id))
+        {
+            return BadRequest("Invalid agent ID format");
+        }
+
+        try
+        {
+            var actor = await _actorManager.GetActorAsync(id);
+            if (actor == null)
+            {
+                return NotFound($"Agent {agentId} not found");
+            }
+
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                var state = await agent.GetStateAsync();
+                return Ok(new
+                {
+                    agentId = state.AgentId,
+                    name = state.Name,
+                    age = state.Age,
+                    balance = state.Balance,
+                    isActive = state.IsActive,
+                    address = state.Address != null ? new
+                    {
+                        street = state.Address.Street,
+                        city = state.Address.City,
+                        country = state.Address.Country,
+                        zipCode = state.Address.ZipCode
+                    } : null,
+                    tags = state.Tags.ToList(),
+                    orders = state.Orders.Select(o => new
+                    {
+                        productId = o.ProductId,
+                        productName = o.ProductName,
+                        quantity = o.Quantity,
+                        price = o.Price
+                    }).ToList(),
+                    metadata = state.Metadata.ToDictionary(x => x.Key, x => x.Value),
+                    scores = state.Scores.ToDictionary(x => x.Key, x => x.Value),
+                    luckyNumbers = state.LuckyNumbers.ToList(),
+                    createdAt = state.CreatedAt?.ToDateTime(),
+                    lastUpdated = state.LastUpdated?.ToDateTime()
+                });
+            }
+            else
+            {
+                var description = await actor.GetDescriptionAsync();
+                return Ok(new { description, message = "Full state not accessible in Orleans mode" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error getting state for agent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
+    }
 }
 
 // ========== DTOs ==========
@@ -276,4 +431,13 @@ public class AgentStatsResponse
 public class AgentEventRequest
 {
     public string Message { get; set; } = string.Empty;
+}
+
+public class ComplexAgentCreatedResponse
+{
+    public string AgentId { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string AgentType { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public bool TestDataInitialized { get; set; }
 }
