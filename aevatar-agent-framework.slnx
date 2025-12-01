@@ -45,7 +45,8 @@
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
-    <Project Path="src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
+    <Project Path="src\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
+    <Project Path="src\plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
