@@ -38,62 +38,78 @@
 
         <main class="main-viewport">
             <div id="dashboard" class="dashboard hidden">
-                <!-- HUD: Heads Up Display -->
-                <header class="hud-header">
+                <!-- Compact HUD Header -->
+                <header class="hud-header compact">
                     <div class="hud-title-group">
                         <h1 id="project-name">PROJECT_NAME</h1>
                         <span id="project-id" class="meta-id">ID: 0000-0000</span>
                     </div>
+                    <!-- Inline Status Bar -->
+                    <div class="hud-status-bar">
+                        <span class="status-chip" id="chip-status">IDLE</span>
+                        <span class="status-chip" id="chip-phase">-</span>
+                        <span class="status-chip depth" id="chip-depth">D:0</span>
+                        <span class="status-chip tokens" id="chip-tokens">0 tok</span>
+                        <span class="status-chip calls" id="chip-calls">0 calls</span>
+                    </div>
                     <div class="hud-controls">
-                        <button id="btn-start" class="btn-action">
-                            <span class="btn-icon">⚡</span> INITIALIZE SEQUENCE
+                        <button id="btn-start" class="btn-action compact">
+                            <span class="btn-icon">⚡</span> RUN
                         </button>
                     </div>
                 </header>
 
-                <!-- Status Matrix -->
-                <div class="matrix-grid">
-                    <div class="matrix-cell wide">
-                        <label>CURRENT OBJECTIVE</label>
-                        <div id="val-objective" class="matrix-val text-scroll">-</div>
+                <!-- Collapsible Status Details -->
+                <details class="status-details" id="status-details">
+                    <summary class="status-summary">
+                        <span class="status-icon">📊</span> STATUS_MATRIX
+                        <span class="status-preview">
+                            <span id="preview-objective" class="preview-text"></span>
+                        </span>
+                    </summary>
+                    <div class="status-body">
+                        <!-- Current Objective -->
+                        <div class="objective-row">
+                            <label>OBJECTIVE</label>
+                            <div id="val-objective" class="objective-val">-</div>
+                        </div>
+                        <!-- Compact Stats Grid -->
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <label>STATUS</label>
+                                <span id="val-status">IDLE</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>PHASE</label>
+                                <span id="val-phase">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>DEPTH</label>
+                                <span id="val-depth">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>LLM_CALLS</label>
+                                <span id="val-llm-calls">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>PROMPT_TOK</label>
+                                <span id="val-prompt-tokens">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>COMPL_TOK</label>
+                                <span id="val-completion-tokens">0</span>
+                            </div>
+                            <div class="stat-item accent">
+                                <label>TOTAL_TOK</label>
+                                <span id="val-total-tokens">0</span>
+                            </div>
+                            <div class="stat-item warn">
+                                <label>RED_FLAGS</label>
+                                <span id="val-red-flags">0</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="matrix-cell">
-                        <label>STATUS</label>
-                        <div id="val-status" class="matrix-val">IDLE</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>PHASE</label>
-                        <div id="val-phase" class="matrix-val">-</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>DEPTH</label>
-                        <div id="val-depth" class="matrix-val">0</div>
-                    </div>
-                </div>
-                
-                <!-- Token & Cost Matrix -->
-                <div class="matrix-grid token-matrix">
-                    <div class="matrix-cell">
-                        <label>LLM_CALLS</label>
-                        <div id="val-llm-calls" class="matrix-val">0</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>PROMPT_TOKENS</label>
-                        <div id="val-prompt-tokens" class="matrix-val">0</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>COMPLETION_TOKENS</label>
-                        <div id="val-completion-tokens" class="matrix-val">0</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>TOTAL_TOKENS</label>
-                        <div id="val-total-tokens" class="matrix-val accent">0</div>
-                    </div>
-                    <div class="matrix-cell">
-                        <label>RED_FLAGS</label>
-                        <div id="val-red-flags" class="matrix-val warn">0</div>
-                    </div>
-                </div>
+                </details>
                 
                 <!-- Config Details (collapsible) -->
                 <details class="config-details" id="config-details">

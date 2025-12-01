@@ -57,10 +57,18 @@ Aevatar.Agents.Abstractions/
 ├── IGAgentActor.cs               # Actor 运行时接口
 ├── IGAgentActorFactory.cs        # Actor 工厂接口
 ├── IGAgentActorManager.cs        # Actor 管理器接口
+├── IGAgentFactory.cs             # Agent 工厂接口（用于 DI）
 ├── IEventPublisher.cs            # 事件发布接口
 ├── IMessageStream.cs             # 消息流接口
+├── IMessageStreamProvider.cs     # 消息流提供者接口
+├── IStreamNotFoundHandler.cs     # 流未找到处理器
 ├── StreamingOptions.cs           # 流配置
-├── messages.proto                # Protobuf 消息定义
+├── abstrations_messages.proto    # Protobuf 消息定义
+├── EventSourcing/                # EventSourcing 接口
+│   └── IEventStore.cs
+├── Persistence/                  # 持久化接口
+│   ├── IStateStore.cs
+│   └── IConfigStore.cs
 └── Attributes/                   # 特性标记
     ├── EventHandlerAttribute.cs
     ├── AllEventHandlerAttribute.cs
@@ -74,21 +82,21 @@ Aevatar.Agents.Core/
 ├── GAgentBase.TState.cs                 # 带状态 + EventSourcing 的核心实现
 ├── GAgentBase.TState.TConfig.cs         # 带状态 + 配置（ConfigStore）
 ├── GAgentActorBase.cs                   # Actor 包装器基类
-├── EventRouting/
-│   ├── EventRouter.cs                   # 事件路由 / Up-Down-Both 传播
-│   └── EventRouterHierarchy.cs          # 父子关系持久化模型
-├── Hierarchy/ActorHierarchyCoordinator.cs # 父子关系原子操作
-├── Helpers/
-│   ├── AgentEventPublisherInjector.cs
-│   ├── AgentEventStoreInjector.cs
-│   ├── AgentStateStoreInjector.cs
-│   └── LoggerInjector.cs
-├── Subscription/
-│   ├── BaseSubscriptionManager.cs       # 订阅管理器
-│   └── RetryPolicies.cs
-└── Observability/
-    ├── AgentMetrics.cs
-    └── LoggingScope.cs
+├── DependencyInjection/
+│   ├── AevatarBuilder.cs                # Fluent 构建器
+│   ├── IAevatarBuilder.cs               # 构建器接口
+│   └── AevatarBuilderStorageExtensions.cs
+├── Extensions/
+│   └── ServiceCollectionExtensions.cs   # AddAevatarAgentSystem 扩展
+├── EventRouting/                        # 事件路由
+├── EventSourcing/                       # EventSourcing 实现
+├── Hierarchy/ActorHierarchyCoordinator.cs
+├── Persistence/                         # 内存持久化实现
+│   ├── InMemoryStateStore.cs
+│   ├── InMemoryConfigStore.cs
+│   └── InMemoryEventStore.cs
+├── StateProtection/                     # 状态保护机制
+└── Observability/                       # 可观测性
 ```
 
 ### 运行时实现
@@ -101,8 +109,9 @@ Aevatar.Agents.Runtime.Local/
 ├── LocalGAgentActorManager.cs
 ├── LocalMessageStream.cs             # 基于 Channel 的消息流
 ├── LocalMessageStreamRegistry.cs
+├── LocalStreamNotFoundHandler.cs     # 流未找到处理器
 ├── Subscription/LocalSubscriptionManager.cs
-└── DependencyInjection/ServiceCollectionExtensions.cs
+└── ServiceCollectionExtensions.cs    # AddAevatarLocalRuntime
 ```
 
 #### ProtoActor Runtime (Actor 模型)
@@ -113,7 +122,7 @@ Aevatar.Agents.Runtime.ProtoActor/
 ├── ProtoActorGAgentActorManager.cs
 ├── ProtoActorMessageStream.cs
 ├── AgentActor.cs                     # Proto.Actor IActor 实现
-└── DependencyInjection/ServiceCollectionExtensions.cs
+└── ServiceCollectionExtensions.cs
 ```
 
 #### Orleans Runtime (虚拟 Actor)
@@ -123,9 +132,40 @@ Aevatar.Agents.Runtime.Orleans/
 ├── OrleansGAgentActor.cs             # Actor 包装器
 ├── OrleansGAgentActorFactory.cs
 ├── OrleansGAgentActorManager.cs
-├── OrleansMessageStream.cs / Subscription/
-├── IGAgentGrain.cs
-└── EventSourcing/OrleansEventStore.cs # Orleans EventStore + 持久化 Grain
+├── OrleansMessageStream.cs
+├── OrleansStreamNotFoundHandler.cs   # 自动唤醒支持
+└── Subscription/
+
+### AI 模块
+```
+Aevatar.Agents.AI.Core/
+├── AIGAgentBase.cs                   # AI Agent 基类
+├── AIGAgentBase.TCustomState.cs      # 自定义状态
+├── AIGAgentBase.TCustomState.TCustomConfig.cs
+├── AIGAgentFactory.cs                # AI Agent 工厂
+├── ConversationHistoryManager.cs     # 对话历史管理
+├── Embeddings/                       # Embedding 支持
+└── ai_messages.proto
+
+Aevatar.Agents.AI.WithTool/
+├── AIGAgentWithToolBase.cs           # 带工具调用的 AI Agent
+├── ToolAwareConversationHistoryManager.cs
+├── ToolExecutionCoordinator.cs       # 工具执行协调器
+├── Abstractions/                     # 工具接口
+└── MCP/                              # Model Context Protocol 支持
+
+Aevatar.Agents.AI.WithProcessStrategy/
+├── AIGAgentWithProcessStrategy.cs    # 带处理策略的 AI Agent
+└── Strategies/                       # CoT, ReAct 等策略
+```
+
+### 插件模块
+```
+Aevatar.Agents.Plugins.MassTransit/
+├── MassTransitMessageStream.cs       # MassTransit 消息流
+├── MassTransitMessageStreamProvider.cs
+├── StreamMessageDispatcher.cs        # 消息分发器
+└── ServiceCollectionExtensions.cs    # AddMassTransitStreamPlugin
 ```
 
 ## 🔄 事件系统
@@ -276,7 +316,7 @@ public class MyAgentState  // 手动定义的类无法正确序列化
 
 > **记住：如果数据需要跨运行时边界传输，就必须使用 Protobuf 定义它！**
 >
-> 详细规则请查看 [全能指南 - 序列化](docs/AEVATAR_FRAMEWORK_GUIDE.md#defining-state--events-protobuf)
+> 详细规则请查看 [全能指南 - 序列化](AEVATAR_FRAMEWORK_GUIDE.md#defining-state--events-protobuf)
 
 ## 🧠 Embedding 通道
 

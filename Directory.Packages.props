@@ -51,8 +51,8 @@
     <PackageVersion Include="Proto.Remote" Version="1.8.0" />
     <PackageVersion Include="Proto.TestKit" Version="1.8.0" />
     <!-- AI SDKs -->
-    <PackageVersion Include="Azure.AI.OpenAI" Version="2.0.0" />
-    <PackageVersion Include="OpenAI" Version="2.6.0" />
+    <PackageVersion Include="Azure.AI.OpenAI" Version="2.7.0-beta.1" />
+    <PackageVersion Include="OpenAI" Version="2.7.0" />
     <PackageVersion Include="Azure.Identity" Version="1.13.1" />
     <PackageVersion Include="LlmTornado" Version="3.8.23" />
     <!-- MongoDB -->
@@ -71,6 +71,8 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.10.0" />
     <!-- Aspire -->
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="9.5.2" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="9.5.2" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="9.5.2" />
     <!-- API Documentation -->
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="7.2.0" />
     <!-- Testing Frameworks -->

@@ -6,4 +6,5 @@ public class LlmTornadoConfig
 {
     public string ApiKey { get; set; } = string.Empty;
     public LLmProviders Provider { get; set; } = LLmProviders.OpenAi;
+    public string Model { get; set; } = "gpt-5.1";
 }

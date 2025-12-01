@@ -64,6 +64,8 @@ const APP_STATE = {
         completionTokens: 0,
         totalTokens: 0
     },
+    // Chat cards - categorized LLM conversations
+    chatCards: [],       // { id, category, taskId, depth, provider, systemPrompt, userPrompt, response, tokens, timestamp }
     dom: {},
     // Project-level cache for state isolation
     projectCache: {}     // projectId -> { proposals, tasks, votingState, files, artifacts, redFlags, tokenStats, snapshot }
@@ -345,6 +347,13 @@ function initDomCache() {
         valCompletionTokens: q('#val-completion-tokens'),
         valTotalTokens: q('#val-total-tokens'),
         valRedFlags: q('#val-red-flags'),
+        // Compact status chips
+        chipStatus: q('#chip-status'),
+        chipPhase: q('#chip-phase'),
+        chipDepth: q('#chip-depth'),
+        chipTokens: q('#chip-tokens'),
+        chipCalls: q('#chip-calls'),
+        previewObjective: q('#preview-objective'),
         // Red flag panel
         redFlagPanel: q('#red-flag-panel'),
         redFlagList: q('#red-flag-list'),
@@ -493,6 +502,7 @@ async function handleStartRun() {
     APP_STATE.artifacts = [];
     APP_STATE.redFlags = [];
     APP_STATE.tokenStats = { llmCalls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    APP_STATE.chatCards = [];  // Clear chat cards for new run
     
     // Clear displays
     renderTasks();
@@ -510,6 +520,7 @@ async function handleStartRun() {
             // Update status immediately
             APP_STATE.dom.valStatus.textContent = 'ACTIVE';
             APP_STATE.dom.valStatus.style.color = 'var(--accent-main)';
+            updateStatusChip('status', 'ACTIVE', 'active');
             APP_STATE.dom.startBtn.textContent = 'RUNNING...';
             startEventStream(id);
             // Refresh to get config after task starts
@@ -583,11 +594,19 @@ function handleSSEEvent(event, projectId) {
             // Update status to ACTIVE when receiving progress
             APP_STATE.dom.valStatus.textContent = 'ACTIVE';
             APP_STATE.dom.valStatus.style.color = 'var(--accent-main)';
+            updateStatusChip('status', 'ACTIVE', 'active');
             
             // Update HUD (always visible)
             APP_STATE.dom.valPhase.textContent = event.phase || '-';
             APP_STATE.dom.valDepth.textContent = event.depth ?? 0;
             APP_STATE.dom.valObjective.textContent = event.message || '-';
+            
+            // Update compact chips
+            updateStatusChip('phase', event.phase || '-');
+            updateStatusChip('depth', `D:${event.depth ?? 0}`);
+            if (APP_STATE.dom.previewObjective) {
+                APP_STATE.dom.previewObjective.textContent = truncate(event.message || '-', 60);
+            }
             
             // Update task progress (STRATEGIC_PLANNING)
             updateTaskProgress(event);
@@ -627,6 +646,7 @@ function handleSSEEvent(event, projectId) {
             
         case 'proposal':
             // Update proposals (SYSTEM_NODES) - final complete proposal
+            const existingProposal = APP_STATE.proposals[event.taskId] || {};
             APP_STATE.proposals[event.taskId] = {
                 content: event.content || '',
                 success: event.success,
@@ -634,7 +654,10 @@ function handleSSEEvent(event, projectId) {
                 promptTokens: event.promptTokens || 0,
                 completionTokens: event.completionTokens || 0,
                 providerName: event.providerName || null,
-                streaming: false  // Mark as complete
+                streaming: false,
+                // Use prompts from event if available, otherwise preserve from streaming
+                systemPrompt: event.systemPrompt || existingProposal.systemPrompt,
+                userPrompt: event.userPrompt || existingProposal.userPrompt
             };
             
             // Update token stats
@@ -645,6 +668,9 @@ function handleSSEEvent(event, projectId) {
                 APP_STATE.tokenStats.totalTokens = APP_STATE.tokenStats.promptTokens + APP_STATE.tokenStats.completionTokens;
                 renderTokenStats();
             }
+            
+            // Create chat card for completed proposal
+            createChatCard(event.taskId, APP_STATE.proposals[event.taskId]);
             
             renderWorkers();
             break;
@@ -663,34 +689,56 @@ function handleSSEEvent(event, projectId) {
                     streaming: true,
                     providerName: event.providerName || null,
                     workerId: workerId,
-                    isCoordinator: isCoordinator
+                    isCoordinator: isCoordinator,
+                    // Chat context for display
+                    systemPrompt: null,
+                    userPrompt: null
                 };
             }
             
             // Update content with accumulated stream
-            APP_STATE.proposals[nodeId].content = event.accumulatedContent || '';
+            // OPTIMIZATION: If accumulatedContent is empty, just append token (reduces bandwidth)
+            if (event.accumulatedContent) {
+                APP_STATE.proposals[nodeId].content = event.accumulatedContent;
+            } else if (event.token) {
+                APP_STATE.proposals[nodeId].content = (APP_STATE.proposals[nodeId].content || '') + event.token;
+            }
             APP_STATE.proposals[nodeId].streaming = !event.isLastToken;
             APP_STATE.proposals[nodeId].providerName = event.providerName;
             APP_STATE.proposals[nodeId].workerId = workerId;
             APP_STATE.proposals[nodeId].isCoordinator = isCoordinator;
             
+            // Capture prompts on first token (for chat display)
+            if (event.isFirstToken) {
+                APP_STATE.proposals[nodeId].systemPrompt = event.systemPrompt || null;
+                APP_STATE.proposals[nodeId].userPrompt = event.userPrompt || null;
+            }
+            
             // Mark completion
             if (event.isLastToken) {
                 APP_STATE.proposals[nodeId].streaming = false;
+                // Force full render on completion
+                renderWorkers();
+            } else {
+                // Render immediately for real-time updates (throttled to 50ms max)
+                throttledRenderWorkers();
             }
-            
-            // Render immediately for real-time effect
-            renderWorkers();
             break;
             
         case 'file':
-            // Update files (DATA_CORE)
-            APP_STATE.files.push({
-                category: event.phase,
-                name: event.taskId,
-                path: `${event.phase}/${event.taskId}`
-            });
-            renderFiles();
+            // Update files (DATA_CORE) - deduplicate by path
+            const filePath = `${event.phase}/${event.taskId}`;
+            const existingFileIndex = APP_STATE.files.findIndex(f => f.path === filePath);
+            if (existingFileIndex === -1) {
+                // New file - add it
+                APP_STATE.files.push({
+                    category: event.phase,
+                    name: event.taskId,
+                    path: filePath
+                });
+                renderFiles();
+            }
+            // If file already exists, skip (no duplicate)
             // Only log artifact files, not proposals/votes
             if (event.phase === 'artifacts') {
                 addLogEntry('ARTIFACT', event.taskId);
@@ -699,8 +747,10 @@ function handleSSEEvent(event, projectId) {
             
         case 'result':
             // Final result (ARTIFACTS)
-            APP_STATE.dom.valStatus.textContent = event.success ? 'COMPLETED' : 'FAILED';
+            const resultStatus = event.success ? 'COMPLETED' : 'FAILED';
+            APP_STATE.dom.valStatus.textContent = resultStatus;
             APP_STATE.dom.valStatus.style.color = event.success ? 'var(--accent-main)' : 'var(--accent-warn)';
+            updateStatusChip('status', resultStatus, event.success ? 'active' : 'error');
             
             // Update final token stats from result
             if (event.totalTokens || event.promptTokens || event.completionTokens) {
@@ -766,8 +816,10 @@ function renderNav(projects) {
 
 function renderStatus(status, snapshot) {
     const isRunning = status.status === 'running';
-    APP_STATE.dom.valStatus.textContent = isRunning ? 'ACTIVE' : (status.status || 'STANDBY').toUpperCase();
+    const statusText = isRunning ? 'ACTIVE' : (status.status || 'STANDBY').toUpperCase();
+    APP_STATE.dom.valStatus.textContent = statusText;
     APP_STATE.dom.valStatus.style.color = isRunning ? 'var(--accent-main)' : 'var(--text-dim)';
+    updateStatusChip('status', statusText, isRunning ? 'active' : '');
     
     if (isRunning) {
         APP_STATE.dom.startBtn.disabled = true;
@@ -903,6 +955,10 @@ function renderTokenStats() {
     if (APP_STATE.dom.valLlmCalls) {
         APP_STATE.dom.valLlmCalls.textContent = stats.llmCalls.toLocaleString();
     }
+    // Update compact chips
+    updateStatusChip('calls', `${stats.llmCalls} calls`);
+    updateStatusChip('tokens', formatTokens(stats.totalTokens));
+    
     if (APP_STATE.dom.valPromptTokens) {
         APP_STATE.dom.valPromptTokens.textContent = stats.promptTokens.toLocaleString();
     }
@@ -971,79 +1027,94 @@ function addLogEntry(phase, message) {
 }
 
 function renderWorkers() {
+    const workerGrid = APP_STATE.dom.workerGrid;
+    if (!workerGrid) return;
+    
+    // Find streaming items
     const proposals = APP_STATE.proposals;
-    const ids = Object.keys(proposals).sort((a, b) => {
-        // Sort: Coordinator nodes first, then by id
-        const aIsCoord = proposals[a].isCoordinator ? 0 : 1;
-        const bIsCoord = proposals[b].isCoordinator ? 0 : 1;
-        if (aIsCoord !== bIsCoord) return aIsCoord - bIsCoord;
-        return a.localeCompare(b);
-    });
+    const streamingIds = Object.keys(proposals).filter(id => proposals[id].streaming === true);
     
-    if (ids.length === 0) {
-        APP_STATE.dom.workerGrid.innerHTML = '<div style="color:var(--text-dim); text-align:center">NO_ACTIVE_NODES</div>';
-        return;
-    }
-    
-    APP_STATE.dom.workerGrid.innerHTML = ids.map(id => {
-        const p = proposals[id];
-        
-        // Check if this is a Coordinator node
-        const isCoordinator = p.isCoordinator === true;
-        const workerId = p.workerId || 'unknown';
-        
-        // Determine status: streaming, success, or error
-        const isStreaming = p.streaming === true;
-        const statusIcon = isStreaming ? '⏳' : (p.success ? '✓' : '✗');
-        const statusClass = isStreaming ? 'streaming' : (p.success ? 'success' : 'error');
-        
-        const content = p.content || p.error || 'No content';
-        const tokens = (p.promptTokens || p.completionTokens) 
-            ? `<span class="node-tokens">${p.promptTokens || 0}+${p.completionTokens || 0}</span>` 
-            : '';
-        
-        // LLM provider badge
-        const providerBadge = p.providerName 
-            ? `<span class="node-provider" title="LLM Provider">🤖 ${p.providerName}</span>` 
-            : '';
-        
-        // Streaming indicator with cursor animation
-        const streamingIndicator = isStreaming 
-            ? '<span class="streaming-cursor">▌</span>' 
-            : '';
-        
-        // Streaming status badge
-        const streamingBadge = isStreaming 
-            ? '<span class="node-streaming-badge">STREAMING</span>' 
-            : '';
-        
-        // Node label: Coordinator vs Worker
-        const nodeLabel = isCoordinator 
-            ? `COORDINATOR::${extractOperationType(id)}`
-            : `WORKER::${workerId || id.substring(0, 12)}`;
-        
-        // Node class for styling
-        const nodeClass = isCoordinator ? 'coordinator-node' : '';
-        
-        return `
-            <div class="worker-node ${isStreaming ? 'node-streaming' : ''} ${nodeClass}">
-                <div class="node-head">
-                    <span class="node-status ${statusClass}">${statusIcon}</span>
-                    ${nodeLabel}
-                    ${providerBadge}
-                    ${streamingBadge}
-                    ${tokens}
+    // Build streaming section HTML
+    let streamingHtml = '';
+    if (streamingIds.length > 0) {
+        const nodesHtml = streamingIds.map(id => {
+            const p = proposals[id];
+            const content = p.content || 'Generating...';
+            const contentPreview = content.length > 200 ? content.substring(0, 200) + '...' : content;
+            
+            return `
+                <div class="streaming-node">
+                    <div class="streaming-node-header">
+                        <span class="streaming-indicator">⏳</span>
+                        <span class="streaming-label">STREAMING</span>
+                        <span class="streaming-provider">🤖 ${p.providerName || 'LLM'}</span>
+                    </div>
+                    <div class="streaming-content">
+                        ${escapeHtml(contentPreview)}<span class="streaming-cursor">▌</span>
+                    </div>
                 </div>
-                <div class="node-log">${escapeHtml(content)}${streamingIndicator}</div>
+            `;
+        }).join('');
+        
+        streamingHtml = `
+            <div class="streaming-section">
+                <div class="streaming-section-header">🔄 LIVE STREAMING (${streamingIds.length})</div>
+                ${nodesHtml}
             </div>
         `;
-    }).join('');
-    
-    // Auto-scroll streaming nodes into view
-    const streamingNodes = document.querySelectorAll('.node-streaming');
-    if (streamingNodes.length > 0) {
-        streamingNodes[streamingNodes.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+    
+    // Build chat cards HTML
+    let cardsHtml = '';
+    if (APP_STATE.chatCards.length > 0) {
+        // Group by category
+        const byCategory = {};
+        APP_STATE.chatCards.forEach(card => {
+            const cat = card.category.name;
+            if (!byCategory[cat]) byCategory[cat] = [];
+            byCategory[cat].push(card);
+        });
+        
+        cardsHtml = Object.entries(byCategory).map(([catName, cards]) => {
+            const cat = cards[0].category;
+            return `
+                <div class="chat-category" data-category="${catName}">
+                    <div class="chat-category-header" style="border-left-color: ${cat.color}">
+                        <span class="chat-category-icon">${cat.icon}</span>
+                        <span class="chat-category-name">${catName}</span>
+                        <span class="chat-category-count">${cards.length}</span>
+                    </div>
+                    <div class="chat-cards-list">
+                        ${cards.map(renderChatCard).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    // Combine: streaming at top, cards below
+    if (!streamingHtml && !cardsHtml) {
+        workerGrid.innerHTML = '<div style="color:var(--text-dim); text-align:center; padding: 40px">AWAITING_LLM_RESPONSES</div>';
+    } else {
+        workerGrid.innerHTML = streamingHtml + cardsHtml;
+    }
+    
+    // Auto-scroll to latest activity
+    if (streamingIds.length > 0) {
+        const lastStreaming = workerGrid.querySelector('.streaming-node:last-child');
+        if (lastStreaming) {
+            lastStreaming.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+}
+
+/**
+ * Helper to create element from HTML string.
+ */
+function createElementFromHTML(htmlString) {
+    const div = document.createElement('div');
+    div.innerHTML = htmlString.trim();
+    return div.firstChild;
 }
 
 // Extract operation type from proposal id (e.g., "task:COORD_ASSESS_xxx" -> "ASSESS")
@@ -1154,6 +1225,207 @@ function escapeHtml(str) {
     }[c]));
 }
 
+// ============================================================
+//  Performance: Throttled Rendering
+// ============================================================
+
+let _lastRenderTime = 0;
+let _pendingRender = null;
+
+/**
+ * Throttled version of renderWorkers to avoid excessive DOM updates.
+ * Max 20 renders per second during streaming for responsive UI.
+ */
+function throttledRenderWorkers() {
+    const now = Date.now();
+    const timeSinceLastRender = now - _lastRenderTime;
+    
+    // If we rendered recently, schedule a deferred render (50ms = 20 FPS)
+    if (timeSinceLastRender < 50) {
+        if (!_pendingRender) {
+            _pendingRender = setTimeout(() => {
+                _pendingRender = null;
+                _lastRenderTime = Date.now();
+                renderWorkers();
+            }, 50 - timeSinceLastRender);
+        }
+        return;
+    }
+    
+    // Otherwise render immediately
+    _lastRenderTime = now;
+    renderWorkers();
+}
+
+// ============================================================
+//  Chat Cards - Categorized LLM Conversations
+// ============================================================
+
+/**
+ * Determine chat card category from task ID and proposal ID.
+ */
+function getChatCategory(taskId) {
+    // Check for LATE (discarded) proposals first - format: "taskId:LATE:D1"
+    if (taskId.includes(':LATE:')) {
+        return { name: 'DISCARDED', icon: '⚠️', color: '#ff6666' };  // Red for late/discarded
+    }
+    
+    // Parse task ID structure: "root:S1:S2" or "taskId:proposalId"
+    const parts = taskId.split(':');
+    const proposalId = parts[parts.length - 1];
+    
+    // Determine category from proposal ID prefix
+    if (proposalId.startsWith('D')) {
+        return { name: 'DECOMPOSE', icon: '🔀', color: 'var(--accent-info)' };
+    } else if (proposalId.startsWith('S')) {
+        return { name: 'SOLVE', icon: '🧠', color: 'var(--accent-main)' };
+    } else if (proposalId.startsWith('COORD')) {
+        return { name: 'COMPOSE', icon: '📝', color: 'var(--accent-warn)' };
+    }
+    return { name: 'LLM', icon: '🤖', color: 'var(--text-dim)' };
+}
+
+/**
+ * Extract task step info from task ID.
+ */
+function getTaskStep(taskId) {
+    // Format: "root:S1:S2:proposalId" -> "Step 1.2"
+    const parts = taskId.split(':');
+    const steps = parts.filter(p => p.startsWith('S') && p.length <= 3);
+    if (steps.length === 0) return 'Root';
+    return `Step ${steps.map(s => s.substring(1)).join('.')}`;
+}
+
+/**
+ * Create a chat card when LLM response completes.
+ */
+function createChatCard(taskId, proposal) {
+    // Allow discarded (late) proposals to be shown even if success=false
+    const isDiscarded = taskId.includes(':LATE:');
+    if (!isDiscarded && (!proposal.success || !proposal.content)) return;
+    if (!proposal.content && !proposal.error) return;
+    
+    const category = getChatCategory(taskId);
+    const step = getTaskStep(taskId);
+    
+    const card = {
+        id: `card-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        taskId: taskId,
+        category: category,
+        step: step,
+        provider: proposal.providerName || 'unknown',
+        systemPrompt: proposal.systemPrompt || null,
+        userPrompt: proposal.userPrompt || null,
+        response: proposal.content,
+        tokens: {
+            prompt: proposal.promptTokens || 0,
+            completion: proposal.completionTokens || 0
+        },
+        timestamp: new Date()
+    };
+    
+    APP_STATE.chatCards.push(card);
+    renderChatCards();
+}
+
+/**
+ * Render all chat cards in SYSTEM_NODES view.
+ * Now just delegates to renderWorkers which handles both streaming and cards.
+ */
+function renderChatCards() {
+    renderWorkers();
+}
+
+/**
+ * Render a single chat card.
+ */
+function renderChatCard(card) {
+    const userPreview = card.userPrompt 
+        ? (card.userPrompt.length > 150 ? card.userPrompt.substring(0, 150) + '...' : card.userPrompt)
+        : null;
+    const responsePreview = card.response.length > 200 
+        ? card.response.substring(0, 200) + '...' 
+        : card.response;
+    const timeStr = card.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    
+    return `
+        <div class="chat-card" onclick="toggleCardExpand('${card.id}')">
+            <div class="chat-card-header">
+                <span class="chat-card-step">${card.step}</span>
+                <span class="chat-card-provider">🤖 ${card.provider}</span>
+                <span class="chat-card-tokens">${card.tokens.prompt}+${card.tokens.completion}</span>
+                <span class="chat-card-time">${timeStr}</span>
+            </div>
+            ${userPreview ? `
+                <div class="chat-card-user">
+                    <span class="chat-card-role">👤 USER:</span>
+                    <span class="chat-card-text">${escapeHtml(userPreview)}</span>
+                </div>
+            ` : ''}
+            <div class="chat-card-response">
+                <span class="chat-card-role">🤖 ASSISTANT:</span>
+                <span class="chat-card-text">${escapeHtml(responsePreview)}</span>
+            </div>
+            <div id="${card.id}-full" class="chat-card-full" style="display:none">
+                ${card.systemPrompt ? `
+                    <div class="chat-card-section">
+                        <div class="chat-card-section-title">⚙️ SYSTEM PROMPT</div>
+                        <div class="chat-card-section-content">${escapeHtml(card.systemPrompt)}</div>
+                    </div>
+                ` : ''}
+                ${card.userPrompt ? `
+                    <div class="chat-card-section">
+                        <div class="chat-card-section-title">👤 USER PROMPT</div>
+                        <div class="chat-card-section-content">${escapeHtml(card.userPrompt)}</div>
+                    </div>
+                ` : ''}
+                <div class="chat-card-section">
+                    <div class="chat-card-section-title">🤖 FULL RESPONSE</div>
+                    <div class="chat-card-section-content">${escapeHtml(card.response)}</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Toggle card expansion.
+ */
+function toggleCardExpand(cardId) {
+    const full = document.getElementById(`${cardId}-full`);
+    if (full) {
+        full.style.display = full.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// ============================================================
+// Status Chip Helpers
+// ============================================================
+
+/**
+ * Update a compact status chip.
+ */
+function updateStatusChip(type, value, state = '') {
+    const chipId = `chip-${type}`;
+    const chip = APP_STATE.dom[`chip${type.charAt(0).toUpperCase() + type.slice(1)}`] || document.getElementById(chipId);
+    if (chip) {
+        chip.textContent = value;
+        // Update visual state
+        chip.classList.remove('active', 'warn', 'error');
+        if (state) chip.classList.add(state);
+    }
+}
+
+/**
+ * Format token count for compact display.
+ */
+function formatTokens(count) {
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M tok`;
+    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K tok`;
+    return `${count} tok`;
+}
+
 // Expose to global for onclick handlers
 window.selectProject = selectProject;
 window.loadFile = loadFile;
+window.toggleCardExpand = toggleCardExpand;

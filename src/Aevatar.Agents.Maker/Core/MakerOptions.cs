@@ -239,6 +239,20 @@ public sealed record MakerOptions
     public int RedFlagThreshold { get; init; } = 3;
     
     /// <summary>
+    /// Maximum response tokens for decomposition requests.
+    /// Decomposition generates structured JSON with subtask descriptions.
+    /// Default: 10240 (enough for ~40 subtasks with detailed descriptions)
+    /// </summary>
+    public int MaxDecompositionTokens { get; init; } = 1024 * 10;
+    
+    /// <summary>
+    /// Maximum response tokens for solution requests.
+    /// Solution generates the actual content (e.g., revised paper sections).
+    /// Default: 20480 (enough for substantial text generation)
+    /// </summary>
+    public int MaxSolutionTokens { get; init; } = 1024 * 20;
+    
+    /// <summary>
     /// Custom red flag strategy for content validation.
     /// If null, uses DefaultEnglishRedFlagStrategy with RedFlagOptions.
     /// Implement IRedFlagStrategy for domain-specific validation (e.g., code, Chinese text).
@@ -303,6 +317,66 @@ public sealed record MakerOptions
     /// Number of samples per voting round. N = 2K - 1.
     /// </summary>
     public int SamplesPerRound => 2 * ConsensusK - 1;
+    
+    // ============================================================
+    //  Resilience Configuration (P0 for production systems)
+    // ============================================================
+    
+    /// <summary>
+    /// Enable resilience features (retry, circuit breaker, checkpointing).
+    /// Default: true for production stability.
+    /// </summary>
+    public bool EnableResilience { get; init; } = true;
+    
+    /// <summary>
+    /// Maximum retry attempts for transient LLM failures.
+    /// Default: 3
+    /// </summary>
+    public int MaxRetries { get; init; } = 3;
+    
+    /// <summary>
+    /// Initial delay before first retry (exponential backoff).
+    /// Default: 1 second
+    /// </summary>
+    public TimeSpan InitialRetryDelay { get; init; } = TimeSpan.FromSeconds(1);
+    
+    /// <summary>
+    /// Maximum delay between retries.
+    /// Default: 30 seconds
+    /// </summary>
+    public TimeSpan MaxRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
+    
+    /// <summary>
+    /// Enable circuit breaker to prevent cascade failures.
+    /// When a provider fails repeatedly, it will be temporarily disabled.
+    /// Default: true
+    /// </summary>
+    public bool EnableCircuitBreaker { get; init; } = true;
+    
+    /// <summary>
+    /// Number of failures before circuit breaker opens.
+    /// Default: 5
+    /// </summary>
+    public int CircuitBreakerThreshold { get; init; } = 5;
+    
+    /// <summary>
+    /// Duration to keep circuit open before testing recovery.
+    /// Default: 1 minute
+    /// </summary>
+    public TimeSpan CircuitBreakerDuration { get; init; } = TimeSpan.FromMinutes(1);
+    
+    /// <summary>
+    /// Enable checkpoint persistence for crash recovery.
+    /// When enabled, execution can resume from last checkpoint after restart.
+    /// Default: true
+    /// </summary>
+    public bool EnableCheckpointing { get; init; } = true;
+    
+    /// <summary>
+    /// Directory for checkpoint files (if using file-based store).
+    /// Default: null (uses in-memory store)
+    /// </summary>
+    public string? CheckpointDirectory { get; init; }
     
 }
 

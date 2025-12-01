@@ -1,6 +1,8 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
+using Aevatar.Agents.Maker.Checkpoint;
 using Aevatar.Agents.Maker.Messages;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -10,6 +12,9 @@ namespace Aevatar.Agents.Maker.Agents;
 // ============================================================
 //  Agent-based MAKER Executor
 //  Uses Aevatar Actor Framework with proper hierarchy
+//
+//  Note: LLM resilience (retry, circuit breaker) is built into
+//  AevatarLLMProviderBase - Workers automatically benefit from it.
 // ============================================================
 
 /// <summary>
@@ -27,6 +32,9 @@ public sealed class AgentMakerExecutor : IMakerExecutor
     private readonly IDecompositionStrategy _decomposer;
     private readonly ISolutionStrategy _solver;
     private readonly ICompositionStrategy _composer;
+    
+    // Checkpoint store for recovery
+    private readonly ICheckpointStore _checkpointStore;
 
     public AgentMakerExecutor(
         IGAgentActorFactory actorFactory,
@@ -34,7 +42,8 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         string? defaultProviderName = null,
         IDecompositionStrategy? decomposer = null,
         ISolutionStrategy? solver = null,
-        ICompositionStrategy? composer = null)
+        ICompositionStrategy? composer = null,
+        ICheckpointStore? checkpointStore = null)
     {
         _actorFactory = actorFactory;
         _logger = logger;
@@ -42,6 +51,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         _decomposer = decomposer ?? new DefaultDecomposer();
         _solver = solver ?? new DefaultSolver();
         _composer = composer ?? new DefaultComposer();
+        _checkpointStore = checkpointStore ?? new InMemoryCheckpointStore();
     }
 
     /// <inheritdoc />
@@ -65,7 +75,7 @@ public sealed class AgentMakerExecutor : IMakerExecutor
         try
         {
             // Step 1: Create Coordinator Actor
-            coordinatorActor = await _actorFactory.CreateGAgentActorAsync<MakerCoordinatorGAgent>(executionId);
+            coordinatorActor = await _actorFactory.CreateGAgentActorAsync<MakerCoordinatorGAgent>(executionId, ct);
             _logger.LogDebug("Created coordinator actor {CoordinatorId}", executionId);
 
             // Step 2: Inject dependencies into coordinator via GetAgent()
@@ -75,19 +85,37 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 throw new InvalidOperationException("Failed to get MakerCoordinatorGAgent from actor");
             }
             
+            // Initialize checkpoint manager if checkpointing is enabled
+            TaskCheckpointManager? checkpointManager = null;
+            if (options.EnableCheckpointing)
+            {
+                var store = !string.IsNullOrEmpty(options.CheckpointDirectory)
+                    ? new FileCheckpointStore(options.CheckpointDirectory, _logger)
+                    : _checkpointStore;
+                checkpointManager = new TaskCheckpointManager(store, _logger);
+                checkpointManager.BeginExecution(
+                    executionId.ToString("N")[..8],
+                    taskDescription,
+                    options);
+                _logger.LogInformation("[CHECKPOINT] Checkpoint tracking enabled for execution {ExecutionId}", 
+                    executionId.ToString("N")[..8]);
+            }
+            
             coordinator.SetDependencies(
                 decomposer: options.Decomposer ?? _decomposer,
                 solver: options.Solver ?? _solver,
                 composer: options.Composer ?? _composer,
                 redFlagStrategy: options.RedFlagStrategy,
                 redFlagOptions: options.RedFlagOptions,
-                progressCallback: options.OnProgress);
+                progressCallback: options.OnProgress,
+                checkpointManager: checkpointManager);
 
             // Step 3: Create Worker Actors and establish parent-child relationships
+            // Note: Workers automatically benefit from LLM resilience built into Provider
             for (var i = 0; i < workerCount; i++)
             {
                 var workerId = Guid.NewGuid();
-                var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId);
+                var workerActor = await _actorFactory.CreateGAgentActorAsync<MakerWorkerGAgent>(workerId, ct);
                 
                 // Establish parent-child relationship via ActorHierarchyCoordinator
                 await ActorHierarchyCoordinator.LinkAsync(coordinatorActor, workerActor, _logger, ct);
@@ -136,8 +164,6 @@ public sealed class AgentMakerExecutor : IMakerExecutor
             }
 
             // Send start event directly to coordinator (triggers EventHandler)
-            // Note: We use HandleEventAsync instead of PublishEventAsync because
-            // PublishEventAsync with Down direction sends to children, not self
             var envelope = new EventEnvelope
             {
                 Id = Guid.NewGuid().ToString(),
@@ -167,6 +193,13 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 if (status >= 3)
                 {
                     var result = coordinator.GetResult();
+                    
+                    // Clean up checkpoint on successful completion
+                    if (result.Success && checkpointManager != null)
+                    {
+                        await checkpointManager.CompleteExecutionAsync(ct);
+                        _logger.LogDebug("[CHECKPOINT] Checkpoint cleaned up for successful execution");
+                    }
                     
                     _logger.LogInformation(
                         "MAKER execution {ExecutionId} completed. Success: {Success}, LLM Calls: {Calls}",
@@ -256,5 +289,29 @@ public sealed class AgentMakerExecutor : IMakerExecutor
                 }
             }
         }
+    }
+    
+    // ============================================================
+    //  Recovery API
+    // ============================================================
+    
+    /// <summary>
+    /// Attempt to recover a previously interrupted execution from checkpoint.
+    /// </summary>
+    public async Task<RecoveryResult> TryRecoverAsync(
+        string executionId,
+        CancellationToken ct = default)
+    {
+        var checkpointManager = new TaskCheckpointManager(_checkpointStore, _logger);
+        return await checkpointManager.TryRecoverAsync(executionId, ct);
+    }
+    
+    /// <summary>
+    /// List all recoverable executions that have checkpoints.
+    /// </summary>
+    public Task<IReadOnlyList<string>> ListRecoverableExecutionsAsync(CancellationToken ct = default)
+    {
+        var checkpointManager = new TaskCheckpointManager(_checkpointStore, _logger);
+        return checkpointManager.ListRecoverableExecutionsAsync(ct);
     }
 }

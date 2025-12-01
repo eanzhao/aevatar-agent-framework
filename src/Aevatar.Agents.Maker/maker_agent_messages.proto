@@ -151,11 +151,7 @@ message MakerWorkerState {
     
     // Worker state machine (replaces legacy int32 status)
     MakerWorkerStatus worker_status = 10;
-    
-    // DEPRECATED: Legacy status field (0=idle, 1=working, 2=completed)
-    // Keep for backward compatibility, will be removed in future version
-    int32 status = 8 [deprecated = true];
-    
+
     google.protobuf.Timestamp last_activity = 9;
 }
 
@@ -224,6 +220,13 @@ message CancelCurrentRequest {
     string reason = 2;  // e.g., "consensus_reached", "timeout", "budget_exceeded"
 }
 
+// Update active request prefix (workers skip requests that don't match)
+// This allows workers to immediately skip stale requests without waiting for cancel
+message UpdateActivePrefix {
+    string coordinator_id = 1;
+    string active_prefix = 2;  // Current voting session prefix, e.g., "task123:S1:R1:"
+}
+
 // ============================================================
 //  Events: Worker -> Coordinator
 // ============================================================
@@ -274,6 +277,9 @@ message StreamingToken {
     bool is_last_token = 9;                  // Stream completion indicator
     google.protobuf.Timestamp timestamp = 10;
     string provider_name = 11;
+    // Chat context for SYSTEM_NODES display (sent on first token only)
+    string system_prompt = 12;               // System prompt sent to LLM
+    string user_prompt = 13;                 // User prompt sent to LLM
 }
 
 // ============================================================

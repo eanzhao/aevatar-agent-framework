@@ -14,24 +14,30 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddAevatarLLMTornado(this IServiceCollection services, Action<LlmTornadoConfig> configure)
+    public static IServiceCollection AddAevatarLLMTornado(this IServiceCollection services,
+        Action<LlmTornadoConfig> configure)
     {
         var config = new LlmTornadoConfig();
         configure(config);
 
         services.AddSingleton(config);
-        
+
         // Register the factory
         services.AddSingleton<ILLMProviderFactory, LLMTornadoProviderFactory>();
-        
-        // Also register the provider directly for simple use cases
-        services.AddSingleton<TornadoApi>(sp =>
-        {
-            // LlmTornado 3.0.5 constructor: public TornadoApi(string apiKey, LLmProviders provider = LLmProviders.OpenAi)
-            return new TornadoApi(config.ApiKey, config.Provider);
-        });
 
-        services.AddSingleton<IAevatarLLMProvider, LLMTornadoProvider>();
+        // Also register the provider directly for simple use cases
+        services.AddSingleton<TornadoApi>(sp => new TornadoApi(config.ApiKey, config.Provider));
+
+        // =========================================================================
+        //  LLMTornadoProvider requires explicit construction
+        //  Constructor: (TornadoApi, ILogger, LLmProviders, modelName, policy?)
+        // =========================================================================
+        services.AddSingleton<IAevatarLLMProvider>(sp =>
+        {
+            var api = sp.GetRequiredService<TornadoApi>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LLMTornadoProvider>>();
+            return new LLMTornadoProvider(api, logger, config.Provider, config.Model);
+        });
 
         return services;
     }

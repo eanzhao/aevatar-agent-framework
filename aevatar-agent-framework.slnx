@@ -7,7 +7,8 @@
     <Project Path="agents\Aevatar.Playground\Aevatar.Playground.csproj" />
   </Folder>
   <Folder Name="/apps/">
-    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
+    <Project Path="apps/Aevatar.AppHost/Aevatar.AppHost.csproj" />
+    <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
   </Folder>
   <Folder Name="/docs/">
     <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
@@ -23,12 +24,14 @@
   <Folder Name="/examples/">
     <Project Path="examples\AIAgentWithToolDemo\AIAgentWithToolDemo.csproj" />
     <Project Path="examples\AIEventSourcingDemo\AIEventSourcingDemo.csproj" />
+    <Project Path="examples\CreativeSystem\CreativeSystem.csproj" />
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
+    <Project Path="examples\MakerSystem\MakerSystem.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
@@ -43,6 +46,7 @@
     <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
+    <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <Project Path="src\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
@@ -55,6 +59,7 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Aevatar.Agents.AI.Core.Tests/Aevatar.Agents.AI.Core.Tests.csproj" />
+    <Project Path="test/Aevatar.Agents.Maker.Tests/Aevatar.Agents.Maker.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Abstractions.Tests\Aevatar.Agents.Abstractions.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.AI.Abstractions.Tests\Aevatar.Agents.AI.Abstractions.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.AI.LLMTornado.Tests\Aevatar.Agents.AI.LLMTornado.Tests.csproj" />
@@ -64,12 +69,12 @@
     <Project Path="test\Aevatar.Agents.Local.Tests\Aevatar.Agents.Local.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
-    <Project Path="test\Aevatar.Agents.Persistence.MongoDB.Tests\Aevatar.Agents.Persistence.MongoDB.Tests.csproj" Type="Classic C#" />
-    <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Persistence.MongoDB.Tests\Aevatar.Agents.Persistence.MongoDB.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
-    <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" Type="Classic C#" />
-    <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" Type="Classic C#" />
+    <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>

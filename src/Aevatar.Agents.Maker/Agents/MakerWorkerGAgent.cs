@@ -19,6 +19,9 @@ namespace Aevatar.Agents.Maker.Agents;
 //  - Cancellation support for early termination
 //  - TTFT (Time To First Token) monitoring
 //  - Progressive format validation
+//
+//  Note: Resilience (retry, circuit breaker) is built into
+//  AevatarLLMProviderBase - no manual wrapping needed.
 // ============================================================
 
 /// <summary>
@@ -35,12 +38,16 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
     // Cancellation support for early termination
     private CancellationTokenSource? _currentRequestCts;
     private readonly object _ctsLock = new();
+    
+    // Active prefix tracking - requests not matching this prefix are skipped immediately
+    // This prevents wasting LLM calls on stale requests that would be discarded anyway
+    private volatile string? _activePrefix;
 
     public MakerWorkerGAgent() { }
 
     public override Task<string> GetDescriptionAsync()
     {
-        return Task.FromResult($"MAKER Worker [{CustomState.WorkerId}] - Status: {CustomState.Status}");
+        return Task.FromResult($"MAKER Worker [{CustomState.WorkerId}]");
     }
 
     #region Event Handlers
@@ -51,22 +58,25 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
     [EventHandler]
     public async Task HandleInitializeWorkerRequest(InitializeWorkerRequest request)
     {
-        Logger.LogDebug("Worker {Id} received initialization request from {CoordinatorId}",
-            Id, request.CoordinatorId);
+        Logger.LogInformation("[WORKER-INIT] Worker {Id} initializing with provider: {Provider} (index: {Index})",
+            Id, request.ProviderName, request.WorkerIndex);
 
         try
         {
             // Initialize AI capabilities
+            // Note: LLMProvider has built-in resilience (retry, circuit breaker)
             await InitializeAsync(request.ProviderName, config =>
             {
                 config.Temperature = request.Temperature;
                 config.MaxOutputTokens = 2048;
             });
+            
+            Logger.LogInformation("[WORKER-INIT] Worker {Id} successfully initialized with {Provider}",
+                Id, request.ProviderName);
 
             // Setup state
             CustomState.WorkerId = Id.ToString("N")[..8];
             CustomState.CoordinatorId = request.CoordinatorId;
-            CustomState.Status = 0; // Idle
             CustomState.TotalProposals = 0;
             CustomState.SuccessfulProposals = 0;
             CustomState.FailedProposals = 0;
@@ -95,6 +105,33 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         }
     }
 
+    /// <summary>
+    /// Handle active prefix update from coordinator.
+    /// Requests not matching this prefix will be skipped immediately (no LLM call).
+    /// </summary>
+    [EventHandler]
+    public Task HandleUpdateActivePrefix(UpdateActivePrefix request)
+    {
+        var oldPrefix = _activePrefix;
+        _activePrefix = request.ActivePrefix;
+        
+        Logger.LogWarning(">>> [PREFIX-RECV] Worker {WorkerId} active prefix updated: '{Old}' -> '{New}'",
+            CustomState.WorkerId, oldPrefix ?? "null", request.ActivePrefix);
+        
+        // Also cancel any ongoing request since prefix changed
+        lock (_ctsLock)
+        {
+            if (_currentRequestCts != null && !_currentRequestCts.IsCancellationRequested)
+            {
+                Logger.LogWarning("[PREFIX] Worker {WorkerId} cancelling ongoing request due to prefix change",
+                    CustomState.WorkerId);
+                _currentRequestCts.Cancel();
+            }
+        }
+        
+        return Task.CompletedTask;
+    }
+    
     /// <summary>
     /// Handle cancellation request from coordinator (early termination).
     /// </summary>
@@ -125,9 +162,22 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
     [EventHandler]
     public async Task HandleGenerateProposalRequest(GenerateProposalRequest request)
     {
+        // ============================================================
+        //  CRITICAL: Check if request is stale BEFORE starting LLM call
+        //  This prevents wasting LLM tokens on requests that would be discarded
+        // ============================================================
+        var currentActivePrefix = _activePrefix;
+        if (!string.IsNullOrEmpty(currentActivePrefix) && 
+            !string.IsNullOrEmpty(request.RequestId) &&
+            !request.RequestId.StartsWith(currentActivePrefix))
+        {
+            Logger.LogWarning(">>> [SKIP-STALE] Worker {WorkerId} skipping stale request {RequestId} (activePrefix='{Prefix}')",
+                CustomState.WorkerId, request.RequestId, currentActivePrefix);
+            return; // Skip this request entirely - don't waste LLM call
+        }
+        
         CustomState.CurrentTaskId = request.TaskId;
         CustomState.CurrentRequestId = request.RequestId;
-        CustomState.Status = 1; // Working
         CustomState.LastActivity = Timestamp.FromDateTime(DateTime.UtcNow);
 
         var startTime = Stopwatch.GetTimestamp();
@@ -151,9 +201,12 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         long? ttftMs = null;
 
         // Generate proposal ID early for streaming events
+        // CRITICAL: Increment counter FIRST to avoid race condition with concurrent requests
+        // Each Worker may receive multiple requests in parallel, must ensure unique IDs
+        CustomState.TotalProposals++;
         var proposalId = request.IsDecomposition
-            ? $"D{CustomState.TotalProposals + 1}"
-            : $"S{CustomState.TotalProposals + 1}";
+            ? $"D{CustomState.TotalProposals}"
+            : $"S{CustomState.TotalProposals}";
 
         try
         {
@@ -168,7 +221,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
                 Messages = [new AevatarChatMessage { Role = AevatarChatRole.User, Content = request.UserPrompt }]
             };
 
-            // Try streaming first, fallback to non-streaming
+            // Check if streaming is supported
             var modelInfo = await LLMProvider.GetModelInfoAsync(cts.Token);
             
             if (modelInfo.SupportsStreaming)
@@ -178,7 +231,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             }
             else
             {
-                // Fallback: non-streaming with cancellation support
+                // Fallback: non-streaming (LLMProvider has built-in resilience)
                 var response = await LLMProvider.GenerateAsync(llmRequest, cts.Token);
                 content = response.Content;
                 
@@ -209,6 +262,22 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             error = "Cancelled (early termination - consensus reached)";
             CustomState.FailedProposals++;
         }
+        catch (CircuitBreakerOpenException cbEx)
+        {
+            // Circuit breaker is open - LLM provider is temporarily unavailable
+            Logger.LogWarning("Worker {WorkerId} circuit breaker open for {Provider} until {Until}",
+                CustomState.WorkerId, cbEx.ProviderName, cbEx.OpenUntil);
+            error = $"Provider temporarily unavailable (circuit breaker open until {cbEx.OpenUntil:HH:mm:ss})";
+            CustomState.FailedProposals++;
+        }
+        catch (LLMCallException llmEx)
+        {
+            // LLM call failed after all retries
+            Logger.LogWarning("Worker {WorkerId} LLM call failed after {Attempts} attempts: {Error}",
+                CustomState.WorkerId, llmEx.AttemptsUsed, llmEx.Message);
+            error = $"LLM call failed after {llmEx.AttemptsUsed} attempts: {llmEx.InnerException?.Message ?? llmEx.Message}";
+            CustomState.FailedProposals++;
+        }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Worker {WorkerId} failed to generate proposal for {RequestId}",
@@ -229,11 +298,11 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         }
 
         var latencyMs = (long)((Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency);
-        
-        CustomState.TotalProposals++;
-        CustomState.Status = 0; // Back to idle
 
         // Send result back to coordinator (UP direction to parent stream)
+        Logger.LogInformation("[PROPOSAL-SEND] Worker {WorkerId} ({Provider}) sending proposal {ProposalId}, RequestId='{RequestId}', TaskId='{TaskId}', ContentLen={ContentLen}, Success={Success}",
+            CustomState.WorkerId, CustomConfig.LlmProviderName, proposalId, request.RequestId, request.TaskId, content?.Length ?? 0, success);
+        
         await PublishAsync(new ProposalResult
         {
             RequestId = request.RequestId,
@@ -278,9 +347,10 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         int promptTokens = 0, completionTokens = 0;
         var tokenIndex = 0;
 
-        Logger.LogWarning("[STREAMING] Worker {WorkerId} starting streaming for task {TaskId}, proposalId={ProposalId}",
-            CustomState.WorkerId, CustomState.CurrentTaskId, proposalId);
+        Logger.LogWarning("[STREAMING] Worker {WorkerId} ({Provider}) starting streaming for task {TaskId}, proposalId={ProposalId}",
+            CustomState.WorkerId, CustomConfig.LlmProviderName, CustomState.CurrentTaskId, proposalId);
 
+        // LLMProvider has built-in resilience for initial connection
         await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct))
         {
             // Track Time To First Token
@@ -299,22 +369,46 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
             if (!string.IsNullOrEmpty(token.Content))
             {
                 sb.Append(token.Content);
+                tokenIndex++;
                 
-                // Publish streaming token event for real-time UI updates
-                await PublishAsync(new StreamingToken
+                // ============================================================
+                // STREAMING: Send events frequently for real-time UI
+                // - Every 2 tokens for responsive display
+                // - Accumulated content sent every 300 chars to reduce bandwidth
+                // ============================================================
+                var shouldSendEvent = isFirst                           // Always send first token
+                    || tokenIndex % 2 == 0                              // Every 2nd token for responsiveness
+                    || sb.Length % 300 < token.Content.Length;          // Every ~300 chars boundary
+                
+                if (shouldSendEvent)
                 {
-                    RequestId = CustomState.CurrentRequestId,
-                    TaskId = CustomState.CurrentTaskId,
-                    WorkerId = CustomState.WorkerId,
-                    ProposalId = proposalId,
-                    Token = token.Content,
-                    AccumulatedContent = sb.ToString(),
-                    TokenIndex = tokenIndex++,
-                    IsFirstToken = isFirst,
-                    IsLastToken = false,
-                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-                    ProviderName = CustomConfig.LlmProviderName
-                }, EventDirection.Up, ct);
+                    var streamingToken = new StreamingToken
+                    {
+                        RequestId = CustomState.CurrentRequestId,
+                        TaskId = CustomState.CurrentTaskId,
+                        WorkerId = CustomState.WorkerId,
+                        ProposalId = proposalId,
+                        Token = token.Content,
+                        // Only send full accumulated content on first token and periodically
+                        AccumulatedContent = (isFirst || sb.Length % 500 < token.Content.Length) 
+                            ? sb.ToString() 
+                            : "",  // Empty = frontend appends Token only
+                        TokenIndex = tokenIndex,
+                        IsFirstToken = isFirst,
+                        IsLastToken = false,
+                        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                        ProviderName = CustomConfig.LlmProviderName
+                    };
+                    
+                    // Only send prompts on first token
+                    if (isFirst)
+                    {
+                        streamingToken.SystemPrompt = request.SystemPrompt ?? "";
+                        streamingToken.UserPrompt = request.Messages?.FirstOrDefault()?.Content ?? "";
+                    }
+                    
+                    await PublishAsync(streamingToken, EventDirection.Up, ct);
+                }
             }
 
             // Early format validation for decomposition (JSON expected)

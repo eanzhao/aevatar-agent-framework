@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.MEAI.Telemetry;
 using Aevatar.Agents.AI.WithTool;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -16,13 +18,23 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     private readonly IChatClient _chatClient;
     private readonly LLMProviderConfig _config;
     private readonly ILogger _logger;
+    private readonly LLMCallPolicy _policy;
 
-    public MEAILLMProvider(IChatClient chatClient, LLMProviderConfig config, ILogger logger)
+    public MEAILLMProvider(
+        IChatClient chatClient,
+        LLMProviderConfig config,
+        ILogger logger,
+        LLMCallPolicy? policy = null)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _policy = policy ?? LLMCallPolicy.Default;
     }
+
+    protected override LLMCallPolicy Policy => _policy;
+    protected override ILogger? Logger => _logger;
+    protected override string ProviderName => $"MEAI:{_config.Model}";
 
     /// <summary>
     /// Get model info - MEAI supports streaming for most models.
@@ -33,21 +45,62 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         {
             Name = _config.Model,
             MaxTokens = _config.MaxTokens,
-            SupportsStreaming = true,  // MEAI supports streaming via GetStreamingResponseAsync
-            SupportsFunctions = true   // MEAI supports tools/functions
+            SupportsStreaming = true,
+            SupportsFunctions = true
         });
     }
 
-    public override async Task<AevatarLLMResponse> GenerateAsync(AevatarLLMRequest request,
+    protected override async Task<AevatarLLMResponse> GenerateCoreAsync(
+        AevatarLLMRequest request,
         CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Generating response using MEAI provider: {Model}", _config.Model);
+        using var activity = LLMTelemetry.StartGeneration(_config.Model);
+        var sw = Stopwatch.StartNew();
 
-        var messages = BuildChatMessages(request);
-        var options = BuildChatOptions(request);
-        var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+        try
+        {
+            _logger.LogInformation("[MEAI] Calling model: {Model}, Endpoint: {Endpoint}",
+                _config.Model, _config.Endpoint ?? "default");
+            LLMTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
 
-        return CreateAevatarLLMResponse(response);
+            var messageHistory = request.Messages?.Select(m => (
+                Role: m.Role == AevatarChatRole.User ? "user" : "assistant",
+                Content: m.Content ?? ""
+            ));
+            LLMTelemetry.RecordRequest(activity, request.SystemPrompt, request.UserPrompt, messageHistory);
+
+            var messages = BuildChatMessages(request);
+            var options = BuildChatOptions(request);
+
+            _logger.LogInformation("[MEAI] Sending request with {MsgCount} messages", messages.Count);
+            var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+            _logger.LogInformation("[MEAI] Got response: Text='{Text}', MsgCount={MsgCount}",
+                response.Text?.Substring(0, Math.Min(100, response.Text?.Length ?? 0)) ?? "(null)",
+                response.Messages?.Count ?? 0);
+
+            sw.Stop();
+            activity?.SetTag("llm.duration_ms", sw.ElapsedMilliseconds);
+            LLMTelemetry.ResponseTime.Record(sw.ElapsedMilliseconds, new KeyValuePair<string, object?>("model", _config.Model));
+
+            var result = CreateAevatarLLMResponse(response);
+            LLMTelemetry.RecordResponse(activity, result.Content);
+
+            if (result.Usage != null)
+            {
+                activity?.SetTag("llm.tokens.prompt", result.Usage.PromptTokens);
+                activity?.SetTag("llm.tokens.completion", result.Usage.CompletionTokens);
+                LLMTelemetry.InputTokens.Add(result.Usage.PromptTokens, new KeyValuePair<string, object?>("model", _config.Model));
+                LLMTelemetry.OutputTokens.Add(result.Usage.CompletionTokens, new KeyValuePair<string, object?>("model", _config.Model));
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[MEAI] Error calling model {Model}: {Message}", _config.Model, ex.Message);
+            LLMTelemetry.RecordError(activity, ex);
+            throw;
+        }
     }
 
     /// <summary>
@@ -87,13 +140,10 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     {
         var options = new ChatOptions
         {
-            // TODO: Some models donot support temperature, need to fix
-            //Temperature = (float)(request.Settings?.Temperature ?? _config.Temperature),
             MaxOutputTokens = request.Settings?.MaxTokens ?? _config.MaxTokens,
             ModelId = _config.Model
         };
 
-        // Add tools/functions if provided
         if (request.Functions is { Count: > 0 })
         {
             var aiTools = ConvertFunctionsToAITools(request.Functions);
@@ -116,8 +166,6 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         foreach (var func in functions)
         {
             var schema = ConvertParametersToJsonSchema(func.Parameters);
-
-            // Create custom AIFunction with our schema and handler
             var aiFunc = new DelegatingAIFunction(
                 func.Name,
                 func.Description,
@@ -209,7 +257,6 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
     /// <summary>
     /// Unwraps function arguments that may be wrapped in a "_" key.
-    /// This handles an artifact of AIFunctionFactory with Dictionary parameters.
     /// </summary>
     private IDictionary<string, object?>? UnwrapFunctionArguments(IDictionary<string, object?>? arguments)
     {
@@ -233,7 +280,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     }
 
     /// <summary>
-    /// Processes function calls from the chat response and creates an AevatarFunctionCall if found.
+    /// Processes function calls from the chat response.
     /// </summary>
     private AevatarFunctionCall? ProcessFunctionCalls(Microsoft.Extensions.AI.ChatResponse response)
     {
@@ -273,9 +320,62 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
     /// </summary>
     private AevatarLLMResponse CreateAevatarLLMResponse(Microsoft.Extensions.AI.ChatResponse response)
     {
+        var content = response.Text;
+
+        _logger.LogInformation(
+            "[MEAI] ChatResponse structure: Text='{Text}', MessageCount={MsgCount}, ModelId={ModelId}",
+            content ?? "(null)",
+            response.Messages?.Count ?? 0,
+            response.ModelId ?? "(null)");
+
+        if (response.Messages?.Count > 0)
+        {
+            try
+            {
+                var messageList = response.Messages.ToList();
+                _logger.LogInformation("[MEAI] Materialized {Count} messages", messageList.Count);
+
+                for (var i = 0; i < messageList.Count; i++)
+                {
+                    var msg = messageList[i];
+                    _logger.LogInformation(
+                        "[MEAI] Message[{Index}]: Role={Role}, Text='{Text}', ContentsCount={ContentsCount}",
+                        i,
+                        msg.Role,
+                        msg.Text ?? "(null)",
+                        msg.Contents?.Count ?? 0);
+
+                    if (msg.Contents != null)
+                    {
+                        var contentList = msg.Contents.ToList();
+                        for (var j = 0; j < contentList.Count; j++)
+                        {
+                            var c = contentList[j];
+                            var rawRepr = c.RawRepresentation?.ToString() ?? "(no raw)";
+                            _logger.LogInformation("[MEAI] Content[{Index}]: Type={Type}, Text={Text}, Raw={Raw}",
+                                j,
+                                c.GetType().Name,
+                                c is TextContent tc ? tc.Text ?? "(null)" : "(not text)",
+                                rawRepr.Length > 200 ? rawRepr[..200] + "..." : rawRepr);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[MEAI] Error iterating messages: {Message}", ex.Message);
+            }
+        }
+
+        if (string.IsNullOrEmpty(content) && response.Messages?.Count > 0)
+        {
+            content = ExtractTextFromMessages(response.Messages.ToList());
+            _logger.LogInformation("[MEAI] Fallback extraction result: '{Content}'", content ?? "(null)");
+        }
+
         var result = new AevatarLLMResponse
         {
-            Content = response.Text,
+            Content = content,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete,
             Usage = CreateTokenUsage(
@@ -294,10 +394,60 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
         return result;
     }
 
-    public override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamAsync(AevatarLLMRequest request,
+    /// <summary>
+    /// Extract text content from ChatMessage collection.
+    /// </summary>
+    private static string? ExtractTextFromMessages(IReadOnlyList<ChatMessage> messages)
+    {
+        var sb = new StringBuilder();
+
+        foreach (var message in messages)
+        {
+            if (message.Role != ChatRole.Assistant)
+                continue;
+
+            if (!string.IsNullOrEmpty(message.Text))
+            {
+                sb.Append(message.Text);
+                continue;
+            }
+
+            if (message.Contents == null)
+                continue;
+
+            foreach (var part in message.Contents)
+            {
+                if (part is TextContent textContent && !string.IsNullOrEmpty(textContent.Text))
+                {
+                    sb.Append(textContent.Text);
+                }
+            }
+        }
+
+        return sb.Length > 0 ? sb.ToString() : null;
+    }
+
+    protected override async IAsyncEnumerable<AevatarLLMToken> GenerateStreamCoreAsync(
+        AevatarLLMRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        using var activity = LLMTelemetry.StartStreaming(_config.Model);
+        var sw = Stopwatch.StartNew();
+        var chunkIndex = 0;
+        var totalTokens = 0;
+        var firstTokenReceived = false;
+        var responseBuilder = new StringBuilder();
+
         _logger.LogDebug("Generating streaming response using MEAI provider: {Model}", _config.Model);
+        LLMTelemetry.RequestCount.Add(1,
+            new KeyValuePair<string, object?>("model", _config.Model),
+            new KeyValuePair<string, object?>("streaming", true));
+
+        var messageHistory = request.Messages?.Select(m => (
+            Role: m.Role == AevatarChatRole.User ? "user" : "assistant",
+            Content: m.Content ?? ""
+        ));
+        LLMTelemetry.RecordRequest(activity, request.SystemPrompt, request.UserPrompt, messageHistory);
 
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
@@ -310,6 +460,21 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
                 continue;
             }
 
+            if (!firstTokenReceived)
+            {
+                firstTokenReceived = true;
+                var ttft = sw.ElapsedMilliseconds;
+                LLMTelemetry.RecordFirstToken(activity, ttft);
+                _logger.LogDebug("First token received in {TTFT}ms", ttft);
+            }
+
+            var estimatedTokens = Math.Max(1, chunk.Length / 4);
+            totalTokens += estimatedTokens;
+            chunkIndex++;
+
+            responseBuilder.Append(chunk);
+            LLMTelemetry.AddStreamingChunk(activity, chunkIndex, chunk.Length);
+
             yield return new AevatarLLMToken
             {
                 Content = chunk,
@@ -317,14 +482,17 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             };
         }
 
+        sw.Stop();
+        LLMTelemetry.CompleteStreaming(activity, chunkIndex, totalTokens, sw.ElapsedMilliseconds);
+        LLMTelemetry.RecordStreamingResponse(activity, responseBuilder.ToString());
+        _logger.LogDebug("Streaming complete: {Chunks} chunks, ~{Tokens} tokens in {Duration}ms",
+            chunkIndex, totalTokens, sw.ElapsedMilliseconds);
+
         yield return new AevatarLLMToken { Content = string.Empty, IsComplete = true };
     }
 
     /// <summary>
     /// Extracts streaming text from chat update using reflection.
-    /// Uses reflection to maintain resilience against Microsoft.Extensions.AI SDK changes.
-    /// Attempts multiple property paths: TextDelta, Text, Message.Text, and Message.Content collection.
-    /// Also extracts reasoning_content for reasoning models (e.g., DeepSeek-reasoner).
     /// </summary>
     private string ExtractStreamingText(object chatUpdate)
     {
@@ -335,25 +503,12 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         var sb = new StringBuilder();
 
-        // ============================================================
-        // DeepSeek-reasoner: Extract reasoning_content (thinking process)
-        // ============================================================
         var reasoningContent = ExtractReasoningContent(chatUpdate);
         if (!string.IsNullOrEmpty(reasoningContent))
         {
-            // Log reasoning content for debugging (optional)
             _logger.LogDebug("[REASONING] {Content}", reasoningContent);
-            
-            // Optionally include reasoning in output (wrapped for visibility)
-            // Uncomment below to show thinking process in UI:
-            // sb.Append($"💭 {reasoningContent}");
         }
 
-        // ============================================================
-        // Standard content extraction
-        // ============================================================
-        
-        // Try TextDelta or Text properties directly
         var text = StreamingPropertyCache.GetValue(chatUpdate, "TextDelta") as string;
         if (string.IsNullOrEmpty(text))
         {
@@ -366,7 +521,6 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return sb.ToString();
         }
 
-        // Try Message.Text property
         var message = StreamingPropertyCache.GetValue(chatUpdate, "Message");
         if (message == null)
         {
@@ -380,7 +534,6 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             return sb.ToString();
         }
 
-        // Aggregate text from Message.Content collection
         var content = StreamingPropertyCache.GetValue(message, "Content") as System.Collections.IEnumerable;
         if (content == null)
         {
@@ -402,18 +555,15 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
     /// <summary>
     /// Extract reasoning_content from DeepSeek-reasoner or similar reasoning models.
-    /// The reasoning content represents the model's internal thinking process.
     /// </summary>
     private static string? ExtractReasoningContent(object chatUpdate)
     {
-        // Try direct reasoning_content property (some SDKs expose this directly)
         var reasoning = StreamingPropertyCache.GetValue(chatUpdate, "ReasoningContent") as string;
         if (!string.IsNullOrEmpty(reasoning))
         {
             return reasoning;
         }
 
-        // Try Delta.reasoning_content (DeepSeek API structure)
         var delta = StreamingPropertyCache.GetValue(chatUpdate, "Delta");
         if (delta != null)
         {
@@ -422,8 +572,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             {
                 return reasoning;
             }
-            
-            // Also try snake_case version
+
             reasoning = StreamingPropertyCache.GetValue(delta, "reasoning_content") as string;
             if (!string.IsNullOrEmpty(reasoning))
             {
@@ -431,7 +580,6 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
             }
         }
 
-        // Try Message.ReasoningContent
         var message = StreamingPropertyCache.GetValue(chatUpdate, "Message");
         if (message != null)
         {

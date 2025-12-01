@@ -1,9 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Aevatar.Agents.Maker;
+using Aevatar.Agents.AI.MEAI.Telemetry;
 using MakerSystem.Projects;
 
-namespace MakerSystem.Infrastructure;
+namespace MakerSystem;
 
 // ============================================================
 //  Project Service - Clean, Simple, ~150 lines
@@ -214,8 +215,46 @@ public sealed record SSEEvent
     [System.Text.Json.Serialization.JsonPropertyName("isFirstToken")]
     public bool? IsFirstToken { get; init; }
     
+    // Chat context (for SYSTEM_NODES chat display)
+    [System.Text.Json.Serialization.JsonPropertyName("systemPrompt")]
+    public string? SystemPrompt { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("userPrompt")]
+    public string? UserPrompt { get; init; }
+    
     [System.Text.Json.Serialization.JsonPropertyName("isLastToken")]
     public bool? IsLastToken { get; init; }
+    
+    // Trace events (Aspire-style real-time telemetry)
+    [System.Text.Json.Serialization.JsonPropertyName("traceId")]
+    public string? TraceId { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("spanId")]
+    public string? SpanId { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("parentSpanId")]
+    public string? ParentSpanId { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("operationName")]
+    public string? OperationName { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("startTime")]
+    public DateTimeOffset? StartTime { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("endTime")]
+    public DateTimeOffset? EndTime { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("durationMs")]
+    public double? DurationMs { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
+    public string? Status { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("model")]
+    public string? Model { get; init; }
+    
+    [System.Text.Json.Serialization.JsonPropertyName("tags")]
+    public Dictionary<string, string>? Tags { get; init; }
 }
 
 /// <summary>
@@ -233,21 +272,21 @@ public sealed class MakerProjectService
     // Built-in projects (code-based strategies)
     private static readonly ProjectDef[] BuiltInProjects =
     [
-        new("paper", "论文总结", "多 Agent 协作拆解技术论文，生成结构化总结。", "📄",
-            $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.",  // Task
-            () => new MakerOptions
-            {
-                Reliability = ReliabilityLevel.Medium,
-                Decomposer = new PaperDecomposer(),
-                Solver = new PaperSolver(),
-                MaxTotalLlmCalls = 100,
-                MaxTotalTokens = 500_000,
-                Mode = ExecutionMode.Academic,
-                Granularity = DecompositionGranularity.Single,
-                // Multi-provider: auto-discovers all valid providers from config
-                UseMultipleProviders = true,
-                //CoordinatorProviderName = "openai"
-            }),
+        // new("paper", "论文总结", "多 Agent 协作拆解技术论文，生成结构化总结。", "📄",
+        //     $"Summarize the paper '{PaperContent.Title}' by decomposing it into logical sections.",  // Task
+        //     () => new MakerOptions
+        //     {
+        //         Reliability = ReliabilityLevel.Medium,
+        //         Decomposer = new PaperDecomposer(),
+        //         Solver = new PaperSolver(),
+        //         MaxTotalLlmCalls = 100,
+        //         MaxTotalTokens = 500_000,
+        //         Mode = ExecutionMode.Academic,
+        //         Granularity = DecompositionGranularity.Single,
+        //         // Multi-provider: auto-discovers all valid providers from config
+        //         UseMultipleProviders = true,
+        //         //CoordinatorProviderName = "openai"
+        //     }),
         
         // Paper Review Project - Multi-agent collaborative paper improvement
         new("paper-review", "论文审稿", "多 Agent 协作审阅论文，提供修改建议直到达到发表水平。", "📝",
@@ -709,7 +748,8 @@ public sealed class MakerProjectService
         foreach (var group in grouped)
         {
             var first = group.First();
-            var preview = first.Content.Length > 80 ? first.Content[..80] + "..." : first.Content;
+            // Increased preview length from 80 to 200 chars for better visibility
+            var preview = first.Content.Length > 200 ? first.Content[..200] + "..." : first.Content;
             preview = preview.Replace("\n", " ").Replace("|", "\\|");
             var provider = string.IsNullOrEmpty(first.ProviderName) ? "-" : first.ProviderName;
             sb.AppendLine($"| C{clusterNum} | {group.Count()} | {provider} | {first.Timestamp:HH:mm:ss} | {preview} |");
@@ -983,11 +1023,9 @@ public sealed class MakerProjectService
                     var st = p.StreamingToken;
                     var nodeId = $"{p.TaskId}:{st.ProposalId}";
                     
-                    if (st.IsFirstToken)
-                    {
-                        _logger.LogWarning("[SSE-STREAMING] First token from {WorkerId} for {NodeId}, content preview: '{Preview}'",
-                            st.WorkerId, nodeId, st.Token?.Length > 30 ? st.Token[..30] + "..." : st.Token);
-                    }
+                    // Log streaming events at Trace level (too verbose for normal viewing)
+                    _logger.LogTrace("[SSE-STREAMING] token #{Index} from {WorkerId} ({Provider}), first={First}, last={Last}, contentLen={Len}",
+                        st.TokenIndex, st.WorkerId, st.ProviderName, st.IsFirstToken, st.IsLastToken, st.AccumulatedContent?.Length ?? 0);
                     
                     run.EventChannel.Writer.TryWrite(new SSEEvent
                     {
@@ -1001,8 +1039,32 @@ public sealed class MakerProjectService
                         IsFirstToken = st.IsFirstToken,
                         IsLastToken = st.IsLastToken,
                         ProviderName = st.ProviderName,
+                        // Chat context for SYSTEM_NODES display
+                        SystemPrompt = st.SystemPrompt,
+                        UserPrompt = st.UserPrompt,
                         Timestamp = p.Timestamp
                     });
+                    
+                    // When streaming completes, also send a proposal event to create chat card
+                    // This ensures Coordinator LLM calls (composition, assessment) also appear as cards
+                    if (st.IsLastToken && !string.IsNullOrEmpty(st.AccumulatedContent))
+                    {
+                        run.EventChannel.Writer.TryWrite(new SSEEvent
+                        {
+                            Type = "proposal",
+                            TaskId = nodeId,
+                            Content = st.AccumulatedContent,
+                            Success = true,
+                            ProviderName = st.ProviderName,
+                            // Forward prompts for card display
+                            SystemPrompt = st.SystemPrompt,
+                            UserPrompt = st.UserPrompt,
+                            Timestamp = p.Timestamp
+                        });
+                        
+                        _logger.LogInformation("[CHAT-CARD] Created card for streaming completion: {NodeId} ({Provider})",
+                            nodeId, st.ProviderName);
+                    }
                 }
             }
         };
