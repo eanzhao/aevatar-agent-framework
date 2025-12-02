@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.AI.MEAI/Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="../../src/Aevatar.Agents.Runtime.Local/Aevatar.Agents.Runtime.Local.csproj" />
