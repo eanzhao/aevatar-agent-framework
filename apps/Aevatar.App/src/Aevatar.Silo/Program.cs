@@ -19,6 +19,10 @@ using Aevatar.Agents.Runtime.Orleans.EventSourcing;
 using Aevatar.Agents.Runtime.Orleans.MongoDB;
 using Aevatar.Agents.Orleans.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Aevatar.Agents.Runtime.Orleans.CQRS;
+using Aevatar.Agents.Plugins.CQRS;
+using Aevatar.Agents.Plugins.CQRS.Batching;
+using Aevatar.Agents.Plugins.CQRS.Elasticsearch;  // Use Core's CQRS implementation
 
 namespace Aevatar.Silo;
 
@@ -124,6 +128,36 @@ public class Program
                 }, builder => builder.UseOrleansRuntime());
                 
                 Log.Information("✅ Aevatar Agent System configured with MongoDB stores");
+
+                // CQRS State Projection (Orleans Stream)
+                services.AddOrleansCQRS(options =>
+                {
+                    options.StreamProviderName = "Default";
+                    options.StreamNamespace = "StateProjection";
+                });
+                
+                // Use Core's CQRS implementation (same as HttpApi.Host in Local mode)
+                var esUrl = context.Configuration.GetValue<string>("Elasticsearch:Url") ?? "http://localhost:9200";
+                var esPrefix = context.Configuration.GetValue<string>("Elasticsearch:IndexPrefix") ?? "aevatar-state";
+                
+                services.AddCQRS(options =>
+                {
+                    options.UseElasticsearch(es =>
+                    {
+                        es.Url = esUrl;
+                        es.IndexPrefix = esPrefix;
+                    });
+                    options.UseBatchedProjection(batch =>
+                    {
+                        var cqrsConfig = context.Configuration.GetSection("CQRS:Projector");
+                        batch.BatchSize = cqrsConfig.GetValue("BatchSize", 50);
+                        batch.MaxBatchSize = cqrsConfig.GetValue("MaxBatchSize", 200);
+                        batch.BatchTimeoutSeconds = Math.Max(1, cqrsConfig.GetValue("FlushIntervalMs", 1000) / 1000);
+                        batch.MaxRetryCount = cqrsConfig.GetValue("MaxRetryCount", 3);
+                    });
+                });
+                
+                Log.Information("✅ CQRS configured with Core.BatchedStateProjector (ES: {EsUrl})", esUrl);
             });
     }
 }

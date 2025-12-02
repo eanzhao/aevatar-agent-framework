@@ -57,6 +57,9 @@
     <PackageVersion Include="LlmTornado" Version="3.8.23" />
     <!-- MongoDB -->
     <PackageVersion Include="MongoDB.Driver" Version="3.3.0" />
+    <!-- Elasticsearch -->
+    <PackageVersion Include="Elastic.Clients.Elasticsearch" Version="8.17.3" />
+    <PackageVersion Include="Elastic.Transport" Version="0.5.6" />
     <!-- OpenTelemetry -->
     <PackageVersion Include="OpenTelemetry" Version="1.10.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.10.0" />

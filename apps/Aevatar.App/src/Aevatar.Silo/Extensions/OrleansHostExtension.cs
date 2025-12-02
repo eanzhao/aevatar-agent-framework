@@ -151,6 +151,7 @@ public static class OrleansHostExtension
     {
         Log.Information("📡 Configuring Orleans Memory Stream");
         
+        // Primary stream provider (configurable name, default: "Default")
         siloBuilder.AddMemoryStreams(providerName, streamConfig =>
         {
             streamConfig.ConfigureStreamPubSub(StreamPubSubType.ExplicitGrainBasedAndImplicit);
@@ -159,6 +160,23 @@ public static class OrleansHostExtension
                 options.GetQueueMsgsTimerPeriod = TimeSpan.FromMilliseconds(50);
             }));
         });
+        Log.Information("   ✅ Added stream provider: {ProviderName}", providerName);
+        
+        // Agent event stream provider (used by OrleansGAgentGrain for agent communication)
+        // This is the default provider name in AevatarAgentsOrleansConstants.StreamProviderName
+        const string agentStreamProvider = "AevatarAgents";
+        if (providerName != agentStreamProvider)
+        {
+            siloBuilder.AddMemoryStreams(agentStreamProvider, streamConfig =>
+            {
+                streamConfig.ConfigureStreamPubSub(StreamPubSubType.ExplicitGrainBasedAndImplicit);
+                streamConfig.ConfigurePullingAgent(pullingAgentConfig => pullingAgentConfig.Configure(options =>
+                {
+                    options.GetQueueMsgsTimerPeriod = TimeSpan.FromMilliseconds(50);
+                }));
+            });
+            Log.Information("   ✅ Added stream provider: {ProviderName}", agentStreamProvider);
+        }
     }
 
     private static void ConfigureKafkaStreaming(ISiloBuilder siloBuilder, IConfiguration configuration, string providerName)

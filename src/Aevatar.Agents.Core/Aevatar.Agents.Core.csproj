@@ -13,6 +13,9 @@
     <ItemGroup>
       <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
       <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+      <PackageReference Include="Elastic.Clients.Elasticsearch" />
+      <PackageReference Include="Newtonsoft.Json" />
       <!-- OpenTelemetry Integration (P3-6) -->
       <PackageReference Include="OpenTelemetry" />
       <PackageReference Include="OpenTelemetry.Extensions.Hosting" />

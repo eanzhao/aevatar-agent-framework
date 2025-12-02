@@ -15,11 +15,138 @@ namespace Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// 添加 MassTransit Message Stream 插件支持
+    /// Adds MassTransit Message Stream plugin with automatic agent assembly discovery.
+    /// Scans all loaded assemblies for IGAgent implementations.
     /// </summary>
-    /// <param name="services"></param>
-    /// <param name="configuration"></param>
-    /// <param name="agentAssemblies">包含 Agent 定义的程序集，用于扫描 [StreamTopic] 注解以自动配置 Topic</param>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">The configuration</param>
+    /// <returns>The service collection</returns>
+    public static IServiceCollection AddMassTransitStreamPlugin(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var agentAssemblies = DiscoverAgentAssemblies();
+        return services.AddMassTransitStreamPlugin(configuration, agentAssemblies);
+    }
+    
+    /// <summary>
+    /// Adds MassTransit Message Stream plugin with assemblies discovered by naming pattern.
+    /// Useful when agent assemblies follow a naming convention (e.g., "*.Agents.*", "MyCompany.Agents.*")
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">The configuration</param>
+    /// <param name="assemblyNamePatterns">Assembly name patterns to match (supports * wildcard)</param>
+    /// <returns>The service collection</returns>
+    public static IServiceCollection AddMassTransitStreamPluginWithPatterns(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        params string[] assemblyNamePatterns)
+    {
+        var agentAssemblies = DiscoverAgentAssembliesByPattern(assemblyNamePatterns);
+        return services.AddMassTransitStreamPlugin(configuration, agentAssemblies);
+    }
+    
+    /// <summary>
+    /// Discovers all loaded assemblies that contain IGAgent implementations.
+    /// </summary>
+    /// <returns>Array of assemblies containing agents</returns>
+    public static Assembly[] DiscoverAgentAssemblies()
+    {
+        var agentAssemblies = new List<Assembly>();
+        
+        try
+        {
+            var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies()
+                .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location));
+                
+            foreach (var assembly in loadedAssemblies)
+            {
+                try
+                {
+                    var hasAgents = assembly.GetTypes()
+                        .Any(t => typeof(IGAgent).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
+                    
+                    if (hasAgents)
+                    {
+                        agentAssemblies.Add(assembly);
+                        Console.WriteLine($"DEBUG: Auto-discovered agent assembly: {assembly.GetName().Name}");
+                    }
+                }
+                catch (ReflectionTypeLoadException)
+                {
+                    // Skip assemblies that fail to load types
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WARNING: Failed to auto-discover agent assemblies: {ex.Message}");
+        }
+        
+        Console.WriteLine($"DEBUG: Auto-discovered {agentAssemblies.Count} agent assemblies");
+        return agentAssemblies.ToArray();
+    }
+    
+    /// <summary>
+    /// Discovers assemblies by name patterns (supports * wildcard).
+    /// </summary>
+    /// <param name="patterns">Assembly name patterns (e.g., "*.Agents.*", "MyCompany.Agents.*")</param>
+    /// <returns>Array of matching assemblies</returns>
+    public static Assembly[] DiscoverAgentAssembliesByPattern(params string[] patterns)
+    {
+        if (patterns == null || patterns.Length == 0)
+            return DiscoverAgentAssemblies();
+            
+        var agentAssemblies = new List<Assembly>();
+        var loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location));
+            
+        foreach (var assembly in loadedAssemblies)
+        {
+            var assemblyName = assembly.GetName().Name ?? string.Empty;
+            
+            foreach (var pattern in patterns)
+            {
+                if (MatchesPattern(assemblyName, pattern))
+                {
+                    try
+                    {
+                        var hasAgents = assembly.GetTypes()
+                            .Any(t => typeof(IGAgent).IsAssignableFrom(t) && !t.IsAbstract && !t.IsInterface);
+                        
+                        if (hasAgents)
+                        {
+                            agentAssemblies.Add(assembly);
+                            Console.WriteLine($"DEBUG: Pattern-matched agent assembly: {assemblyName} (pattern: {pattern})");
+                            break;
+                        }
+                    }
+                    catch (ReflectionTypeLoadException)
+                    {
+                        // Skip assemblies that fail to load types
+                    }
+                }
+            }
+        }
+        
+        Console.WriteLine($"DEBUG: Pattern-discovered {agentAssemblies.Count} agent assemblies");
+        return agentAssemblies.ToArray();
+    }
+    
+    private static bool MatchesPattern(string input, string pattern)
+    {
+        // Simple wildcard matching: * matches any sequence
+        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern).Replace("\\*", ".*") + "$";
+        return System.Text.RegularExpressions.Regex.IsMatch(input, regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+    
+    /// <summary>
+    /// Adds MassTransit Message Stream plugin with explicit assembly list.
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">The configuration</param>
+    /// <param name="agentAssemblies">Assemblies containing Agent definitions to scan for [StreamTopic] attributes</param>
+    /// <returns>The service collection</returns>
     public static IServiceCollection AddMassTransitStreamPlugin(
         this IServiceCollection services,
         IConfiguration configuration,

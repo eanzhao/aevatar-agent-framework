@@ -52,7 +52,8 @@ public static class MultiRuntimeEventSourcingDemo
         
         // 创建工厂
         var logger = serviceProvider.GetRequiredService<ILogger<LocalGAgentActorFactory>>();
-        var factory = new LocalGAgentActorFactory(serviceProvider, logger);
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var factory = new LocalGAgentActorFactory(serviceProvider, logger, loggerFactory);
         
         // ✅ 场景1：自动 EventSourcing 注入
         Console.WriteLine("\n⚡ 场景1：AIGAgentFactory 自动注入 EventStore");

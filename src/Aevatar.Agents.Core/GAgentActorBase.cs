@@ -96,6 +96,8 @@ public abstract class GAgentActorBase : IGAgentActor, IActorHierarchyOperations
 
     public IGAgent GetAgent() => Agent;
 
+    public Task<string> GetDescriptionAsync() => Agent.GetDescriptionAsync();
+
     // ============ Hierarchy Management ============
 
     protected internal virtual async Task AddChildAsync(Guid childId, CancellationToken ct = default)

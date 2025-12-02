@@ -26,28 +26,21 @@ MassTransit Stream 插件为 Aevatar 框架提供了基于消息队列（如 Kaf
 ```mermaid
 graph TD
     A[Sender Agent] -->|Publish| B(GAgentActor)
-    B -->|GetStream(Category)| C[MassTransitMessageStreamProvider]
+    B -->|"GetStream(Category)"| C[MassTransitMessageStreamProvider]
     C -->|Lookup Topic| D{Topic Mapping?}
-    
     D -->|Found| E[Target Topic]
-    D -->|Not Found| F[Default Topic (TopicPrefix)]
-    
-    E -->|ProduceAsync (Key=StreamId)| G((Kafka))
-    F -->|ProduceAsync (Key=StreamId)| G
-    
+    D -->|Not Found| F["Default Topic (TopicPrefix)"]
+    E -->|"ProduceAsync (Key=StreamId)"| G((Kafka))
+    F -->|"ProduceAsync (Key=StreamId)"| G
     G -->|MassTransit Consumer| H[StreamMessageDispatcher]
     H -->|Dispatch by StreamId| I{Stream Exists?}
-    
     I -->|Yes| J[MassTransitMessageStream]
     I -->|No| K[IStreamNotFoundHandler]
-    
     K -->|Orleans Mode| L[OrleansStreamNotFoundHandler]
     L -->|Activate| M(Orleans Grain)
     M -->|Register Stream| J
-    
     K -->|Local Mode| N[LocalStreamNotFoundHandler]
-    N -->|Log Warning / Error| O[End / Retry]
-    
+    N -->|"Log Warning / Error"| O["End / Retry"]
     J -->|Deserialize| P[EventEnvelope]
     P -->|HandleEventAsync| Q(GAgentActor)
     Q -->|ProcessEvent| R[Receiver Agent]
@@ -109,16 +102,62 @@ public class BillingAgent : GAgentBase<BillingState>
     <ProjectReference Include="..\..\..\src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
     ```
 
-2.  **代码集成 (支持自动扫描)**:
-    在 `Program.cs` 中注册插件时，传入包含 Agent 的程序集：
+2.  **代码集成 - 多种程序集发现方式**:
 
+    #### 方式一：全自动发现（推荐）
+    
+    无需指定任何程序集，插件会自动扫描所有已加载的程序集，找到包含 `IGAgent` 实现的程序集：
+    
     ```csharp
-    // 自动扫描程序集中的 [StreamTopic] 注解
+    // 自动发现所有 Agent 程序集
+    services.AddMassTransitStreamPlugin(configuration);
+    ```
+    
+    #### 方式二：基于命名约定发现
+    
+    当 Agent 程序集遵循命名约定时（如 `*.Agents.*`），可以使用模式匹配：
+    
+    ```csharp
+    // 按程序集名称模式匹配（支持 * 通配符）
+    services.AddMassTransitStreamPluginWithPatterns(
+        configuration,
+        "*.Agents.*",           // 匹配所有包含 .Agents. 的程序集
+        "MyCompany.Agents.*",   // 匹配 MyCompany.Agents 命名空间下的程序集
+        "Demo.Agents"           // 精确匹配
+    );
+    ```
+    
+    #### 方式三：显式指定程序集
+    
+    当需要精确控制扫描范围时，手动指定程序集列表：
+    
+    ```csharp
+    // 显式指定多个程序集
     services.AddMassTransitStreamPlugin(
         configuration, 
         typeof(MyAgent).Assembly,
-        typeof(AnotherAgent).Assembly
+        typeof(AnotherAgent).Assembly,
+        typeof(ThirdAgent).Assembly
     );
+    
+    // 或使用数组
+    var agentAssemblies = new[] { 
+        typeof(MyAgent).Assembly, 
+        typeof(AnotherAgent).Assembly 
+    };
+    services.AddMassTransitStreamPlugin(configuration, agentAssemblies);
+    ```
+
+    #### 辅助方法：获取发现的程序集列表
+    
+    如果需要在其他地方使用发现的程序集（如 Orleans Silo 配置），可以直接调用发现方法：
+    
+    ```csharp
+    // 自动发现所有包含 IGAgent 的程序集
+    var assemblies = ServiceCollectionExtensions.DiscoverAgentAssemblies();
+    
+    // 基于模式发现程序集
+    var patternAssemblies = ServiceCollectionExtensions.DiscoverAgentAssembliesByPattern("*.Agents.*");
     ```
 
 ### Orleans Runtime 集成
@@ -126,7 +165,8 @@ public class BillingAgent : GAgentBase<BillingState>
 ```csharp
 host.ConfigureServices((context, services) =>
 {
-    services.AddMassTransitStreamPlugin(context.Configuration, typeof(MyAgent).Assembly);
+    // 推荐：自动发现所有 Agent 程序集
+    services.AddMassTransitStreamPlugin(context.Configuration);
 
     services.AddAevatarAgentSystem(builder =>
     {
@@ -138,7 +178,12 @@ host.ConfigureServices((context, services) =>
 ### Local Runtime 集成
 
 ```csharp
-services.AddMassTransitStreamPlugin(configuration, typeof(MyAgent).Assembly);
+// 推荐：自动发现
+services.AddMassTransitStreamPlugin(configuration);
+services.AddAevatarLocalRuntime();
+
+// 或者：基于模式发现
+services.AddMassTransitStreamPluginWithPatterns(configuration, "*.Agents.*");
 services.AddAevatarLocalRuntime();
 ```
 
