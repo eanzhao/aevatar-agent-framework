@@ -295,6 +295,17 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
 
     private async Task InitializeExecutionStateAsync(StartMakerTaskRequest request)
     {
+            // Auto-fallback: if requested provider doesn't exist, use first available
+            var providerToUse = request.ProviderName;
+            var availableProviders = LLMProviderFactory.GetAvailableProviderNames();
+            if (!availableProviders.Contains(providerToUse) && availableProviders.Count > 0)
+            {
+                providerToUse = availableProviders[0];
+                Logger.LogInformation(
+                    "Provider '{RequestedProvider}' not found, using '{FallbackProvider}' instead",
+                    request.ProviderName, providerToUse);
+            }
+
             CustomState.ExecutionId = request.ExecutionId;
             CustomState.TaskDescription = request.TaskDescription;
             CustomState.ConsensusK = request.ConsensusK;
@@ -314,7 +325,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
             CustomConfig.TemperatureVariance = request.TemperatureVariance;
             CustomConfig.SemanticSimilarityThreshold = request.SemanticSimilarityThreshold;
             CustomConfig.ClusteringMethod = request.ClusteringMethod;
-            CustomConfig.LlmProviderName = request.ProviderName;
+            CustomConfig.LlmProviderName = providerToUse;
             CustomConfig.WorkerPoolSize = request.SamplesPerRound;
             CustomConfig.MaxTotalLlmCalls = CustomState.MaxTotalLlmCalls;
             CustomConfig.MaxTotalTokens = CustomState.MaxTotalTokens;
@@ -332,7 +343,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 TemperatureVariance = request.TemperatureVariance,
                 SemanticSimilarityThreshold = request.SemanticSimilarityThreshold,
                 ClusteringMethod = request.ClusteringMethod,
-                ProviderName = request.ProviderName,
+                ProviderName = providerToUse,
                 Decomposer = _decomposer,
                 Solver = _solver,
                 Composer = _composer,
@@ -343,7 +354,7 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
                 ? new Dictionary<string, string>(request.Context)
                 : new Dictionary<string, string>();
 
-            await InitializeAsync(request.ProviderName, config =>
+            await InitializeAsync(providerToUse, config =>
             {
                 config.Temperature = request.BaseTemperature;
                 config.MaxOutputTokens = 4096;

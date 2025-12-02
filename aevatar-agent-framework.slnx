@@ -10,6 +10,19 @@
     <Project Path="apps/Aevatar.AppHost/Aevatar.AppHost.csproj" />
     <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
   </Folder>
+  <Folder Name="/cognitive-mesh/">
+    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
+    <Project Path="cognitive-mesh\Aevatar.CognitiveMesh.AppHost\Aevatar.CognitiveMesh.AppHost.csproj" />
+    <Project Path="cognitive-mesh\Aevatar.CognitiveMesh\Aevatar.CognitiveMesh.csproj" />
+    <File Path="cognitive-mesh/README.md" />
+  </Folder>
+  <Folder Name="/cognitive-mesh/docs/">
+      <File Path="cognitive-mesh\docs\DSL.md" />
+      <File Path="cognitive-mesh\docs\PRD.md" />
+      <File Path="cognitive-mesh\docs\README.md" />
+      <File Path="cognitive-mesh\docs\CONCEPT.md" />
+      <File Path="cognitive-mesh\docs\ARCHITECTURE.md" />
+  </Folder>
   <Folder Name="/docs/">
     <File Path="docs\AEVATAR_FRAMEWORK_GUIDE.md" />
     <File Path="docs\CONSTITUTION.md" />

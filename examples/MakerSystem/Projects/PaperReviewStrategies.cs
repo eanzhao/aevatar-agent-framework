@@ -759,7 +759,7 @@ public static class PaperReviewProject
                 ["review_strictness"] = "ULTRA_STRICT" // Signal to prompts
             },
 
-            CoordinatorProviderName = "claude"
+            // CoordinatorProviderName = "deepseek"
         };
         
         return (task, buildOptions);
