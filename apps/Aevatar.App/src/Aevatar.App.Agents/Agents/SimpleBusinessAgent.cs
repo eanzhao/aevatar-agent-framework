@@ -36,6 +36,8 @@ public class SimpleBusinessAgent : GAgentBase<SimpleBusinessAgentState>
     [EventHandler]
     public async Task HandleBusinessMessage(BusinessMessageEvent evt)
     {
+        Logger.LogWarning("🔥🔥🔥 Agent {AgentId} executing in Process: {ProcessId} ({ProcessName})", 
+            Id, Environment.ProcessId, Environment.ProcessPath);
         Logger.LogInformation("📨 Agent {AgentId} received: {Message}", Id, evt.Message);
         
         State.ProcessedCount++;

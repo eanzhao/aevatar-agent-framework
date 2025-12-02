@@ -15,8 +15,15 @@ public interface IGAgentActor : IEventPublisher
 
     /// <summary>
     /// Get the associated Agent instance.
+    /// Note: In Orleans mode, Agent runs in Silo, so this may throw NotSupportedException.
+    /// Use GetDescriptionAsync() for safe remote access.
     /// </summary>
     IGAgent GetAgent();
+
+    /// <summary>
+    /// Get Agent description (safe for remote access).
+    /// </summary>
+    Task<string> GetDescriptionAsync();
 
     // ============ Hierarchy Inspection ============
 

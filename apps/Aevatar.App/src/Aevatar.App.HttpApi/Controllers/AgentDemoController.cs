@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.App.Agents.Agents;
@@ -12,7 +14,9 @@ namespace Aevatar.App.Controllers;
 /// <summary>
 /// Agent Demo Controller
 /// Demonstrates Aevatar Agent Framework integration
-/// Supports both Local and Orleans runtimes
+/// 
+/// NOTE: In Orleans mode, Agent runs in Silo (Grain).
+/// All operations go through Actor proxy which forwards to Grain via RPC.
 /// </summary>
 [Route("api/agent-demo")]
 [ApiController]
@@ -42,14 +46,13 @@ public class AgentDemoController : AbpControllerBase
 
         try
         {
-            // Create and register agent actor (managed lifecycle)
+            // Create and register agent actor (Agent is created in Silo/Grain)
             var actor = await _actorManager.CreateAndRegisterAsync<SimpleBusinessAgent>(agentId);
 
-            // Get description from the agent
-            var agent = actor.GetAgent();
-            var description = await agent.GetDescriptionAsync();
+            // Get description via Actor proxy (calls Grain RPC)
+            var description = await actor.GetDescriptionAsync();
 
-            _logger.LogInformation("✅ Agent {AgentId} created successfully", agentId);
+            _logger.LogInformation("✅ Agent {AgentId} created successfully (running in Silo)", agentId);
 
             return Ok(new AgentCreatedResponse
             {
@@ -93,22 +96,24 @@ public class AgentDemoController : AbpControllerBase
                 actor = await _actorManager.CreateAndRegisterAsync<SimpleBusinessAgent>(id);
             }
 
-            // Cast to specific agent type to call business methods
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null)
+            // Publish event to Agent (processed in Silo/Grain)
+            var evt = new Business.Server.BusinessMessageEvent
             {
-                return StatusCode(500, "Agent type mismatch");
-            }
+                Message = request.Message,
+                Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
+            };
 
-            // Process message
-            var result = await agent.ProcessMessageAsync(request.Message);
+            await actor.PublishEventAsync(evt, EventDirection.Down);
 
-            _logger.LogInformation("✅ Message processed successfully");
+            // Get updated description
+            var description = await actor.GetDescriptionAsync();
+
+            _logger.LogInformation("✅ Message sent to agent (processed in Silo)");
 
             return Ok(new AgentMessageResponse
             {
                 AgentId = agentId,
-                Response = result,
+                Response = description,
                 ProcessedAt = DateTime.UtcNow
             });
         }
@@ -143,20 +148,15 @@ public class AgentDemoController : AbpControllerBase
                 return NotFound($"Agent {agentId} not found");
             }
 
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null)
-            {
-                return StatusCode(500, "Agent type mismatch");
-            }
-
-            var stats = await agent.GetStatisticsAsync();
+            // Get description via Grain RPC (contains stats info)
+            var description = await actor.GetDescriptionAsync();
 
             return Ok(new AgentStatsResponse
             {
-                AgentId = stats.AgentId,
-                ProcessedEventsCount = stats.ProcessedCount,
-                LastMessage = stats.LastMessage,
-                LastUpdated = stats.LastUpdated?.ToDateTime() ?? DateTime.MinValue
+                AgentId = agentId,
+                ProcessedEventsCount = 0, // Stats are embedded in description
+                LastMessage = description,
+                LastUpdated = DateTime.UtcNow
             });
         }
         catch (Exception ex)
@@ -216,19 +216,16 @@ public class AgentDemoController : AbpControllerBase
             var actor = await _actorManager.GetActorAsync(id);
             if (actor == null) return NotFound($"Agent {agentId} not found");
 
-            var agent = actor.GetAgent() as SimpleBusinessAgent;
-            if (agent == null) return StatusCode(500, "Agent type mismatch");
-
-            // Create event and publish
+            // Create event and publish via Actor proxy (processed in Silo/Grain)
             var evt = new Business.Server.BusinessMessageEvent
             {
                 Message = request.Message,
                 Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow)
             };
 
-            await agent.ProcessMessageAsync(request.Message);
+            await actor.PublishEventAsync(evt, EventDirection.Down);
             
-            _logger.LogInformation("✅ Event published to agent {AgentId}", agentId);
+            _logger.LogInformation("✅ Event published to agent {AgentId} (processed in Silo)", agentId);
             return Ok(new { message = "Event published successfully", eventData = request.Message });
         }
         catch (Exception ex)
@@ -245,6 +242,160 @@ public class AgentDemoController : AbpControllerBase
     public IActionResult GetHealth()
     {
         return Ok(new { Status = "Healthy", Timestamp = DateTime.UtcNow });
+    }
+
+    // ========== Complex State Agent Endpoints (for CQRS ES testing) ==========
+
+    /// <summary>
+    /// Create a complex state agent with test data.
+    /// Used for testing ES handling of complex types (List, Dict, nested objects).
+    /// </summary>
+    [HttpPost("complex-agent")]
+    public async Task<ActionResult<ComplexAgentCreatedResponse>> CreateComplexAgent()
+    {
+        var agentId = Guid.NewGuid();
+        
+        _logger.LogInformation("🧪 Creating ComplexStateAgent with ID: {AgentId}", agentId);
+
+        try
+        {
+            // Create and register complex state agent
+            var actor = await _actorManager.CreateAndRegisterAsync<ComplexStateAgent>(agentId);
+
+            // Get the agent instance to initialize test data
+            // Note: In Local mode, we can get the agent directly
+            // In Orleans mode, we need to call through Actor/Grain RPC
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                await agent.InitializeTestDataAsync();
+            }
+            else
+            {
+                _logger.LogWarning("Could not get agent instance directly (Orleans mode). " +
+                    "Use /complex-agent/{id}/init to initialize test data.");
+            }
+
+            var description = await actor.GetDescriptionAsync();
+
+            _logger.LogInformation("✅ ComplexStateAgent {AgentId} created with test data", agentId);
+
+            return Ok(new ComplexAgentCreatedResponse
+            {
+                AgentId = agentId.ToString(),
+                Description = description,
+                AgentType = "Aevatar.App.Agents.Agents.ComplexStateAgent",
+                CreatedAt = DateTime.UtcNow,
+                TestDataInitialized = agent != null
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error creating ComplexStateAgent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Initialize test data for existing complex agent (for Orleans mode).
+    /// </summary>
+    [HttpPost("complex-agent/{agentId}/init")]
+    public async Task<IActionResult> InitComplexAgentTestData([FromRoute] string agentId)
+    {
+        if (!Guid.TryParse(agentId, out var id))
+        {
+            return BadRequest("Invalid agent ID format");
+        }
+
+        try
+        {
+            var actor = await _actorManager.GetActorAsync(id);
+            if (actor == null)
+            {
+                return NotFound($"Agent {agentId} not found");
+            }
+
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                await agent.InitializeTestDataAsync();
+                return Ok(new { message = "Test data initialized", agentId });
+            }
+            else
+            {
+                return BadRequest("Agent is not a ComplexStateAgent or not accessible (Orleans mode)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error initializing test data for agent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Get complex agent state (for verification).
+    /// </summary>
+    [HttpGet("complex-agent/{agentId}/state")]
+    public async Task<ActionResult<object>> GetComplexAgentState([FromRoute] string agentId)
+    {
+        if (!Guid.TryParse(agentId, out var id))
+        {
+            return BadRequest("Invalid agent ID format");
+        }
+
+        try
+        {
+            var actor = await _actorManager.GetActorAsync(id);
+            if (actor == null)
+            {
+                return NotFound($"Agent {agentId} not found");
+            }
+
+            var agent = actor.GetAgent() as ComplexStateAgent;
+            if (agent != null)
+            {
+                var state = await agent.GetStateAsync();
+                return Ok(new
+                {
+                    agentId = state.AgentId,
+                    name = state.Name,
+                    age = state.Age,
+                    balance = state.Balance,
+                    isActive = state.IsActive,
+                    address = state.Address != null ? new
+                    {
+                        street = state.Address.Street,
+                        city = state.Address.City,
+                        country = state.Address.Country,
+                        zipCode = state.Address.ZipCode
+                    } : null,
+                    tags = state.Tags.ToList(),
+                    orders = state.Orders.Select(o => new
+                    {
+                        productId = o.ProductId,
+                        productName = o.ProductName,
+                        quantity = o.Quantity,
+                        price = o.Price
+                    }).ToList(),
+                    metadata = state.Metadata.ToDictionary(x => x.Key, x => x.Value),
+                    scores = state.Scores.ToDictionary(x => x.Key, x => x.Value),
+                    luckyNumbers = state.LuckyNumbers.ToList(),
+                    createdAt = state.CreatedAt?.ToDateTime(),
+                    lastUpdated = state.LastUpdated?.ToDateTime()
+                });
+            }
+            else
+            {
+                var description = await actor.GetDescriptionAsync();
+                return Ok(new { description, message = "Full state not accessible in Orleans mode" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error getting state for agent {AgentId}", agentId);
+            return StatusCode(500, $"Error: {ex.Message}");
+        }
     }
 }
 
@@ -282,3 +433,11 @@ public class AgentEventRequest
     public string Message { get; set; } = string.Empty;
 }
 
+public class ComplexAgentCreatedResponse
+{
+    public string AgentId { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string AgentType { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public bool TestDataInitialized { get; set; }
+}

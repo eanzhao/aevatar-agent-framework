@@ -29,7 +29,6 @@
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
-    <Project Path="examples\KafkaStreamDemo\KafkaStreamDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
     <Project Path="examples\MakerSystem\MakerSystem.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
@@ -49,7 +48,8 @@
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
-    <Project Path="src\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
+    <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
+    <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
