@@ -102,7 +102,9 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         Action<AevatarAIAgentConfig>? configAI,
         CancellationToken cancellationToken)
     {
-        await ActivateAsync();
+        // NOTE: Do NOT call ActivateAsync() here!
+        // This method is typically called from OnActivateAsync, 
+        // calling ActivateAsync again would cause infinite recursion.
 
         // Load state and config if stores are available
         if (StateStore != null)

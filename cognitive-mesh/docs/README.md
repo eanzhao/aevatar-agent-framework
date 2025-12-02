@@ -14,14 +14,16 @@
 | **[PRD.md](./PRD.md)** | **需求 (The Requirements)**。用户故事、功能规格、用户旅程与服务矩阵。 |
 | **[ARCHITECTURE.md](./ARCHITECTURE.md)** | **蓝图 (The Blueprint)**。将概念映射到 Aevatar Agents、Orleans 和事件溯源的技术实现细节。 |
 | **[DSL.md](./DSL.md)** | **DSL 规范**。最小 Schema、强类型映射、编译与验证流水线、版本化策略。 |
+| **[WORKFLOW_UI.md](./WORKFLOW_UI.md)** | **可视化设计**。Workflow UI 与 DSL 的关系、观察/理解/干预三重职责、交互模式与数据模型。 |
 
 *For English notes, see inline sections inside each document (当前版本以中文为主)。*
 
 ## 文档说明
-- **CONCEPT.md**：从现象层、本质层、哲学层三段论拆解“为什么认知网格必须取代传统工作流”，并把 UoT 三大思维模式映射为平台使命。
+- **CONCEPT.md**：从现象层、本质层、哲学层三段论拆解"为什么认知网格必须取代传统工作流"，并把 UoT 三大思维模式映射为平台使命。
 - **PRD.md**：定义产品愿景、核心用户画像、交互旅程、服务矩阵以及 Orleans/Aspire 的落地承诺。
 - **ARCHITECTURE.md**：描述 Orleans + Aevatar 体系下的 Agent 拓扑、事件溯源与数据结构，是工程实现的蓝图。
 - **DSL.md**：规定认知网格的指令语言，包括 Schema、强类型映射、编译流水线、版本化与 LLM/DSL 协作策略，是防止系统失控的硬约束。
+- **WORKFLOW_UI.md**：定义 Workflow 可视化层与 DSL 的关系——UI 不是用户画流程图的工具，而是 AI 生成的 DSL 的人类可读投影，支持观察认知过程、理解决策逻辑、适时干预执行。
 
 ## 🌳 结构
 

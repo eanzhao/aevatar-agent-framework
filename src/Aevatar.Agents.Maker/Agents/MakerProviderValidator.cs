@@ -35,11 +35,12 @@ public partial class MakerCoordinatorGAgent
     {
         // Step 1: Discover all candidate providers
         List<string> candidateProviders;
+        var availableProviders = LLMProviderFactory.GetAvailableProviderNames().ToList();
 
         if (useMultipleProviders)
         {
             // Auto-discover all configured providers
-            candidateProviders = LLMProviderFactory.GetAvailableProviderNames().ToList();
+            candidateProviders = availableProviders;
 
             ReportProgress(new MakerProgress
             {
@@ -52,8 +53,34 @@ public partial class MakerCoordinatorGAgent
         }
         else
         {
-            // Single provider mode
-            candidateProviders = [defaultProviderName];
+            // Single provider mode - auto-fallback if specified provider doesn't exist
+            if (availableProviders.Contains(defaultProviderName))
+            {
+                candidateProviders = [defaultProviderName];
+            }
+            else if (availableProviders.Count > 0)
+            {
+                // Fallback: use first available provider instead of non-existent "default"
+                var fallbackProvider = availableProviders[0];
+                Logger.LogInformation(
+                    "Provider '{DefaultProvider}' not found, using '{FallbackProvider}' instead. Available: {Available}",
+                    defaultProviderName, fallbackProvider, string.Join(", ", availableProviders));
+                
+                ReportProgress(new MakerProgress
+                {
+                    Phase = MakerPhase.Starting,
+                    TaskId = executionId,
+                    Message = $"Provider '{defaultProviderName}' not configured, auto-selecting '{fallbackProvider}'",
+                    Depth = 0
+                });
+                
+                candidateProviders = [fallbackProvider];
+            }
+            else
+            {
+                // No providers available at all
+                candidateProviders = [defaultProviderName]; // Will fail in validation with clear error
+            }
         }
 
         // Add coordinator provider to candidates if specified and not already included
