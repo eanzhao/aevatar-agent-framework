@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COGNITIVE MESH</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="layout">
+        <!-- ═══════════════════════════════════════════════════════════
+             SIDEBAR
+             ═══════════════════════════════════════════════════════════ -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-icon">◈</span>
+                <div class="brand-text">
+                    <span class="brand-name">COGNITIVE</span>
+                    <span class="brand-sub">MESH</span>
+                </div>
+            </div>
+
+            <!-- Strategy Filter -->
+            <div class="filter-section">
+                <label>STRATEGY</label>
+                <select id="strategy-filter" onchange="filterProjects()">
+                    <option value="all">All Strategies</option>
+                </select>
+            </div>
+
+            <!-- Project List -->
+            <nav id="project-nav" class="nav-list"></nav>
+
+            <!-- New Project Button -->
+            <button id="btn-new-project" class="btn-new" onclick="showCreateModal()">
+                <span>+</span> NEW_PROJECT
+            </button>
+
+            <!-- System Status -->
+            <div class="sys-status">
+                <div class="sys-row">
+                    <span>SYSTEM</span>
+                    <span class="status-dot online"></span>
+                </div>
+                <div class="sys-row">
+                    <span>STRATEGIES</span>
+                    <span id="strategy-count" class="status-text">0</span>
+                </div>
+                <!-- Theme Toggle -->
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                    <div class="theme-toggle-track">
+                        <div class="theme-toggle-thumb">
+                            <span id="theme-icon">🌙</span>
+                        </div>
+                    </div>
+                    <span class="theme-toggle-label" id="theme-label">DARK</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             MAIN VIEWPORT
+             ═══════════════════════════════════════════════════════════ -->
+        <main class="main-viewport">
+            <!-- Dashboard (visible when project selected) -->
+            <div id="dashboard" class="dashboard hidden">
+                <!-- Header -->
+                <header class="hud-header">
+                    <div class="hud-title-group">
+                        <h1 id="project-name">PROJECT_NAME</h1>
+                        <div class="hud-meta">
+                            <span id="project-id" class="meta-id">ID: 0000</span>
+                            <span id="project-strategy" class="meta-strategy">MAKER</span>
+                        </div>
+                    </div>
+                    <div class="hud-status-bar">
+                        <span class="status-chip" id="chip-status">IDLE</span>
+                        <span class="status-chip" id="chip-phase">-</span>
+                        <span class="status-chip depth" id="chip-depth">D:0</span>
+                        <span class="status-chip tokens" id="chip-tokens">0 tok</span>
+                        <span class="status-chip calls" id="chip-calls">0 calls</span>
+                    </div>
+                    <div class="hud-controls">
+                        <button id="btn-start" class="btn-action" onclick="startRun()">
+                            <span class="btn-icon">⚡</span> RUN
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Progress Bar -->
+                <div class="progress-container" id="progress-container" style="display:none">
+                    <div class="progress-bar" id="progress-bar"></div>
+                    <span class="progress-label" id="progress-label">0%</span>
+                </div>
+
+                <!-- Workspace -->
+                <div class="workspace">
+                    <!-- Left Panel -->
+                    <div class="panel-col">
+                        <!-- Task Panel (MAKER) / Analogy Panel (UoT) -->
+                        <section class="terminal-window" id="panel-tasks">
+                            <div class="term-header">
+                                <span class="term-title" id="panel-tasks-title">>> STRATEGIC_PLANNING</span>
+                            </div>
+                            <div class="term-body">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th width="80">ID</th>
+                                            <th>DESCRIPTION</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="table-tasks"></tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <!-- Consensus Panel (MAKER) / Candidates Panel (UoT) -->
+                        <section class="terminal-window" id="panel-consensus">
+                            <div class="term-header">
+                                <span class="term-title" id="panel-consensus-title">>> CONSENSUS_PROTOCOL</span>
+                                <span class="term-badge" id="consensus-mode">-</span>
+                            </div>
+                            <div class="term-body">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th width="100">CLUSTER</th>
+                                            <th width="80">VOTES</th>
+                                            <th>CONTENT</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="table-consensus"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+
+                    <!-- Right Panel -->
+                    <div class="panel-col">
+                        <section class="terminal-window flex-grow">
+                            <div class="term-header tab-header">
+                                <button class="tab-btn active" data-target="view-timeline">SYSTEM_LOG</button>
+                                <button class="tab-btn" data-target="view-workers">WORKERS</button>
+                                <button class="tab-btn" data-target="view-files">FILES</button>
+                                <button class="tab-btn" data-target="view-result">RESULT</button>
+                            </div>
+                            <div class="term-content-wrapper">
+                                <!-- Timeline View -->
+                                <div id="view-timeline" class="term-view active">
+                                    <ul id="log-stream" class="log-list"></ul>
+                                </div>
+                                <!-- Workers View -->
+                                <div id="view-workers" class="term-view">
+                                    <div id="worker-grid" class="worker-grid"></div>
+                                </div>
+                                <!-- Files View -->
+                                <div id="view-files" class="term-view">
+                                    <div class="file-explorer">
+                                        <div class="file-list" id="file-list"></div>
+                                        <div class="file-preview" id="file-preview">
+                                            <div class="preview-placeholder">[ SELECT_FILE ]</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Result View -->
+                                <div id="view-result" class="term-view">
+                                    <div id="final-result" class="markdown-content"></div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="empty-state">
+                <div class="empty-icon">◈</div>
+                <h2>COGNITIVE MESH</h2>
+                <p>Select a project or create a new one to begin reasoning.</p>
+                <div class="strategy-cards" id="strategy-cards"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         CREATE PROJECT MODAL
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="modal-overlay" class="modal-overlay hidden" onclick="hideCreateModal()">
+        <div class="modal-dialog" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <span class="modal-title">>> CREATE_PROJECT</span>
+                <button class="modal-close" onclick="hideCreateModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <!-- Strategy Selection -->
+                <div class="form-group">
+                    <label>STRATEGY</label>
+                    <select id="new-strategy" onchange="updateFormForStrategy()">
+                        <option value="Maker">MAKER - Consensus</option>
+                        <option value="UotCombinational">UoT - Combinational</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>NAME</label>
+                        <input type="text" id="new-name" value="My Project" />
+                    </div>
+                    <div class="form-group" style="width:80px">
+                        <label>ICON</label>
+                        <input type="text" id="new-icon" value="🔬" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>DESCRIPTION</label>
+                    <input type="text" id="new-description" value="" />
+                </div>
+
+                <div class="form-group">
+                    <label>TASK / PROBLEM</label>
+                    <textarea id="new-task" rows="4" placeholder="Describe the task or problem to solve..."></textarea>
+                </div>
+
+                <!-- MAKER Options -->
+                <div id="maker-options" class="strategy-options">
+                    <h4>MAKER Configuration</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>RELIABILITY</label>
+                            <select id="new-reliability">
+                                <option value="Low">Low (K=1)</option>
+                                <option value="Medium" selected>Medium (K=2)</option>
+                                <option value="High">High (K=3)</option>
+                                <option value="Critical">Critical (K=4)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>MAX_LLM_CALLS</label>
+                            <input type="number" id="new-max-calls" value="500" min="10" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- UoT Options -->
+                <div id="uot-options" class="strategy-options hidden">
+                    <h4>UoT Configuration</h4>
+                    <div class="form-group">
+                        <label>DOMAIN_HINT</label>
+                        <input type="text" id="new-domain-hint" placeholder="e.g., transportation, business" />
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>MAX_ANALOGIES</label>
+                            <input type="number" id="new-max-analogies" value="5" min="1" max="10" />
+                        </div>
+                        <div class="form-group">
+                            <label>MAX_CANDIDATES</label>
+                            <input type="number" id="new-max-candidates" value="10" min="1" max="20" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="hideCreateModal()">CANCEL</button>
+                <button class="btn-create" onclick="createProject()">CREATE</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+

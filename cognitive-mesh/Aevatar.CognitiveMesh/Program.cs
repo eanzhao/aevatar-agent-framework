@@ -1,13 +1,236 @@
-﻿using Aevatar.CognitiveMesh.Dsl;
-using Aevatar.CognitiveMesh;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+﻿using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.CreativeReasoning;
+using Aevatar.Agents.Maker;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.CognitiveMesh.Services;
+using Aevatar.CognitiveMesh.Strategies;
+using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
-var builder = Host.CreateApplicationBuilder(args);
+// ============================================================
+//  COGNITIVE MESH
+//  认知网格 - 统一的思维策略执行平台
+// ============================================================
 
-// Core services
-builder.Services.AddSingleton<CognitiveDslCompiler>();
-builder.Services.AddHostedService<MeshWorkbench>();
+var builder = WebApplication.CreateBuilder(args);
+
+// ─────────────────────────────────────────────────────────────
+//  Configuration
+// ─────────────────────────────────────────────────────────────
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddJsonFile("appsettings.secrets.json", optional: true)
+    .AddEnvironmentVariables();
+
+builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+
+// ─────────────────────────────────────────────────────────────
+//  OpenTelemetry (Aspire 集成)
+// ─────────────────────────────────────────────────────────────
+var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+var serviceName = "cognitive-mesh";
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(serviceName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation(options =>
+            {
+                // 过滤 LLM API 调用（使用流式传输，不适合 trace）
+                options.FilterHttpRequestMessage = request =>
+                {
+                    var host = request.RequestUri?.Host ?? "";
+                    if (host.Contains("deepseek.com") ||
+                        host.Contains("dashscope.aliyuncs.com") ||
+                        host.Contains("openai.com") ||
+                        host.Contains("anthropic.com"))
+                    {
+                        return false;
+                    }
+                    return true;
+                };
+            })
+            .AddSource("Aevatar.Agents.*")
+            .AddSource("Aevatar.CognitiveMesh.*");
+
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            tracing.AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter("Aevatar.Agents.*")
+            .AddMeter("Aevatar.CognitiveMesh.*");
+
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            metrics.AddOtlpExporter();
+    });
+
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.IncludeScopes = true;
+    logging.IncludeFormattedMessage = true;
+
+    if (!string.IsNullOrEmpty(otlpEndpoint))
+        logging.AddOtlpExporter();
+});
+
+// ─────────────────────────────────────────────────────────────
+//  Health Checks
+// ─────────────────────────────────────────────────────────────
+builder.Services.AddHealthChecks();
+
+// ─────────────────────────────────────────────────────────────
+//  Agent Framework Infrastructure
+// ─────────────────────────────────────────────────────────────
+
+// MassTransit Stream Plugin (注册所有Agent程序集)
+builder.Services.AddMassTransitStreamPlugin(
+    builder.Configuration,
+    typeof(Aevatar.Agents.Maker.Agents.MakerCoordinatorGAgent).Assembly,
+    typeof(Aevatar.Agents.CreativeReasoning.Agents.UoTCoordinatorGAgent).Assembly  // 包含 C/E/T-UoT
+);
+
+// Local Runtime
+builder.Services.AddAevatarLocalRuntime();
+
+// LLM Infrastructure (MEAI)
+builder.Services.AddMEAI();
+
+// MAKER System
+builder.Services.AddMakerSystem();
+
+// UoT Creative Reasoning
+builder.Services.AddUoTCreativeReasoning("deepseek");
+
+// ─────────────────────────────────────────────────────────────
+//  Cognitive Mesh Services
+// ─────────────────────────────────────────────────────────────
+
+// 策略注册
+builder.Services.AddSingleton<MakerStrategy>();
+builder.Services.AddSingleton<UoTStrategy>();     // C-UoT: 组合式
+builder.Services.AddSingleton<EUoTStrategy>();    // E-UoT: 探索式
+builder.Services.AddSingleton<TUoTStrategy>();    // T-UoT: 变革式
+builder.Services.AddSingleton<StrategyRegistry>();
+
+// 主服务
+builder.Services.AddSingleton<CognitiveMeshService>();
+
+// ─────────────────────────────────────────────────────────────
+//  Logging
+// ─────────────────────────────────────────────────────────────
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 var app = builder.Build();
-await app.RunAsync();
+
+// ─────────────────────────────────────────────────────────────
+//  Middleware
+// ─────────────────────────────────────────────────────────────
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// ─────────────────────────────────────────────────────────────
+//  API Endpoints
+// ─────────────────────────────────────────────────────────────
+
+// 策略列表
+app.MapGet("/api/strategies", (StrategyRegistry registry) =>
+    Results.Json(registry.GetAll().Select(s => new
+    {
+        kind = s.Kind.ToString(),
+        displayName = s.DisplayName,
+        description = s.Description
+    })));
+
+// 项目列表
+app.MapGet("/api/projects", (CognitiveMeshService svc) =>
+    Results.Json(svc.GetProjects()));
+
+// 创建项目
+app.MapPost("/api/projects", async (HttpContext ctx, CognitiveMeshService svc) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var configJson = await reader.ReadToEndAsync();
+    return Results.Json(svc.CreateProject(configJson));
+});
+
+// 删除项目
+app.MapDelete("/api/projects/{projectId}", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(new { success = svc.DeleteProject(projectId) }));
+
+// 启动运行
+app.MapPost("/api/projects/{projectId}/run", async (string projectId, CognitiveMeshService svc, CancellationToken ct) =>
+    Results.Json(await svc.StartRunAsync(projectId, ct)));
+
+// 获取状态
+app.MapGet("/api/projects/{projectId}/status", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetStatus(projectId)));
+
+// 获取快照
+app.MapGet("/api/projects/{projectId}/snapshot", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetSnapshot(projectId)));
+
+// 获取时间线
+app.MapGet("/api/projects/{projectId}/timeline", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetTimeline(projectId)));
+
+// 获取生成的文件列表
+app.MapGet("/api/projects/{projectId}/files", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetFiles(projectId)));
+
+// 获取文件内容
+app.MapGet("/api/projects/{projectId}/files/{category}/{name}", (string projectId, string category, string name, CognitiveMeshService svc) =>
+{
+    var content = svc.GetFileContent(projectId, category, name);
+    if (content == null) return Results.NotFound();
+    return Results.Text(content, "text/markdown");
+});
+
+// SSE 实时事件流
+app.MapGet("/api/projects/{projectId}/events", async (
+    string projectId,
+    CognitiveMeshService svc,
+    HttpContext ctx,
+    CancellationToken ct) =>
+{
+    ctx.Response.Headers.ContentType = "text/event-stream";
+    ctx.Response.Headers.CacheControl = "no-cache";
+    ctx.Response.Headers.Connection = "keep-alive";
+
+    var jsonOptions = new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
+    
+    await foreach (var evt in svc.GetEventStreamAsync(projectId, ct))
+    {
+        // 使用 evt.GetType() 确保序列化派生类的所有属性
+        var json = System.Text.Json.JsonSerializer.Serialize(evt, evt.GetType(), jsonOptions);
+        await ctx.Response.WriteAsync($"data: {json}\n\n", ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+});
+
+// 示例问题（UoT）
+app.MapGet("/api/sample-problems", (CognitiveMeshService svc) =>
+    Results.Json(svc.GetSampleProblems()));
+
+app.Run();
