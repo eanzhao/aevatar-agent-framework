@@ -4,6 +4,8 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using Aevatar.CognitiveMesh.Abstractions;
+using Aevatar.CognitiveMesh.Abstractions.Content;
+using Aevatar.CognitiveMesh.Abstractions.Tasks;
 using Aevatar.CognitiveMesh.Models;
 
 namespace Aevatar.CognitiveMesh.Services;
@@ -20,144 +22,29 @@ namespace Aevatar.CognitiveMesh.Services;
 public sealed class CognitiveMeshService
 {
     private readonly StrategyRegistry _registry;
+    private readonly IContentLoader _contentLoader;
+    private readonly ProjectStore _projectStore;
     private readonly ILogger<CognitiveMeshService> _logger;
     private readonly ConcurrentDictionary<string, MeshRun> _runs = new();
-    private readonly ConcurrentDictionary<string, MeshProject> _dynamicProjects = new();
+    private readonly string _uploadsBasePath;
 
     // ─────────────────────────────────────────────────────────
-    //  内置项目
+    //  项目访问器 (从 YAML 加载)
     // ─────────────────────────────────────────────────────────
-    private static readonly MeshProject[] BuiltInProjects =
-    [
-        // ═══════════════════════════════════════════════════════════
-        //  MAKER 策略项目
-        // ═══════════════════════════════════════════════════════════
-        
-        new MeshProject
-        {
-            Id = "paper-review",
-            Name = "论文审稿",
-            Description = "多 Agent 协作审阅论文，提供修改建议直到达到发表水平",
-            Icon = "📝",
-            Strategy = StrategyKind.Maker,
-            Task = "Review and improve the academic paper for publication quality.",
-            Options = ReasoningOptions.ForMaker(MakerReliability.High, 100, 500_000)
-        },
+    private IEnumerable<MeshProject> AllProjects => _projectStore.GetAllProjects();
 
-        // ═══════════════════════════════════════════════════════════
-        //  C-UoT 组合式项目 (重组已有思想)
-        // ═══════════════════════════════════════════════════════════
-        
-        new MeshProject
-        {
-            Id = "bridge-traffic",
-            Name = "桥梁交通",
-            Description = "设计单车道桥梁的双向交通管理机制",
-            Icon = "🌉",
-            Strategy = StrategyKind.UotCombinational,
-            Task = "Design a mechanism for managing two-way traffic on a single-lane bridge where vehicles from both directions need to cross safely without collision.",
-            Options = ReasoningOptions.ForUotCombinational("transportation, distributed systems, resource scheduling")
-        },
-
-        new MeshProject
-        {
-            Id = "bookstore-revival",
-            Name = "书店复兴",
-            Description = "帮助传统书店在电商时代重获增长",
-            Icon = "📚",
-            Strategy = StrategyKind.UotCombinational,
-            Task = "How can a traditional physical bookstore regain growth and relevance in the era of e-commerce and digital books?",
-            Options = ReasoningOptions.ForUotCombinational("retail, business strategy, community")
-        },
-
-        // ═══════════════════════════════════════════════════════════
-        //  E-UoT 探索式项目 (发现域外思想)
-        // ═══════════════════════════════════════════════════════════
-        
-        new MeshProject
-        {
-            Id = "senior-fitness-explore",
-            Name = "老年健身·探索",
-            Description = "探索未知领域，为 60+ 用户发现创新健身功能",
-            Icon = "🔭",
-            Strategy = StrategyKind.UotExploratory,
-            Task = "Design an innovative fitness app feature specifically for users aged 60+ that encourages regular physical activity while being safe and engaging. Look for inspiration from unexpected domains.",
-            Options = ReasoningOptions.ForUotExploratory(
-                domainHint: "health, gamification, accessibility, unexpected domains",
-                maxOutsideThoughts: 15,
-                explorationDirections: 4)
-        },
-
-        new MeshProject
-        {
-            Id = "remote-collaboration-explore",
-            Name = "远程协作·探索",
-            Description = "探索新概念解决 Zoom 疲劳问题",
-            Icon = "🔬",
-            Strategy = StrategyKind.UotExploratory,
-            Task = "Design a new approach to remote team collaboration that solves the problem of 'Zoom fatigue' while maintaining team cohesion and productivity. Explore concepts from diverse fields.",
-            Options = ReasoningOptions.ForUotExploratory(
-                domainHint: "workplace, communication, psychology, game design, theater",
-                maxOutsideThoughts: 12,
-                explorationDirections: 5)
-        },
-
-        // ═══════════════════════════════════════════════════════════
-        //  T-UoT 变革式项目 (挑战规则本身)
-        // ═══════════════════════════════════════════════════════════
-        
-        new MeshProject
-        {
-            Id = "bookstore-transform",
-            Name = "书店变革",
-            Description = "挑战关于书店的隐藏假设，探索颠覆性商业模式",
-            Icon = "💥",
-            Strategy = StrategyKind.UotTransformative,
-            Task = "Challenge hidden assumptions about what a bookstore must be. How can we fundamentally reimagine the concept of a bookstore for the digital age?",
-            Options = ReasoningOptions.ForUotTransformative(
-                domainHint: "retail, business strategy, community, digital transformation",
-                maxRuleSets: 4,
-                mutationsPerSet: 3,
-                minRadicality: 0.6f)
-        },
-
-        new MeshProject
-        {
-            Id = "education-transform",
-            Name = "教育变革",
-            Description = "挑战传统教育的隐藏假设，重新定义学习",
-            Icon = "🚀",
-            Strategy = StrategyKind.UotTransformative,
-            Task = "Challenge hidden assumptions about education. What if learning didn't require classrooms, grades, or even teachers in the traditional sense?",
-            Options = ReasoningOptions.ForUotTransformative(
-                domainHint: "education, technology, cognitive science, game design",
-                maxRuleSets: 3,
-                mutationsPerSet: 4,
-                minRadicality: 0.7f)
-        },
-
-        new MeshProject
-        {
-            Id = "healthcare-transform",
-            Name = "医疗变革",
-            Description = "挑战医疗服务的根本假设，探索未来健康模式",
-            Icon = "🏥",
-            Strategy = StrategyKind.UotTransformative,
-            Task = "Challenge the hidden assumptions about healthcare delivery. What if health wasn't about treating illness but something fundamentally different?",
-            Options = ReasoningOptions.ForUotTransformative(
-                domainHint: "healthcare, prevention, technology, community health",
-                maxRuleSets: 3,
-                mutationsPerSet: 3,
-                minRadicality: 0.65f)
-        }
-    ];
-
-    private IEnumerable<MeshProject> AllProjects => BuiltInProjects.Concat(_dynamicProjects.Values);
-
-    public CognitiveMeshService(StrategyRegistry registry, ILogger<CognitiveMeshService> logger)
+    public CognitiveMeshService(
+        StrategyRegistry registry,
+        IContentLoader contentLoader,
+        ProjectStore projectStore,
+        ILogger<CognitiveMeshService> logger)
     {
         _registry = registry;
+        _contentLoader = contentLoader;
+        _projectStore = projectStore;
         _logger = logger;
+        _uploadsBasePath = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+        Directory.CreateDirectory(_uploadsBasePath);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -172,9 +59,51 @@ public sealed class CognitiveMeshService
             p.Description,
             p.Icon,
             strategy = p.Strategy.ToString(),
-            strategyDisplayName = p.Strategy.GetDisplayName(),
-            isDynamic = _dynamicProjects.ContainsKey(p.Id)
+            strategyDisplayName = p.Strategy.GetDisplayName()
         });
+
+    public object? GetProjectConfig(string projectId)
+    {
+        var project = AllProjects.FirstOrDefault(p => p.Id == projectId);
+        if (project == null) return null;
+
+        return new
+        {
+            id = project.Id,
+            name = project.Name,
+            description = project.Description,
+            task = project.Task,
+            strategy = project.Strategy.ToString(),
+            strategyDisplayName = project.Strategy.GetDisplayName(),
+            options = new
+            {
+                // MAKER
+                reliability = project.Options.MakerReliability.ToString(),
+                maxLlmCalls = project.Options.MaxLlmCalls,
+                maxTokens = project.Options.MaxTokens,
+                // UoT
+                domainHint = project.Options.UotDomainHint,
+                maxAnalogies = project.Options.UotMaxAnalogies,
+                maxCandidates = project.Options.UotMaxCandidates,
+                // E-UoT
+                maxOutsideThoughts = project.Options.EUotMaxOutsideThoughts,
+                explorationDirections = project.Options.EUotExplorationDirections,
+                // T-UoT
+                maxRuleSets = project.Options.TUotMaxRuleSets,
+                minRadicality = project.Options.TUotMinRadicality
+            },
+            content = project.ContentSource != null ? new
+            {
+                filePath = project.ContentSource.FilePath,
+                directoryPath = project.ContentSource.DirectoryPath,
+                filePaths = project.ContentSource.FilePaths,
+                uploadId = project.ContentSource.UploadId,
+                directContent = project.ContentSource.DirectContent != null ? "(inline text)" : null,
+                description = project.ContentSource.ContentDescription
+            } : null,
+            taskTemplate = project.TaskDefinition?.Template.ToString()
+        };
+    }
 
     public object CreateProject(string configJson)
     {
@@ -185,30 +114,78 @@ public sealed class CognitiveMeshService
                 PropertyNameCaseInsensitive = true
             }) ?? throw new ArgumentException("无法解析项目配置");
 
-            var projectId = $"custom_{Guid.NewGuid():N}"[..16];
+            // 解析任务定义
+            TaskDefinition? taskDefinition = config.TaskConfig?.ToTaskDefinition();
 
-            var project = new MeshProject
+            // 确定任务文本
+            var task = config.Task;
+            if (string.IsNullOrEmpty(task) && taskDefinition != null)
             {
-                Id = projectId,
+                task = $"Execute {taskDefinition.Template.GetDisplayName()} task";
+            }
+            if (string.IsNullOrEmpty(task))
+            {
+                throw new ArgumentException("Task is required (either 'task' or 'taskConfig' must be provided)");
+            }
+
+            // 确定图标
+            var icon = config.Icon ?? GetIconForTemplate(taskDefinition?.Template);
+
+            // 构建 YAML 项目定义并保存
+            var yamlDef = new YamlProjectDefinition
+            {
                 Name = config.Name ?? "Custom Project",
                 Description = config.Description ?? "",
-                Icon = config.Icon ?? "🔬",
-                Strategy = Enum.TryParse<StrategyKind>(config.Strategy, true, out var s) ? s : StrategyKind.Maker,
-                Task = config.Task ?? throw new ArgumentException("Task is required"),
-                Options = BuildOptions(config)
+                Icon = icon,
+                Strategy = config.Strategy ?? "Maker",
+                Task = task,
+                TaskTemplate = taskDefinition?.Template.ToString(),
+                CustomInstruction = config.TaskConfig?.CustomInstruction,
+                CreatedAt = DateTime.UtcNow,
+                Options = new YamlProjectOptions
+                {
+                    ProviderName = config.ProviderName ?? "deepseek",
+                    MaxLlmCalls = config.MaxLlmCalls,
+                    MaxTokens = config.MaxTokens,
+                    Reliability = config.Reliability,
+                    DomainHint = config.DomainHint,
+                    MaxAnalogies = config.MaxAnalogies,
+                    MaxCandidates = config.MaxCandidates,
+                    MaxOutsideThoughts = config.MaxOutsideThoughts,
+                    ExplorationDirections = config.ExplorationDirections,
+                    MaxRuleSets = config.MaxRuleSets,
+                    MinRadicality = config.MinRadicality
+                }
             };
 
-            _dynamicProjects[projectId] = project;
+            // 保存内容来源配置
+            if (config.Content != null)
+            {
+                yamlDef.Content = new YamlContentSource
+                {
+                    FilePath = config.Content.FilePath,
+                    DirectoryPath = config.Content.DirectoryPath,
+                    FilePaths = config.Content.FilePaths,
+                    UploadId = config.Content.UploadId,
+                    ContentDescription = config.Content.ContentDescription,
+                    Extensions = config.Content.Extensions,
+                    Recursive = config.Content.Recursive
+                };
+            }
+
+            // 保存到 YAML
+            var projectId = _projectStore.AddProject(yamlDef);
 
             _logger.LogInformation("Created project: {ProjectId} - {Name} with strategy {Strategy}",
-                projectId, project.Name, project.Strategy);
+                projectId, yamlDef.Name, yamlDef.Strategy);
 
             return new
             {
                 success = true,
                 projectId,
-                name = project.Name,
-                strategy = project.Strategy.ToString()
+                name = yamlDef.Name,
+                strategy = yamlDef.Strategy,
+                taskTemplate = yamlDef.TaskTemplate
             };
         }
         catch (Exception ex)
@@ -217,6 +194,23 @@ public sealed class CognitiveMeshService
             return new { success = false, error = ex.Message };
         }
     }
+
+    private static string GetIconForTemplate(TaskTemplate? template) => template switch
+    {
+        TaskTemplate.Summarize => "📋",
+        TaskTemplate.Analyze => "🔍",
+        TaskTemplate.Review => "📝",
+        TaskTemplate.Critique => "🎭",
+        TaskTemplate.Rewrite => "✏️",
+        TaskTemplate.Continue => "📖",
+        TaskTemplate.Extract => "🎯",
+        TaskTemplate.Compare => "⚖️",
+        TaskTemplate.QA => "❓",
+        TaskTemplate.Translate => "🌐",
+        TaskTemplate.CodeReview => "💻",
+        TaskTemplate.Outline => "📑",
+        _ => "🔬"
+    };
 
     private static ReasoningOptions BuildOptions(ProjectConfig config)
     {
@@ -230,15 +224,108 @@ public sealed class CognitiveMeshService
             UotDomainHint = config.DomainHint,
             UotMaxAnalogies = config.MaxAnalogies ?? 5,
             UotMaxCandidates = config.MaxCandidates ?? 10,
+            EUotMaxOutsideThoughts = config.MaxOutsideThoughts ?? 10,
+            EUotExplorationDirections = config.ExplorationDirections ?? 3,
+            TUotMaxRuleSets = config.MaxRuleSets ?? 3,
+            TUotMinRadicality = config.MinRadicality ?? 0.5f,
             Context = config.Context
         };
     }
 
+    // ─────────────────────────────────────────────────────────
+    //  文件上传管理
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 处理文件上传。
+    /// </summary>
+    public async Task<object> UploadFilesAsync(IFormFileCollection files, CancellationToken ct)
+    {
+        try
+        {
+            var uploadId = Guid.NewGuid().ToString("N")[..12];
+            var uploadDir = Path.Combine(_uploadsBasePath, uploadId);
+            Directory.CreateDirectory(uploadDir);
+
+            var uploadedFiles = new List<object>();
+
+            foreach (var file in files)
+            {
+                if (file.Length == 0) continue;
+
+                var fileName = Path.GetFileName(file.FileName);
+                var filePath = Path.Combine(uploadDir, fileName);
+
+                await using var stream = new FileStream(filePath, FileMode.Create);
+                await file.CopyToAsync(stream, ct);
+
+                uploadedFiles.Add(new
+                {
+                    name = fileName,
+                    path = filePath,
+                    size = file.Length
+                });
+
+                _logger.LogInformation("Uploaded file: {FileName} ({Size} bytes) to {UploadId}",
+                    fileName, file.Length, uploadId);
+            }
+
+            return new
+            {
+                success = true,
+                uploadId,
+                files = uploadedFiles,
+                expiresAt = DateTimeOffset.UtcNow.AddHours(24).ToString("O")
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upload files");
+            return new { success = false, error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// 预览内容（不执行任务）。
+    /// </summary>
+    public async Task<object> PreviewContentAsync(string configJson, CancellationToken ct)
+    {
+        try
+        {
+            var config = JsonSerializer.Deserialize<ProjectConfig>(configJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (config?.Content == null)
+            {
+                return new { success = false, error = "No content source specified" };
+            }
+
+            var contentSource = config.Content.ToContentSource();
+            var preview = await _contentLoader.PreviewAsync(contentSource, ct);
+
+            return new
+            {
+                success = true,
+                fileCount = preview.FileCount,
+                files = preview.FilePaths.Select(Path.GetFileName),
+                totalSizeBytes = preview.TotalSizeBytes,
+                estimatedTokens = preview.EstimatedTokens,
+                exceedsLimits = preview.ExceedsLimits,
+                warning = preview.LimitWarning
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to preview content");
+            return new { success = false, error = ex.Message };
+        }
+    }
+
     public bool DeleteProject(string projectId)
     {
-        if (BuiltInProjects.Any(p => p.Id == projectId))
-            return false;
-        return _dynamicProjects.TryRemove(projectId, out _);
+        return _projectStore.DeleteProject(projectId);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -274,10 +361,42 @@ public sealed class CognitiveMeshService
         _logger.LogInformation("Starting {Strategy} run {RunId} for project {Project}",
             project.Strategy, run.RunId, projectId);
 
-        // 后台执行
-        _ = ExecuteAsync(run, project, strategy, CancellationToken.None);
+        // 后台执行（使用可取消的 token）
+        _ = ExecuteAsync(run, project, strategy, run.CancellationTokenSource.Token);
 
         return new { success = true, runId = run.RunId, strategy = project.Strategy.ToString() };
+    }
+
+    public object StopRun(string projectId)
+    {
+        if (!_runs.TryGetValue(projectId, out var run))
+            return new { success = false, error = "No run found" };
+
+        if (run.Status != MeshRunStatus.Running)
+            return new { success = false, error = "Run is not running" };
+
+        try
+        {
+            run.CancellationTokenSource.Cancel();
+            run.Status = MeshRunStatus.Failed;
+            run.Error = "Stopped by user";
+            
+            // 发送停止事件
+            run.EventChannel.Writer.TryWrite(new ErrorEvent
+            {
+                RunId = run.RunId,
+                Message = "Run stopped by user"
+            });
+            run.EventChannel.Writer.TryComplete();
+
+            _logger.LogInformation("Stopped run {RunId} for project {Project}", run.RunId, projectId);
+            return new { success = true };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to stop run {RunId}", run.RunId);
+            return new { success = false, error = ex.Message };
+        }
     }
 
     private async Task ExecuteAsync(MeshRun run, MeshProject project, IReasoningStrategy strategy, CancellationToken ct)
@@ -364,12 +483,57 @@ public sealed class CognitiveMeshService
             });
 
             // ───────────────────────────────────────────────────────
-            //  动态加载任务内容（论文审稿等需要外部数据的项目）
+            //  动态加载任务内容
             // ───────────────────────────────────────────────────────
             var task = project.Task;
             var options = project.Options;
 
-            if (project.Id == "paper-review")
+            // 如果有 ContentSource，加载内容
+            if (project.ContentSource != null)
+            {
+                try
+                {
+                    var loadedContent = await _contentLoader.LoadAsync(project.ContentSource, ct);
+
+                    if (!loadedContent.IsEmpty)
+                    {
+                        _logger.LogInformation("[{Project}] Loaded {FileCount} files, {Tokens} tokens",
+                            run.ProjectId, loadedContent.FileCount, loadedContent.EstimatedTokens);
+
+                        // 如果有 TaskDefinition，使用模板提示词
+                        if (project.TaskDefinition != null)
+                        {
+                            var systemPrompt = TaskTemplatePrompts.GetSystemPrompt(project.TaskDefinition);
+                            var userPrompt = TaskTemplatePrompts.GetUserPrompt(loadedContent, project.TaskDefinition);
+                            task = $"{systemPrompt}\n\n{userPrompt}";
+                        }
+                        else
+                        {
+                            // 没有 TaskDefinition，直接将内容附加到原始 task
+                            task = $"""
+                                {project.Task}
+
+                                ═══════════════════════════════════════════════════════════════
+                                CONTENT ({loadedContent.FileCount} files, ~{loadedContent.EstimatedTokens} tokens)
+                                ═══════════════════════════════════════════════════════════════
+
+                                {loadedContent.CombinedText}
+
+                                ═══════════════════════════════════════════════════════════════
+                                END OF CONTENT
+                                ═══════════════════════════════════════════════════════════════
+                                """;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[{Project}] Failed to load content", run.ProjectId);
+                    // 继续使用原始 task
+                }
+            }
+            // 兼容：paper-review 特殊处理
+            else if (project.Id == "paper-review")
             {
                 // 尝试加载论文内容
                 var paperPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "articles", "minimal_axiomatic_ontology_universe.md");
@@ -527,7 +691,10 @@ public sealed class CognitiveMeshService
             strategy = run.Strategy.ToString(),
             elapsed = run.Duration.TotalSeconds,
             progress = run.ProgressPercent,
-            phase = run.CurrentPhase
+            phase = run.CurrentPhase,
+            totalTokens = run.TotalTokens,
+            llmCalls = run.TotalLlmCalls,
+            depth = run.CurrentDepth
         };
     }
 
@@ -606,7 +773,7 @@ public sealed class CognitiveMeshService
     // ─────────────────────────────────────────────────────────
 
     public IEnumerable<object> GetSampleProblems() =>
-        BuiltInProjects
+        AllProjects
             .Where(p => p.Strategy.IsUoT())
             .Select(p => new
             {

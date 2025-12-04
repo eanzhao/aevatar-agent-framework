@@ -51,7 +51,13 @@ public enum StrategyKind
     /// MAKER Strategy - 分解-共识-合成策略。
     /// 多 Agent 协作，通过投票达成共识。
     /// </summary>
-    Maker
+    Maker,
+
+    /// <summary>
+    /// Direct Strategy - 直接调用 AI。
+    /// 最简单的策略，直接传入 prompt 获取回复。
+    /// </summary>
+    Direct
 }
 
 /// <summary>
@@ -71,6 +77,7 @@ public static class StrategyKindExtensions
         StrategyKind.UotExploratory => "UoT Exploratory",
         StrategyKind.UotTransformative => "UoT Transformative",
         StrategyKind.Maker => "MAKER Consensus",
+        StrategyKind.Direct => "Direct AI",
         _ => kind.ToString()
     };
 
@@ -86,6 +93,7 @@ public static class StrategyKindExtensions
         StrategyKind.UotExploratory => "并行蒙特卡洛搜索，大规模探索",
         StrategyKind.UotTransformative => "元提示重写，改变规则本身",
         StrategyKind.Maker => "多 Agent 协作，投票达成共识",
+        StrategyKind.Direct => "直接调用 AI，最简单快速",
         _ => "Unknown strategy"
     };
 

@@ -72,6 +72,12 @@ public sealed class MeshRun
 
     /// <summary>SSE 事件通道</summary>
     public Channel<MeshEvent> EventChannel { get; } = Channel.CreateUnbounded<MeshEvent>();
+
+    /// <summary>取消令牌源（用于停止运行）</summary>
+    public CancellationTokenSource CancellationTokenSource { get; } = new();
+
+    /// <summary>当前递归深度</summary>
+    public int CurrentDepth { get; set; }
 }
 
 /// <summary>

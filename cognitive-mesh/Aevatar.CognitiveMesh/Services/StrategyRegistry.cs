@@ -18,6 +18,7 @@ public sealed class StrategyRegistry
     private readonly ILogger<StrategyRegistry> _logger;
 
     public StrategyRegistry(
+        DirectStrategy direct,
         MakerStrategy maker,
         UoTStrategy uot,
         EUoTStrategy euot,
@@ -27,7 +28,8 @@ public sealed class StrategyRegistry
         _logger = logger;
 
         // 注册策略
-        Register(maker);
+        Register(direct); // Direct: 最简单的直接调用
+        Register(maker);  // MAKER: 多 Agent 共识
         Register(uot);    // C-UoT: 组合式
         Register(euot);   // E-UoT: 探索式
         Register(tuot);   // T-UoT: 变革式

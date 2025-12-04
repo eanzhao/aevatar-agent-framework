@@ -249,9 +249,51 @@ html, body {
     color: white;
 }
 
-.nav-item-strategy.uot {
+.nav-item-strategy.uot-c {
     background: var(--strategy-uot);
     color: var(--bg-primary);
+}
+
+.nav-item-strategy.uot-e {
+    background: #3b82f6;
+    color: white;
+}
+
+.nav-item-strategy.uot-t {
+    background: var(--strategy-tot);
+    color: var(--bg-primary);
+}
+
+.nav-item-strategy.direct {
+    background: #6b7280;
+    color: white;
+}
+
+/* Delete Button */
+.nav-item-delete {
+    opacity: 0;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    margin-left: var(--spacing-xs);
+}
+
+.nav-item:hover .nav-item-delete {
+    opacity: 1;
+}
+
+.nav-item-delete:hover {
+    background: var(--status-error);
+    color: white;
 }
 
 /* New Project Button */
@@ -488,6 +530,14 @@ html, body {
 .btn-action:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.btn-action.running {
+    background: var(--status-error);
+}
+
+.btn-action.running:hover {
+    filter: brightness(1.1);
 }
 
 /* Progress Bar */
@@ -1061,5 +1111,336 @@ html.theme-transitioning * {
                 color 0.3s ease,
                 border-color 0.3s ease,
                 box-shadow 0.3s ease !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Content Loading & Task Template Styles (New Feature)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Form Sections */
+.form-section {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.form-section h4 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-primary);
+    margin: 0 0 var(--spacing-md) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.optional-tag {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    text-transform: lowercase;
+}
+
+/* Content Source Tabs */
+.content-source-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+}
+
+.source-tab {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+}
+
+.source-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.source-tab.active {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+}
+
+/* Content Source Panels */
+.content-source-panel {
+    margin-bottom: var(--spacing-md);
+}
+
+.content-source-panel.hidden {
+    display: none;
+}
+
+/* Upload Zone */
+.upload-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xl);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.upload-zone:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+}
+
+.upload-zone.drag-over {
+    border-color: var(--accent-primary);
+    background: rgba(0, 212, 170, 0.1);
+}
+
+.upload-icon {
+    font-size: 32px;
+    margin-bottom: var(--spacing-sm);
+}
+
+.upload-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
+}
+
+.upload-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Uploaded Files List */
+.uploaded-files {
+    margin-top: var(--spacing-md);
+}
+
+.uploaded-file {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-xs);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.uploaded-file-name {
+    color: var(--text-primary);
+}
+
+.uploaded-file-size {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.uploaded-file-remove {
+    background: none;
+    border: none;
+    color: var(--status-error);
+    cursor: pointer;
+    padding: 0;
+    font-size: 14px;
+}
+
+/* Checkbox Group */
+.checkbox-group {
+    display: flex;
+    align-items: center;
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+}
+
+/* Task Config Panels */
+.task-config {
+    margin-bottom: var(--spacing-md);
+}
+
+.task-config.hidden {
+    display: none;
+}
+
+/* Token Preview */
+.token-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: var(--spacing-md);
+}
+
+.token-count {
+    color: var(--accent-primary);
+}
+
+.token-warning {
+    color: var(--status-warning);
+}
+
+/* Modal scrollable body */
+.modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: var(--spacing-lg);
+}
+
+/* Responsive modal */
+.modal-dialog {
+    max-width: 600px;
+    max-height: 90vh;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Toast Notification
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent-primary);
+    color: var(--text-primary);
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    box-shadow: var(--shadow-md);
+    z-index: 10000;
+    opacity: 0;
+    transition: all 0.3s ease;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Empty State (Minimal)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.empty-state-minimal {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+}
+
+.empty-state-minimal.hidden {
+    display: none;
+}
+
+.empty-hint {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Config Button & Modal
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Config Icon Button (next to title) */
+.hud-title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.btn-config-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-config-icon:hover {
+    opacity: 1;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.config-modal {
+    max-width: 700px;
+}
+
+.config-body {
+    padding: var(--spacing-md) !important;
+}
+
+.config-section {
+    margin-bottom: var(--spacing-lg);
+}
+
+.config-section:last-child {
+    margin-bottom: 0;
+}
+
+.config-section h4 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-primary);
+    margin: 0 0 var(--spacing-sm) 0;
+}
+
+.config-pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
 }
 

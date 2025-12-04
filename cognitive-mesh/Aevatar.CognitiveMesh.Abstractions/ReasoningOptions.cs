@@ -46,6 +46,15 @@ public sealed record ReasoningOptions
     public IReadOnlyDictionary<string, string>? Context { get; init; }
 
     // ─────────────────────────────────────────────────────────
+    //  DIRECT 策略特定配置
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// DIRECT: 自定义系统提示词。
+    /// </summary>
+    public string? DirectSystemPrompt { get; init; }
+
+    // ─────────────────────────────────────────────────────────
     //  MAKER 策略特定配置
     // ─────────────────────────────────────────────────────────
 

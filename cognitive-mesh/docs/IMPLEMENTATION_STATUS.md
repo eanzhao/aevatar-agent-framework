@@ -15,7 +15,9 @@ cognitive-mesh/
 │   │   └── StrategyRegistry.cs            # 策略注册
 │   ├── Strategies/
 │   │   ├── MakerStrategy.cs               # MAKER 适配器
-│   │   └── UoTCombinationalStrategy.cs    # UoT 适配器
+│   │   ├── UoTStrategy.cs                 # C-UoT 适配器
+│   │   ├── EUoTStrategy.cs                # E-UoT 适配器
+│   │   └── TUoTStrategy.cs                # T-UoT 适配器
 │   ├── Models/
 │   │   └── MeshRun.cs                     # 运行状态模型
 │   ├── wwwroot/
@@ -75,7 +77,9 @@ cognitive-mesh/
 | 策略 | 适配器 | 状态 | 说明 |
 |------|--------|------|------|
 | MAKER | `MakerStrategy.cs` | ✅ | 适配 `IMakerExecutor` |
-| UoT Combinational | `UoTCombinationalStrategy.cs` | ✅ | 适配 `IUoTExecutor` |
+| UoT Combinational | `UoTStrategy.cs` | ✅ | 适配 `IUoTExecutor` (C-UoT) |
+| UoT Exploratory | `EUoTStrategy.cs` | ✅ | 适配 `IUoTExecutor` (E-UoT) |
+| UoT Transformative | `TUoTStrategy.cs` | ✅ | 适配 `IUoTExecutor` (T-UoT) |
 
 ### 3. 核心服务 (Services)
 
@@ -372,5 +376,5 @@ new MeshProject
 
 ---
 
-*Last Updated: 2025-12-03*
+*Last Updated: 2025-12-04*
 

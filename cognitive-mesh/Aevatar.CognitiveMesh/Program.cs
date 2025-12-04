@@ -4,6 +4,7 @@ using Aevatar.Agents.CreativeReasoning;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.CognitiveMesh.Abstractions.Tasks;
 using Aevatar.CognitiveMesh.Services;
 using Aevatar.CognitiveMesh.Strategies;
 using HealthChecks.UI.Client;
@@ -119,11 +120,18 @@ builder.Services.AddUoTCreativeReasoning("deepseek");
 // ─────────────────────────────────────────────────────────────
 
 // 策略注册
+builder.Services.AddSingleton<DirectStrategy>(); // Direct: 最简单的直接调用
 builder.Services.AddSingleton<MakerStrategy>();
 builder.Services.AddSingleton<UoTStrategy>();     // C-UoT: 组合式
 builder.Services.AddSingleton<EUoTStrategy>();    // E-UoT: 探索式
 builder.Services.AddSingleton<TUoTStrategy>();    // T-UoT: 变革式
 builder.Services.AddSingleton<StrategyRegistry>();
+
+// 内容加载器
+builder.Services.AddSingleton<Aevatar.CognitiveMesh.Abstractions.Content.IContentLoader, Aevatar.CognitiveMesh.Services.ContentLoader>();
+
+// 项目存储（YAML）
+builder.Services.AddSingleton<ProjectStore>();
 
 // 主服务
 builder.Services.AddSingleton<CognitiveMeshService>();
@@ -172,13 +180,81 @@ app.MapPost("/api/projects", async (HttpContext ctx, CognitiveMeshService svc) =
     return Results.Json(svc.CreateProject(configJson));
 });
 
-// 删除项目
+// 删除项目（实际是归档）
 app.MapDelete("/api/projects/{projectId}", (string projectId, CognitiveMeshService svc) =>
     Results.Json(new { success = svc.DeleteProject(projectId) }));
+
+// 获取归档项目列表
+app.MapGet("/api/archive", (ProjectStore store) =>
+    Results.Json(store.GetArchivedProjects().Select(x => new
+    {
+        fileName = x.FileName,
+        id = x.Project.Id,
+        name = x.Project.Name,
+        description = x.Project.Description,
+        icon = x.Project.Icon,
+        strategy = x.Project.Strategy,
+        archivedAt = x.Project.UpdatedAt
+    })));
+
+// 恢复归档项目
+app.MapPost("/api/archive/{fileName}/restore", (string fileName, ProjectStore store) =>
+    Results.Json(new { success = store.RestoreProject(fileName) }));
+
+// ─────────────────────────────────────────────────────────────
+//  文件上传与内容预览
+// ─────────────────────────────────────────────────────────────
+
+// 上传文件
+app.MapPost("/api/upload", async (HttpContext ctx, CognitiveMeshService svc, CancellationToken ct) =>
+{
+    if (!ctx.Request.HasFormContentType)
+    {
+        return Results.BadRequest(new { success = false, error = "Expected multipart/form-data" });
+    }
+
+    var form = await ctx.Request.ReadFormAsync(ct);
+    return Results.Json(await svc.UploadFilesAsync(form.Files, ct));
+}).DisableAntiforgery();
+
+// 预览内容（不执行）
+app.MapPost("/api/preview-content", async (HttpContext ctx, CognitiveMeshService svc, CancellationToken ct) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var configJson = await reader.ReadToEndAsync();
+    return Results.Json(await svc.PreviewContentAsync(configJson, ct));
+});
+
+// 获取任务模板列表
+app.MapGet("/api/task-templates", () =>
+{
+    var templates = Enum.GetValues<Aevatar.CognitiveMesh.Abstractions.Tasks.TaskTemplate>()
+        .Select(t => new
+        {
+            value = t.ToString(),
+            displayName = t.GetDisplayName(),
+            description = t.GetDescription(),
+            requiresParameters = t.RequiresAdditionalParameters(),
+            recommendedStrategy = t.GetRecommendedStrategy().ToString()
+        });
+    return Results.Json(templates);
+});
+
+// ─────────────────────────────────────────────────────────────
+//  运行管理
+// ─────────────────────────────────────────────────────────────
 
 // 启动运行
 app.MapPost("/api/projects/{projectId}/run", async (string projectId, CognitiveMeshService svc, CancellationToken ct) =>
     Results.Json(await svc.StartRunAsync(projectId, ct)));
+
+// 获取项目配置详情
+app.MapGet("/api/projects/{projectId}/config", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetProjectConfig(projectId)));
+
+// 停止运行
+app.MapPost("/api/projects/{projectId}/stop", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.StopRun(projectId)));
 
 // 获取状态
 app.MapGet("/api/projects/{projectId}/status", (string projectId, CognitiveMeshService svc) =>

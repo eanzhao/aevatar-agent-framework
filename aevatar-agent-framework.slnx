@@ -12,10 +12,10 @@
   </Folder>
   <Folder Name="/cognitive-mesh/">
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Abstractions/Aevatar.CognitiveMesh.Abstractions.csproj" />
-    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
-    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.AppHost/Aevatar.CognitiveMesh.AppHost.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl.Tests/Aevatar.CognitiveMesh.Dsl.Tests.csproj" />
+    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
+    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
     <File Path="cognitive-mesh/README.md" />
   </Folder>
   <Folder Name="/cognitive-mesh/docs/">
@@ -68,6 +68,7 @@
     <Project Path="src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithProcessStrategy\Aevatar.Agents.AI.WithProcessStrategy.csproj" />
     <Project Path="src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
+    <Project Path="src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
