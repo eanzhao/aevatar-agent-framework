@@ -13,7 +13,6 @@
   </Folder>
   <Folder Name="/cognitive-mesh/">
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Abstractions/Aevatar.CognitiveMesh.Abstractions.csproj" />
-    <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl.Tests/Aevatar.CognitiveMesh.Dsl.Tests.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
     <File Path="cognitive-mesh/README.md" />
@@ -59,8 +58,6 @@
     <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
-    <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
@@ -97,6 +94,7 @@
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />
     <Project Path="test\Aevatar.Agents.Twitter.Tests\Aevatar.Agents.Twitter.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Workflow.Tests\Aevatar.Agents.Workflow.Tests.csproj" />
+    <Project Path="test\Aevatar.CognitiveMesh.Dsl.Tests\Aevatar.CognitiveMesh.Dsl.Tests.csproj" Type="Classic C#" />
     <File Path="test/README.md" />
     <File Path="test\UnitTestDesign.md" />
   </Folder>
