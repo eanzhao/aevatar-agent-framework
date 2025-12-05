@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.CreativeReasoning.Core;
 using Aevatar.Agents.CreativeReasoning.Execution;
 using Aevatar.Agents.CreativeReasoning.Messages;
@@ -187,7 +188,7 @@ public class CreativeProjectService
             var options = new UoTOptions
             {
                 Mode = ParseMode(request.Mode),
-                ProviderName = "deepseek",
+                ProviderName = AevatarAgentsConstants.DefaultProviderName,
                 DomainHint = request.DomainHint,
                 MaxAnalogies = request.MaxAnalogies,
                 MaxCandidates = request.MaxCandidates,

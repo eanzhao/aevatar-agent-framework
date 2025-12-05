@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Maker;
 using Aevatar.CognitiveMesh.Abstractions;
 using MeshMakerTrace = Aevatar.CognitiveMesh.Abstractions.MakerTrace;
@@ -50,7 +51,7 @@ public sealed class MakerStrategy : IReasoningStrategy
         // 构建 MAKER 选项
         var makerOptions = new MakerOptions
         {
-            ProviderName = options.ProviderName ?? "deepseek",
+            ProviderName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName,
             Reliability = options.MakerReliability switch
             {
                 MakerReliability.Low => ReliabilityLevel.Low,

@@ -168,15 +168,15 @@ public class StepDefinition
     // 用于 vote
     public StepDefinition? Generator { get; set; }
     
-    // 用于 fan_out
+    // 用于 fan_out (支持模板变量)
     public string? ForEach { get; set; }
     public StepDefinition? Step { get; set; }
     public string? Reduce { get; set; }
-    public int? MaxConcurrency { get; set; }
+    public object? MaxConcurrency { get; set; }  // int 或 "{{var}}"
     
-    // 用于 workflow_call
+    // 用于 workflow_call (支持模板变量)
     public string? Workflow { get; set; }
     public Dictionary<string, object?>? Params { get; set; }
-    public int? MaxDepth { get; set; }
+    public object? MaxDepth { get; set; }  // int 或 "{{var}}"
 }
 

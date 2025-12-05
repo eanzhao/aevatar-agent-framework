@@ -61,8 +61,12 @@ public partial class TemplateEngine
     /// </summary>
     public object? Evaluate(string expression, Dictionary<string, object> variables)
     {
-        // 包装成表达式模板
-        var template = $"{{{{ {expression} }}}}";
+        // 检查表达式是否已被 {{ }} 包裹
+        var trimmed = expression.Trim();
+        var template = trimmed.StartsWith("{{") && trimmed.EndsWith("}}")
+            ? trimmed                              // 已包裹，直接使用
+            : $"{{{{ {expression} }}}}";           // 未包裹，添加包裹
+        
         var result = Render(template, variables);
         
         // 尝试解析为 bool
@@ -120,6 +124,10 @@ public partial class TemplateEngine
         result = EachBlockRegex().Replace(result, "{{ for item in $1 }}");
         result = EndBlockRegex().Replace(result, "{{ end }}");
         result = ElseBlockRegex().Replace(result, "{{ else }}");
+        
+        // 转换 Liquid 风格的过滤器参数 `| filter: arg` → `| filter arg`
+        // 例如: {{atomic_check | contains: 'ATOMIC'}} → {{ atomic_check | contains 'ATOMIC' }}
+        result = LiquidFilterArgRegex().Replace(result, "$1 ");
         
         // 转换管道过滤器
         result = PipeFilterRegex().Replace(result, "{{ $1 | $2 }}");
@@ -217,6 +225,26 @@ public partial class TemplateEngine
             "high" => 3,
             _ => 2
         }));
+        
+        // contains 函数 - 字符串包含检查
+        // 用法: {{ atomic_check | contains 'ATOMIC' }}
+        scriptObject.Import("contains", new Func<string?, string?, bool>((str, substring) => 
+            str != null && substring != null && str.Contains(substring, StringComparison.OrdinalIgnoreCase)));
+        
+        // default 函数 - 默认值
+        // 用法: {{ value | default 'fallback' }}
+        scriptObject.Import("default", new Func<object?, object?, object?>((value, defaultValue) => 
+            value is null or "" ? defaultValue : value));
+        
+        // size 函数 - 集合大小
+        // 用法: {{ items | size }}
+        scriptObject.Import("size", new Func<object?, int>(obj => obj switch
+        {
+            string s => s.Length,
+            System.Collections.ICollection c => c.Count,
+            System.Collections.IEnumerable e => e.Cast<object>().Count(),
+            _ => 0
+        }));
     }
     
     // ============================================================
@@ -237,6 +265,11 @@ public partial class TemplateEngine
     
     [GeneratedRegex(@"\{\{(.+?)\s*\|\s*(.+?)\}\}")]
     private static partial Regex PipeFilterRegex();
+    
+    // 转换 Liquid 风格的过滤器参数: `filter: arg` → `filter arg`
+    // 匹配: `contains: 'ATOMIC'` → `contains 'ATOMIC'`
+    [GeneratedRegex(@"(\|\s*\w+):\s*")]
+    private static partial Regex LiquidFilterArgRegex();
     
     [GeneratedRegex(@"\{\{([^#/][^}]*?)\}\}")]
     private static partial Regex SimpleVarRegex();

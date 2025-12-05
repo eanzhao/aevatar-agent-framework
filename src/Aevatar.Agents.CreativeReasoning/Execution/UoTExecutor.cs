@@ -34,7 +34,7 @@ public class UoTExecutor : IUoTExecutor
     {
         _actorFactory = actorFactory;
         _logger = logger;
-        _defaultProviderName = defaultProviderName ?? "deepseek";
+        _defaultProviderName = defaultProviderName ?? AevatarAgentsConstants.DefaultProviderName;
     }
 
     /// <inheritdoc />

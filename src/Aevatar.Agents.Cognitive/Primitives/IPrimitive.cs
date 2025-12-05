@@ -85,6 +85,19 @@ public record PrimitiveResult
     /// <summary>执行时长</summary>
     public TimeSpan Duration { get; init; }
     
+    // ─────────────────────────────────────────────────────────
+    //  LLM 对话记录 (用于前端可视化)
+    // ─────────────────────────────────────────────────────────
+    
+    /// <summary>系统提示词</summary>
+    public string? SystemPrompt { get; init; }
+    
+    /// <summary>用户提示词</summary>
+    public string? UserPrompt { get; init; }
+    
+    /// <summary>助手响应</summary>
+    public string? AssistantResponse { get; init; }
+    
     /// <summary>创建成功结果</summary>
     public static PrimitiveResult Ok(object? value = null, int tokensUsed = 0, int llmCalls = 0) => new()
     {

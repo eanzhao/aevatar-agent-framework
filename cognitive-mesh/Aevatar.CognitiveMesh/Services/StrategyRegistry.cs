@@ -23,16 +23,18 @@ public sealed class StrategyRegistry
         UoTStrategy uot,
         EUoTStrategy euot,
         TUoTStrategy tuot,
+        CognitiveStrategy cognitive,
         ILogger<StrategyRegistry> logger)
     {
         _logger = logger;
 
         // 注册策略
-        Register(direct); // Direct: 最简单的直接调用
-        Register(maker);  // MAKER: 多 Agent 共识
-        Register(uot);    // C-UoT: 组合式
-        Register(euot);   // E-UoT: 探索式
-        Register(tuot);   // T-UoT: 变革式
+        Register(direct);    // Direct: 最简单的直接调用
+        Register(maker);     // MAKER: 多 Agent 共识
+        Register(uot);       // C-UoT: 组合式
+        Register(euot);      // E-UoT: 探索式
+        Register(tuot);      // T-UoT: 变革式
+        Register(cognitive); // Cognitive DSL: 工作流驱动
 
         _logger.LogInformation("StrategyRegistry initialized with {Count} strategies: {Strategies}",
             _strategies.Count,

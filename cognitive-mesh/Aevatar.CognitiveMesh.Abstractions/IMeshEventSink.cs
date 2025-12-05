@@ -147,3 +147,53 @@ public sealed record FileEvent : MeshEvent
     public string? Message { get; init; }
 }
 
+/// <summary>
+/// DSL 工作流步骤事件（用于可视化）。
+/// </summary>
+public sealed record WorkflowStepMeshEvent : MeshEvent
+{
+    public override string Type => "workflow_step";
+
+    /// <summary>步骤 ID</summary>
+    public required string StepId { get; init; }
+
+    /// <summary>步骤类型 (llm_call, vote, fan_out, etc.)</summary>
+    public required string StepType { get; init; }
+
+    /// <summary>步骤状态 (Pending, Running, Completed, Failed, Skipped)</summary>
+    public required string Status { get; init; }
+
+    /// <summary>进度 (0-1)</summary>
+    public float Progress { get; init; }
+
+    /// <summary>消息</summary>
+    public string? Message { get; init; }
+
+    /// <summary>父步骤 ID（嵌套时）</summary>
+    public string? ParentStepId { get; init; }
+
+    /// <summary>递归深度</summary>
+    public int Depth { get; init; }
+
+    // ─── 投票特有 ───
+    public int? VoteRound { get; init; }
+    public int? VoteMaxRounds { get; init; }
+    public int? VoteK { get; init; }
+    public int? VoteCurrentVotes { get; init; }
+
+    // ─── 并行特有 ───
+    public int? ParallelTotal { get; init; }
+    public int? ParallelCompleted { get; init; }
+    public int? ParallelFailed { get; init; }
+
+    // ─── 统计 ───
+    public int? DurationMs { get; init; }
+    public int? LlmCalls { get; init; }
+    public int? TokensUsed { get; init; }
+
+    // ─── LLM 对话记录（用于前端可视化）───
+    public string? SystemPrompt { get; init; }
+    public string? UserPrompt { get; init; }
+    public string? AssistantResponse { get; init; }
+}
+

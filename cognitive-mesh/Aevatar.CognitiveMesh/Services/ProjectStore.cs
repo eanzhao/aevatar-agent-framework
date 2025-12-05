@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Models;
 using YamlDotNet.Serialization;
@@ -33,12 +34,12 @@ public sealed class ProjectStore
         Directory.CreateDirectory(_archivePath);
 
         _deserializer = new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)  // snake_case: worker_count -> WorkerCount
             .IgnoreUnmatchedProperties()
             .Build();
 
         _serializer = new SerializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)  // snake_case: WorkerCount -> worker_count
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
             .Build();
 
@@ -399,7 +400,7 @@ public sealed class ProjectStore
             // Direct: 最简单，几乎不需要配置
             StrategyKind.Direct => new ReasoningOptions
             {
-                ProviderName = opts.ProviderName ?? "deepseek",
+                ProviderName = opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName,
                 DirectSystemPrompt = opts.SystemPrompt,
                 MaxLlmCalls = 1,
                 MaxTokens = opts.MaxTokens ?? 100_000
@@ -407,7 +408,7 @@ public sealed class ProjectStore
             // MAKER: 多 Agent 共识
             StrategyKind.Maker => new ReasoningOptions
             {
-                ProviderName = opts.ProviderName ?? "deepseek",
+                ProviderName = opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName,
                 MakerReliability = Enum.TryParse<MakerReliability>(opts.Reliability, true, out var r) ? r : MakerReliability.Medium,
                 MaxLlmCalls = opts.MaxLlmCalls ?? 500,
                 MaxTokens = opts.MaxTokens ?? 2_000_000
@@ -417,7 +418,7 @@ public sealed class ProjectStore
                 opts.DomainHint,
                 opts.MaxAnalogies ?? 5,
                 opts.MaxCandidates ?? 10,
-                opts.ProviderName ?? "deepseek"),
+                opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName),
             // E-UoT: 探索式
             StrategyKind.UotExploratory => ReasoningOptions.ForUotExploratory(
                 opts.DomainHint,
@@ -425,16 +426,26 @@ public sealed class ProjectStore
                 opts.MaxCandidates ?? 10,
                 opts.MaxOutsideThoughts ?? 10,
                 opts.ExplorationDirections ?? 3,
-                opts.ProviderName ?? "deepseek"),
+                opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName),
             // T-UoT: 变革式
             StrategyKind.UotTransformative => ReasoningOptions.ForUotTransformative(
                 opts.DomainHint,
                 opts.MaxRuleSets ?? 3,
                 opts.MutationsPerSet ?? 3,
                 opts.MinRadicality ?? 0.5f,
-                opts.ProviderName ?? "deepseek"),
+                opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName),
+            // Cognitive DSL: v2 工作流驱动
+            StrategyKind.Cognitive => ReasoningOptions.ForCognitive(
+                opts.Workflow ?? "direct",
+                opts.WorkerCount ?? 5,
+                opts.ConsensusK ?? 2,
+                opts.MaxRounds ?? 10,
+                opts.MaxDepth ?? 10,
+                opts.SemanticSimilarity ?? 0.85f,
+                opts.TimeoutMinutes ?? 30,
+                opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName),
             // 其他默认
-            _ => new ReasoningOptions { ProviderName = opts.ProviderName ?? "deepseek" }
+            _ => new ReasoningOptions { ProviderName = opts.ProviderName ?? AevatarAgentsConstants.DefaultProviderName }
         };
     }
 }
@@ -497,6 +508,15 @@ public class YamlProjectOptions
     public int? MaxRuleSets { get; set; }
     public int? MutationsPerSet { get; set; }
     public float? MinRadicality { get; set; }
+
+    // COGNITIVE DSL
+    public string? Workflow { get; set; }
+    public int? WorkerCount { get; set; }
+    public int? ConsensusK { get; set; }
+    public int? MaxRounds { get; set; }
+    public int? MaxDepth { get; set; }
+    public float? SemanticSimilarity { get; set; }
+    public int? TimeoutMinutes { get; set; }
 }
 
 /// <summary>

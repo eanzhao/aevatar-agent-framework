@@ -57,7 +57,13 @@ public enum StrategyKind
     /// Direct Strategy - 直接调用 AI。
     /// 最简单的策略，直接传入 prompt 获取回复。
     /// </summary>
-    Direct
+    Direct,
+
+    /// <summary>
+    /// Cognitive DSL Strategy - DSL 驱动的认知策略。
+    /// 使用 YAML 定义工作流，Coordinator + Worker 真正并行。
+    /// </summary>
+    Cognitive
 }
 
 /// <summary>
@@ -78,6 +84,7 @@ public static class StrategyKindExtensions
         StrategyKind.UotTransformative => "UoT Transformative",
         StrategyKind.Maker => "MAKER Consensus",
         StrategyKind.Direct => "Direct AI",
+        StrategyKind.Cognitive => "Cognitive DSL",
         _ => kind.ToString()
     };
 
@@ -94,6 +101,7 @@ public static class StrategyKindExtensions
         StrategyKind.UotTransformative => "元提示重写，改变规则本身",
         StrategyKind.Maker => "多 Agent 协作，投票达成共识",
         StrategyKind.Direct => "直接调用 AI，最简单快速",
+        StrategyKind.Cognitive => "DSL 定义工作流，Actor 真正并行",
         _ => "Unknown strategy"
     };
 

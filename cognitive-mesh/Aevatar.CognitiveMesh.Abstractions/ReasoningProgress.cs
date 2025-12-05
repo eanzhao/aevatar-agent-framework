@@ -85,6 +85,79 @@ public sealed record ReasoningProgress
     public int? CandidatesPassed { get; init; }
 
     // ─────────────────────────────────────────────────────────
+    //  Cognitive DSL 工作流特有字段
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// DSL: 当前步骤 ID。
+    /// </summary>
+    public string? StepId { get; init; }
+
+    /// <summary>
+    /// DSL: 步骤类型 (llm_call, vote, fan_out, conditional, etc.)。
+    /// </summary>
+    public string? StepType { get; init; }
+
+    /// <summary>
+    /// DSL: 步骤状态 (Pending, Running, Completed, Failed, Skipped)。
+    /// </summary>
+    public string? StepStatus { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 当前投票轮次。
+    /// </summary>
+    public int? VoteRound { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 最大投票轮次。
+    /// </summary>
+    public int? VoteMaxRounds { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 共识所需票数 K。
+    /// </summary>
+    public int? VoteK { get; init; }
+
+    /// <summary>
+    /// DSL Vote: 当前领先票数。
+    /// </summary>
+    public int? VoteCurrentVotes { get; init; }
+
+    /// <summary>
+    /// DSL Fan-out: 总任务数。
+    /// </summary>
+    public int? ParallelTotal { get; init; }
+
+    /// <summary>
+    /// DSL Fan-out: 已完成任务数。
+    /// </summary>
+    public int? ParallelCompleted { get; init; }
+
+    /// <summary>
+    /// DSL Fan-out: 失败任务数。
+    /// </summary>
+    public int? ParallelFailed { get; init; }
+
+    // ─────────────────────────────────────────────────────────
+    //  Cognitive DSL: LLM 对话记录（用于前端可视化）
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// DSL: 系统提示词。
+    /// </summary>
+    public string? SystemPrompt { get; init; }
+
+    /// <summary>
+    /// DSL: 用户提示词。
+    /// </summary>
+    public string? UserPrompt { get; init; }
+
+    /// <summary>
+    /// DSL: 助手响应。
+    /// </summary>
+    public string? AssistantResponse { get; init; }
+
+    // ─────────────────────────────────────────────────────────
     //  Token 统计（通用）
     // ─────────────────────────────────────────────────────────
 

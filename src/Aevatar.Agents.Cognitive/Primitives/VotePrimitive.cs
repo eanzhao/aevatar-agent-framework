@@ -215,8 +215,9 @@ public class VotePrimitive : IPrimitive
             int i => i,
             long l => (int)l,
             double d => (int)d,
+            float f => (int)f,
             string s when int.TryParse(s, out var parsed) => parsed,
-            string s => (int)(_templateEngine.Evaluate(s, variables) ?? defaultValue),
+            string s => ConvertToInt(_templateEngine.Evaluate(s, variables), defaultValue),
             _ => defaultValue
         };
     }
@@ -231,11 +232,40 @@ public class VotePrimitive : IPrimitive
             float f => f,
             double d => (float)d,
             int i => i,
+            long l => l,
             string s when float.TryParse(s, out var parsed) => parsed,
-            string s => (float)(_templateEngine.Evaluate(s, variables) ?? defaultValue),
+            string s => ConvertToFloat(_templateEngine.Evaluate(s, variables), defaultValue),
             _ => defaultValue
         };
     }
+    
+    /// <summary>
+    /// 安全转换为 int，处理 object unboxing
+    /// </summary>
+    private static int ConvertToInt(object? value, int defaultValue) => value switch
+    {
+        int i => i,
+        long l => (int)l,
+        double d => (int)d,
+        float f => (int)f,
+        decimal m => (int)m,
+        string s when int.TryParse(s, out var parsed) => parsed,
+        _ => defaultValue
+    };
+    
+    /// <summary>
+    /// 安全转换为 float，处理 object unboxing
+    /// </summary>
+    private static float ConvertToFloat(object? value, float defaultValue) => value switch
+    {
+        float f => f,
+        double d => (float)d,
+        int i => i,
+        long l => l,
+        decimal m => (float)m,
+        string s when float.TryParse(s, out var parsed) => parsed,
+        _ => defaultValue
+    };
     
     private static string? GetLeaderPreview(VoteEngine engine)
     {

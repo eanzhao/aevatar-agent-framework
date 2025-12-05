@@ -161,7 +161,11 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             TokensUsed = promptTokens + completionTokens,
             PromptTokens = promptTokens,
             CompletionTokens = completionTokens,
-            LlmCalls = 1
+            LlmCalls = 1,
+            // 保存对话记录供前端可视化
+            SystemPrompt = systemPrompt,
+            UserPrompt = prompt,
+            AssistantResponse = response.Content
         };
     }
     

@@ -290,3 +290,70 @@ message WorkflowCompletedEventProto {
     string result = 3;
     string error = 4;
 }
+
+// ============================================================
+//  Workflow Visualization Events (for Frontend)
+// ============================================================
+
+// 步骤执行事件 - 用于前端可视化
+message WorkflowStepEvent {
+    string run_id = 1;
+    string workflow_name = 2;
+    string step_id = 3;
+    string step_type = 4;           // llm_call, vote, fan_out, conditional, workflow_call
+    StepStatus status = 5;
+    float progress = 6;             // 0-1
+    string message = 7;
+    google.protobuf.Timestamp timestamp = 8;
+    
+    // 步骤元信息
+    string parent_step_id = 9;      // 嵌套步骤的父 ID
+    int32 depth = 10;               // 递归深度
+    
+    // 投票特定
+    int32 vote_round = 11;
+    int32 vote_max_rounds = 12;
+    int32 vote_k = 13;
+    int32 vote_current_votes = 14;
+    
+    // fan_out 特定
+    int32 parallel_total = 15;
+    int32 parallel_completed = 16;
+    int32 parallel_failed = 17;
+    
+    // 耗时统计
+    int32 duration_ms = 18;
+    int32 llm_calls = 19;
+    int32 tokens_used = 20;
+    
+    // LLM 对话记录 (用于前端可视化)
+    string system_prompt = 21;
+    string user_prompt = 22;
+    string assistant_response = 23;
+    
+    // Red-Flag 信息 (论文 Section 3.3)
+    string red_flag_reason = 24;
+}
+
+// 工作流结构（用于前端渲染图）
+message WorkflowStructure {
+    string name = 1;
+    string version = 2;
+    repeated WorkflowStepNode steps = 3;
+    repeated WorkflowEdge edges = 4;
+}
+
+message WorkflowStepNode {
+    string id = 1;
+    string type = 2;
+    string label = 3;
+    bool is_parallel = 4;
+    bool is_conditional = 5;
+    repeated WorkflowStepNode children = 6;  // 嵌套子步骤
+}
+
+message WorkflowEdge {
+    string from_id = 1;
+    string to_id = 2;
+    string condition = 3;  // 条件分支时的条件描述
+}

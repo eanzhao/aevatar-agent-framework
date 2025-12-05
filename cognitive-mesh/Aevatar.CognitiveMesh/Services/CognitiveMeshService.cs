@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
+using Aevatar.Agents.Abstractions;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Abstractions.Content;
 using Aevatar.CognitiveMesh.Abstractions.Tasks;
@@ -26,7 +27,9 @@ public sealed class CognitiveMeshService
     private readonly ProjectStore _projectStore;
     private readonly ILogger<CognitiveMeshService> _logger;
     private readonly ConcurrentDictionary<string, MeshRun> _runs = new();
+    private readonly ConcurrentDictionary<string, List<RunHistoryEntry>> _runHistory = new();
     private readonly string _uploadsBasePath;
+    private readonly string _outputBasePath;
 
     // ─────────────────────────────────────────────────────────
     //  项目访问器 (从 YAML 加载)
@@ -44,7 +47,9 @@ public sealed class CognitiveMeshService
         _projectStore = projectStore;
         _logger = logger;
         _uploadsBasePath = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+        _outputBasePath = Path.Combine(Directory.GetCurrentDirectory(), "output");
         Directory.CreateDirectory(_uploadsBasePath);
+        Directory.CreateDirectory(_outputBasePath);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -90,7 +95,15 @@ public sealed class CognitiveMeshService
                 explorationDirections = project.Options.EUotExplorationDirections,
                 // T-UoT
                 maxRuleSets = project.Options.TUotMaxRuleSets,
-                minRadicality = project.Options.TUotMinRadicality
+                minRadicality = project.Options.TUotMinRadicality,
+                // Cognitive DSL
+                cognitiveWorkflow = project.Options.CognitiveWorkflow,
+                cognitiveWorkerCount = project.Options.CognitiveWorkerCount,
+                cognitiveConsensusK = project.Options.CognitiveConsensusK,
+                cognitiveMaxRounds = project.Options.CognitiveMaxRounds,
+                cognitiveMaxDepth = project.Options.CognitiveMaxDepth,
+                cognitiveSemanticSimilarity = project.Options.CognitiveSemanticSimilarity,
+                cognitiveTimeoutMinutes = project.Options.CognitiveTimeoutMinutes
             },
             content = project.ContentSource != null ? new
             {
@@ -144,7 +157,7 @@ public sealed class CognitiveMeshService
                 CreatedAt = DateTime.UtcNow,
                 Options = new YamlProjectOptions
                 {
-                    ProviderName = config.ProviderName ?? "deepseek",
+                    ProviderName = config.ProviderName ?? AevatarAgentsConstants.DefaultProviderName,
                     MaxLlmCalls = config.MaxLlmCalls,
                     MaxTokens = config.MaxTokens,
                     Reliability = config.Reliability,
@@ -480,6 +493,34 @@ public sealed class CognitiveMeshService
                         UserPrompt = p.StreamingToken.UserPrompt
                     });
                 }
+
+                // Cognitive DSL 步骤事件
+                if (!string.IsNullOrEmpty(p.StepId))
+                {
+                    SendEvent(run, new WorkflowStepMeshEvent
+                    {
+                        RunId = run.RunId,
+                        StepId = p.StepId,
+                        StepType = p.StepType ?? "",
+                        Status = p.StepStatus ?? "Running",
+                        Progress = p.ProgressPercent,
+                        Message = p.Message,
+                        Depth = p.Depth ?? 0,
+                        VoteRound = p.VoteRound,
+                        VoteMaxRounds = p.VoteMaxRounds,
+                        VoteK = p.VoteK,
+                        VoteCurrentVotes = p.VoteCurrentVotes,
+                        ParallelTotal = p.ParallelTotal,
+                        ParallelCompleted = p.ParallelCompleted,
+                        ParallelFailed = p.ParallelFailed,
+                        LlmCalls = p.TotalLlmCalls,
+                        TokensUsed = (int?)((p.TotalPromptTokens ?? 0) + (p.TotalCompletionTokens ?? 0)),
+                        // LLM 对话记录
+                        SystemPrompt = p.SystemPrompt,
+                        UserPrompt = p.UserPrompt,
+                        AssistantResponse = p.AssistantResponse
+                    });
+                }
             });
 
             // ───────────────────────────────────────────────────────
@@ -639,7 +680,70 @@ public sealed class CognitiveMeshService
         }
         finally
         {
-            run.EventChannel.Writer.Complete();
+            // 使用 TryComplete 避免与 StopRun 的竞态条件
+            // Channel 可能已经被 StopRun 关闭，TryComplete 是幂等的
+            run.EventChannel.Writer.TryComplete();
+            
+            // 保存运行历史和文件到磁盘
+            SaveRunToHistory(run);
+        }
+    }
+
+    /// <summary>
+    /// 保存运行到历史记录和磁盘。
+    /// </summary>
+    private void SaveRunToHistory(MeshRun run)
+    {
+        try
+        {
+            // 创建项目输出目录
+            var projectOutputDir = Path.Combine(_outputBasePath, run.ProjectId);
+            var runOutputDir = Path.Combine(projectOutputDir, run.RunId);
+            Directory.CreateDirectory(runOutputDir);
+
+            // 保存文件到磁盘
+            foreach (var (category, files) in run.Files)
+            {
+                var categoryDir = Path.Combine(runOutputDir, category);
+                Directory.CreateDirectory(categoryDir);
+                
+                foreach (var (filename, content) in files)
+                {
+                    var filePath = Path.Combine(categoryDir, filename);
+                    File.WriteAllText(filePath, content);
+                }
+            }
+
+            // 保存时间线
+            var timelineJson = JsonSerializer.Serialize(run.Timeline, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(Path.Combine(runOutputDir, "timeline.json"), timelineJson);
+
+            // 创建运行历史条目
+            var historyEntry = new RunHistoryEntry
+            {
+                RunId = run.RunId,
+                StartedAt = DateTimeOffset.Now - run.Duration,
+                CompletedAt = DateTimeOffset.Now,
+                Status = run.Status,
+                Duration = run.Duration,
+                TotalLlmCalls = run.TotalLlmCalls,
+                TotalTokens = run.TotalTokens,
+                Error = run.Error,
+                OutputDir = runOutputDir,
+                FileCount = run.Files.Sum(c => c.Value.Count)
+            };
+
+            // 添加到历史列表
+            _runHistory.AddOrUpdate(
+                run.ProjectId,
+                _ => [historyEntry],
+                (_, list) => { list.Add(historyEntry); return list; });
+
+            _logger.LogInformation("Saved run {RunId} to history. Output: {Dir}", run.RunId, runOutputDir);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save run {RunId} to history", run.RunId);
         }
     }
 
@@ -726,6 +830,186 @@ public sealed class CognitiveMeshService
             return [];
 
         return run.Timeline.Select(e => new { phase = e.Phase, message = e.Message, timestamp = e.Timestamp });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  运行历史 API
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 获取项目的运行历史。
+    /// </summary>
+    public IEnumerable<object> GetRuns(string projectId)
+    {
+        var runs = new List<object>();
+
+        // 当前运行（如果有）
+        if (_runs.TryGetValue(projectId, out var currentRun))
+        {
+            runs.Add(new
+            {
+                runId = currentRun.RunId,
+                startedAt = DateTimeOffset.Now - currentRun.Duration,
+                completedAt = (DateTimeOffset?)null,
+                status = currentRun.Status.ToString(),
+                duration = currentRun.Duration.TotalSeconds,
+                totalLlmCalls = currentRun.TotalLlmCalls,
+                totalTokens = currentRun.TotalTokens,
+                error = currentRun.Error,
+                fileCount = currentRun.Files.Sum(c => c.Value.Count),
+                isCurrent = true
+            });
+        }
+
+        // 历史运行
+        if (_runHistory.TryGetValue(projectId, out var history))
+        {
+            runs.AddRange(history.OrderByDescending(h => h.CompletedAt).Select(h => new
+            {
+                runId = h.RunId,
+                startedAt = h.StartedAt,
+                completedAt = (DateTimeOffset?)h.CompletedAt,
+                status = h.Status.ToString(),
+                duration = h.Duration.TotalSeconds,
+                totalLlmCalls = h.TotalLlmCalls,
+                totalTokens = h.TotalTokens,
+                error = h.Error,
+                fileCount = h.FileCount,
+                isCurrent = false
+            }));
+        }
+
+        // 扫描磁盘上的历史（如果内存中没有）
+        var projectOutputDir = Path.Combine(_outputBasePath, projectId);
+        if (Directory.Exists(projectOutputDir))
+        {
+            var existingRunIds = runs.Select(r => ((dynamic)r).runId).ToHashSet();
+            
+            foreach (var runDir in Directory.GetDirectories(projectOutputDir))
+            {
+                var runId = Path.GetFileName(runDir);
+                if (existingRunIds.Contains(runId)) continue;
+
+                var timelinePath = Path.Combine(runDir, "timeline.json");
+                var fileCount = 0;
+                
+                // 统计文件数
+                foreach (var catDir in Directory.GetDirectories(runDir))
+                {
+                    fileCount += Directory.GetFiles(catDir).Length;
+                }
+
+                var completedAt = Directory.GetLastWriteTime(runDir);
+                
+                runs.Add(new
+                {
+                    runId,
+                    startedAt = (DateTimeOffset?)null,
+                    completedAt = (DateTimeOffset?)new DateTimeOffset(completedAt),
+                    status = "Completed",
+                    duration = 0.0,
+                    totalLlmCalls = 0,
+                    totalTokens = 0L,
+                    error = (string?)null,
+                    fileCount,
+                    isCurrent = false
+                });
+            }
+        }
+
+        return runs.OrderByDescending(r => ((dynamic)r).completedAt ?? DateTimeOffset.MaxValue);
+    }
+
+    /// <summary>
+    /// 获取特定运行的文件列表。
+    /// </summary>
+    public IEnumerable<object> GetRunFiles(string projectId, string runId)
+    {
+        var files = new List<object>();
+
+        // 检查是否是当前运行
+        if (_runs.TryGetValue(projectId, out var currentRun) && currentRun.RunId == runId)
+        {
+            foreach (var (category, fileDict) in currentRun.Files)
+            {
+                foreach (var name in fileDict.Keys)
+                {
+                    files.Add(new { category, name, path = $"{category}/{name}", source = "memory" });
+                }
+            }
+            return files.OrderBy(f => ((dynamic)f).category).ThenBy(f => ((dynamic)f).name);
+        }
+
+        // 从磁盘读取
+        var runDir = Path.Combine(_outputBasePath, projectId, runId);
+        if (!Directory.Exists(runDir))
+            return files;
+
+        foreach (var catDir in Directory.GetDirectories(runDir))
+        {
+            var category = Path.GetFileName(catDir);
+            foreach (var filePath in Directory.GetFiles(catDir))
+            {
+                var name = Path.GetFileName(filePath);
+                files.Add(new { category, name, path = $"{category}/{name}", source = "disk" });
+            }
+        }
+
+        return files.OrderBy(f => ((dynamic)f).category).ThenBy(f => ((dynamic)f).name);
+    }
+
+    /// <summary>
+    /// 获取特定运行的文件内容。
+    /// </summary>
+    public string? GetRunFileContent(string projectId, string runId, string category, string name)
+    {
+        // 检查是否是当前运行
+        if (_runs.TryGetValue(projectId, out var currentRun) && currentRun.RunId == runId)
+        {
+            if (currentRun.Files.TryGetValue(category, out var files))
+            {
+                return files.GetValueOrDefault(name);
+            }
+        }
+
+        // 从磁盘读取
+        var filePath = Path.Combine(_outputBasePath, projectId, runId, category, name);
+        if (File.Exists(filePath))
+        {
+            return File.ReadAllText(filePath);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 获取特定运行的时间线。
+    /// </summary>
+    public IEnumerable<object> GetRunTimeline(string projectId, string runId)
+    {
+        // 检查是否是当前运行
+        if (_runs.TryGetValue(projectId, out var currentRun) && currentRun.RunId == runId)
+        {
+            return currentRun.Timeline.Select(e => new { phase = e.Phase, message = e.Message, timestamp = e.Timestamp });
+        }
+
+        // 从磁盘读取
+        var timelinePath = Path.Combine(_outputBasePath, projectId, runId, "timeline.json");
+        if (File.Exists(timelinePath))
+        {
+            try
+            {
+                var json = File.ReadAllText(timelinePath);
+                var timeline = JsonSerializer.Deserialize<List<TimelineEntry>>(json);
+                return timeline?.Select(e => new { phase = e.Phase, message = e.Message, timestamp = e.Timestamp }) ?? [];
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        return [];
     }
 
     public async IAsyncEnumerable<MeshEvent> GetEventStreamAsync(

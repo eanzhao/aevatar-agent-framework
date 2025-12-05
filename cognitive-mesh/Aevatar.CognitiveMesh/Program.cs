@@ -1,5 +1,7 @@
-﻿using Aevatar.Agents.AI.Abstractions.Configuration;
+﻿using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.Cognitive.DependencyInjection;
 using Aevatar.Agents.CreativeReasoning;
 using Aevatar.Agents.Maker;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
@@ -100,7 +102,8 @@ builder.Services.AddHealthChecks();
 builder.Services.AddMassTransitStreamPlugin(
     builder.Configuration,
     typeof(Aevatar.Agents.Maker.Agents.MakerCoordinatorGAgent).Assembly,
-    typeof(Aevatar.Agents.CreativeReasoning.Agents.UoTCoordinatorGAgent).Assembly  // 包含 C/E/T-UoT
+    typeof(Aevatar.Agents.CreativeReasoning.Agents.UoTCoordinatorGAgent).Assembly,  // 包含 C/E/T-UoT
+    typeof(Aevatar.Agents.Cognitive.Agents.CognitiveCoordinatorGAgent).Assembly      // DSL 驱动的认知系统
 );
 
 // Local Runtime
@@ -113,18 +116,22 @@ builder.Services.AddMEAI();
 builder.Services.AddMakerSystem();
 
 // UoT Creative Reasoning
-builder.Services.AddUoTCreativeReasoning("deepseek");
+builder.Services.AddUoTCreativeReasoning(AevatarAgentsConstants.DefaultProviderName);
+
+// Cognitive DSL System
+builder.Services.AddCognitiveAgents();
 
 // ─────────────────────────────────────────────────────────────
 //  Cognitive Mesh Services
 // ─────────────────────────────────────────────────────────────
 
 // 策略注册
-builder.Services.AddSingleton<DirectStrategy>(); // Direct: 最简单的直接调用
-builder.Services.AddSingleton<MakerStrategy>();
-builder.Services.AddSingleton<UoTStrategy>();     // C-UoT: 组合式
-builder.Services.AddSingleton<EUoTStrategy>();    // E-UoT: 探索式
-builder.Services.AddSingleton<TUoTStrategy>();    // T-UoT: 变革式
+builder.Services.AddSingleton<DirectStrategy>();    // Direct: 最简单的直接调用
+builder.Services.AddSingleton<MakerStrategy>();     // MAKER: 分解-共识-合成 (v1)
+builder.Services.AddSingleton<UoTStrategy>();       // C-UoT: 组合式 (v1)
+builder.Services.AddSingleton<EUoTStrategy>();      // E-UoT: 探索式 (v1)
+builder.Services.AddSingleton<TUoTStrategy>();      // T-UoT: 变革式 (v1)
+builder.Services.AddSingleton<CognitiveStrategy>(); // Cognitive: DSL 驱动 (v2)
 builder.Services.AddSingleton<StrategyRegistry>();
 
 // 内容加载器
@@ -165,7 +172,9 @@ app.MapGet("/api/strategies", (StrategyRegistry registry) =>
     {
         kind = s.Kind.ToString(),
         displayName = s.DisplayName,
-        description = s.Description
+        description = s.Description,
+        // Cognitive 策略额外返回可用工作流
+        availableWorkflows = s is CognitiveStrategy cs ? cs.GetAvailableWorkflows() : null
     })));
 
 // 项目列表
@@ -268,7 +277,27 @@ app.MapGet("/api/projects/{projectId}/snapshot", (string projectId, CognitiveMes
 app.MapGet("/api/projects/{projectId}/timeline", (string projectId, CognitiveMeshService svc) =>
     Results.Json(svc.GetTimeline(projectId)));
 
-// 获取生成的文件列表
+// 获取运行历史
+app.MapGet("/api/projects/{projectId}/runs", (string projectId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetRuns(projectId)));
+
+// 获取特定运行的文件列表
+app.MapGet("/api/projects/{projectId}/runs/{runId}/files", (string projectId, string runId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetRunFiles(projectId, runId)));
+
+// 获取特定运行的文件内容
+app.MapGet("/api/projects/{projectId}/runs/{runId}/files/{category}/{name}", (string projectId, string runId, string category, string name, CognitiveMeshService svc) =>
+{
+    var content = svc.GetRunFileContent(projectId, runId, category, name);
+    if (content == null) return Results.NotFound();
+    return Results.Text(content, "text/markdown");
+});
+
+// 获取特定运行的时间线
+app.MapGet("/api/projects/{projectId}/runs/{runId}/timeline", (string projectId, string runId, CognitiveMeshService svc) =>
+    Results.Json(svc.GetRunTimeline(projectId, runId)));
+
+// 获取生成的文件列表（当前运行）
 app.MapGet("/api/projects/{projectId}/files", (string projectId, CognitiveMeshService svc) =>
     Results.Json(svc.GetFiles(projectId)));
 

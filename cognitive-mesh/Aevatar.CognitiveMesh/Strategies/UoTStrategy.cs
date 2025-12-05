@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.CreativeReasoning.Core;
 using Aevatar.Agents.CreativeReasoning.Execution;
 using Aevatar.CognitiveMesh.Abstractions;
@@ -47,7 +48,7 @@ public sealed class UoTStrategy : IReasoningStrategy
         // 构建 UoT 选项
         var uotOptions = new UoTOptions
         {
-            ProviderName = options.ProviderName ?? "deepseek",
+            ProviderName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName,
             DomainHint = options.UotDomainHint,
             MaxAnalogies = options.UotMaxAnalogies,
             MaxCandidates = options.UotMaxCandidates,

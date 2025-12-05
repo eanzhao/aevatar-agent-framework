@@ -13,7 +13,16 @@ let state = {
     currentRun: null,
     eventSource: null,
     workers: new Map(),
-    files: []
+    files: [],
+    // Detail view state
+    detailView: false,
+    runs: [],
+    selectedRun: null,
+    runFiles: [],
+    runTimeline: [],
+    // Workflow visualization state (v2)
+    workflowSteps: new Map(),  // stepId -> step state
+    workflowDefinition: null
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,7 +147,8 @@ function getStrategyBadge(strategy) {
         'Maker': { label: 'MKR', cssClass: 'maker' },
         'UotCombinational': { label: 'C', cssClass: 'uot-c' },
         'UotExploratory': { label: 'E', cssClass: 'uot-e' },
-        'UotTransformative': { label: 'T', cssClass: 'uot-t' }
+        'UotTransformative': { label: 'T', cssClass: 'uot-t' },
+        'Cognitive': { label: 'v2', cssClass: 'cognitive' }
     };
     return map[strategy] || { label: '?', cssClass: '' };
 }
@@ -404,6 +414,9 @@ function clearRunState() {
     document.getElementById('file-preview').innerHTML = '<div class="preview-placeholder">[ SELECT_FILE ]</div>';
     document.getElementById('final-result').innerHTML = '';
     
+    // Clear workflow state (v2)
+    resetWorkflowState();
+    
     state.workers.clear();
     state.files = [];
 }
@@ -456,6 +469,9 @@ function handleEvent(evt) {
             break;
         case 'file':
             handleFile(evt);
+            break;
+        case 'workflow_step':
+            handleWorkflowStep(evt);
             break;
     }
 }
@@ -538,6 +554,9 @@ function handleStreaming(evt) {
         // Auto-scroll
         content.scrollTop = content.scrollHeight;
     }
+    
+    // 收集对话历史到工作流节点
+    handleStreamingForWorkflow(evt);
 }
 
 function handleResult(evt) {
@@ -795,6 +814,7 @@ function updateFormForStrategy() {
     document.getElementById('uot-options').classList.add('hidden');
     document.getElementById('euot-options').classList.add('hidden');
     document.getElementById('tuot-options').classList.add('hidden');
+    document.getElementById('cognitive-options').classList.add('hidden');
     
     // Show relevant options
     if (strategy === 'Maker') {
@@ -807,6 +827,8 @@ function updateFormForStrategy() {
         } else if (strategy === 'UotTransformative') {
             document.getElementById('tuot-options').classList.remove('hidden');
         }
+    } else if (strategy === 'Cognitive') {
+        document.getElementById('cognitive-options').classList.remove('hidden');
     }
     // Direct 策略不需要额外配置
 }
@@ -1032,6 +1054,13 @@ async function createProject() {
             config.maxRuleSets = parseInt(document.getElementById('new-max-rule-sets').value);
             config.minRadicality = parseFloat(document.getElementById('new-min-radicality').value);
         }
+    } else if (strategy === 'Cognitive') {
+        config.cognitiveWorkflow = document.getElementById('new-cognitive-workflow').value;
+        config.cognitiveWorkerCount = parseInt(document.getElementById('new-cognitive-workers').value);
+        config.cognitiveConsensusK = parseInt(document.getElementById('new-cognitive-k').value);
+        config.cognitiveMaxRounds = parseInt(document.getElementById('new-cognitive-max-rounds').value);
+        config.cognitiveMaxDepth = parseInt(document.getElementById('new-cognitive-max-depth').value);
+        config.cognitiveSemanticSimilarity = parseFloat(document.getElementById('new-cognitive-similarity').value);
     }
     
     try {
@@ -1063,5 +1092,729 @@ function formatNumber(num) {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PROJECT DETAIL VIEW
+//  运行历史和文件浏览
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Detail View Navigation
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function showProjectDetail() {
+    if (!state.currentProject) return;
+    
+    state.detailView = true;
+    
+    // Update UI
+    document.getElementById('dashboard').classList.add('hidden');
+    document.getElementById('project-detail').classList.remove('hidden');
+    document.getElementById('empty-state').classList.add('hidden');
+    
+    // Set header info
+    document.getElementById('detail-project-name').textContent = state.currentProject.name;
+    document.getElementById('detail-project-strategy').textContent = state.currentProject.strategy;
+    
+    // Load runs
+    await loadRuns();
+}
+
+function hideProjectDetail() {
+    state.detailView = false;
+    state.selectedRun = null;
+    
+    document.getElementById('project-detail').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Runs Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadRuns() {
+    if (!state.currentProject) return;
+    
+    try {
+        const res = await fetch(`/api/projects/${state.currentProject.id}/runs`);
+        state.runs = await res.json();
+        
+        renderRuns();
+        
+        // Auto-select first run if any
+        if (state.runs.length > 0 && !state.selectedRun) {
+            selectRun(state.runs[0].runId);
+        }
+    } catch (err) {
+        console.error('Failed to load runs:', err);
+        state.runs = [];
+        renderRuns();
+    }
+}
+
+function renderRuns() {
+    const list = document.getElementById('runs-list');
+    const countBadge = document.getElementById('runs-count');
+    
+    countBadge.textContent = state.runs.length;
+    
+    if (state.runs.length === 0) {
+        list.innerHTML = '<div class="runs-empty">No runs yet. Click RUN to start.</div>';
+        return;
+    }
+    
+    list.innerHTML = state.runs.map(run => {
+        const isSelected = state.selectedRun === run.runId;
+        const isCurrent = run.isCurrent;
+        const completedAt = run.completedAt ? new Date(run.completedAt).toLocaleString() : 'In progress';
+        
+        return `
+            <div class="run-item ${isSelected ? 'active' : ''} ${isCurrent ? 'current' : ''}" 
+                 onclick="selectRun('${run.runId}')">
+                <div class="run-item-header">
+                    <span class="run-id">#${run.runId}</span>
+                    <span class="run-status ${run.status}">${run.status}</span>
+                </div>
+                <div class="run-item-meta">
+                    <span>🕐 ${completedAt}</span>
+                    <span>📄 ${run.fileCount} files</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectRun(runId) {
+    state.selectedRun = runId;
+    
+    // Update selected state
+    document.querySelectorAll('.run-item').forEach(item => {
+        item.classList.toggle('active', item.querySelector('.run-id')?.textContent === `#${runId}`);
+    });
+    
+    // Find run data
+    const run = state.runs.find(r => r.runId === runId);
+    if (!run) return;
+    
+    // Update stats
+    document.getElementById('run-detail-title').textContent = `📁 RUN #${runId}`;
+    document.getElementById('run-stat-status').textContent = run.status;
+    document.getElementById('run-stat-status').className = `stat-value status-${run.status.toLowerCase()}`;
+    document.getElementById('run-stat-duration').textContent = run.duration ? `${run.duration.toFixed(1)}s` : '-';
+    document.getElementById('run-stat-calls').textContent = run.totalLlmCalls || '-';
+    document.getElementById('run-stat-tokens').textContent = run.totalTokens ? formatNumber(run.totalTokens) : '-';
+    
+    // Load timeline and files
+    await Promise.all([
+        loadRunTimeline(runId),
+        loadRunFiles(runId)
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Run Timeline
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadRunTimeline(runId) {
+    if (!state.currentProject) return;
+    
+    try {
+        const res = await fetch(`/api/projects/${state.currentProject.id}/runs/${runId}/timeline`);
+        state.runTimeline = await res.json();
+        renderRunTimeline();
+    } catch (err) {
+        console.error('Failed to load timeline:', err);
+        state.runTimeline = [];
+        renderRunTimeline();
+    }
+}
+
+function renderRunTimeline() {
+    const list = document.getElementById('run-timeline-list');
+    
+    if (state.runTimeline.length === 0) {
+        list.innerHTML = '<li class="timeline-empty">No timeline events</li>';
+        return;
+    }
+    
+    list.innerHTML = state.runTimeline.map(entry => {
+        const time = new Date(entry.timestamp).toLocaleTimeString();
+        return `
+            <li class="timeline-item">
+                <span class="timeline-time">${time}</span>
+                <span class="timeline-phase">${entry.phase}</span>
+                <span class="timeline-message">${escapeHtml(entry.message)}</span>
+            </li>
+        `;
+    }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Run Files
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadRunFiles(runId) {
+    if (!state.currentProject) return;
+    
+    try {
+        const res = await fetch(`/api/projects/${state.currentProject.id}/runs/${runId}/files`);
+        state.runFiles = await res.json();
+        renderRunFiles();
+    } catch (err) {
+        console.error('Failed to load files:', err);
+        state.runFiles = [];
+        renderRunFiles();
+    }
+}
+
+function renderRunFiles() {
+    const tree = document.getElementById('run-files-tree');
+    
+    if (state.runFiles.length === 0) {
+        tree.innerHTML = '<div class="runs-empty">No files generated</div>';
+        return;
+    }
+    
+    // Group by category
+    const categories = {};
+    state.runFiles.forEach(file => {
+        if (!categories[file.category]) {
+            categories[file.category] = [];
+        }
+        categories[file.category].push(file);
+    });
+    
+    tree.innerHTML = Object.entries(categories).map(([category, files]) => `
+        <div class="file-category">
+            <div class="file-category-name">${category}</div>
+            ${files.map(file => `
+                <div class="file-tree-item" onclick="previewRunFile('${file.category}', '${file.name}')">${file.name}</div>
+            `).join('')}
+        </div>
+    `).join('');
+}
+
+async function previewRunFile(category, name) {
+    if (!state.currentProject || !state.selectedRun) return;
+    
+    // Update active state
+    document.querySelectorAll('.file-tree-item').forEach(item => {
+        item.classList.toggle('active', item.textContent === name);
+    });
+    
+    const content = document.getElementById('run-files-content');
+    content.innerHTML = '<div class="content-placeholder">Loading...</div>';
+    
+    try {
+        const res = await fetch(`/api/projects/${state.currentProject.id}/runs/${state.selectedRun}/files/${category}/${name}`);
+        if (!res.ok) throw new Error('File not found');
+        
+        const text = await res.text();
+        
+        // Check if markdown
+        const isMarkdown = name.endsWith('.md');
+        
+        if (isMarkdown) {
+            content.innerHTML = `<div class="file-content-preview markdown">${marked.parse(text)}</div>`;
+        } else {
+            content.innerHTML = `<pre class="file-content-preview">${escapeHtml(text)}</pre>`;
+        }
+    } catch (err) {
+        console.error('Failed to load file:', err);
+        content.innerHTML = '<div class="content-placeholder">Failed to load file</div>';
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Run Tabs
+// ─────────────────────────────────────────────────────────────────────────────
+
+function switchRunTab(tabId) {
+    // Update tab buttons
+    document.querySelectorAll('.run-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    
+    // Update tab content
+    document.querySelectorAll('.run-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === tabId);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  WORKFLOW VISUALIZATION (v2 DSL) - Enhanced Coze-style
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 节点类型配置
+const NODE_TYPE_CONFIG = {
+    llm_call: { icon: '🤖', label: 'LLM', color: 'var(--accent-secondary)' },
+    vote: { icon: '🗳️', label: 'Vote', color: 'var(--accent-tertiary)' },
+    fan_out: { icon: '🔀', label: 'Parallel', color: 'var(--status-running)' },
+    conditional: { icon: '🔀', label: 'Branch', color: '#6b7280' },
+    workflow_call: { icon: '📋', label: 'Workflow', color: 'var(--status-success)' },
+    checkpoint: { icon: '💾', label: 'Save', color: '#9333ea' }
+};
+
+// 选中的节点
+let selectedNodeId = null;
+let workflowZoom = 1;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Workflow Step Event Handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleWorkflowStep(evt) {
+    // 获取或创建步骤状态
+    const existingStep = state.workflowSteps.get(evt.stepId) || {};
+    
+    // 构建对话历史（如果有新的对话信息）
+    let conversations = existingStep.conversations || [];
+    if (evt.systemPrompt || evt.userPrompt || evt.assistantResponse) {
+        // 清空旧的，使用新的完整对话
+        conversations = [];
+        if (evt.systemPrompt) {
+            conversations.push({ role: 'system', content: evt.systemPrompt });
+        }
+        if (evt.userPrompt) {
+            conversations.push({ role: 'user', content: evt.userPrompt });
+        }
+        if (evt.assistantResponse) {
+            conversations.push({ role: 'assistant', content: evt.assistantResponse });
+        }
+    }
+    
+    // 更新步骤状态
+    state.workflowSteps.set(evt.stepId, {
+        ...existingStep,
+        id: evt.stepId,
+        type: evt.stepType,
+        status: evt.status,
+        progress: evt.progress,
+        message: evt.message,
+        depth: evt.depth,
+        // Vote 特有
+        voteRound: evt.voteRound,
+        voteMaxRounds: evt.voteMaxRounds,
+        voteK: evt.voteK,
+        voteCurrentVotes: evt.voteCurrentVotes,
+        // Fan-out 特有
+        parallelTotal: evt.parallelTotal,
+        parallelCompleted: evt.parallelCompleted,
+        parallelFailed: evt.parallelFailed,
+        // 统计
+        durationMs: evt.durationMs,
+        llmCalls: evt.llmCalls ?? existingStep.llmCalls ?? 0,
+        tokensUsed: evt.tokensUsed ?? existingStep.tokensUsed ?? 0,
+        timestamp: new Date(),
+        // 对话历史
+        conversations: conversations,
+        output: evt.assistantResponse || existingStep.output
+    });
+    
+    // ─────────────────────────────────────────────────────────────────────
+    //  同步到 WORKERS 面板 (Cognitive DSL 兼容)
+    //  让 llm_call 步骤也显示在 WORKERS 面板
+    // ─────────────────────────────────────────────────────────────────────
+    if (evt.stepType === 'llm_call' || (evt.userPrompt && evt.assistantResponse)) {
+        syncStepToWorkerCard(evt);
+    }
+    
+    // 重新渲染工作流图
+    renderWorkflowGraph();
+    
+    // 如果当前选中的节点更新了，刷新详情面板
+    if (selectedNodeId === evt.stepId) {
+        showNodeDetail(evt.stepId);
+    }
+    
+    // 添加到日志
+    addLog(`[STEP:${evt.stepType}] ${evt.stepId}: ${evt.status} - ${evt.message || ''}`);
+}
+
+// 将步骤事件同步到 WORKERS 面板显示
+function syncStepToWorkerCard(evt) {
+    const workerId = evt.stepId;
+    
+    if (!state.workers.has(workerId)) {
+        createWorkerCard(workerId, 'Cognitive DSL');
+    }
+    
+    const cardId = `worker-${workerId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    const card = document.getElementById(cardId);
+    
+    if (card) {
+        const content = card.querySelector('.worker-content');
+        const status = card.querySelector('.worker-status');
+        
+        // 显示 LLM 对话内容
+        const displayContent = evt.assistantResponse || evt.message || '';
+        content.textContent = displayContent;
+        
+        // 更新状态
+        const statusMap = {
+            'Running': { text: 'STREAMING', class: 'streaming' },
+            'Completed': { text: 'COMPLETED', class: 'completed' },
+            'Failed': { text: 'FAILED', class: 'failed' },
+            'Pending': { text: 'PENDING', class: 'pending' }
+        };
+        const statusInfo = statusMap[evt.status] || { text: evt.status, class: 'streaming' };
+        status.textContent = statusInfo.text;
+        status.className = `worker-status ${statusInfo.class}`;
+        
+        // 滚动到底部
+        content.scrollTop = content.scrollHeight;
+    }
+}
+
+// 处理流式事件，收集对话历史
+function handleStreamingForWorkflow(evt) {
+    if (!evt.stepId && evt.taskId) {
+        // 从 taskId 提取 stepId (格式: stepId.gen[n])
+        const match = evt.taskId.match(/^([^.]+)/);
+        if (match) {
+            const stepId = match[1];
+            const step = state.workflowSteps.get(stepId);
+            if (step) {
+                // 初始化对话
+                if (!step.conversations) step.conversations = [];
+                
+                // 首次 token 时添加对话记录
+                if (evt.isFirstToken && evt.systemPrompt) {
+                    step.conversations = [
+                        { role: 'system', content: evt.systemPrompt },
+                        { role: 'user', content: evt.userPrompt || '' }
+                    ];
+                }
+                
+                // 累积助手响应
+                if (evt.isLastToken && evt.accumulatedContent) {
+                    step.conversations.push({
+                        role: 'assistant',
+                        content: evt.accumulatedContent
+                    });
+                    step.output = evt.accumulatedContent;
+                }
+                
+                // 更新状态
+                state.workflowSteps.set(stepId, step);
+                
+                // 如果是选中节点，更新详情
+                if (selectedNodeId === stepId) {
+                    showNodeDetail(stepId);
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Workflow Graph Rendering
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderWorkflowGraph() {
+    const container = document.getElementById('workflow-graph');
+    if (!container) return;
+    
+    // 检查是否是 Cognitive 策略
+    if (state.currentProject?.strategy !== 'Cognitive') {
+        container.innerHTML = `
+            <div class="workflow-placeholder">
+                <div class="placeholder-icon">📊</div>
+                <div class="placeholder-text">Workflow visualization is only available for <strong>Cognitive (v2)</strong> strategy</div>
+            </div>`;
+        hideNodeDetail();
+        return;
+    }
+    
+    if (state.workflowSteps.size === 0) {
+        container.innerHTML = `
+            <div class="workflow-placeholder">
+                <div class="placeholder-icon">🚀</div>
+                <div class="placeholder-text">Click <strong>RUN</strong> to start the workflow</div>
+                <div class="placeholder-hint">Nodes will appear here as execution progresses</div>
+            </div>`;
+        hideNodeDetail();
+        return;
+    }
+    
+    // 按时间排序步骤
+    const sortedSteps = Array.from(state.workflowSteps.values())
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    
+    container.innerHTML = `
+        <div class="workflow-nodes" style="transform: scale(${workflowZoom}); transform-origin: top left;">
+            ${sortedSteps.map((step, index) => renderWorkflowNode(step, index === sortedSteps.length - 1)).join('')}
+        </div>
+    `;
+    
+    // 更新工作流名称
+    const workflowNameEl = document.getElementById('workflow-name');
+    const workflowVersionEl = document.getElementById('workflow-version');
+    if (workflowNameEl) {
+        workflowNameEl.textContent = state.currentProject?.options?.cognitiveWorkflow || 'workflow';
+    }
+    if (workflowVersionEl) {
+        workflowVersionEl.textContent = 'v2 DSL';
+    }
+}
+
+function renderWorkflowNode(step, isLast) {
+    const statusClass = step.status?.toLowerCase() || 'pending';
+    const progressPercent = Math.round((step.progress || 0) * 100);
+    const config = NODE_TYPE_CONFIG[step.type] || NODE_TYPE_CONFIG.llm_call;
+    const isSelected = selectedNodeId === step.id;
+    
+    // 构建 footer 详情
+    let footer = '';
+    if (step.type === 'vote' && step.voteRound) {
+        footer = `
+            <div class="node-footer">
+                <span class="node-stat">🔄 <span class="node-stat-value">${step.voteRound}/${step.voteMaxRounds || '?'}</span></span>
+                <span class="node-stat">🗳️ <span class="node-stat-value">${step.voteCurrentVotes || 0}/${step.voteK || '?'}</span></span>
+            </div>`;
+    } else if (step.type === 'fan_out' && step.parallelTotal) {
+        footer = `
+            <div class="node-footer">
+                <span class="node-stat">✓ <span class="node-stat-value">${step.parallelCompleted || 0}/${step.parallelTotal}</span></span>
+                ${step.parallelFailed ? `<span class="node-stat">✗ <span class="node-stat-value" style="color:var(--status-error)">${step.parallelFailed}</span></span>` : ''}
+            </div>`;
+    } else if (step.llmCalls || step.tokensUsed) {
+        footer = `
+            <div class="node-footer">
+                ${step.llmCalls ? `<span class="node-stat">📞 <span class="node-stat-value">${step.llmCalls}</span></span>` : ''}
+                ${step.tokensUsed ? `<span class="node-stat">🔤 <span class="node-stat-value">${formatNumber(step.tokensUsed)}</span></span>` : ''}
+            </div>`;
+    }
+    
+    return `
+        <div class="workflow-step">
+            <div class="step-connector">
+                <div class="step-dot ${statusClass}"></div>
+                ${!isLast ? '<div class="step-line"></div>' : ''}
+            </div>
+            <div class="workflow-node ${statusClass} ${isSelected ? 'selected' : ''}" 
+                 onclick="selectNode('${step.id}')" 
+                 data-step-id="${step.id}">
+                <div class="node-header">
+                    <span class="node-type-badge ${step.type}">
+                        <span class="node-type-icon">${config.icon}</span>
+                        ${config.label}
+                    </span>
+                    <span class="node-status-indicator ${statusClass}"></span>
+                </div>
+                <div class="node-body">
+                    <div class="node-id">${step.id}</div>
+                    ${step.message ? `<div class="node-message">${escapeHtml(step.message)}</div>` : ''}
+                    <div class="node-progress">
+                        <div class="node-progress-bar">
+                            <div class="node-progress-fill" style="width:${progressPercent}%"></div>
+                        </div>
+                        <span class="node-progress-text">${progressPercent}%</span>
+                    </div>
+                </div>
+                ${footer}
+            </div>
+        </div>
+    `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Node Selection & Detail Panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function selectNode(stepId) {
+    selectedNodeId = stepId;
+    
+    // 更新选中状态
+    document.querySelectorAll('.workflow-node').forEach(node => {
+        node.classList.toggle('selected', node.dataset.stepId === stepId);
+    });
+    
+    // 显示详情面板
+    showNodeDetail(stepId);
+}
+
+function showNodeDetail(stepId) {
+    const step = state.workflowSteps.get(stepId);
+    if (!step) return;
+    
+    const panel = document.getElementById('workflow-detail-panel');
+    panel.classList.remove('hidden');
+    
+    // 更新头部信息
+    const config = NODE_TYPE_CONFIG[step.type] || NODE_TYPE_CONFIG.llm_call;
+    document.getElementById('detail-node-type').textContent = `${config.icon} ${config.label}`;
+    document.getElementById('detail-node-id').textContent = step.id;
+    
+    // 更新状态
+    const statusBadge = document.getElementById('detail-status');
+    statusBadge.textContent = step.status || 'Pending';
+    statusBadge.className = `status-badge ${step.status?.toLowerCase() || 'pending'}`;
+    
+    document.getElementById('detail-progress').textContent = `${Math.round((step.progress || 0) * 100)}%`;
+    document.getElementById('detail-duration').textContent = step.durationMs ? `${(step.durationMs / 1000).toFixed(1)}s` : '-';
+    
+    // 更新统计
+    document.getElementById('detail-llm-calls').textContent = step.llmCalls || 0;
+    document.getElementById('detail-tokens').textContent = formatNumber(step.tokensUsed || 0);
+    document.getElementById('detail-vote-round').textContent = step.voteRound 
+        ? `${step.voteRound}/${step.voteMaxRounds || '?'}` 
+        : '-';
+    document.getElementById('detail-parallel').textContent = step.parallelTotal 
+        ? `${step.parallelCompleted || 0}/${step.parallelTotal}` 
+        : '-';
+    
+    // 更新对话历史
+    renderConversations(step.conversations || []);
+    
+    // 更新输出
+    document.getElementById('detail-output-content').textContent = step.output || '暂无输出';
+}
+
+function hideNodeDetail() {
+    const panel = document.getElementById('workflow-detail-panel');
+    if (panel) {
+        panel.classList.add('hidden');
+    }
+    selectedNodeId = null;
+    
+    document.querySelectorAll('.workflow-node').forEach(node => {
+        node.classList.remove('selected');
+    });
+}
+
+function renderConversations(conversations) {
+    const container = document.getElementById('conversation-list');
+    
+    if (!conversations || conversations.length === 0) {
+        container.innerHTML = '<div class="conversation-empty">暂无对话记录</div>';
+        return;
+    }
+    
+    container.innerHTML = conversations.map(conv => `
+        <div class="conversation-item">
+            <div class="conversation-role ${conv.role}">${conv.role.toUpperCase()}</div>
+            <div class="conversation-content">${escapeHtml(truncateText(conv.content, 500))}</div>
+        </div>
+    `).join('');
+}
+
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function switchDetailTab(tabId) {
+    // 更新 tab 按钮
+    document.querySelectorAll('.detail-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabId);
+    });
+    
+    // 更新 tab 内容
+    document.querySelectorAll('.detail-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === tabId);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Zoom Controls
+// ─────────────────────────────────────────────────────────────────────────────
+
+function zoomWorkflow(delta) {
+    workflowZoom = Math.max(0.5, Math.min(2, workflowZoom + delta));
+    const nodesContainer = document.querySelector('.workflow-nodes');
+    if (nodesContainer) {
+        nodesContainer.style.transform = `scale(${workflowZoom})`;
+    }
+}
+
+function resetWorkflowZoom() {
+    workflowZoom = 1;
+    const nodesContainer = document.querySelector('.workflow-nodes');
+    if (nodesContainer) {
+        nodesContainer.style.transform = 'scale(1)';
+    }
+}
+
+// Open full-page workflow visualizer
+function openWorkflowPage() {
+    // 获取项目 ID - 多种方式
+    let projectId = null;
+    
+    // 1. 从 state
+    if (state.currentProject && state.currentProject.id) {
+        projectId = state.currentProject.id;
+    }
+    
+    // 2. 从 DOM (project-id 元素显示 "ID: xxx")
+    if (!projectId) {
+        const el = document.getElementById('project-id');
+        if (el && el.textContent) {
+            const m = el.textContent.match(/ID:\s*(\S+)/);
+            if (m) projectId = m[1];
+        }
+    }
+    
+    // 3. 从 active nav item
+    if (!projectId) {
+        const active = document.querySelector('.nav-item.active');
+        if (active) {
+            const oc = active.getAttribute('onclick') || '';
+            const m = oc.match(/selectProject\(['"]([^'"]+)['"]\)/);
+            if (m) projectId = m[1];
+        }
+    }
+    
+    // 4. 从 URL 参数 (如果在详情页)
+    if (!projectId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        projectId = urlParams.get('project');
+    }
+    
+    // 5. 最后尝试：取第一个项目
+    if (!projectId && state.projects && state.projects.length > 0) {
+        projectId = state.projects[0].id;
+    }
+    
+    // Debug
+    console.log('[openWorkflowPage] projectId:', projectId, 'runId:', state.currentRun);
+    console.log('[openWorkflowPage] state.currentProject:', state.currentProject);
+    console.log('[openWorkflowPage] state.projects:', state.projects);
+    console.log('[openWorkflowPage] DOM project-id:', document.getElementById('project-id')?.textContent);
+    
+    // 直接打开，即使没有 projectId 也让用户在那边选
+    let url = '/workflow.html';
+    if (projectId) {
+        url += `?project=${projectId}`;
+        if (state.currentRun) {
+            url += `&run=${state.currentRun}`;
+        }
+    }
+    
+    window.open(url, '_blank');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Reset Workflow State
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resetWorkflowState() {
+    state.workflowSteps.clear();
+    selectedNodeId = null;
+    workflowZoom = 1;
+    hideNodeDetail();
+    renderWorkflowGraph();
 }
 

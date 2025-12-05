@@ -132,14 +132,14 @@ public class WorkflowParser
         if (!string.IsNullOrEmpty(yaml.Output))
             parameters["output"] = yaml.Output;
         
-        if (yaml.K.HasValue)
-            parameters["k"] = yaml.K.Value;
+        if (yaml.K != null)
+            parameters["k"] = yaml.K;
         
-        if (yaml.MaxRounds.HasValue)
-            parameters["max_rounds"] = yaml.MaxRounds.Value;
+        if (yaml.MaxRounds != null)
+            parameters["max_rounds"] = yaml.MaxRounds;
         
-        if (yaml.Similarity.HasValue)
-            parameters["similarity"] = yaml.Similarity.Value;
+        if (yaml.Similarity != null)
+            parameters["similarity"] = yaml.Similarity;
         
         if (yaml.Variables != null)
             parameters["variables"] = yaml.Variables;
@@ -190,22 +190,22 @@ internal class YamlStepDefinition
     public List<YamlStepDefinition>? IfTrue { get; set; }
     public List<YamlStepDefinition>? IfFalse { get; set; }
     
-    // vote 字段
-    public int? K { get; set; }
-    public int? MaxRounds { get; set; }
-    public float? Similarity { get; set; }
+    // vote 字段 (支持模板变量如 "{{k}}")
+    public object? K { get; set; }
+    public object? MaxRounds { get; set; }
+    public object? Similarity { get; set; }
     public YamlStepDefinition? Generator { get; set; }
     
-    // fan_out 字段
+    // fan_out 字段 (支持模板变量)
     public string? ForEach { get; set; }
     public YamlStepDefinition? Step { get; set; }
     public string? Reduce { get; set; }
-    public int? MaxConcurrency { get; set; }
+    public object? MaxConcurrency { get; set; }
     
-    // workflow_call 字段
+    // workflow_call 字段 (支持模板变量)
     public string? Workflow { get; set; }
     public Dictionary<string, object?>? Params { get; set; }
-    public int? MaxDepth { get; set; }
+    public object? MaxDepth { get; set; }
     
     // checkpoint 字段
     public List<string>? Variables { get; set; }

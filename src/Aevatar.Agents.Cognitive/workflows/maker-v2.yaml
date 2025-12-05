@@ -1,12 +1,16 @@
 # ============================================================
 #  MAKER System v2 - DSL 重新实现
 #  
-#  核心算法:
+#  论文: "Solving a Million-Step LLM Task with Zero Errors"
+#  https://arxiv.org/html/2511.09030v1
+#  
+#  核心算法 (完整实现):
 #  1. 分解任务 (Decomposition) - 将复杂任务分解为子任务
 #  2. 并行生成提案 (Fan-out) - 多 Worker 并行 LLM
-#  3. 投票共识 (Vote) - K 票一致机制
-#  4. 递归处理 (Recursive) - 子任务递归执行
-#  5. 合成结果 (Composition) - 聚合子任务结果
+#  3. 投票共识 (Vote) - First-to-ahead-by-K 共识机制
+#  4. Red-Flagging - 内容验证与恢复 (Section 3.3)
+#  5. 递归处理 (Recursive) - 子任务递归执行
+#  6. 合成结果 (Composition) - 聚合子任务结果
 # ============================================================
 
 name: maker-v2
@@ -91,6 +95,8 @@ steps:
           output: text
         k: "{{k}}"
         max_rounds: "{{max_rounds}}"
+        # Red-Flagging: 论文 Section 3.3 (可插拔配置)
+        red_flag: english
         store: atomic_solution
     
     # 复杂任务：分解 → 递归 → 合成
@@ -116,6 +122,8 @@ steps:
           output: json_array
         k: "{{k}}"
         max_rounds: "{{max_rounds}}"
+        # Red-Flagging: 论文 Section 3.3
+        red_flag: english
         store: subtasks
       
       # Step 2b: 并行递归执行子任务 (真正的 Actor 并行)
@@ -153,6 +161,8 @@ steps:
           output: text
         k: "{{k}}"
         max_rounds: "{{max_rounds}}"
+        # Red-Flagging: 论文 Section 3.3
+        red_flag: english
         store: composed_solution
 
 # ============================================================

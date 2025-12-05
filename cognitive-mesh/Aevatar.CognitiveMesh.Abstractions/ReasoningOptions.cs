@@ -1,3 +1,5 @@
+using Aevatar.Agents.Abstractions;
+
 namespace Aevatar.CognitiveMesh.Abstractions;
 
 // ============================================================
@@ -166,6 +168,45 @@ public sealed record ReasoningOptions
     public bool TUotAllowPhysicalViolation { get; init; } = false;
 
     // ─────────────────────────────────────────────────────────
+    //  COGNITIVE DSL 策略特定配置
+    // ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cognitive: 工作流名称（如 "direct", "maker-v2", "uot-combinational-v2"）。
+    /// </summary>
+    public string? CognitiveWorkflow { get; init; }
+
+    /// <summary>
+    /// Cognitive: Worker 数量（并行执行的 Worker Agent 数）。
+    /// </summary>
+    public int? CognitiveWorkerCount { get; init; }
+
+    /// <summary>
+    /// Cognitive: 共识阈值 K（投票时领先票数需超过 K）。
+    /// </summary>
+    public int? CognitiveConsensusK { get; init; }
+
+    /// <summary>
+    /// Cognitive: 最大投票轮数。
+    /// </summary>
+    public int? CognitiveMaxRounds { get; init; }
+
+    /// <summary>
+    /// Cognitive: 递归工作流最大深度。
+    /// </summary>
+    public int? CognitiveMaxDepth { get; init; }
+
+    /// <summary>
+    /// Cognitive: 语义相似度阈值（用于投票聚类）。
+    /// </summary>
+    public float? CognitiveSemanticSimilarity { get; init; }
+
+    /// <summary>
+    /// Cognitive: 执行超时时间（分钟）。
+    /// </summary>
+    public int? CognitiveTimeoutMinutes { get; init; }
+
+    // ─────────────────────────────────────────────────────────
     //  工厂方法
     // ─────────────────────────────────────────────────────────
 
@@ -176,7 +217,7 @@ public sealed record ReasoningOptions
         MakerReliability reliability = MakerReliability.Medium,
         int maxLlmCalls = 500,
         long maxTokens = 2_000_000,
-        string providerName = "deepseek") => new()
+        string providerName = AevatarAgentsConstants.DefaultProviderName) => new()
     {
         ProviderName = providerName,
         MakerReliability = reliability,
@@ -200,7 +241,7 @@ public sealed record ReasoningOptions
         string? domainHint = null,
         int maxAnalogies = 5,
         int maxCandidates = 10,
-        string providerName = "deepseek") => new()
+        string providerName = AevatarAgentsConstants.DefaultProviderName) => new()
     {
         ProviderName = providerName,
         UotDomainHint = domainHint,
@@ -218,7 +259,7 @@ public sealed record ReasoningOptions
         int explorationDirections = 3,
         int maxAnalogies = 5,
         int maxCandidates = 10,
-        string providerName = "deepseek") => new()
+        string providerName = AevatarAgentsConstants.DefaultProviderName) => new()
     {
         ProviderName = providerName,
         UotDomainHint = domainHint,
@@ -237,7 +278,7 @@ public sealed record ReasoningOptions
         int maxRuleSets = 3,
         int mutationsPerSet = 3,
         float minRadicality = 0.5f,
-        string providerName = "deepseek") => new()
+        string providerName = AevatarAgentsConstants.DefaultProviderName) => new()
     {
         ProviderName = providerName,
         UotDomainHint = domainHint,
@@ -245,6 +286,30 @@ public sealed record ReasoningOptions
         TUotMutationsPerSet = mutationsPerSet,
         TUotMinRadicality = minRadicality,
         UotFeasibilityThreshold = 0.5f  // T-UoT 降低可行性门槛
+    };
+
+    /// <summary>
+    /// 创建默认 Cognitive DSL 策略选项。
+    /// 使用 YAML 定义工作流，Coordinator + Worker 真正并行。
+    /// </summary>
+    public static ReasoningOptions ForCognitive(
+        string workflow = "direct",
+        int workerCount = 5,
+        int consensusK = 2,
+        int maxRounds = 10,
+        int maxDepth = 10,
+        float semanticSimilarity = 0.85f,
+        int timeoutMinutes = 30,
+        string providerName = AevatarAgentsConstants.DefaultProviderName) => new()
+    {
+        ProviderName = providerName,
+        CognitiveWorkflow = workflow,
+        CognitiveWorkerCount = workerCount,
+        CognitiveConsensusK = consensusK,
+        CognitiveMaxRounds = maxRounds,
+        CognitiveMaxDepth = maxDepth,
+        CognitiveSemanticSimilarity = semanticSimilarity,
+        CognitiveTimeoutMinutes = timeoutMinutes
     };
 }
 

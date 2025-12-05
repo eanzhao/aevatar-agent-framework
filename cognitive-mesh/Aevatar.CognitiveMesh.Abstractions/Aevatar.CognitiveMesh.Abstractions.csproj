@@ -11,5 +11,9 @@
     <PackageReference Include="Google.Protobuf" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
+  </ItemGroup>
+
 </Project>
 

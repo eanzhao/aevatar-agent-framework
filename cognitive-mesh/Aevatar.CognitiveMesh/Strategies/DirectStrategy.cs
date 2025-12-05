@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.CognitiveMesh.Abstractions;
@@ -75,7 +76,7 @@ public sealed class DirectStrategy : IReasoningStrategy
             _logger.LogInformation("Direct AI call: task length = {Length} chars", fullTask.Length);
 
             // 获取 LLM Provider
-            var providerName = options.ProviderName ?? "deepseek";
+            var providerName = options.ProviderName ?? AevatarAgentsConstants.DefaultProviderName;
             var provider = _llmFactory.GetProvider(providerName);
             
             // 调用 LLM

@@ -1,3 +1,4 @@
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.CreativeReasoning;
@@ -28,7 +29,7 @@ builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();
 
 // Add UoT Creative Reasoning (with default provider)
-builder.Services.AddUoTCreativeReasoning("deepseek");
+builder.Services.AddUoTCreativeReasoning(AevatarAgentsConstants.DefaultProviderName);
 
 // Creative Project service
 builder.Services.AddSingleton<CreativeProjectService>();
