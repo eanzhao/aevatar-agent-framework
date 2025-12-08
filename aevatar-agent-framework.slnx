@@ -15,6 +15,7 @@
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Abstractions/Aevatar.CognitiveMesh.Abstractions.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
+    <Project Path="cognitive-mesh/Aevatar.PaperReview/Aevatar.PaperReview.csproj" />
     <File Path="cognitive-mesh/README.md" />
   </Folder>
   <Folder Name="/cognitive-mesh/docs/">
