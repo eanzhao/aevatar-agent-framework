@@ -1,0 +1,82 @@
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Core.EventDeduplication;
+using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Local.Subscription;
+using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Subscription;
+
+namespace Aevatar.Trade.Api;
+
+/// <summary>
+/// Agent 运行时扩展
+/// </summary>
+public static class AgentRuntimeExtensions
+{
+    public static IServiceCollection AddAgentRuntime(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var runtimeOptions = configuration
+            .GetSection(AgentRuntimeOptions.SectionName)
+            .Get<AgentRuntimeOptions>() ?? new AgentRuntimeOptions();
+
+        // Event Store (Event Sourcing)
+        services.AddSingleton<IEventStore, InMemoryEventStore>();
+
+        // Event Deduplicator
+        services.AddSingleton<IEventDeduplicator>(sp =>
+            new MemoryCacheEventDeduplicator(new DeduplicationOptions
+            {
+                EventExpiration = TimeSpan.FromMinutes(5),
+                MaxCachedEvents = 10_000,
+                EnableAutoCleanup = true
+            }));
+
+        switch (runtimeOptions.RuntimeType)
+        {
+            case AgentRuntimeType.Local:
+                ConfigureLocalRuntime(services);
+                break;
+
+            case AgentRuntimeType.Orleans:
+                ConfigureOrleansRuntime(services);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown runtime type: {runtimeOptions.RuntimeType}");
+        }
+
+        return services;
+    }
+
+    private static void ConfigureLocalRuntime(IServiceCollection services)
+    {
+        services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
+        services.AddSingleton<LocalMessageStreamRegistry>();
+        services.AddSingleton<ISubscriptionManager>(sp =>
+            new LocalSubscriptionManager(
+                sp.GetRequiredService<LocalMessageStreamRegistry>(),
+                sp.GetRequiredService<ILogger<LocalSubscriptionManager>>()));
+
+        Console.WriteLine("✅ 使用 Local 运行时 (单机内存模式)");
+    }
+
+    private static void ConfigureOrleansRuntime(IServiceCollection services)
+    {
+        services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
+        services.AddSingleton<ISubscriptionManager>(sp =>
+        {
+            var client = sp.GetRequiredService<Orleans.IClusterClient>();
+            var streamProvider = client.GetStreamProvider("DefaultStreamProvider");
+            return new OrleansSubscriptionManager(
+                streamProvider,
+                AevatarAgentsOrleansConstants.StreamNamespace,
+                sp.GetRequiredService<ILogger<OrleansSubscriptionManager>>());
+        });
+
+        Console.WriteLine("✅ 使用 Orleans 运行时 (分布式模式)");
+    }
+}

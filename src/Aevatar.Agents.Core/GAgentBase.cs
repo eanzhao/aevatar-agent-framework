@@ -9,6 +9,7 @@ using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.StateProtection;
+using Aevatar.Agents.Core.Telemetry;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -234,17 +235,58 @@ public abstract class GAgentBase : IGAgent
 
     public async Task ActivateAsync(CancellationToken ct = default)
     {
-        // Allow State modification during agent activation
-        // This is necessary for initializing agent state before event processing begins
-        using (StateProtectionContext.BeginInitializationScope())
+        var agentType = GetType().Name;
+        var stopwatch = Stopwatch.StartNew();
+
+        // Start Telemetry trace
+        using var activity = AgentTelemetry.StartAgentActivation(Id, agentType);
+        using var logScope = LoggingScope.CreateActivationScope(Logger, Id, agentType);
+
+        AgentLogMessages.AgentActivating(Logger, agentType, Id);
+
+        try
         {
-            await OnActivateAsync(ct);
+            // Allow State modification during agent activation
+            // This is necessary for initializing agent state before event processing begins
+            using (StateProtectionContext.BeginInitializationScope())
+            {
+                await OnActivateAsync(ct);
+            }
+
+            stopwatch.Stop();
+            AgentTelemetry.RecordAgentActivation(activity, Id, agentType, stopwatch.ElapsedMilliseconds);
+            AgentLogMessages.AgentActivated(Logger, agentType, Id, stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            AgentTelemetry.RecordAgentActivation(activity, Id, agentType, stopwatch.ElapsedMilliseconds,
+                success: false, error: ex.Message);
+            AgentTelemetry.RecordException(activity, ex, "Activation");
+            throw;
         }
     }
 
     public async Task DeactivateAsync(CancellationToken ct = default)
     {
-        await OnDeactivateAsync(ct);
+        var agentType = GetType().Name;
+
+        using var activity = AgentTelemetry.StartAgentDeactivation(Id, agentType);
+        using var logScope = LoggingScope.CreateDeactivationScope(Logger, Id, agentType);
+
+        AgentLogMessages.AgentDeactivating(Logger, agentType, Id);
+
+        try
+        {
+            await OnDeactivateAsync(ct);
+            AgentTelemetry.RecordAgentDeactivation(agentType);
+            AgentLogMessages.AgentDeactivated(Logger, agentType, Id);
+        }
+        catch (Exception ex)
+        {
+            AgentTelemetry.RecordException(activity, ex, "Deactivation");
+            throw;
+        }
     }
 
     // ============ Event Publishing ============
@@ -264,23 +306,36 @@ public abstract class GAgentBase : IGAgent
                 "EventPublisher is not set. Make sure the Actor layer has initialized this agent.");
         }
 
+        var eventType = typeof(TEvent).Name;
+        var directionStr = direction.ToString();
+        var agentType = GetType().Name;
         var stopwatch = Stopwatch.StartNew();
+
+        // Start Telemetry
+        using var activity = AgentTelemetry.StartEventPublish(Id, eventType, directionStr);
+        using var logScope = LoggingScope.CreateEventPublishScope(Logger, Id, eventType, directionStr);
+
+        AgentLogMessages.EventPublishing(Logger, Id, eventType, directionStr);
+
         try
         {
             var eventId = await EventPublisher.PublishEventAsync(evt, direction, ct);
 
-            // Record publish metrics
+            // Record Telemetry
             stopwatch.Stop();
-            AgentMetrics.RecordEventPublished(typeof(TEvent).Name, Id.ToString());
-            AgentMetrics.EventPublishLatency.Record(stopwatch.ElapsedMilliseconds,
-                new KeyValuePair<string, object?>("event.type", typeof(TEvent).Name),
-                new KeyValuePair<string, object?>("agent.id", Id.ToString()));
+            AgentTelemetry.RecordEventPublished(activity, agentType, eventType, directionStr,
+                stopwatch.ElapsedMilliseconds);
+            AgentLogMessages.EventPublished(Logger, Id, eventType, stopwatch.ElapsedMilliseconds);
+
+            // Legacy metrics (兼容)
+            AgentMetrics.RecordEventPublished(eventType, Id.ToString());
 
             return eventId;
         }
         catch (Exception ex)
         {
-            // Record exception metrics
+            stopwatch.Stop();
+            AgentTelemetry.RecordException(activity, ex, "PublishEvent");
             AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), "PublishEvent");
             throw;
         }
@@ -384,18 +439,25 @@ public abstract class GAgentBase : IGAgent
     /// </summary>
     protected virtual async Task HandleEventCoreAsync(EventEnvelope envelope, CancellationToken ct = default)
     {
-        // Create event handling log scope
+        // Extract event metadata
         var eventType = envelope.Payload?.TypeUrl?.Split('/').LastOrDefault() ?? "Unknown";
+        var agentType = GetType().Name;
 
-        using var scope = LoggingScope.CreateEventHandlingScope(
-            Logger,
-            Id,
-            envelope.Id,
-            eventType,
-            envelope.CorrelationId);
+        // Start Telemetry trace for entire event handling
+        using var eventActivity = AgentTelemetry.StartEventHandling(
+            Id, agentType, envelope.Id, eventType, envelope.CorrelationId);
+
+        // Create event handling log scope
+        using var logScope = LoggingScope.CreateEventHandlingScope(
+            Logger, Id, envelope.Id, eventType, envelope.CorrelationId);
+
+        AgentLogMessages.EventReceived(Logger, Id, eventType, envelope.Id);
 
         var stopwatch = Stopwatch.StartNew();
         var handled = false;
+        var handlerCount = 0;
+        var errorOccurred = false;
+        string? lastError = null;
 
         var handlers = GetEventHandlers();
 
@@ -412,8 +474,9 @@ public abstract class GAgentBase : IGAgent
                 // AllEventHandler - pass EventEnvelope directly
                 if (handler.IsAllEventHandler)
                 {
-                    await InvokeHandler(handler.Method, envelope, ct);
+                    await InvokeHandlerWithTelemetry(handler.Method, envelope, eventType, ct);
                     handled = true;
+                    handlerCount++;
                     continue;
                 }
 
@@ -467,9 +530,9 @@ public abstract class GAgentBase : IGAgent
 
                     if (message != null)
                     {
-                        Logger.LogDebug("Invoking handler {HandlerName} with message {MessageType}", handler.Method.Name, message.GetType().Name);
-                        await InvokeHandler(handler.Method, message, ct);
+                        await InvokeHandlerWithTelemetry(handler.Method, message, eventType, ct);
                         handled = true;
+                        handlerCount++;
                     }
                     else
                     {
@@ -484,7 +547,9 @@ public abstract class GAgentBase : IGAgent
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error handling event in {Handler}", handler.Method.Name);
+                errorOccurred = true;
+                lastError = ex.Message;
+                AgentLogMessages.HandlerFailed(Logger, Id, handler.Method.Name, ex.Message, ex);
 
                 // Record exception metrics
                 AgentMetrics.RecordException(ex.GetType().Name, Id.ToString(), $"HandleEvent:{handler.Method.Name}");
@@ -496,15 +561,24 @@ public abstract class GAgentBase : IGAgent
             }
         }
 
-        // Record event handling metrics
+        // Record event handling metrics and Telemetry
         stopwatch.Stop();
         if (handled)
         {
+            AgentTelemetry.RecordEventHandled(eventActivity, agentType, eventType,
+                stopwatch.ElapsedMilliseconds, handlerCount, success: !errorOccurred, error: lastError);
+            AgentLogMessages.EventHandled(Logger, Id, eventType, stopwatch.ElapsedMilliseconds, handlerCount);
+
+            // Legacy metrics (兼容)
             AgentMetrics.RecordEventHandled(eventType, Id.ToString(), stopwatch.ElapsedMilliseconds);
         }
         else
         {
             // No handler processed this event
+            AgentTelemetry.RecordEventDropped(agentType, eventType);
+            AgentLogMessages.EventDropped(Logger, Id, eventType);
+
+            // Legacy metrics (兼容)
             AgentMetrics.EventsDropped.Add(1,
                 new KeyValuePair<string, object?>("event.type", eventType),
                 new KeyValuePair<string, object?>("agent.id", Id.ToString()));
@@ -523,6 +597,44 @@ public abstract class GAgentBase : IGAgent
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Invoke handler method with Telemetry
+    /// </summary>
+    private async Task InvokeHandlerWithTelemetry(
+        MethodInfo handler,
+        object parameter,
+        string eventType,
+        CancellationToken ct)
+    {
+        var handlerName = handler.Name;
+        var agentType = GetType().Name;
+        var stopwatch = Stopwatch.StartNew();
+
+        // Start handler Telemetry
+        using var activity = AgentTelemetry.StartHandlerExecution(Id, agentType, handlerName, eventType);
+        using var logScope = LoggingScope.CreateHandlerScope(Logger, Id, handlerName, eventType);
+
+        AgentLogMessages.HandlerInvoking(Logger, Id, handlerName, eventType);
+
+        try
+        {
+            await InvokeHandler(handler, parameter, ct);
+
+            stopwatch.Stop();
+            AgentTelemetry.RecordHandlerExecution(activity, agentType, handlerName, eventType,
+                stopwatch.ElapsedMilliseconds);
+            AgentLogMessages.HandlerCompleted(Logger, Id, handlerName, stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            AgentTelemetry.RecordHandlerExecution(activity, agentType, handlerName, eventType,
+                stopwatch.ElapsedMilliseconds, success: false, error: ex.Message);
+            AgentTelemetry.RecordException(activity, ex, $"Handler:{handlerName}");
+            throw;
+        }
     }
 
     /// <summary>
