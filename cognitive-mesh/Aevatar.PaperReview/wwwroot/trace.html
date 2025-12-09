@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Trace - Paper Review</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="trace.css">
+</head>
+<body>
+    <div class="trace-app">
+        <!-- ═══════════════════════════════════════════════════════════
+             HEADER
+             ═══════════════════════════════════════════════════════════ -->
+        <header class="trace-header">
+            <div class="header-brand">
+                <a href="/" class="brand-link">
+                    <span class="brand-icon">📝</span>
+                    <span class="brand-name">PAPER REVIEW</span>
+                </a>
+                <span class="brand-divider">/</span>
+                <span class="brand-sub">LLM TRACE</span>
+            </div>
+            <div class="header-session">
+                <select id="session-select" onchange="selectSession(this.value)">
+                    <option value="">-- Select Session --</option>
+                </select>
+                <span id="session-status" class="session-badge">-</span>
+            </div>
+        </header>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             STATS BAR
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <span class="stat-label">LLM Calls</span>
+                <span id="stat-calls" class="stat-value">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Active</span>
+                <span id="stat-active" class="stat-value active">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Completed</span>
+                <span id="stat-completed" class="stat-value">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Tokens</span>
+                <span id="stat-tokens" class="stat-value">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Avg Latency</span>
+                <span id="stat-latency" class="stat-value">-</span>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             MAIN CONTENT
+             ═══════════════════════════════════════════════════════════ -->
+        <main class="trace-main">
+            <!-- Left: LLM Call List -->
+            <section class="call-list-panel">
+                <div class="panel-header">
+                    <span class="panel-title">📋 LLM CALLS</span>
+                    <button class="btn-icon" onclick="clearCalls()" title="Clear">🗑</button>
+                </div>
+                <div id="call-list" class="call-list">
+                    <div class="empty-state">
+                        <div class="empty-icon">🤖</div>
+                        <p>Select a session to view LLM calls</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right: Call Detail -->
+            <section class="call-detail-panel">
+                <div class="panel-header">
+                    <span id="detail-title" class="panel-title">📝 CALL DETAIL</span>
+                    <div class="detail-badges">
+                        <span id="detail-provider" class="badge provider">-</span>
+                        <span id="detail-phase" class="badge phase">-</span>
+                    </div>
+                </div>
+                <div id="call-detail" class="call-detail">
+                    <div class="empty-state">
+                        <div class="empty-icon">👆</div>
+                        <p>Select a call from the list</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="trace.js"></script>
+</body>
+</html>

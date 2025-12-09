@@ -574,11 +574,13 @@ public partial class MakerCoordinatorGAgent : AIGAgentBase<MakerCoordinatorState
             Proposal = new LLMProposal
             {
                 ProposalId = result.ProposalId,
+                WorkerId = result.WorkerId,
                 Content = result.Content,
                 Success = result.Success,
                 Error = result.Error,
                 PromptTokens = result.PromptTokens,
                 CompletionTokens = result.CompletionTokens,
+                LatencyMs = result.LatencyMs,
                 ProviderName = result.ProviderName
             }
         });

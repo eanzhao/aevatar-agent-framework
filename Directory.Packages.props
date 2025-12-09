@@ -221,5 +221,7 @@
     <PackageVersion Include="Scriban" Version="5.12.0" />
     <!-- Supabase -->
     <PackageVersion Include="Supabase" Version="1.1.1" />
+    <!-- PDF extraction -->
+    <PackageVersion Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 </Project>

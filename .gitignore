@@ -491,3 +491,4 @@ appsettings.secrets.json.bak*
 
 runs/
 output/
+uploads/

@@ -26,6 +26,8 @@
   <ItemGroup>
     <!-- Supabase -->
     <PackageReference Include="Supabase" />
+    <!-- PDF text extraction -->
+    <PackageReference Include="UglyToad.PdfPig" />
     
     <!-- Health Checks -->
     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
