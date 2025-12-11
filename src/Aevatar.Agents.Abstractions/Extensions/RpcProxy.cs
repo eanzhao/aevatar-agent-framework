@@ -6,12 +6,17 @@ using Google.Protobuf;
 namespace Aevatar.Agents.Abstractions.Extensions;
 
 /// <summary>
-/// Dynamic proxy for type-safe RPC calls through interface
+/// Dynamic proxy for type-safe RPC calls through interface.
+/// Automatically detects runtime type:
+/// - Local Runtime: Direct method invocation (zero overhead)
+/// - Orleans/Remote Runtime: RPC via Protobuf serialization
 /// </summary>
 /// <typeparam name="TInterface">The agent interface type</typeparam>
 public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
 {
     private IGAgentActor _actor = null!;
+    private TInterface? _directAgent;  // For local runtime direct calls
+    private bool _isLocalRuntime;
 
     /// <summary>
     /// Create a proxy instance for the given actor
@@ -20,6 +25,23 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
     {
         var proxy = Create<TInterface, RpcProxy<TInterface>>() as RpcProxy<TInterface>;
         proxy!._actor = actor;
+        
+        // Try to get direct agent reference (works for Local runtime)
+        try
+        {
+            var agent = actor.GetAgent();
+            if (agent is TInterface typedAgent)
+            {
+                proxy._directAgent = typedAgent;
+                proxy._isLocalRuntime = true;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            // Orleans/Remote runtime - GetAgent() throws, use RPC
+            proxy._isLocalRuntime = false;
+        }
+        
         return (proxy as TInterface)!;
     }
 
@@ -28,6 +50,18 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         if (targetMethod == null)
             throw new ArgumentNullException(nameof(targetMethod));
 
+        // Local runtime: Direct call (zero overhead)
+        if (_isLocalRuntime && _directAgent != null)
+        {
+            return targetMethod.Invoke(_directAgent, args);
+        }
+
+        // Remote runtime: RPC via Protobuf
+        return InvokeViaRpc(targetMethod, args);
+    }
+
+    private object? InvokeViaRpc(MethodInfo targetMethod, object?[]? args)
+    {
         // Build RPC request
         var request = new RpcRequest
         {
