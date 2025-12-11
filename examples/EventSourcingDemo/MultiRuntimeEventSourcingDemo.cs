@@ -276,36 +276,38 @@ public static class MultiRuntimeEventSourcingDemo
             var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
             Console.WriteLine("  ✓ Orleans Actor 创建成功");
             
-            // 通过 RPC 创建账户 (decimal 转成 double 传输)
-            Console.Write("  RPC CreateAccountAsync... ");
-            await actor.InvokeRpcAsync("CreateAccountAsync", "Orleans User", 2000m);
+            // ✨ 使用类型安全的 RPC 代理（优雅的接口调用方式）
+            var bankAgent = actor.As<IBankAccountAgent>();
+            Console.WriteLine("  ✓ 创建 RPC 代理: actor.As<IBankAccountAgent>()");
+            
+            // 通过接口调用（类型安全，与 Local Runtime 一致的 API）
+            Console.Write("  bankAgent.CreateAccountAsync(...)... ");
+            await bankAgent.CreateAccountAsync("Orleans User", 2000m);
             Console.WriteLine("✅");
             
-            // 通过 RPC 存款
-            Console.Write("  RPC DepositAsync(800)... ");
-            await actor.InvokeRpcAsync("DepositAsync", 800m, "Orleans Deposit");
+            Console.Write("  bankAgent.DepositAsync(800m, ...)... ");
+            await bankAgent.DepositAsync(800m, "Orleans Deposit");
             Console.WriteLine("✅");
             
-            // 通过 RPC 取款
-            Console.Write("  RPC WithdrawAsync(300)... ");
-            await actor.InvokeRpcAsync("WithdrawAsync", 300m, "Orleans Withdraw");
+            Console.Write("  bankAgent.WithdrawAsync(300m, ...)... ");
+            await bankAgent.WithdrawAsync(300m, "Orleans Withdraw");
             Console.WriteLine("✅");
             
-            // 通过 RPC 获取状态
-            Console.Write("  RPC GetBalanceAsync... ");
-            var balance = await actor.InvokeRpcAsync<double>("GetBalanceAsync");
+            // 通过接口获取状态
+            Console.Write("  bankAgent.GetBalanceAsync()... ");
+            var balance = await bankAgent.GetBalanceAsync();
             Console.WriteLine($"✅ 返回: ${balance:F2}");
             
-            Console.Write("  RPC GetAccountHolderAsync... ");
-            var holder = await actor.InvokeRpcAsync<string>("GetAccountHolderAsync");
+            Console.Write("  bankAgent.GetAccountHolderAsync()... ");
+            var holder = await bankAgent.GetAccountHolderAsync();
             Console.WriteLine($"✅ 返回: {holder}");
             
-            Console.Write("  RPC GetTransactionCountAsync... ");
-            var txCount = await actor.InvokeRpcAsync<int>("GetTransactionCountAsync");
+            Console.Write("  bankAgent.GetTransactionCountAsync()... ");
+            var txCount = await bankAgent.GetTransactionCountAsync();
             Console.WriteLine($"✅ 返回: {txCount}");
             
-            Console.Write("  RPC GetAccountSummaryAsync... ");
-            var summary = await actor.InvokeRpcAsync<Events.AccountSummary>("GetAccountSummaryAsync");
+            Console.Write("  bankAgent.GetAccountSummaryAsync()... ");
+            var summary = await bankAgent.GetAccountSummaryAsync();
             Console.WriteLine("✅");
             Console.WriteLine($"     - Holder: {summary.AccountHolder}");
             Console.WriteLine($"     - Balance: ${summary.Balance:F2}");
