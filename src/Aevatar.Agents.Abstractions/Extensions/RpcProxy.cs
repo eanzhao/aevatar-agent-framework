@@ -174,8 +174,10 @@ internal class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
         {
             var resultType = returnType.GetGenericArguments()[0];
-            return GetType()
-                .GetMethod(nameof(InvokeAsync), BindingFlags.NonPublic | BindingFlags.Instance)!
+            var invokeMethod = typeof(RpcProxy<TInterface>)
+                .GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                .First(m => m.Name == nameof(InvokeAsync) && m.IsGenericMethod);
+            return invokeMethod
                 .MakeGenericMethod(resultType)
                 .Invoke(this, [request]);
         }
