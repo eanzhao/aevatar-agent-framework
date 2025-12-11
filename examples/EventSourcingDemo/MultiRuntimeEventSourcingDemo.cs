@@ -186,8 +186,9 @@ public static class MultiRuntimeEventSourcingDemo
             
             try
             {
-                var recoveredBalance = await newActor.InvokeRpcAsync<double>("GetBalanceAsync");
-                var recoveredSummary = await newActor.InvokeRpcAsync<Events.AccountSummary>("GetAccountSummaryAsync");
+                var bankAgent = newActor.As<IBankAccountAgent>();
+                var recoveredBalance = await bankAgent.GetBalanceAsync();
+                var recoveredSummary = await bankAgent.GetAccountSummaryAsync();
                 
                 Console.WriteLine($"  ✅ 恢复后 RPC GetBalanceAsync: ${recoveredBalance:F2}");
                 Console.WriteLine($"  ✅ 恢复后 RPC GetAccountSummaryAsync:");

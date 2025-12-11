@@ -6,31 +6,120 @@ using Google.Protobuf;
 namespace Aevatar.Agents.Abstractions.Extensions;
 
 /// <summary>
-/// Dynamic proxy for type-safe RPC calls through interface.
-/// Automatically detects runtime type:
-/// - Local Runtime: Direct method invocation (zero overhead)
-/// - Orleans/Remote Runtime: RPC via Protobuf serialization
+/// RPC extensions for IGAgentActor - unified API for both type-safe and dynamic calls
 /// </summary>
-/// <typeparam name="TInterface">The agent interface type</typeparam>
-public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
+public static class RpcExtensions
 {
-    private IGAgentActor _actor = null!;
-    private TInterface? _directAgent;  // For local runtime direct calls
-    private bool _isLocalRuntime;
+    #region Type-Safe API (Recommended)
 
     /// <summary>
-    /// Create a proxy instance for the given actor
+    /// Create a type-safe proxy for calling agent methods via interface.
+    /// Automatically selects optimal execution path:
+    /// - Local Runtime: Direct method call (zero overhead)
+    /// - Remote Runtime: RPC via Protobuf serialization
     /// </summary>
+    /// <example>
+    /// var bankAgent = actor.As&lt;IBankAccountAgent&gt;();
+    /// await bankAgent.CreateAccountAsync("User", 1000m);
+    /// </example>
+    public static TInterface As<TInterface>(this IGAgentActor actor) where TInterface : class
+    {
+        if (!typeof(TInterface).IsInterface)
+            throw new ArgumentException($"{typeof(TInterface).Name} must be an interface");
+
+        return RpcProxy<TInterface>.Create(actor);
+    }
+
+    #endregion
+
+    #region Dynamic API (For special cases)
+
+    /// <summary>
+    /// Invoke RPC method by name with typed result (use As&lt;T&gt;() when possible)
+    /// </summary>
+    public static async Task<TResult> InvokeAsync<TResult>(
+        this IGAgentActor actor,
+        string methodName,
+        params object?[] args)
+    {
+        var response = await InvokeRpcCoreAsync(actor, methodName, args);
+        return ProtobufPacker.Unpack<TResult>(response.Result);
+    }
+
+    /// <summary>
+    /// Invoke RPC method by name without return value (use As&lt;T&gt;() when possible)
+    /// </summary>
+    public static async Task InvokeAsync(
+        this IGAgentActor actor,
+        string methodName,
+        params object?[] args)
+    {
+        await InvokeRpcCoreAsync(actor, methodName, args);
+    }
+
+    private static async Task<RpcResponse> InvokeRpcCoreAsync(
+        IGAgentActor actor,
+        string methodName,
+        object?[] args)
+    {
+        var request = new RpcRequest
+        {
+            MethodName = methodName,
+            CorrelationId = Guid.NewGuid().ToString()
+        };
+
+        foreach (var arg in args)
+            request.Args.Add(ProtobufPacker.Pack(arg));
+
+        var responseBytes = await actor.InvokeRpcAsync(request.ToByteArray());
+        var response = RpcResponse.Parser.ParseFrom(responseBytes);
+
+        if (!response.Success)
+        {
+            throw new InvalidOperationException(
+                $"RPC call '{methodName}' failed: {response.Error?.Message ?? "Unknown error"}");
+        }
+
+        return response;
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// Dynamic proxy for type-safe RPC calls through interface.
+/// Auto-detects runtime and method source:
+/// - Local Runtime: Direct method call (zero overhead)
+/// - Remote Runtime + IGAgentActor method: Delegate to actor (no RPC serialization)
+/// - Remote Runtime + Business method: RPC via Protobuf
+/// </summary>
+internal class RpcProxy<TInterface> : DispatchProxy where TInterface : class
+{
+    // Static cache: IGAgentActor methods (initialized once per AppDomain)
+    private static readonly Dictionary<string, MethodInfo> ActorMethods =
+        typeof(IGAgentActor)
+            .GetInterfaces()
+            .Prepend(typeof(IGAgentActor))
+            .SelectMany(i => i.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+            .DistinctBy(m => GetMethodKey(m))
+            .ToDictionary(m => GetMethodKey(m), m => m);
+
+    private static string GetMethodKey(MethodInfo m) =>
+        $"{m.Name}({string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName))})";
+
+    private IGAgentActor _actor = null!;
+    private TInterface? _directAgent;
+    private bool _isLocalRuntime;
+
     public static TInterface Create(IGAgentActor actor)
     {
         var proxy = Create<TInterface, RpcProxy<TInterface>>() as RpcProxy<TInterface>;
         proxy!._actor = actor;
-        
-        // Try to get direct agent reference (works for Local runtime)
+
+        // Try direct agent reference (Local runtime)
         try
         {
-            var agent = actor.GetAgent();
-            if (agent is TInterface typedAgent)
+            if (actor.GetAgent() is TInterface typedAgent)
             {
                 proxy._directAgent = typedAgent;
                 proxy._isLocalRuntime = true;
@@ -38,10 +127,10 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         }
         catch (NotSupportedException)
         {
-            // Orleans/Remote runtime - GetAgent() throws, use RPC
+            // Remote runtime - use RPC or delegate
             proxy._isLocalRuntime = false;
         }
-        
+
         return (proxy as TInterface)!;
     }
 
@@ -50,49 +139,49 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         if (targetMethod == null)
             throw new ArgumentNullException(nameof(targetMethod));
 
-        // Local runtime: Direct call (zero overhead)
+        // 1. Local runtime: Direct call to Agent (zero overhead)
         if (_isLocalRuntime && _directAgent != null)
-        {
             return targetMethod.Invoke(_directAgent, args);
+
+        // 2. Remote runtime: Check if IGAgentActor has this method
+        var methodKey = GetMethodKey(targetMethod);
+        if (ActorMethods.TryGetValue(methodKey, out var actorMethod))
+        {
+            // Delegate to actor directly (no RPC serialization)
+            return actorMethod.Invoke(_actor, args);
         }
 
-        // Remote runtime: RPC via Protobuf
+        // 3. Business method: RPC via Protobuf
         return InvokeViaRpc(targetMethod, args);
     }
 
     private object? InvokeViaRpc(MethodInfo targetMethod, object?[]? args)
     {
-        // Build RPC request
         var request = new RpcRequest
         {
             MethodName = targetMethod.Name,
             CorrelationId = Guid.NewGuid().ToString()
         };
 
-        foreach (var arg in args ?? Array.Empty<object?>())
-        {
+        foreach (var arg in args ?? [])
             request.Args.Add(ProtobufPacker.Pack(arg));
-        }
 
-        // Get return type
         var returnType = targetMethod.ReturnType;
-        
-        // Handle Task and Task<T>
+
         if (returnType == typeof(Task))
-        {
             return InvokeVoidAsync(request);
-        }
-        
+
         if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
         {
             var resultType = returnType.GetGenericArguments()[0];
-            var method = typeof(RpcProxy<TInterface>)
+            return GetType()
                 .GetMethod(nameof(InvokeAsync), BindingFlags.NonPublic | BindingFlags.Instance)!
-                .MakeGenericMethod(resultType);
-            return method.Invoke(this, [request]);
+                .MakeGenericMethod(resultType)
+                .Invoke(this, [request]);
         }
 
-        throw new NotSupportedException($"Return type {returnType} is not supported. Only Task and Task<T> are allowed.");
+        throw new NotSupportedException(
+            $"Return type '{returnType.Name}' not supported. Use Task or Task<T>.");
     }
 
     private async Task InvokeVoidAsync(RpcRequest request)
@@ -101,10 +190,8 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         var response = RpcResponse.Parser.ParseFrom(responseBytes);
 
         if (!response.Success)
-        {
             throw new InvalidOperationException(
-                $"RPC call failed: {response.Error?.Message ?? "Unknown error"}");
-        }
+                $"RPC call '{request.MethodName}' failed: {response.Error?.Message ?? "Unknown error"}");
     }
 
     private async Task<TResult> InvokeAsync<TResult>(RpcRequest request)
@@ -113,39 +200,10 @@ public class RpcProxy<TInterface> : DispatchProxy where TInterface : class
         var response = RpcResponse.Parser.ParseFrom(responseBytes);
 
         if (!response.Success)
-        {
             throw new InvalidOperationException(
-                $"RPC call failed: {response.Error?.Message ?? "Unknown error"}");
-        }
+                $"RPC call '{request.MethodName}' failed: {response.Error?.Message ?? "Unknown error"}");
 
         return ProtobufPacker.Unpack<TResult>(response.Result);
-    }
-}
-
-/// <summary>
-/// Extension methods to create RPC proxy from IGAgentActor
-/// </summary>
-public static class RpcProxyExtensions
-{
-    /// <summary>
-    /// Create a type-safe proxy for RPC calls through the specified interface
-    /// </summary>
-    /// <typeparam name="TInterface">The agent interface (must inherit from IGAgent)</typeparam>
-    /// <param name="actor">The actor to proxy</param>
-    /// <returns>A proxy implementing TInterface that forwards calls via RPC</returns>
-    /// <example>
-    /// var bankAgent = actor.As&lt;IBankAccountAgent&gt;();
-    /// await bankAgent.CreateAccountAsync("User", 1000m);
-    /// var balance = await bankAgent.GetBalanceAsync();
-    /// </example>
-    public static TInterface As<TInterface>(this IGAgentActor actor) where TInterface : class
-    {
-        if (!typeof(TInterface).IsInterface)
-        {
-            throw new ArgumentException($"{typeof(TInterface).Name} must be an interface");
-        }
-
-        return RpcProxy<TInterface>.Create(actor);
     }
 }
 
