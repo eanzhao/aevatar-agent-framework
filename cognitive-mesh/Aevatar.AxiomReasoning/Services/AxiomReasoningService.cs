@@ -329,6 +329,11 @@ public sealed class AxiomReasoningService
             MaxLlmCalls = session.MaxLlmCallsBudget,
             MaxTokens = session.MaxTokensBudget,
             MaxDuration = TimeSpan.FromMinutes(Math.Clamp(session.MaxDurationMinutes, 1, 24 * 60)),
+            Context = new Dictionary<string, string>
+            {
+                // Propagate workflow behavior flags to CognitiveStrategy initial variables
+                ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false"
+            },
 
             // Theorem discovery loop: coordinator proposes -> workers prove -> vote judge -> iterate
             CognitiveWorkflow = "axiom_theorem_loop",

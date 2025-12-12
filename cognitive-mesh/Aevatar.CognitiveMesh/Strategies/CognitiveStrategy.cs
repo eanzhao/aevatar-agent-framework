@@ -352,6 +352,15 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             {
                 initialVariables["max_depth"] = options.CognitiveMaxDepth.Value;
             }
+
+            // Extra runtime flags (from service Context)
+            // - Keep it explicit: only propagate known flags to avoid leaking arbitrary user data into DSL variables.
+            if (options.Context != null &&
+                options.Context.TryGetValue("continue_on_failure", out var cof) &&
+                bool.TryParse(cof, out var continueOnFailure))
+            {
+                initialVariables["continue_on_failure"] = continueOnFailure;
+            }
             
             // 直接调用 Coordinator 启动工作流（不通过事件流）
             _ = coordinator.StartWorkflowAsync(workflowName, initialVariables);
