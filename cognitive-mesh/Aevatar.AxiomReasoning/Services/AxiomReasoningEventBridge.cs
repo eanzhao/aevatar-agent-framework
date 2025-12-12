@@ -215,10 +215,69 @@ public sealed class AxiomReasoningEventBridge
         if (!(sid.EndsWith("update_state", StringComparison.OrdinalIgnoreCase) || sid.Contains(".update_state", StringComparison.OrdinalIgnoreCase)))
             return false;
 
+        static IEnumerable<string> EnumerateJsonCandidates(string raw)
+        {
+            var trimmed = raw.Trim();
+            if (trimmed.Length == 0) yield break;
+
+            // 1) Raw text
+            yield return trimmed;
+
+            // 2) Strip markdown code fences: ```json ... ```
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                var firstNl = trimmed.IndexOf('\n');
+                if (firstNl >= 0 && firstNl + 1 < trimmed.Length)
+                {
+                    var inner = trimmed[(firstNl + 1)..];
+                    var endFence = inner.LastIndexOf("```", StringComparison.Ordinal);
+                    if (endFence >= 0)
+                    {
+                        var body = inner[..endFence].Trim();
+                        if (body.Length > 0) yield return body;
+                    }
+                }
+            }
+
+            // 3) Best-effort: take first {...} block (handles accidental pre/post text)
+            var firstBrace = trimmed.IndexOf('{');
+            var lastBrace = trimmed.LastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace)
+            {
+                var obj = trimmed[firstBrace..(lastBrace + 1)].Trim();
+                if (obj.Length > 0) yield return obj;
+            }
+        }
+
+        static bool TryParseJsonObject(string raw, out JsonElement root)
+        {
+            foreach (var candidate in EnumerateJsonCandidates(raw))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(candidate);
+                    root = doc.RootElement.Clone(); // detach from doc lifetime
+                    return root.ValueKind == JsonValueKind.Object;
+                }
+                catch
+                {
+                    // ignore and try next candidate
+                }
+            }
+            root = default;
+            return false;
+        }
+
         try
         {
-            using var doc = JsonDocument.Parse(assistantResponse);
-            var root = doc.RootElement;
+            if (!TryParseJsonObject(assistantResponse, out var root))
+                return false;
+
+            // Some workflows may wrap output as { "state": { ... } }.
+            if (root.TryGetProperty("state", out var wrappedState) && wrappedState.ValueKind == JsonValueKind.Object)
+            {
+                root = wrappedState;
+            }
 
             var axioms = new List<string>();
             if (root.TryGetProperty("axioms", out var ax) && ax.ValueKind == JsonValueKind.Array)
@@ -237,6 +296,7 @@ public sealed class AxiomReasoningEventBridge
                     if (t.ValueKind != JsonValueKind.Object) continue;
                     var id = t.TryGetProperty("id", out var tid) && tid.ValueKind == JsonValueKind.String ? tid.GetString() ?? "" : "";
                     var stmt = t.TryGetProperty("statement", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() ?? "" : "";
+                    var proof = t.TryGetProperty("proof", out var pf) && pf.ValueKind == JsonValueKind.String ? pf.GetString() ?? "" : "";
                     var deps = new List<string>();
                     if (t.TryGetProperty("depends_on", out var dp) && dp.ValueKind == JsonValueKind.Array)
                     {
@@ -245,7 +305,14 @@ public sealed class AxiomReasoningEventBridge
                             if (d.ValueKind == JsonValueKind.String) deps.Add(d.GetString() ?? "");
                         }
                     }
-                    theorems.Add(new TheoremNode { Id = id, Statement = stmt, DependsOn = deps });
+                    else if (t.TryGetProperty("dependsOn", out var dp2) && dp2.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var d in dp2.EnumerateArray())
+                        {
+                            if (d.ValueKind == JsonValueKind.String) deps.Add(d.GetString() ?? "");
+                        }
+                    }
+                    theorems.Add(new TheoremNode { Id = id, Statement = stmt, Proof = proof, DependsOn = deps });
                 }
             }
 

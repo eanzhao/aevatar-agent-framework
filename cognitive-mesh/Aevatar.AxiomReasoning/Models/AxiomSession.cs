@@ -154,6 +154,7 @@ public record TheoremNode
 {
     public string Id { get; init; } = "";
     public string Statement { get; init; } = "";
+    public string Proof { get; init; } = "";
     public List<string> DependsOn { get; init; } = [];
 }
 

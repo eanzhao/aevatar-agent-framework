@@ -98,6 +98,10 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;");
 }
 
+function escapeAttr(str) {
+  return escapeHtml(str).replaceAll('"', "&quot;");
+}
+
 function stepParentId(stepId) {
   if (!stepId) return null;
   const idx = stepId.indexOf(".gen[");
@@ -117,6 +121,8 @@ function ensureSessionCache(sessionId) {
       // PaperReview-like worker cache (stable DOM + history)
       workers: Object.create(null), // workerId -> { ... }
       graph: { iteration: 0, axioms: [], theorems: [] },
+      graphIndex: { axiomsById: Object.create(null), theoremsById: Object.create(null) },
+      graphSelectedId: null,
       lastVoteStepId: null,
       _stepsDirty: false,
     };
@@ -730,7 +736,24 @@ function applyEvent(sessionId, evt) {
       theorems: Array.isArray(evt.theorems) ? evt.theorems : [],
     };
     $("graph-iter").textContent = String(cache.graph.iteration || 0);
-    renderGraph(cache.graph);
+    // Build index for inspector (axiomsById / theoremsById)
+    const axiomsById = Object.create(null);
+    const axId = (line, idx) => {
+      const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
+      return m ? m[1] : `A${idx + 1}`;
+    };
+    for (let i = 0; i < cache.graph.axioms.length; i++) {
+      const line = cache.graph.axioms[i];
+      axiomsById[axId(line, i)] = line;
+    }
+    const theoremsById = Object.create(null);
+    for (const t of cache.graph.theorems) {
+      if (t && t.id) theoremsById[t.id] = t;
+    }
+    cache.graphIndex = { axiomsById, theoremsById };
+
+    renderGraph(cache.graph, cache.graphSelectedId);
+    renderGraphInspector(cache);
     return;
   }
 
@@ -762,7 +785,7 @@ function applyEvent(sessionId, evt) {
   }
 }
 
-function renderGraph(graph) {
+function renderGraph(graph, selectedId) {
   const viewport = $("graph-viewport");
   if (!viewport) return;
 
@@ -770,7 +793,8 @@ function renderGraph(graph) {
   const theorems = Array.isArray(graph.theorems) ? graph.theorems : [];
 
   function axId(line, idx) {
-    const m = String(line || "").match(/^([A-Za-z]\\w*)\\s*:/);
+    // NOTE: Regex literal must use single backslashes (\w, \s). Double backslashes would match literal "\w".
+    const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
     return m ? m[1] : `A${idx + 1}`;
   }
 
@@ -781,6 +805,7 @@ function renderGraph(graph) {
     label: t.statement || t.id || "",
     kind: "theorem",
     dependsOn: t.dependsOn || t.depends_on || [],
+    proof: t.proof || "",
   });
 
   const byId = Object.create(null);
@@ -830,8 +855,9 @@ function renderGraph(graph) {
     const fill = n.kind === "axiom" ? "#eff6ff" : "#f0fdf4";
     const stroke = n.kind === "axiom" ? "#bfdbfe" : "#bbf7d0";
     const title = escapeHtml(String(n.label || "").replace(/\\s+/g, " ").slice(0, 72));
+    const sel = selectedId && selectedId === n.id;
     parts.push(`
-      <g>
+      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}">
         <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="220" height="54" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect>
         <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
         <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
@@ -839,6 +865,66 @@ function renderGraph(graph) {
     `);
   }
   viewport.innerHTML = parts.join("");
+}
+
+function renderGraphInspector(cache) {
+  const host = $("graph-inspector");
+  if (!host) return;
+
+  const graph = cache?.graph;
+  const axioms = Array.isArray(graph?.axioms) ? graph.axioms : [];
+  const theorems = Array.isArray(graph?.theorems) ? graph.theorems : [];
+
+  if (!axioms.length && !theorems.length) {
+    host.classList.add("empty-state");
+    host.textContent = "Waiting for graph...";
+    return;
+  }
+
+  const selectedId = cache.graphSelectedId;
+  if (!selectedId) {
+    host.classList.add("empty-state");
+    host.textContent = "Click a node to inspect details.";
+    return;
+  }
+
+  host.classList.remove("empty-state");
+  const idx = cache.graphIndex || { axiomsById: {}, theoremsById: {} };
+  const ax = idx.axiomsById ? idx.axiomsById[selectedId] : null;
+  const th = idx.theoremsById ? idx.theoremsById[selectedId] : null;
+
+  if (ax) {
+    host.innerHTML = `
+      <div class="title">Axiom · ${escapeHtml(selectedId)}</div>
+      <div class="kv"><div class="pill">kind=axiom</div></div>
+      <div class="mono">${escapeHtml(ax)}</div>
+    `;
+    return;
+  }
+
+  if (th) {
+    const deps = Array.isArray(th.dependsOn) ? th.dependsOn : (Array.isArray(th.depends_on) ? th.depends_on : []);
+    const depPills = deps.map((d) => `<div class="pill">${escapeHtml(String(d))}</div>`).join("");
+    const proof = th.proof || "";
+    host.innerHTML = `
+      <div class="title">Theorem · ${escapeHtml(th.id || selectedId)}</div>
+      <div class="kv">
+        <div class="pill">kind=theorem</div>
+        <div class="pill">deps=${deps.length}</div>
+      </div>
+      <div class="mono">${escapeHtml(th.statement || "")}</div>
+      <div style="margin-top:10px; font-weight:800; color: var(--text);">Depends on</div>
+      <div class="kv" style="margin-top:6px;">${depPills || '<div class="empty-state">none</div>'}</div>
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer; font-weight:800; color: var(--text-secondary);">Proof</summary>
+        <div class="mono" style="margin-top:8px;">${escapeHtml(proof || "(no proof in graph event)")}</div>
+      </details>
+    `;
+    return;
+  }
+
+  host.classList.add("empty-state");
+  host.textContent = "Selected node not found in current graph.";
 }
 
 function connect(sessionId) {
@@ -876,8 +962,10 @@ function selectSession(sessionId) {
   state.current = sessionId;
   renderSessions();
   setDownloads(sessionId, false);
-  ensureSessionCache(sessionId);
+  const cache = ensureSessionCache(sessionId);
   connect(sessionId);
+  renderGraph(cache.graph, cache.graphSelectedId);
+  renderGraphInspector(cache);
 
   // Allow stop/run for current
   $("btn-stop").disabled = false;
@@ -1010,6 +1098,25 @@ window.addEventListener("load", async () => {
     const wid = card.dataset.workerId;
     if (wid) openWorkerModal(wid);
   });
+
+  // Graph: click nodes to inspect details (right inspector panel)
+  const svg = $("graph-svg");
+  if (svg) {
+    svg.addEventListener("click", (e) => {
+      if (!state.current) return;
+      const t = e.target;
+      if (!t || typeof t.closest !== "function") return;
+      const node = t.closest(".graph-node");
+      if (!node) return;
+      const id = node.dataset.nodeId;
+      if (!id) return;
+
+      const cache = ensureSessionCache(state.current);
+      cache.graphSelectedId = id;
+      renderGraph(cache.graph, cache.graphSelectedId);
+      renderGraphInspector(cache);
+    });
+  }
 
   await refreshSessions(true);
 });

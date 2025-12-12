@@ -164,10 +164,15 @@
           </div>
           <div class="stat-chip">iter=<span id="graph-iter">0</span></div>
         </div>
-        <div id="graph-canvas" class="graph-canvas">
-          <svg id="graph-svg" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
-            <g id="graph-viewport"></g>
-          </svg>
+        <div class="graph-wrap">
+          <div id="graph-canvas" class="graph-canvas">
+            <svg id="graph-svg" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
+              <g id="graph-viewport"></g>
+            </svg>
+          </div>
+          <div id="graph-inspector" class="graph-inspector empty-state">
+            Click a node to inspect details.
+          </div>
         </div>
       </section>
 
