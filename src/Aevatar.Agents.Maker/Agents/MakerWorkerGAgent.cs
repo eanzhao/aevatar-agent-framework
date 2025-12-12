@@ -175,7 +175,7 @@ public class MakerWorkerGAgent : AIGAgentBase<MakerWorkerState, MakerWorkerConfi
         }
 
         var currentActivePrefix = _activePrefix;
-        if (!string.IsNullOrEmpty(currentActivePrefix) &&
+        if (!string.IsNullOrEmpty(currentActivePrefix) && 
             !string.IsNullOrEmpty(requestPrefix) &&
             !string.Equals(requestPrefix, currentActivePrefix, StringComparison.Ordinal))
         {

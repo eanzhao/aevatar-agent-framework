@@ -3,434 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paper Review - MAKER System</title>
+    <title>Paper Review · Cognitive Mesh</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="app">
-        <!-- ═══════════════════════════════════════════════════════════
-             HEADER
-             ═══════════════════════════════════════════════════════════ -->
-        <header class="header">
-            <div class="header-brand">
-                <span class="brand-icon">📝</span>
-                <div class="brand-text">
-                    <span class="brand-title">PAPER REVIEW</span>
-                    <span class="brand-sub">MAKER System · Multi-Agent Consensus</span>
-                </div>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-icon">PR</div>
+            <div>
+                <div class="brand-title">Paper Review</div>
+                <div class="brand-sub">Cognitive Mesh · MAKER v2</div>
             </div>
-            <div class="header-actions">
-                <button class="btn-new" onclick="showUploadModal()">
-                    <span>+</span> NEW REVIEW
-                </button>
-            </div>
+        </div>
+        <div class="actions">
+            <input id="file-input" type="file" accept=".pdf,.md,.txt" hidden>
+            <button id="btn-stop" class="btn danger">Stop</button>
+        </div>
         </header>
 
-        <!-- ═══════════════════════════════════════════════════════════
-             MAIN CONTENT
-             ═══════════════════════════════════════════════════════════ -->
-        <main class="main">
-            <!-- Left: Session List -->
+    <div class="layout">
             <aside class="sidebar">
-                <div class="sidebar-header">
-                    <span class="sidebar-title">📋 SESSIONS</span>
-                    <span id="session-count" class="session-count">0</span>
+            <!-- Sessions -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">Sessions</div>
+                        <div class="panel-subtitle">Click to switch</div>
                 </div>
-                <div id="session-list" class="session-list">
-                    <div class="empty-hint">No sessions yet</div>
+                    <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
                 </div>
-            </aside>
+                <div id="session-list" class="session-list empty-state">No sessions</div>
+            </div>
 
-            <!-- Center: MAKER Flow Visualization -->
-            <section class="flow-panel">
-                <!-- Empty State -->
-                <div id="empty-state" class="empty-state">
-                    <div class="empty-icon">🤖</div>
-                    <h2>MAKER Review System</h2>
-                    <p>Multi-Agent Knowledge-Enhanced Review with Voting Consensus</p>
-                    <div class="maker-features">
-                        <div class="feature">
-                            <span class="feature-icon">🔀</span>
-                            <span class="feature-text">Task Decomposition</span>
+            <!-- New Review -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">New Review</div>
+                        <div class="panel-subtitle">Auto-start after upload</div>
                         </div>
-                        <div class="feature">
-                            <span class="feature-icon">👥</span>
-                            <span class="feature-text">Parallel Workers</span>
-                        </div>
-                        <div class="feature">
-                            <span class="feature-icon">🗳️</span>
-                            <span class="feature-text">Voting Consensus</span>
-                        </div>
-                        <div class="feature">
-                            <span class="feature-icon">🔄</span>
-                            <span class="feature-text">Result Composition</span>
-                        </div>
-                    </div>
-                    <button class="btn-primary" onclick="showUploadModal()">
-                        Start New Review
-                    </button>
                 </div>
-
-                <!-- Active Review Dashboard -->
-                <div id="dashboard" class="dashboard hidden">
-                    <!-- Paper Info Bar -->
-                    <div class="paper-bar">
-                        <div class="paper-info">
-                            <h2 id="paper-title">Paper Title</h2>
-                            <div class="paper-meta">
-                                <span id="paper-authors">Authors</span>
-                                <span class="meta-sep">·</span>
-                                <span id="review-type">Detailed Review</span>
-                                <span class="meta-sep">·</span>
-                                <span id="venue-type">AI Conference</span>
+                <div class="form">
+                    <label class="field">
+                        <span>Title</span>
+                        <input id="input-title" type="text" placeholder="Optional, defaults to filename">
+                    </label>
+                    <label class="field">
+                        <span>Authors</span>
+                        <input id="input-authors" type="text" placeholder="Optional">
+                    </label>
+                    <label class="field">
+                        <span>Review Level</span>
+                        <select id="input-review-type">
+                            <option value="Standard">Standard (K=2, N=3)</option>
+                            <option value="Quick">Quick (K=1, N=1)</option>
+                            <option value="Detailed">Detailed (K=3, N=5)</option>
+                            <option value="Rigorous">Rigorous (K=4, N=7)</option>
+                            <option value="Critical">Critical (K=5, N=9)</option>
+                        </select>
+                    </label>
+                    <button id="btn-upload-create" class="btn block">Select File & Start</button>
+                    <div class="hint">Supports PDF / Markdown / TXT</div>
+                </div>
                             </div>
-                        </div>
-                    <div class="paper-actions">
-                        <span id="status-badge" class="status-badge pending">PENDING</span>
-                        <button id="btn-start" class="btn-action" onclick="startReview()">
-                            ⚡ START
-                        </button>
-                        <button id="btn-restart" class="btn-action btn-secondary hidden" onclick="showRestartModal()">
-                            🔄 RESTART
-                        </button>
+        </aside>
+
+        <main class="content">
+            <!-- Progress -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">Live Progress</div>
+                        <div class="panel-subtitle" id="status-text">Waiting to start</div>
                     </div>
-                    </div>
-
-                    <!-- Stats Bar -->
-                    <div class="stats-bar">
-                        <div class="stat">
-                            <span class="stat-label">Phase</span>
-                            <span id="stat-phase" class="stat-value">-</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">Progress</span>
-                            <span id="stat-progress" class="stat-value">0%</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">Workers</span>
-                            <span id="stat-workers" class="stat-value">0</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">LLM Calls</span>
-                            <span id="stat-calls" class="stat-value">0</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-label">Tokens</span>
-                            <span id="stat-tokens" class="stat-value">0</span>
-                        </div>
-                    </div>
-
-                    <!-- Progress Bar -->
-                    <div class="progress-bar-container">
-                        <div id="progress-bar" class="progress-bar"></div>
-                    </div>
-
-                    <!-- MAKER Flow Visualization -->
-                    <div class="flow-content">
-                        <!-- MAKER Config Bar -->
-                        <div class="maker-config-bar">
-                            <div class="config-item">
-                                <span class="config-label">K</span>
-                                <span id="config-k" class="config-value">2</span>
-                            </div>
-                            <div class="config-item">
-                                <span class="config-label">N</span>
-                                <span id="config-n" class="config-value">3</span>
-                            </div>
-                            <div class="config-item">
-                                <span class="config-label">Type</span>
-                                <span id="config-type" class="config-value">Standard</span>
-                            </div>
-                            <div class="config-formula">First-to-ahead-by-K voting · N = 2K - 1</div>
-                        </div>
-
-                        <!-- Two-Phase Architecture Pipeline -->
-                        <div class="phase-pipeline">
-                            <div id="phase-submit" class="phase-node done">
-                                <span class="phase-icon">📤</span>
-                                <span class="phase-name">Submit</span>
-                            </div>
-                            <div class="phase-connector"></div>
-                            <div id="phase-decompose" class="phase-node">
-                                <span class="phase-icon">🔬</span>
-                                <span class="phase-name">Analyze</span>
-                                <span class="phase-desc">Paper → Dimensions</span>
-                            </div>
-                            <div class="phase-connector"></div>
-                            <div id="phase-execute" class="phase-node">
-                                <span class="phase-icon">⚡</span>
-                                <span class="phase-name">Review</span>
-                                <span class="phase-desc">Per-Dimension MAKER</span>
-                            </div>
-                            <div class="phase-connector"></div>
-                            <div id="phase-vote" class="phase-node">
-                                <span class="phase-icon">🗳️</span>
-                                <span class="phase-name">Vote</span>
-                                <span class="phase-desc">Consensus K={k}</span>
-                            </div>
-                            <div class="phase-connector"></div>
-                            <div id="phase-compose" class="phase-node">
-                                <span class="phase-icon">🔄</span>
-                                <span class="phase-name">Compose</span>
-                            </div>
-                            <div class="phase-connector"></div>
-                            <div id="phase-complete" class="phase-node">
-                                <span class="phase-icon">✅</span>
-                                <span class="phase-name">Complete</span>
-                            </div>
-                        </div>
-
-                        <!-- Stage Log (中间事件日志) -->
-                        <div class="stage-log-section">
-                            <div class="section-header">
-                                <span class="section-title">📋 STAGE LOG</span>
-                                <span id="stage-log-count" class="section-status">0 events</span>
-                            </div>
-                            <div id="stage-log" class="stage-log">
-                                <div class="stage-log-empty">Stage events will appear here</div>
-                            </div>
-                        </div>
-
-                        <!-- Workers Grid -->
-                        <div class="workers-section">
-                            <div class="section-header">
-                                <span class="section-title">👥 WORKERS</span>
-                                <span id="workers-status" class="section-status">Waiting...</span>
-                            </div>
-                            <div id="workers-grid" class="workers-grid">
-                                <!-- Workers will be rendered here -->
-                            </div>
-                        </div>
-
-                        <!-- Voting Section -->
-                        <div class="voting-section">
-                            <div class="section-header">
-                                <span class="section-title">🗳️ VOTING CONSENSUS</span>
-                                <span id="voting-status" class="section-status">-</span>
-                            </div>
-                            <div id="voting-content" class="voting-content">
-                                <div class="voting-placeholder">Voting will appear here when workers complete</div>
-                            </div>
-                        </div>
+                    <div class="stats-row">
+                        <div class="stat-chip">Phase: <span id="stat-phase">-</span></div>
+                        <div class="stat-chip">Tokens: <span id="stat-tokens">0</span></div>
+                        <div class="stat-chip">LLM: <span id="stat-llm">0</span></div>
                     </div>
                 </div>
+                <div class="progress-bar">
+                    <div id="progress-bar-inner"></div>
+                </div>
+                <div class="pipeline" id="pipeline-steps"></div>
             </section>
 
-            <!-- Right: Event Log & Result -->
-            <aside class="detail-panel">
-                <div class="detail-tabs">
-                    <button class="tab-btn active" data-tab="timeline" onclick="switchDetailTab('timeline')">📋 Timeline</button>
-                    <button class="tab-btn" data-tab="result" onclick="switchDetailTab('result')">📝 Result</button>
-                    <button class="tab-btn" data-tab="llm" onclick="switchDetailTab('llm')">🤖 LLM Calls</button>
+            <!-- Voting & Result -->
+            <div class="grid-2">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Voting Consensus</div>
+                            <div class="panel-subtitle">First-to-ahead-by-K</div>
+                        </div>
+                        <div class="stat-chip">K=<span id="vote-k">-</span></div>
+                    </div>
+                    <div id="voting-body" class="voting-body empty-state">Waiting for voting events</div>
                 </div>
 
-                <!-- Timeline Tab -->
-                <div id="tab-timeline" class="tab-content active">
-                    <div id="timeline" class="timeline">
-                        <div class="timeline-empty">Events will appear here</div>
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Result</div>
+                            <div class="panel-subtitle">Available after completion</div>
+                        </div>
                     </div>
-                </div>
+                    <div id="result-body" class="result-body empty-state">Result will appear here</div>
+        </div>
+    </div>
 
-                <!-- Result Tab -->
-                <div id="tab-result" class="tab-content">
-                    <div id="result-header" class="result-header hidden">
-                        <button class="btn-open-result" onclick="openResultPage()">
-                            📖 Open Full Result (with TOC)
-                        </button>
+            <!-- Workers -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">Workers</div>
+                        <div class="panel-subtitle">Click card for full history</div>
                     </div>
-                    <div id="result-content" class="result-content" onclick="openResultPage()">
-                        <div class="result-placeholder">Review result will appear here after completion</div>
-                    </div>
+                    <div class="stat-chip"><span id="worker-count">0</span> workers</div>
                 </div>
+                <div id="worker-grid" class="worker-grid empty-state">Waiting for workers</div>
+            </section>
+            
+            <!-- Atomic Points -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">Atomic Points</div>
+                        <div class="panel-subtitle">Mind-map of arguments · expand recursively</div>
+                    </div>
+                    <div class="stat-chip"><span id="points-count">0</span> points</div>
+                </div>
+                <div id="points-body" class="points-body empty-state">Waiting for decomposition</div>
+            </section>
 
-                <!-- LLM Calls Tab -->
-                <div id="tab-llm" class="tab-content">
-                    <div id="llm-calls" class="llm-calls">
-                        <div class="llm-empty">LLM calls will appear here</div>
+            <!-- Stage Log -->
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-title">Stage Log</div>
+                        <div class="panel-subtitle">Click to expand details</div>
                     </div>
                 </div>
-            </aside>
+                <div id="stage-log" class="stage-log empty-state">No logs yet</div>
+            </section>
         </main>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════
-         UPLOAD MODAL
-         ═══════════════════════════════════════════════════════════ -->
-    <div id="modal-overlay" class="modal-overlay hidden" onclick="hideUploadModal()">
-        <div class="modal" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <span class="modal-title">📤 Submit Paper for Review</span>
-                <button class="modal-close" onclick="hideUploadModal()">×</button>
-            </div>
-            <div class="modal-body">
-                <!-- Step 1: Review Config -->
-                <div class="form-section">
-                    <h4>⚙️ MAKER Configuration</h4>
-                    <div class="form-group">
-                        <label>CONSENSUS LEVEL (从易到难)</label>
-                        <select id="new-review-type" onchange="updateMakerParams()">
-                            <option value="Quick">⚡ Quick (K=1, N=1) — 单次，最快</option>
-                            <option value="Standard" selected>📋 Standard (K=2, N=3) — 3 Workers</option>
-                            <option value="Detailed">🔍 Detailed (K=3, N=5) — 5 Workers</option>
-                            <option value="Rigorous">🎯 Rigorous (K=4, N=7) — 7 Workers</option>
-                            <option value="Critical">🛡️ Critical (K=5, N=9) — 9 Workers</option>
-                        </select>
-                    </div>
-                    <div id="maker-params" class="maker-params">
-                        <div class="param-item">
-                            <span class="param-label">K (Lead votes)</span>
-                            <span id="param-k" class="param-value">2</span>
-                        </div>
-                        <div class="param-item">
-                            <span class="param-label">N (Workers)</span>
-                            <span id="param-n" class="param-value">3</span>
-                        </div>
-                        <div class="param-item">
-                            <span class="param-label">Formula</span>
-                            <span class="param-value">N = 2K - 1</span>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-top: 12px;">
-                        <label>VENUE TYPE</label>
-                        <select id="new-venue-type">
-                            <option value="AI Conference" selected>AI Conference (NeurIPS, ICML)</option>
-                            <option value="NLP Conference">NLP Conference (ACL, EMNLP)</option>
-                            <option value="CV Conference">CV Conference (CVPR, ICCV)</option>
-                            <option value="Journal">Journal (JMLR, TPAMI)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Step 2: Paper Content -->
-                <div class="form-section">
-                    <h4>📁 Paper Content</h4>
-                    <div class="upload-tabs">
-                        <button type="button" class="upload-tab active" data-tab="upload" onclick="switchUploadTab('upload')">📤 Upload File</button>
-                        <button type="button" class="upload-tab" data-tab="paste" onclick="switchUploadTab('paste')">📋 Paste Text</button>
-                    </div>
-                    
-                    <div id="upload-tab-upload" class="upload-tab-content active">
-                        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-                            <input type="file" id="file-input" accept=".pdf,.md,.txt,.tex" style="display:none" onchange="handleFileUpload(event)" />
-                            <div class="upload-icon">📄</div>
-                            <div class="upload-text">Drop file or click to upload</div>
-                            <div class="upload-hint">PDF, Markdown (.md), Text (.txt), LaTeX (.tex)</div>
-                        </div>
-                        <div id="uploaded-file" class="uploaded-file hidden"></div>
-                    </div>
-
-                    <div id="upload-tab-paste" class="upload-tab-content">
-                        <textarea id="paper-content" rows="8" placeholder="Paste paper content here (Markdown or plain text)..."></textarea>
-                    </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="btn-cancel" onclick="hideUploadModal()">Cancel</button>
-                <button class="btn-submit" onclick="submitPaper()">
-                    🚀 Submit & Start Review
-                </button>
+
+<!-- Worker Detail Modal -->
+<div id="modal" class="modal hidden">
+    <div id="modal-backdrop" class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <div class="modal-title" id="modal-title">Worker</div>
+                <div class="modal-subtitle" id="modal-subtitle">Chat History</div>
             </div>
+            <button id="modal-close" class="icon-btn">✕</button>
         </div>
+        <div id="modal-body" class="modal-body"></div>
     </div>
+</div>
 
-    <!-- ═══════════════════════════════════════════════════════════
-         WORKER DETAIL MODAL
-         ═══════════════════════════════════════════════════════════ -->
-    <div id="worker-modal" class="modal-overlay hidden" onclick="hideWorkerModal()">
-        <div class="modal modal-large" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <span id="worker-modal-title" class="modal-title">🤖 Worker Detail</span>
-                <button class="modal-close" onclick="hideWorkerModal()">×</button>
-            </div>
-            <div id="worker-modal-body" class="modal-body worker-modal-body">
-                <!-- Worker detail content -->
-            </div>
-        </div>
-    </div>
+<!-- Toast Container -->
+<div id="toast-container" class="toast-container"></div>
 
-    <!-- ═══════════════════════════════════════════════════════════
-         STAGE DETAIL MODAL
-         ═══════════════════════════════════════════════════════════ -->
-    <div id="stage-modal" class="modal-overlay hidden" onclick="hideStageModal()">
-        <div class="modal modal-xlarge" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <span id="stage-modal-title" class="modal-title">📋 Stage Detail</span>
-                <button class="modal-close" onclick="hideStageModal()">×</button>
-            </div>
-            <div id="stage-modal-body" class="modal-body stage-modal-body">
-                <!-- Stage detail content -->
-            </div>
-        </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════
-         RESTART MODAL
-         ═══════════════════════════════════════════════════════════ -->
-    <div id="restart-modal" class="modal-overlay hidden" onclick="hideRestartModal()">
-        <div class="modal" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <span class="modal-title">🔄 Restart Review</span>
-                <button class="modal-close" onclick="hideRestartModal()">×</button>
-            </div>
-            <div class="modal-body">
-                <div class="restart-info">
-                    <div class="restart-paper-info">
-                        <div class="info-label">📄 Paper</div>
-                        <div id="restart-title" class="info-value">Paper Title</div>
-                        <div id="restart-authors" class="info-sub">Authors</div>
-                    </div>
-                </div>
-
-                <div class="form-section">
-                    <h4>⚙️ New Review Configuration</h4>
-                    <div class="form-group">
-                        <label>CONSENSUS LEVEL</label>
-                        <select id="restart-review-type" onchange="updateRestartParams()">
-                            <option value="Quick">⚡ Quick (K=1, N=1) — 单次，最快</option>
-                            <option value="Standard" selected>📋 Standard (K=2, N=3) — 3 Workers</option>
-                            <option value="Detailed">🔍 Detailed (K=3, N=5) — 5 Workers</option>
-                            <option value="Rigorous">🎯 Rigorous (K=4, N=7) — 7 Workers</option>
-                            <option value="Critical">🛡️ Critical (K=5, N=9) — 9 Workers</option>
-                        </select>
-                    </div>
-                    <div id="restart-maker-params" class="maker-params">
-                        <div class="param-item">
-                            <span class="param-label">K (Lead votes)</span>
-                            <span id="restart-param-k" class="param-value">2</span>
-                        </div>
-                        <div class="param-item">
-                            <span class="param-label">N (Workers)</span>
-                            <span id="restart-param-n" class="param-value">3</span>
-                        </div>
-                        <div class="param-item">
-                            <span class="param-label">Formula</span>
-                            <span class="param-value">N = 2K - 1</span>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-top: 12px;">
-                        <label>VENUE TYPE</label>
-                        <select id="restart-venue-type">
-                            <option value="AI Conference">AI Conference (NeurIPS, ICML)</option>
-                            <option value="NLP Conference">NLP Conference (ACL, EMNLP)</option>
-                            <option value="CV Conference">CV Conference (CVPR, ICCV)</option>
-                            <option value="Journal">Journal (JMLR, TPAMI)</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-cancel" onclick="hideRestartModal()">Cancel</button>
-                <button class="btn-submit" onclick="restartReview()">
-                    🚀 Create New Review
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

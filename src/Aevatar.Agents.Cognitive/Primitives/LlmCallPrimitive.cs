@@ -47,31 +47,21 @@ public class LlmCallPrimitive : IPrimitive
         
         try
         {
-            // ─────────────────────────────────────────────
-            //  1. 获取并渲染 prompt
-            // ─────────────────────────────────────────────
             var promptTemplate = ParameterExtensions.GetRequired<string>(parameters, "prompt");
             var prompt = _templateEngine.Render(promptTemplate, context.Variables);
             
-            // ─────────────────────────────────────────────
-            //  2. 获取系统提示（可选）
-            // ─────────────────────────────────────────────
             var systemPrompt = ParameterExtensions.GetOptional<string>(parameters, "system");
             if (systemPrompt != null)
             {
                 systemPrompt = _templateEngine.Render(systemPrompt, context.Variables);
             }
             
-            // ─────────────────────────────────────────────
-            //  3. 构建请求
-            // ─────────────────────────────────────────────
             var request = new AevatarLLMRequest
             {
                 SystemPrompt = systemPrompt,
                 UserPrompt = prompt
             };
             
-            // 报告进度
             context.Progress?.Report(new WorkflowProgress
             {
                 Phase = "LLM Call",
@@ -79,16 +69,10 @@ public class LlmCallPrimitive : IPrimitive
                 Message = $"Calling LLM with {prompt.Length} chars prompt"
             });
             
-            // ─────────────────────────────────────────────
-            //  4. 调用 LLM
-            // ─────────────────────────────────────────────
             var response = await _llmProvider.GenerateAsync(
                 request, 
                 context.CancellationToken);
             
-            // ─────────────────────────────────────────────
-            //  5. 解析输出
-            // ─────────────────────────────────────────────
             var outputType = ParameterExtensions.GetOptional(parameters, "output", "text")!;
             var parser = _parserFactory.Create(outputType);
             var parsed = parser.Parse(response.Content);
@@ -97,6 +81,16 @@ public class LlmCallPrimitive : IPrimitive
             
             var promptTokens = response.Usage?.PromptTokens ?? 0;
             var completionTokens = response.Usage?.CompletionTokens ?? 0;
+
+            context.Progress?.Report(new WorkflowProgress
+            {
+                Phase = "LLM Done",
+                StepId = context.CurrentStepId,
+                Message = response.Content != null
+                    ? $"LLM completed: {Math.Min(response.Content.Length, 120)} chars"
+                    : "LLM completed (empty)",
+                ProgressPercent = 1.0f
+            });
             
             return new PrimitiveResult
             {

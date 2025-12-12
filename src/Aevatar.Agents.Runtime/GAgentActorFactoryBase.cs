@@ -66,6 +66,7 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
 
         // 2. Inject dependencies (Logger, EventRouterFactory, StateProjector)
         LoggerInjector.InjectLogger(actor, _serviceProvider);
+        LoggerInjector.InjectLogger(agent, _serviceProvider);
         EventRouterFactoryInjector.InjectEventRouterFactory(actor, _serviceProvider);
         StateProjectorInjector.InjectStateProjector(agent, _serviceProvider);
 

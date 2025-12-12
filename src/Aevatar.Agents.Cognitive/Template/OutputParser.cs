@@ -153,6 +153,7 @@ public partial class CodeBlockOutputParser : IOutputParser<string>
 
 /// <summary>
 /// JSON 对象解析器
+/// 返回 Dictionary 以便模板引擎可以访问属性
 /// </summary>
 public partial class JsonOutputParser : IOutputParser<object>
 {
@@ -171,13 +172,35 @@ public partial class JsonOutputParser : IOutputParser<object>
         
         try
         {
-            return JsonSerializer.Deserialize<JsonElement>(json, Options);
+            var element = JsonSerializer.Deserialize<JsonElement>(json, Options);
+            return ConvertJsonElement(element);
         }
         catch (JsonException)
         {
             // 解析失败，返回原文
             return content;
         }
+    }
+    
+    /// <summary>
+    /// 将 JsonElement 转换为 CLR 类型（字典/列表/原始值）
+    /// </summary>
+    private static object ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => element.EnumerateObject()
+                .ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+            JsonValueKind.Array => element.EnumerateArray()
+                .Select(ConvertJsonElement)
+                .ToList(),
+            JsonValueKind.String => element.GetString() ?? "",
+            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null!,
+            _ => element.ToString()
+        };
     }
     
     private static string ExtractJson(string content)
@@ -203,6 +226,7 @@ public partial class JsonOutputParser : IOutputParser<object>
 
 /// <summary>
 /// JSON 数组解析器
+/// 返回 List&lt;Dictionary&gt; 以便模板引擎可以访问属性（如 item.description）
 /// </summary>
 public partial class JsonArrayOutputParser : IOutputParser<List<object>>
 {
@@ -224,16 +248,38 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
             var array = JsonSerializer.Deserialize<JsonElement>(json, Options);
             if (array.ValueKind == JsonValueKind.Array)
             {
+                // 转换为字典列表，以便模板引擎可以访问属性
                 return array.EnumerateArray()
-                    .Select(e => (object)e)
+                    .Select(ConvertJsonElement)
                     .ToList();
             }
-            return [array];
+            return [ConvertJsonElement(array)];
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+    
+    /// <summary>
+    /// 将 JsonElement 转换为 CLR 类型（字典/列表/原始值）
+    /// </summary>
+    private static object ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => element.EnumerateObject()
+                .ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+            JsonValueKind.Array => element.EnumerateArray()
+                .Select(ConvertJsonElement)
+                .ToList(),
+            JsonValueKind.String => element.GetString() ?? "",
+            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null!,
+            _ => element.ToString()
+        };
     }
     
     private static string ExtractJsonArray(string content)

@@ -6,6 +6,7 @@ using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
+using Aevatar.Agents.Cognitive.Utilities;
 using Aevatar.Agents.Maker;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.AI;
@@ -38,70 +39,92 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     // ============================================================
     //  组件
     // ============================================================
-    
+
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
     private readonly InMemoryWorkflowRegistry _workflowRegistry = new();
-    
+
     // ============================================================
     //  运行时状态
     // ============================================================
-    
+
     private readonly Dictionary<string, object> _workflowVariables = new();
-    
+
     // Fan-out 结果收集
     private readonly ConcurrentDictionary<string, StepCompletedEventProto> _collectedResults = new();
+    private readonly ConcurrentDictionary<string, string> _fanOutChildTypes = new();
+    private readonly ConcurrentDictionary<string, string> _fanOutUserPrompts = new();
+    private readonly ConcurrentDictionary<string, string> _fanOutSystemPrompts = new();
     private int _expectedResults;
+    private int _fanOutSuccessCount;
     private TaskCompletionSource<bool>? _fanOutCompletionSource;
     private StepDefinition? _currentFanOutStep;
-    
+
     // Worker 管理（由外部注入）
     private IGAgentActorManager? _actorManager;
     private readonly List<Guid> _workerIds = [];
-    
+
     // 语义聚类投票 (可选)
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private float _semanticSimilarityThreshold = 0.85f;
-    
+
     // Red-Flagging (可选, 可插拔)
     private IRedFlagStrategy? _redFlagStrategy;
     private IRedFlagHandler _redFlagHandler = new DefaultRedFlagHandler();
-    
+
     // 步骤事件追踪（用于前端可视化）
     private readonly List<WorkflowStepEvent> _stepEvents = [];
     private readonly ConcurrentDictionary<string, DateTime> _stepStartTimes = new();
     private Action<WorkflowStepEvent>? _onStepEvent;
-    
+    private readonly object _stepEventsLock = new(); // vote 并行生成时可能并发写入
+    private readonly object _statsLock = new(); // 多并行任务下累加统计，避免丢失/错乱
+
     // ============================================================
     //  构造函数
     // ============================================================
-    
-    public CognitiveCoordinatorGAgent() { }
-    public CognitiveCoordinatorGAgent(Guid id) : base(id) { }
-    
+
+    public CognitiveCoordinatorGAgent()
+    {
+    }
+
+    public CognitiveCoordinatorGAgent(Guid id) : base(id)
+    {
+    }
+
     // ============================================================
     //  生命周期
     // ============================================================
-    
+
     protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
-        
-        CustomState.MaxDepth = 10;
+
+        CustomState.MaxDepth = 5; // 硬锁，正常情况下 check_atomic 会自然停止递归
         CustomState.Status = ExecutionStatus.EsPending;
+
+        // 默认开启 Red-Flag 策略，限制最大内容长度 102400
+        _redFlagStrategy ??= new DefaultEnglishRedFlagStrategy(new RedFlagOptions
+        {
+            MaxContentLength = 102400,
+            EnableLengthValidation = true
+        });
+
+        // DEBUG: 验证 Logger 是否注入
+        var loggerType = Logger?.GetType().Name ?? "null";
+        Console.WriteLine($"[DEBUG] CognitiveCoordinatorGAgent activated. Logger type: {loggerType}, Id: {Id}");
     }
-    
+
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult(
             $"CognitiveCoordinator [{CustomState.ExecutionId}] - " +
             $"Phase: {CustomState.CurrentPhase}, Workers: {_workerIds.Count}");
     }
-    
+
     // ============================================================
     //  公共 API
     // ============================================================
-    
+
     /// <summary>
     /// 设置 Actor Manager（用于创建 Workers）
     /// </summary>
@@ -109,7 +132,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         _actorManager = actorManager;
     }
-    
+
     /// <summary>
     /// 设置步骤事件回调（用于实时可视化）
     /// </summary>
@@ -117,12 +140,21 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         _onStepEvent = callback;
     }
-    
+
     /// <summary>
     /// 获取所有步骤事件（用于回放）
     /// </summary>
-    public IReadOnlyList<WorkflowStepEvent> GetStepEvents() => _stepEvents;
-    
+    public IReadOnlyList<WorkflowStepEvent> GetStepEvents()
+    {
+        // NOTE:
+        // - vote / fan_out 可能并发写 _stepEvents
+        // - 直接暴露 List 会导致读取端枚举时抛异常或读到撕裂数据
+        lock (_stepEventsLock)
+        {
+            return _stepEvents.ToList();
+        }
+    }
+
     /// <summary>
     /// 设置 Embedding Generator（用于语义聚类投票）
     /// 如果不设置，投票将使用精确哈希匹配
@@ -134,7 +166,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         _embeddingGenerator = embeddingGenerator;
         _semanticSimilarityThreshold = Math.Clamp(semanticSimilarityThreshold, 0.1f, 1.0f);
     }
-    
+
     /// <summary>
     /// 设置 Red-Flag 策略（用于过滤无效 LLM 响应）
     /// 可插拔设计：
@@ -148,12 +180,12 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         _redFlagStrategy = strategy;
         _redFlagHandler = handler ?? new DefaultRedFlagHandler();
-        
+
         Logger.LogInformation(
             "Red-Flag strategy configured: {Strategy}",
             strategy?.GetType().Name ?? "disabled");
     }
-    
+
     /// <summary>
     /// 创建 Worker 池
     /// </summary>
@@ -163,26 +195,26 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             throw new InvalidOperationException("ActorManager not set. Call SetActorManager first.");
         }
-        
+
         _workerIds.Clear();
-        
+
         for (int i = 0; i < poolSize; i++)
         {
             // 创建 Worker Actor
             var workerId = Guid.NewGuid();
             await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
-            
+
             // 设置父子关系（Worker 订阅 Coordinator 的流）
             await _actorManager.LinkParentChildAsync(Id, workerId);
-            
+
             _workerIds.Add(workerId);
         }
-        
+
         CustomState.ActiveWorkers = _workerIds.Count;
-        
+
         Logger.LogInformation("Created worker pool with {Count} workers", poolSize);
     }
-    
+
     /// <summary>
     /// 注册工作流
     /// </summary>
@@ -190,7 +222,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         _workflowRegistry.Register(workflow);
     }
-    
+
     /// <summary>
     /// 获取执行结果
     /// </summary>
@@ -198,14 +230,15 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         Success = CustomState.Status == ExecutionStatus.EsCompleted,
         Output = _workflowVariables.GetValueOrDefault("_output"),
+        Error = string.IsNullOrWhiteSpace(CustomState.Error) ? null : CustomState.Error,
         TotalTokens = CustomState.TotalTokensUsed,
         TotalLlmCalls = CustomState.TotalLlmCalls
     };
-    
+
     // ============================================================
     //  事件处理
     // ============================================================
-    
+
     /// <summary>
     /// 直接启动工作流执行（API 调用）
     /// </summary>
@@ -216,12 +249,13 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             foreach (var (key, value) in variables)
             {
-                request.Variables[key] = ConvertToProtoValue(value);
+                request.Variables[key] = ProtoValueConverter.ToProto(value);
             }
         }
+
         return HandleStartWorkflowRequest(request);
     }
-    
+
     /// <summary>
     /// 启动工作流执行 (Protobuf 事件)
     /// </summary>
@@ -230,12 +264,12 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         Logger.LogInformation("Coordinator {Id} starting workflow: {WorkflowName}",
             Id, request.WorkflowName);
-        
+
         CustomState.ExecutionId = Guid.NewGuid().ToString("N")[..16];
         CustomState.WorkflowName = request.WorkflowName;
         CustomState.Status = ExecutionStatus.EsRunning;
         CustomState.CurrentPhase = "Starting";
-        
+
         try
         {
             // 获取工作流定义
@@ -245,21 +279,37 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 await FailExecutionAsync($"Workflow '{request.WorkflowName}' not found");
                 return;
             }
-            
+
             // 注入初始变量
             _workflowVariables.Clear();
+
+            // 1. 先应用 inputs 的默认值
+            foreach (var input in workflow.Inputs)
+            {
+                if (input.DefaultValue != null)
+                {
+                    _workflowVariables[input.Name] = input.DefaultValue;
+                }
+            }
+
+            // 2. 再覆盖为传入的变量（传入的优先级更高）
             foreach (var (key, value) in request.Variables)
             {
-                _workflowVariables[key] = ConvertFromProtoValue(value);
+                _workflowVariables[key] = ProtoValueConverter.FromProto(value);
             }
-            
+
+            // DEBUG: 输出变量内容
+            var taskLen = _workflowVariables.GetValueOrDefault("task")?.ToString()?.Length ?? 0;
+            Console.WriteLine(
+                $"[DEBUG][Workflow Start] Variables: [{string.Join(", ", _workflowVariables.Keys)}], task length={taskLen}");
+
             // 执行工作流
             await ExecuteWorkflowAsync(workflow);
-            
+
             // 完成
             CustomState.Status = ExecutionStatus.EsCompleted;
             CustomState.CurrentPhase = "Completed";
-            
+
             await PublishAsync(new WorkflowCompletedEventProto
             {
                 ExecutionId = CustomState.ExecutionId,
@@ -272,7 +322,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             await FailExecutionAsync(ex.Message);
         }
     }
-    
+
     /// <summary>
     /// 处理 Worker 完成事件 (Protobuf 事件)
     /// </summary>
@@ -281,20 +331,52 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         Logger.LogDebug("Coordinator received step completed: {StepId} from {WorkerId}",
             evt.StepId, evt.WorkerId);
-        
+
         // 更新统计
         CustomState.TotalTokensUsed += evt.TokensUsed;
         CustomState.TotalLlmCalls += evt.LlmCalls;
-        
+
         // 收集结果
         _collectedResults[evt.RequestId] = evt;
-        
+        // 只在成功时移除 childType，流式事件需要保留
+        _fanOutChildTypes.TryGetValue(evt.RequestId, out var childType);
+        if (evt.Success)
+        {
+            _fanOutSuccessCount++;
+            _fanOutChildTypes.TryRemove(evt.RequestId, out _);
+        }
+
+        // 子任务完成事件（用于前端并行可视化）
+        if (!string.IsNullOrEmpty(evt.StepId) && !string.IsNullOrEmpty(childType))
+        {
+            var childDef = new StepDefinition
+            {
+                Id = evt.StepId,
+                Type = childType
+            };
+
+            // 如果 Success=false 但有 Result，视为流式中间进度；Success=true 表示完成
+            var status = evt.Success ? StepStatus.Completed : StepStatus.Running;
+            var userPrompt = _fanOutUserPrompts.TryGetValue(evt.RequestId, out var up) ? up : "";
+            var systemPrompt = _fanOutSystemPrompts.TryGetValue(evt.RequestId, out var sp) ? sp : "";
+            EmitStepEvent(childDef,
+                status,
+                evt.Success
+                    ? "Subtask completed"
+                    : (string.IsNullOrEmpty(evt.Error) ? "Subtask streaming" : $"Subtask failed: {evt.Error}"),
+                progress: evt.Success ? 1.0f : 0.0f,
+                parentStepId: _currentFanOutStep?.Id,
+                assistantResponse: evt.Result,
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt);
+        }
+
         // 发送并行进度事件
         if (_currentFanOutStep != null)
         {
-            var completed = _collectedResults.Count;
-            var failed = _collectedResults.Values.Count(r => !r.Success);
-            
+            var completed = _fanOutSuccessCount;
+            var failed = _collectedResults.Values.Count(r => !r.Success && !string.IsNullOrEmpty(r.Error));
+
             EmitStepEvent(_currentFanOutStep, StepStatus.Running,
                 $"Progress: {completed}/{_expectedResults} (failed: {failed})",
                 progress: (float)completed / _expectedResults,
@@ -302,80 +384,125 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 parallelCompleted: completed,
                 parallelFailed: failed);
         }
-        
+
         // 检查是否所有结果已收集
-        if (_collectedResults.Count >= _expectedResults)
+        if (_fanOutSuccessCount >= _expectedResults)
         {
-            _currentFanOutStep = null;  // 清除当前 fan-out 步骤
+            _currentFanOutStep = null; // 清除当前 fan-out 步骤
             _fanOutCompletionSource?.TrySetResult(true);
         }
-        
+
         return Task.CompletedTask;
     }
-    
+
     // ============================================================
     //  工作流执行
     // ============================================================
-    
+
     private async Task ExecuteWorkflowAsync(WorkflowDefinition workflow)
     {
-        foreach (var step in workflow.Steps)
+        Logger.LogInformation("[DEBUG][Workflow] Executing workflow '{Name}' with {Count} steps: [{Steps}]",
+            workflow.Name, workflow.Steps.Count, string.Join(", ", workflow.Steps.Select(s => s.Id)));
+
+        for (int stepIndex = 0; stepIndex < workflow.Steps.Count; stepIndex++)
         {
+            var step = workflow.Steps[stepIndex];
+            Logger.LogInformation("[DEBUG][Workflow] >>> Executing step {Index}/{Total}: '{StepId}' (type={Type})",
+                stepIndex + 1, workflow.Steps.Count, step.Id, step.Type);
+
             CustomState.CurrentPhase = $"Step: {step.Id}";
             CustomState.CurrentStepId = step.Id;
-            
+
             var result = await ExecuteStepAsync(step);
-            
+
             if (!result.Success)
             {
                 throw new Exception($"Step '{step.Id}' failed: {result.Error}");
             }
-            
+
             // 存储结果
-            if (!string.IsNullOrEmpty(step.Store) && result.Value != null)
+            if (!string.IsNullOrEmpty(step.Store))
             {
-                _workflowVariables[step.Store] = result.Value;
+                Logger.LogInformation(
+                    "[DEBUG][Workflow] Step '{StepId}' store='{Store}', result.Value is null: {IsNull}",
+                    step.Id, step.Store, result.Value == null);
+
+                if (result.Value != null)
+                {
+                    _workflowVariables[step.Store] = result.Value;
+                    Logger.LogInformation("[DEBUG][Workflow] Stored '{Store}' type: {Type}",
+                        step.Store, result.Value.GetType().FullName);
+                }
+                else
+                {
+                    Logger.LogWarning("[DEBUG][Workflow] ⚠️ Step '{StepId}' returned null, NOT storing to '{Store}'",
+                        step.Id, step.Store);
+                }
             }
         }
-        
+
         // 构建输出
         _workflowVariables["_output"] = BuildOutput(workflow.Output);
     }
-    
+
     private async Task<PrimitiveResult> ExecuteStepAsync(StepDefinition step)
     {
-        // 发送开始事件
-        EmitStepEvent(step, StepStatus.Running);
-        
+        // 预渲染 prompt 用于开始事件（确保 WORKERS 面板能显示完整提示词）
+        string? preRenderedPrompt = null;
+        string? preRenderedSystem = null;
+
+        if (step.Type == "llm_call")
+        {
+            var rawPrompt = step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
+            var rawSystem = step.Parameters.GetValueOrDefault("system")?.ToString();
+
+            preRenderedPrompt = _templateEngine.Render(rawPrompt, _workflowVariables);
+            if (rawSystem != null)
+                preRenderedSystem = _templateEngine.Render(rawSystem, _workflowVariables);
+
+            // 调试：如果 task 变量为空，记录警告
+            if (rawPrompt.Contains("{{task}}") &&
+                string.IsNullOrWhiteSpace(_workflowVariables.GetValueOrDefault("task")?.ToString()))
+            {
+                Logger.LogWarning("[{Step}] WARNING: task variable is empty! Available vars: {Vars}",
+                    step.Id, string.Join(", ", _workflowVariables.Keys));
+            }
+        }
+
+        // 发送开始事件（包含预渲染的 prompt）
+        EmitStepEvent(step, StepStatus.Running,
+            userPrompt: preRenderedPrompt,
+            systemPrompt: preRenderedSystem);
+
         try
         {
             var result = step.Type switch
             {
-                // 简单步骤：Coordinator 直接执行
-                "llm_call" => await ExecuteLlmCallDirectAsync(step),
+                // 简单步骤：Coordinator 直接执行（传递预渲染的 prompt 避免重复渲染）
+                "llm_call" => await ExecuteLlmCallDirectAsync(step, preRenderedPrompt, preRenderedSystem),
                 "conditional" => await ExecuteConditionalAsync(step),
-                
+
                 // 并行步骤：分发给 Workers (真正的 Actor 并行)
                 "fan_out" => await ExecuteFanOutAsync(step),
                 "parallel" => await ExecuteParallelAsync(step),
-                
+
                 // 其他
                 "vote" => await ExecuteVoteAsync(step),
                 "workflow_call" => await ExecuteWorkflowCallAsync(step),
                 "checkpoint" => await ExecuteCheckpointAsync(step),
-                
+
                 _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
             };
-            
+
             // 发送完成/失败事件（包含对话记录）
-            EmitStepEvent(step, 
+            EmitStepEvent(step,
                 result.Success ? StepStatus.Completed : StepStatus.Failed,
                 result.Success ? null : result.Error,
                 progress: 1.0f,
                 systemPrompt: result.SystemPrompt,
                 userPrompt: result.UserPrompt,
                 assistantResponse: result.AssistantResponse);
-            
+
             return result;
         }
         catch (Exception ex)
@@ -384,43 +511,103 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             throw;
         }
     }
-    
+
     // ============================================================
     //  简单步骤 - Coordinator 直接执行
     // ============================================================
-    
-    private async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(StepDefinition step)
+
+    private async Task<PrimitiveResult> ExecuteLlmCallDirectAsync(
+        StepDefinition step,
+        string? preRenderedPrompt = null,
+        string? preRenderedSystem = null)
     {
-        var prompt = step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
-        var systemPrompt = step.Parameters.GetValueOrDefault("system")?.ToString();
         var outputType = step.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
-        
-        // 渲染模板
-        prompt = _templateEngine.Render(prompt, _workflowVariables);
-        if (systemPrompt != null)
+        const int MaxContentLength = 102400;
+
+        // 使用预渲染的 prompt（如果提供），否则现场渲染
+        var prompt = preRenderedPrompt ?? _templateEngine.Render(
+            step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "",
+            _workflowVariables);
+
+        var systemPrompt = preRenderedSystem;
+        if (systemPrompt == null && step.Parameters.TryGetValue("system", out var sysObj) && sysObj != null)
         {
-            systemPrompt = _templateEngine.Render(systemPrompt, _workflowVariables);
+            systemPrompt = _templateEngine.Render(sysObj.ToString()!, _workflowVariables);
         }
-        
-        // 调用 LLM
+
+        // 构建请求
         var request = new AI.Abstractions.AevatarLLMRequest
         {
             SystemPrompt = systemPrompt,
             UserPrompt = prompt
         };
-        
-        var response = await LLMProvider.GenerateAsync(request);
-        
+
+        // 尝试流式
+        var modelInfo = await LLMProvider.GetModelInfoAsync();
+        var supportsStreaming = modelInfo.SupportsStreaming;
+
+        var output = string.Empty;
+        var promptTokens = 0;
+        var completionTokens = 0;
+
+        if (supportsStreaming)
+        {
+            var sb = new System.Text.StringBuilder();
+            var tokenIndex = 0;
+
+            await foreach (var token in LLMProvider.GenerateStreamAsync(request))
+            {
+                var content = token.Content ?? string.Empty;
+                if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                    continue;
+
+                sb.Append(content);
+                output = sb.ToString();
+
+                // 中间流式事件（Running，带累计回答）
+                EmitStepEvent(step, StepStatus.Running,
+                    $"Streaming token {tokenIndex}",
+                    progress: 0,
+                    systemPrompt: systemPrompt,
+                    userPrompt: prompt,
+                    assistantResponse: output);
+
+                tokenIndex++;
+
+                if (token.IsComplete)
+                {
+                    // 流式模式下没有 Usage，先置零
+                    promptTokens = 0;
+                    completionTokens = tokenIndex;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            var response = await LLMProvider.GenerateAsync(request);
+            output = response.Content ?? string.Empty;
+            promptTokens = response.Usage?.PromptTokens ?? 0;
+            completionTokens = response.Usage?.CompletionTokens ?? 0;
+        }
+
         // 更新统计
-        var promptTokens = response.Usage?.PromptTokens ?? 0;
-        var completionTokens = response.Usage?.CompletionTokens ?? 0;
         CustomState.TotalTokensUsed += promptTokens + completionTokens;
         CustomState.TotalLlmCalls++;
-        
+
         // 解析输出
+        if (output.Length > MaxContentLength)
+        {
+            return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
+        }
+
         var parser = _parserFactory.Create(outputType);
-        var parsed = parser.Parse(response.Content);
-        
+        var parsed = parser.Parse(output);
+        if (parsed == null)
+        {
+            return PrimitiveResult.Fail("redflag-parse-null");
+        }
+
         return new PrimitiveResult
         {
             Success = true,
@@ -429,17 +616,187 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             PromptTokens = promptTokens,
             CompletionTokens = completionTokens,
             LlmCalls = 1,
-            // 保存对话记录供前端可视化
             SystemPrompt = systemPrompt,
             UserPrompt = prompt,
-            AssistantResponse = response.Content
+            AssistantResponse = output
         };
     }
-    
+
+    /// <summary>
+    /// 执行 LLM 调用，streaming 事件发送到指定的步骤
+    /// 用于 vote 并行生成时，每个提案有独立的事件流
+    /// </summary>
+    private async Task<PrimitiveResult> ExecuteLlmCallWithStreamingAsync(
+        StepDefinition generator,
+        StepDefinition eventStep,
+        string? systemPrompt,
+        string userPrompt)
+    {
+        // ============================================================
+        //  可靠性护栏：
+        //  - vote 会并行发起多个 LLM 调用
+        //  - 任一调用卡住不返回，会让 vote 卡死在 Task.WhenAll
+        //  - 这里统一做：超时 + 异常收敛（超时/异常→返回失败 PrimitiveResult）
+        // ============================================================
+
+        Logger.LogInformation("[LLM] ▶ ExecuteLlmCallWithStreamingAsync ENTER for {StepId} (promptLen={Len})",
+            eventStep.Id, userPrompt.Length);
+
+        var outputType = generator.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
+        const int MaxContentLength = 102400;
+
+        // NOTE: 不绑定外部 CancellationToken（当前 Coordinator 执行链路未贯通），至少保证不会无限挂死
+        var callTimeout = TimeSpan.FromMinutes(6);
+        using var timeoutCts = new CancellationTokenSource(callTimeout);
+        var ct = timeoutCts.Token;
+
+        var request = new AI.Abstractions.AevatarLLMRequest
+        {
+            SystemPrompt = systemPrompt,
+            UserPrompt = userPrompt
+        };
+
+        var output = string.Empty;
+        var promptTokens = 0;
+        var completionTokens = 0;
+
+        try
+        {
+            Logger.LogInformation("[LLM] {StepId}: Getting model info...", eventStep.Id);
+            var modelInfo = await LLMProvider.GetModelInfoAsync(ct);
+            var supportsStreaming = modelInfo.SupportsStreaming;
+            Logger.LogInformation("[LLM] {StepId}: supportsStreaming={Streaming}", eventStep.Id, supportsStreaming);
+
+            if (supportsStreaming)
+            {
+                var sb = new System.Text.StringBuilder();
+                var tokenIndex = 0;
+
+                Logger.LogInformation("[STREAM] Starting streaming for {StepId}, Type={Type}",
+                    eventStep.Id, eventStep.Type);
+
+                await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct).WithCancellation(ct))
+                {
+                    var content = token.Content ?? string.Empty;
+                    if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                        continue;
+
+                    sb.Append(content);
+                    output = sb.ToString();
+
+                    // 防止输出爆炸导致内存/渲染/日志被打穿（这类“卡住”看起来像死循环）
+                    if (output.Length > MaxContentLength)
+                    {
+                        return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
+                    }
+
+                    // 流式事件发送到指定的步骤（每个提案独立显示）
+                    EmitStepEvent(eventStep, StepStatus.Running,
+                        $"Streaming... ({tokenIndex} tokens)",
+                        progress: 0,
+                        systemPrompt: systemPrompt,
+                        userPrompt: userPrompt,
+                        assistantResponse: output);
+
+                    tokenIndex++;
+
+                    if (tokenIndex % 10 == 0)
+                    {
+                        Logger.LogDebug("[STREAM] {StepId}: {Tokens} tokens, len={Len}",
+                            eventStep.Id, tokenIndex, output.Length);
+                    }
+
+                    if (token.IsComplete)
+                    {
+                        completionTokens = tokenIndex;
+                        Logger.LogInformation("[STREAM] Completed {StepId}: {Tokens} tokens",
+                            eventStep.Id, tokenIndex);
+                        break;
+                    }
+                }
+
+                // 某些 provider 不会显式发 IsComplete=true（枚举自然结束）
+                if (completionTokens == 0 && !string.IsNullOrEmpty(output))
+                {
+                    completionTokens = Math.Max(1, output.Length / 4);
+                }
+            }
+            else
+            {
+                var response = await LLMProvider.GenerateAsync(request, ct);
+                output = response.Content ?? string.Empty;
+                promptTokens = response.Usage?.PromptTokens ?? 0;
+                completionTokens = response.Usage?.CompletionTokens ?? 0;
+            }
+
+            lock (_statsLock)
+            {
+                CustomState.TotalTokensUsed += promptTokens + completionTokens;
+                CustomState.TotalLlmCalls++;
+            }
+
+            if (output.Length > MaxContentLength)
+            {
+                return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
+            }
+
+            var parser = _parserFactory.Create(outputType);
+            var parsed = parser.Parse(output);
+            if (parsed == null)
+            {
+                return PrimitiveResult.Fail("redflag-parse-null");
+            }
+
+            return new PrimitiveResult
+            {
+                Success = true,
+                Value = parsed,
+                TokensUsed = promptTokens + completionTokens,
+                PromptTokens = promptTokens,
+                CompletionTokens = completionTokens,
+                LlmCalls = 1,
+                SystemPrompt = systemPrompt,
+                UserPrompt = userPrompt,
+                AssistantResponse = output
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogWarning("[LLM] ✗ Timeout/cancel: {StepId} after {Timeout} (promptLen={Len}, outLen={OutLen})",
+                eventStep.Id, callTimeout, userPrompt.Length, output.Length);
+
+            return new PrimitiveResult
+            {
+                Success = false,
+                Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s",
+                SystemPrompt = systemPrompt,
+                UserPrompt = userPrompt,
+                AssistantResponse = output,
+                TokensUsed = 0,
+                LlmCalls = 1
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[LLM] ✗ Error in {StepId}: {Message}", eventStep.Id, ex.Message);
+
+            return new PrimitiveResult
+            {
+                Success = false,
+                Error = $"llm-error:{ex.Message}",
+                SystemPrompt = systemPrompt,
+                UserPrompt = userPrompt,
+                AssistantResponse = output,
+                TokensUsed = 0,
+                LlmCalls = 1
+            };
+        }
+    }
+
     // ============================================================
     //  并行步骤 - 分发给 Workers (真正的 Actor 并行)
     // ============================================================
-    
+
     private async Task<PrimitiveResult> ExecuteFanOutAsync(StepDefinition step)
     {
         // 获取迭代列表
@@ -448,53 +805,69 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             return PrimitiveResult.Fail($"Variable '{forEachVar}' not found");
         }
-        
+
         var items = ConvertToList(itemsObj);
         if (items.Count == 0)
         {
             return PrimitiveResult.Ok(new List<object>());
         }
-        
+
         var childStep = step.Step;
         if (childStep == null)
         {
             return PrimitiveResult.Fail("fan_out requires 'step' definition");
         }
-        
-        // 检查是否有 Workers
-        if (_workerIds.Count == 0)
+
+        // workflow_call 类型需要 Coordinator 自己处理（递归），不能分发给 Worker
+        // Worker 只支持 llm_call
+        var isWorkflowCall = childStep.Type == "workflow_call";
+
+        // 检查是否有 Workers（只有 llm_call 才分发）
+        if (_workerIds.Count == 0 || isWorkflowCall)
         {
-            Logger.LogWarning("No workers available, falling back to sequential execution");
+            if (isWorkflowCall)
+            {
+                Logger.LogInformation("Fan-out contains workflow_call, executing in Coordinator (parallel Tasks)");
+            }
+            else
+            {
+                Logger.LogWarning("No workers available, falling back to sequential execution");
+            }
+
             return await ExecuteFanOutSequentialAsync(step, items, childStep);
         }
-        
+
         Logger.LogInformation("Fan-out executing {Count} items across {Workers} workers",
             items.Count, _workerIds.Count);
-        
+
         // 准备收集结果
         _collectedResults.Clear();
+        _fanOutSuccessCount = 0;
         _expectedResults = items.Count;
         _fanOutCompletionSource = new TaskCompletionSource<bool>();
         _currentFanOutStep = step;
-        
+        _fanOutChildTypes.Clear();
+        _fanOutUserPrompts.Clear();
+        _fanOutSystemPrompts.Clear();
+
         // 发送 fan-out 开始事件
         EmitStepEvent(step, StepStatus.Running,
             $"Distributing {items.Count} tasks to {_workerIds.Count} workers",
             progress: 0,
             parallelTotal: items.Count, parallelCompleted: 0);
-        
+
         // 分发任务给 Workers（真正的 Actor 并行）
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
-            
+
             // 构建子上下文
             var childVariables = new Dictionary<string, object>(_workflowVariables)
             {
                 ["item"] = item,
                 ["index"] = i
             };
-            
+
             // 创建 Protobuf 请求事件
             var request = new ExecuteStepRequestEvent
             {
@@ -502,87 +875,187 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 StepId = $"{step.Id}[{i}]",
                 StepType = childStep.Type
             };
-            
+
             // 转换参数和变量为 Protobuf
             foreach (var (key, value) in childStep.Parameters)
             {
-                request.Parameters[key] = ConvertToProtoValue(value);
+                request.Parameters[key] = ProtoValueConverter.ToProto(value);
             }
+
             foreach (var (key, value) in childVariables)
             {
-                request.Variables[key] = ConvertToProtoValue(value);
+                request.Variables[key] = ProtoValueConverter.ToProto(value);
             }
-            
+
+            _fanOutChildTypes[request.RequestId] = childStep.Type;
+
+            // 预渲染子任务的 prompt，后续用于前端展示
+            var renderedPrompt = childStep.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
+            var renderedSystem = childStep.Parameters.GetValueOrDefault("system")?.ToString();
+            renderedPrompt = _templateEngine.Render(renderedPrompt, childVariables);
+            if (renderedSystem != null)
+            {
+                renderedSystem = _templateEngine.Render(renderedSystem, childVariables);
+            }
+
+            _fanOutUserPrompts[request.RequestId] = renderedPrompt;
+            if (renderedSystem != null)
+            {
+                _fanOutSystemPrompts[request.RequestId] = renderedSystem;
+            }
+
+            // 为子任务发送开始事件（用于前端并行可视化）
+            var childDef = new StepDefinition
+            {
+                Id = request.StepId,
+                Type = childStep.Type
+            };
+            EmitStepEvent(childDef, StepStatus.Running,
+                $"Executing subtask {i + 1}/{items.Count}",
+                parentStepId: step.Id,
+                systemPrompt: renderedSystem,
+                userPrompt: renderedPrompt);
+
             // 发送给 Workers（向下广播，所有 Children 都会收到）
             // Workers 根据 RequestId 判断是否处理
             await PublishAsync(request, EventDirection.Down);
         }
-        
+
         // 等待所有 Worker 完成（事件驱动，非阻塞等待）
         var timeout = TimeSpan.FromMinutes(10);
         var completed = await Task.WhenAny(
             _fanOutCompletionSource.Task,
             Task.Delay(timeout));
-        
+
         if (completed != _fanOutCompletionSource.Task)
         {
             return PrimitiveResult.Fail($"Fan-out timed out after {timeout}");
         }
-        
+
         // 收集结果
         var results = _collectedResults.Values
             .OrderBy(r => r.StepId)
             .Select(r => r.Success ? (object)r.Result : null!)
             .Where(r => r != null)
             .ToList();
-        
+
         // 汇聚
         var reducer = step.Reduce ?? "collect";
         var reduced = ApplyReducer(results, reducer);
-        
+
         var totalTokens = _collectedResults.Values.Sum(r => r.TokensUsed);
         var totalCalls = _collectedResults.Values.Sum(r => r.LlmCalls);
-        
+
         return PrimitiveResult.Ok(reduced, totalTokens, totalCalls);
     }
-    
+
     /// <summary>
-    /// 无 Worker 时的顺序执行回退
+    /// Coordinator 内部串行执行（用于 workflow_call 或无 Worker 场景）
+    /// 
+    /// ⚠️ Orleans 兼容：
+    /// - Grain 是 turn-based 单线程，不能用 Task.Run
+    /// - 状态修改必须在 Grain 线程内
+    /// - 真正的并行需要分发给 Worker Grains
     /// </summary>
     private async Task<PrimitiveResult> ExecuteFanOutSequentialAsync(
         StepDefinition step, List<object> items, StepDefinition childStep)
     {
+        // 发送 fan-out 开始事件
+        EmitStepEvent(step, StepStatus.Running,
+            $"Executing {items.Count} subtasks (sequential in Coordinator)",
+            progress: 0,
+            parallelTotal: items.Count, parallelCompleted: 0);
+
         var results = new List<object>();
         var totalTokens = 0;
         var totalCalls = 0;
-        
+
+        // 串行执行每个子任务（Orleans 兼容）
         for (int i = 0; i < items.Count; i++)
         {
-            // 临时设置变量
-            _workflowVariables["item"] = items[i];
-            _workflowVariables["index"] = i;
-            
-            var result = await ExecuteStepAsync(childStep);
-            
-            totalTokens += result.TokensUsed;
-            totalCalls += result.LlmCalls;
-            
-            if (result.Success && result.Value != null)
+            var item = items[i];
+
+            // 为子任务发送开始事件
+            var childDef = new StepDefinition { Id = $"{step.Id}[{i}]", Type = childStep.Type };
+
+            // 预渲染 prompt（使用临时变量）
+            var tempVars = new Dictionary<string, object>(_workflowVariables)
             {
-                results.Add(result.Value);
+                ["item"] = item,
+                ["index"] = i
+            };
+            var userPrompt = childStep.Parameters.GetValueOrDefault("prompt")?.ToString();
+            var systemPrompt = childStep.Parameters.GetValueOrDefault("system")?.ToString();
+            if (userPrompt != null) userPrompt = _templateEngine.Render(userPrompt, tempVars);
+            if (systemPrompt != null) systemPrompt = _templateEngine.Render(systemPrompt, tempVars);
+
+            EmitStepEvent(childDef, StepStatus.Running,
+                $"Executing subtask {i + 1}/{items.Count}",
+                parentStepId: step.Id,
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt);
+
+            // 临时设置变量
+            _workflowVariables["item"] = item;
+            _workflowVariables["index"] = i;
+
+            try
+            {
+                var result = await ExecuteStepAsync(childStep);
+
+                totalTokens += result.TokensUsed;
+                totalCalls += result.LlmCalls;
+
+                // 发送子任务完成事件
+                EmitStepEvent(childDef, result.Success ? StepStatus.Completed : StepStatus.Failed,
+                    result.Success ? $"Subtask {i + 1} completed" : $"Subtask {i + 1} failed: {result.Error}",
+                    progress: 1,
+                    parentStepId: step.Id,
+                    assistantResponse: result.AssistantResponse);
+
+                // DEBUG: 检查子任务结果
+                Logger.LogInformation(
+                    "[DEBUG][FanOut] Subtask {Index} result: Success={Success}, Value is null={IsNull}, Value type={Type}",
+                    i, result.Success, result.Value == null, result.Value?.GetType().FullName ?? "null");
+
+                if (result.Success && result.Value != null)
+                {
+                    results.Add(result.Value);
+                    Logger.LogInformation("[DEBUG][FanOut] Added subtask {Index} result to collection, total: {Count}",
+                        i, results.Count);
+                }
+                else if (result.Success && result.Value == null)
+                {
+                    Logger.LogWarning(
+                        "[DEBUG][FanOut] ⚠️ Subtask {Index} succeeded but Value is null, NOT added to results!", i);
+                }
+
+                // 发送进度事件
+                EmitStepEvent(step, StepStatus.Running,
+                    $"Progress: {i + 1}/{items.Count} subtasks completed",
+                    progress: (float)(i + 1) / items.Count,
+                    parallelTotal: items.Count, parallelCompleted: i + 1);
+            }
+            finally
+            {
+                // 清理临时变量
+                _workflowVariables.Remove("item");
+                _workflowVariables.Remove("index");
             }
         }
-        
-        // 清理临时变量
-        _workflowVariables.Remove("item");
-        _workflowVariables.Remove("index");
-        
+
+        // 发送 fan-out 完成事件
+        EmitStepEvent(step, StepStatus.Completed,
+            $"All {items.Count} subtasks completed",
+            progress: 1,
+            parallelTotal: items.Count, parallelCompleted: results.Count);
+
         var reducer = step.Reduce ?? "collect";
         var reduced = ApplyReducer(results, reducer);
-        
+
         return PrimitiveResult.Ok(reduced, totalTokens, totalCalls);
     }
-    
+
     private async Task<PrimitiveResult> ExecuteParallelAsync(StepDefinition step)
     {
         var steps = step.Parameters.GetValueOrDefault("steps") as List<StepDefinition>;
@@ -590,61 +1063,62 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             return PrimitiveResult.Ok(new Dictionary<string, object?>());
         }
-        
+
         // 如果没有 Workers，顺序执行
         if (_workerIds.Count == 0)
         {
             var outputs = new Dictionary<string, object?>();
             var totalTokens = 0;
             var totalCalls = 0;
-            
+
             foreach (var childStep in steps)
             {
                 var result = await ExecuteStepAsync(childStep);
                 totalTokens += result.TokensUsed;
                 totalCalls += result.LlmCalls;
-                
+
                 if (!string.IsNullOrEmpty(childStep.Store) && result.Value != null)
                 {
                     outputs[childStep.Store] = result.Value;
                     _workflowVariables[childStep.Store] = result.Value;
                 }
             }
-            
+
             return PrimitiveResult.Ok(outputs, totalTokens, totalCalls);
         }
-        
+
         // 有 Workers 时并行执行
         _collectedResults.Clear();
         _expectedResults = steps.Count;
         _fanOutCompletionSource = new TaskCompletionSource<bool>();
-        
+
         for (int i = 0; i < steps.Count; i++)
         {
             var childStep = steps[i];
-            
+
             var request = new ExecuteStepRequestEvent
             {
                 RequestId = $"{CustomState.ExecutionId}-parallel-{i}",
                 StepId = childStep.Id,
                 StepType = childStep.Type
             };
-            
+
             foreach (var (key, value) in childStep.Parameters)
             {
-                request.Parameters[key] = ConvertToProtoValue(value);
+                request.Parameters[key] = ProtoValueConverter.ToProto(value);
             }
+
             foreach (var (key, value) in _workflowVariables)
             {
-                request.Variables[key] = ConvertToProtoValue(value);
+                request.Variables[key] = ProtoValueConverter.ToProto(value);
             }
-            
+
             await PublishAsync(request, EventDirection.Down);
         }
-        
+
         // 等待完成
         await _fanOutCompletionSource.Task;
-        
+
         // 汇总结果
         var outputs2 = new Dictionary<string, object?>();
         foreach (var result in _collectedResults.Values.Where(r => r.Success))
@@ -656,22 +1130,22 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 _workflowVariables[originalStep.Store] = result.Result;
             }
         }
-        
+
         var totalTokens2 = _collectedResults.Values.Sum(r => r.TokensUsed);
         var totalCalls2 = _collectedResults.Values.Sum(r => r.LlmCalls);
-        
+
         return PrimitiveResult.Ok(outputs2, totalTokens2, totalCalls2);
     }
-    
+
     // ============================================================
     //  其他步骤
     // ============================================================
-    
+
     private async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
     {
         var conditionExpr = step.Condition ?? "false";
         var conditionResult = _templateEngine.Evaluate(conditionExpr, _workflowVariables);
-        
+
         var isTrue = conditionResult switch
         {
             bool b => b,
@@ -680,41 +1154,62 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             double d => d != 0,
             _ => conditionResult != null
         };
-        
+
         var branch = isTrue ? step.IfTrue : step.IfFalse;
         if (branch == null || branch.Count == 0)
         {
             return PrimitiveResult.Ok(null);
         }
-        
+
         // 执行分支
+        Logger.LogInformation("[DEBUG][Conditional] Executing branch with {Count} steps: [{Steps}]",
+            branch.Count, string.Join(", ", branch.Select(s => s.Id)));
+
         PrimitiveResult? lastResult = null;
-        foreach (var childStep in branch)
+        for (int i = 0; i < branch.Count; i++)
         {
+            var childStep = branch[i];
+            Logger.LogInformation(
+                "[DEBUG][Conditional] >>> Executing branch step {Index}/{Total}: '{StepId}' (type={Type})",
+                i + 1, branch.Count, childStep.Id, childStep.Type);
+
             lastResult = await ExecuteStepAsync(childStep);
-            if (!lastResult.Success) break;
-            
+
+            Logger.LogInformation(
+                "[DEBUG][Conditional] <<< Step '{StepId}' result: Success={Success}, Error={Error}, Value is null={IsNull}",
+                childStep.Id, lastResult.Success, lastResult.Error ?? "none", lastResult.Value == null);
+
+            if (!lastResult.Success)
+            {
+                Logger.LogWarning("[DEBUG][Conditional] ⚠️ Step '{StepId}' failed, breaking out of branch",
+                    childStep.Id);
+                break;
+            }
+
             if (!string.IsNullOrEmpty(childStep.Store) && lastResult.Value != null)
             {
                 _workflowVariables[childStep.Store] = lastResult.Value;
+                Logger.LogInformation("[DEBUG][Conditional] Stored '{Store}' = {Type}",
+                    childStep.Store, lastResult.Value.GetType().FullName);
             }
         }
-        
+
+        Logger.LogInformation("[DEBUG][Conditional] Branch execution completed");
         return lastResult ?? PrimitiveResult.Ok(null);
     }
-    
+
     private async Task<PrimitiveResult> ExecuteVoteAsync(StepDefinition step)
     {
-        var k = ResolveIntParameter(step.Parameters, "k", 2);
+        var k = ResolveIntParameter(step.Parameters, "k", 3);
         var maxRounds = ResolveIntParameter(step.Parameters, "max_rounds", 10);
         var similarity = ResolveFloatParameter(step.Parameters, "similarity", _semanticSimilarityThreshold);
         var generator = step.Generator;
-        
+
         if (generator == null)
         {
             return PrimitiveResult.Fail("vote requires 'generator' definition");
         }
-        
+
         // ─────────────────────────────────────────────
         //  Red-Flag 策略（可插拔）
         //  优先级：步骤配置 > Coordinator 默认配置 > null (禁用)
@@ -722,27 +1217,34 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         var redFlagStrategy = ResolveRedFlagStrategy(step.Parameters);
         var redFlagCount = 0;
         var maxRedFlags = ResolveIntParameter(step.Parameters, "max_red_flags", maxRounds * 2);
-        
+
         // ─────────────────────────────────────────────
         //  使用 MAKER 的语义聚类 VoteEngine
         //  如果没有配置 embedding generator，自动回退到精确匹配
         // ─────────────────────────────────────────────
         using var engine = new VoteEngine(
             k,
-            _embeddingGenerator,  // null 时自动回退到精确匹配
+            _embeddingGenerator, // null 时自动回退到精确匹配
             maxRounds,
             similarity);
-        
+
         var useSemanticClustering = _embeddingGenerator != null;
         Logger.LogDebug(
             "Vote step {StepId}: K={K}, maxRounds={MaxRounds}, semantic={Semantic}, redFlag={RedFlag}",
             step.Id, k, maxRounds, useSemanticClustering, redFlagStrategy?.GetType().Name ?? "disabled");
-        
+
         var totalTokens = 0;
         var totalCalls = 0;
         VoteResult? consensusResult = null;
         var round = 0;
-        
+        // 记录达成共识的轮次（用于 UI 与日志一致性）
+        int? consensusReachedAtRound = null;
+
+        // 并行批次大小：每批同时生成 N 个提案（受 Worker 数量和 K 值限制）
+        var batchSize = Math.Max(1, Math.Min(k + 1, _workerIds.Count > 0 ? _workerIds.Count : 3));
+
+        Console.WriteLine($"[VOTE] batchSize={batchSize}, k={k}, k+1={k + 1}, _workerIds.Count={_workerIds.Count}");
+
         while (consensusResult == null && round < maxRounds)
         {
             // 红旗过多时提前终止
@@ -753,111 +1255,244 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                     step.Id, redFlagCount);
                 break;
             }
-            
-            round++;
-            
+
+            var batchRound = round / batchSize + 1;
+
             // 发送投票进度事件
             EmitStepEvent(step, StepStatus.Running,
-                $"Voting round {round}/{maxRounds}" + (redFlagCount > 0 ? $" (🚩{redFlagCount})" : ""),
-                progress: (float)round / maxRounds,
-                voteRound: round, voteMaxRounds: maxRounds, voteK: k);
-            
-            // 创建子步骤定义用于事件追踪
-            var genStepId = $"{step.Id}.gen[{round}]";
-            var genStep = new StepDefinition { Id = genStepId, Type = "llm_call" };
-            
-            // 发送子步骤开始事件（WORKERS 面板显示）
-            EmitStepEvent(genStep, StepStatus.Running,
-                $"Generating proposal #{round}",
-                progress: 0,
-                parentStepId: step.Id);
-            
-            var result = await ExecuteLlmCallDirectAsync(generator);
-            totalTokens += result.TokensUsed;
-            totalCalls += result.LlmCalls;
-            
-            // 发送子步骤完成事件（带 LLM 对话记录）
-            EmitStepEvent(genStep, result.Success ? StepStatus.Completed : StepStatus.Failed,
-                result.Success ? $"Proposal #{round} generated" : $"Generation failed: {result.Error}",
-                progress: 1,
-                parentStepId: step.Id,
-                systemPrompt: result.SystemPrompt,
-                userPrompt: result.UserPrompt,
-                assistantResponse: result.AssistantResponse);
-            
-            if (!result.Success)
-            {
-                continue;
-            }
-            
-            var proposal = result.Value?.ToString() ?? "";
-            
-            // ─────────────────────────────────────────────
-            //  Red-Flag 验证（可插拔）
-            //  未通过验证的响应不计入有效票
-            // ─────────────────────────────────────────────
-            if (redFlagStrategy != null)
-            {
-                var proposalId = $"{step.Id}.round{round}";
-                if (!redFlagStrategy.Validate(proposal, proposalId, out var reason))
-                {
-                    redFlagCount++;
-                    Logger.LogWarning(
-                        "🚩 Red flag in {StepId} round {Round}: {Reason}",
-                        step.Id, round, reason);
-                    
-                    // 发送红旗事件
-                    EmitStepEvent(step, StepStatus.Running,
-                        $"🚩 Round {round}: {reason}",
-                        progress: (float)round / maxRounds,
-                        voteRound: round, voteMaxRounds: maxRounds, voteK: k,
-                        redFlagReason: reason);
-                    
-                    continue; // 不计入有效票，进入下一轮
-                }
-            }
-            
-            // 通过验证，提交投票
-            consensusResult = await engine.SubmitVoteAsync(proposal);
-            
-            // 发送当前投票状态
-            var currentVotes = consensusResult?.LeaderVotes ?? 0;
-            EmitStepEvent(step, StepStatus.Running,
-                $"Round {round}: {currentVotes}/{k} votes" + (redFlagCount > 0 ? $" (🚩{redFlagCount})" : ""),
+                $"Voting batch {batchRound}, generating {batchSize} proposals in parallel",
                 progress: (float)round / maxRounds,
                 voteRound: round, voteMaxRounds: maxRounds, voteK: k,
+                parallelTotal: batchSize, parallelCompleted: 0);
+
+            // 预渲染 prompt（所有并行任务共用）
+            var genPrompt = generator.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
+            var genSystem = generator.Parameters.GetValueOrDefault("system")?.ToString();
+
+            // DEBUG: 详细诊断 generator 和变量
+            Console.WriteLine($"[DEBUG][Vote {step.Id}] ───────────────────────────────");
+            Console.WriteLine($"[DEBUG][Vote {step.Id}] generator.Type: {generator.Type}");
+            Console.WriteLine(
+                $"[DEBUG][Vote {step.Id}] generator.Parameters keys: [{string.Join(", ", generator.Parameters.Keys)}]");
+            Console.WriteLine($"[DEBUG][Vote {step.Id}] genPrompt length: {genPrompt.Length}");
+            Console.WriteLine(
+                $"[DEBUG][Vote {step.Id}] genPrompt first 200 chars: {(genPrompt.Length > 200 ? genPrompt[..200] : genPrompt)}");
+            Console.WriteLine(
+                $"[DEBUG][Vote {step.Id}] _workflowVariables keys: [{string.Join(", ", _workflowVariables.Keys)}]");
+
+            foreach (var (key, value) in _workflowVariables)
+            {
+                var valStr = value?.ToString() ?? "null";
+                var preview = valStr.Length > 100 ? valStr[..100] + "..." : valStr;
+                Console.WriteLine($"[DEBUG][Vote {step.Id}] var[{key}] ({value?.GetType().Name ?? "null"}): {preview}");
+            }
+
+            Console.WriteLine($"[DEBUG][Vote {step.Id}] ───────────────────────────────");
+
+            // ============================================================
+            //  关键诊断：compose 卡住时，最常见是“模板渲染”或“LLM 首 token”卡住
+            //  这里先把模板渲染耗时打出来，便于定位是否卡在 Render()
+            // ============================================================
+            var renderSw = System.Diagnostics.Stopwatch.StartNew();
+            Logger.LogInformation("[VOTE] {StepId}: Rendering generator template...", step.Id);
+            genPrompt = _templateEngine.Render(genPrompt, _workflowVariables);
+            if (genSystem != null) genSystem = _templateEngine.Render(genSystem, _workflowVariables);
+            renderSw.Stop();
+            Logger.LogInformation("[VOTE] {StepId}: Template rendered in {Ms}ms, promptLen={Len}",
+                step.Id, renderSw.ElapsedMilliseconds, genPrompt.Length);
+
+            // ─────────────────────────────────────────────
+            //  并行生成提案：同时启动多个 LLM 调用
+            //  ⚡ 关键：先发送所有开始事件，实现视觉并行
+            // ─────────────────────────────────────────────
+            var batchTasks = new List<(int index, StepDefinition step, Task<PrimitiveResult> task)>();
+
+            Console.WriteLine($"[VOTE] Generating batch: round={round}, batchSize={batchSize}, maxRounds={maxRounds}");
+            for (int i = 0; i < batchSize && round + i < maxRounds; i++)
+            {
+                var proposalIndex = round + i + 1;
+                var genStepId = $"{step.Id}.gen[{proposalIndex}]";
+                Console.WriteLine($"[VOTE] Creating proposal {proposalIndex}: {genStepId}");
+                var genStep = new StepDefinition { Id = genStepId, Type = "llm_call" };
+
+                // 发送开始事件（所有卡片同时出现）
+                // parallelTotal = batchSize，确保前端能正确计算 workerCount
+                EmitStepEvent(genStep, StepStatus.Running,
+                    $"Generating proposal #{proposalIndex}",
+                    progress: 0,
+                    parentStepId: step.Id,
+                    parallelTotal: batchSize,
+                    systemPrompt: genSystem,
+                    userPrompt: genPrompt);
+
+                // 启动 LLM 调用（不 await）
+                var task = ExecuteLlmCallWithStreamingAsync(generator, genStep, genSystem, genPrompt);
+                batchTasks.Add((proposalIndex, genStep, task));
+            }
+
+            // 等待所有并行任务完成
+            var results = await Task.WhenAll(batchTasks.Select(t => t.task));
+
+            // 处理结果
+            for (int i = 0; i < results.Length; i++)
+            {
+                round++;
+                var (proposalIndex, genStep, _) = batchTasks[i];
+                var result = results[i];
+
+                totalTokens += result.TokensUsed;
+                totalCalls += result.LlmCalls;
+
+                // 发送完成事件
+                EmitStepEvent(genStep, result.Success ? StepStatus.Completed : StepStatus.Failed,
+                    result.Success ? $"Proposal #{proposalIndex} generated" : $"Generation failed: {result.Error}",
+                    progress: 1,
+                    parentStepId: step.Id,
+                    parallelTotal: batchSize,
+                    systemPrompt: result.SystemPrompt,
+                    userPrompt: result.UserPrompt,
+                    assistantResponse: result.AssistantResponse);
+
+                if (!result.Success) continue;
+
+                // ✅ 已达成共识：仍然要把本批次剩余提案的完成事件都发出去（否则 UI 会出现某个 worker 永远空/卡住），
+                // 但不再继续投票消耗。
+                if (consensusResult != null) continue;
+
+                // 使用原始 LLM 响应进行投票（不是解析后的对象）
+                // VoteEngine 需要原始字符串来做语义聚类
+                var proposal = result.AssistantResponse ?? result.Value?.ToString() ?? "";
+
+                // Red-Flag 验证
+                if (redFlagStrategy != null)
+                {
+                    var proposalId = $"{step.Id}.round{proposalIndex}";
+                    if (!redFlagStrategy.Validate(proposal, proposalId, out var reason))
+                    {
+                        redFlagCount++;
+                        Logger.LogWarning("🚩 Red flag in {StepId} round {Round}: {Reason}",
+                            step.Id, proposalIndex, reason);
+
+                        EmitStepEvent(step, StepStatus.Running,
+                            $"🚩 Round {proposalIndex}: {reason}",
+                            progress: (float)round / maxRounds,
+                            voteRound: proposalIndex, voteMaxRounds: maxRounds, voteK: k,
+                            redFlagReason: reason);
+                        continue;
+                    }
+                }
+
+                // 提交投票
+                consensusResult = await engine.SubmitVoteAsync(proposal);
+                if (consensusResult != null && consensusReachedAtRound == null)
+                {
+                    // 保留“首次达成共识”的轮次，不被后续（未投票的）提案影响
+                    consensusReachedAtRound = proposalIndex;
+                }
+            }
+
+            // 发送当前投票状态
+            var currentVotes = consensusResult?.LeaderVotes ?? 0;
+            var displayRound = consensusReachedAtRound ?? round;
+            EmitStepEvent(step, StepStatus.Running,
+                $"Round {displayRound}: {currentVotes}/{k} votes" + (redFlagCount > 0 ? $" (🚩{redFlagCount})" : ""),
+                progress: (float)round / maxRounds,
+                voteRound: displayRound, voteMaxRounds: maxRounds, voteK: k,
                 voteCurrentVotes: currentVotes);
-            
+
             if (consensusResult != null)
             {
                 Logger.LogInformation(
                     "✓ Vote consensus reached at round {Round}: {LeaderVotes}/{K} votes (🚩{RedFlags})",
-                    round, consensusResult.LeaderVotes, k, redFlagCount);
+                    displayRound, consensusResult.LeaderVotes, k, redFlagCount);
             }
         }
-        
+
         // 添加 embedding 调用计数
         var embeddingCalls = engine.EmbeddingCallCount;
-        
+
+        // 获取原始内容
+        string rawContent;
         if (consensusResult != null && consensusResult.Success)
         {
-            return PrimitiveResult.Ok(
-                consensusResult.WinningContent, 
-                totalTokens, 
-                totalCalls + embeddingCalls);
+            rawContent = consensusResult.WinningContent;
         }
-        
-        // 没有达成共识，返回得票最多的
-        var bestCandidate = engine.GetBestCandidate();
-        var winnerContent = bestCandidate?.Content ?? "";
-        
-        Logger.LogWarning(
-            "Vote step {StepId}: No consensus after {Rounds} rounds (🚩{RedFlags}), using best candidate ({Votes} votes)",
-            step.Id, maxRounds, redFlagCount, bestCandidate?.Votes ?? 0);
-        
-        return PrimitiveResult.Ok(winnerContent, totalTokens, totalCalls + embeddingCalls);
+        else
+        {
+            // 没有达成共识，返回得票最多的
+            var bestCandidate = engine.GetBestCandidate();
+            rawContent = bestCandidate?.Content ?? "";
+
+            Logger.LogWarning(
+                "Vote step {StepId}: No consensus after {Rounds} rounds (🚩{RedFlags}), using best candidate ({Votes} votes)",
+                step.Id, maxRounds, redFlagCount, bestCandidate?.Votes ?? 0);
+        }
+
+        // ─────────────────────────────────────────────
+        //  关键修复：根据 generator.output 解析结果
+        //  例如 output: json_array 应该返回 List<object>
+        // ─────────────────────────────────────────────
+        var outputType = generator.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
+
+        // DEBUG: 检查 rawContent
+        Logger.LogInformation("[DEBUG][Vote] rawContent length: {Len}", rawContent?.Length ?? 0);
+        Logger.LogInformation("[DEBUG][Vote] rawContent preview: {Preview}",
+            rawContent?.Length > 500 ? rawContent[..500] : rawContent);
+        Logger.LogInformation("[DEBUG][Vote] outputType: {Type}", outputType);
+
+        var parsedResult = ParseOutput(rawContent, outputType);
+        if (parsedResult == null)
+        {
+            return PrimitiveResult.Fail("redflag-parse-null");
+        }
+
+        // DEBUG: 检查解析结果
+        Logger.LogInformation("[DEBUG][Vote] parsedResult is null: {IsNull}", parsedResult == null);
+        if (parsedResult != null)
+        {
+            Logger.LogInformation("[DEBUG][Vote] parsedResult type: {Type}", parsedResult.GetType().FullName);
+            if (parsedResult is System.Collections.IList list)
+            {
+                Logger.LogInformation("[DEBUG][Vote] parsedResult is List with {Count} items", list.Count);
+            }
+        }
+
+        // ============================================================
+        //  将“最终共识内容”透出到步骤事件（AssistantResponse）
+        //
+        //  WHY:
+        //  - vote step 本身不是 llm_call，它的 PrimitiveResult 默认不会携带 AssistantResponse
+        //  - 这会导致上层 UI 只能看到 proposals，却不知道最终共识选择了哪一个
+        //  - PaperReview 需要把共识结论绑定到 atomic point 上进行可视化
+        // ============================================================
+        return new PrimitiveResult
+        {
+            Success = true,
+            Value = parsedResult,
+            TokensUsed = totalTokens,
+            LlmCalls = totalCalls + embeddingCalls,
+            AssistantResponse = rawContent
+        };
     }
-    
+
+    /// <summary>
+    /// 根据输出类型解析 LLM 返回的内容
+    /// </summary>
+    private object? ParseOutput(string content, string outputType)
+    {
+        var factory = new OutputParserFactory();
+        var parser = factory.Create(outputType);
+        try
+        {
+            return parser.Parse(content);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "ParseOutput failed for type {Type}", outputType);
+            return null;
+        }
+    }
+
     /// <summary>
     /// 解析步骤级别的 Red-Flag 策略
     /// DSL 语法：
@@ -871,33 +1506,33 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     private IRedFlagStrategy? ResolveRedFlagStrategy(Dictionary<string, object?> parameters)
     {
         var redFlagConfig = parameters.GetValueOrDefault("red_flag");
-        
+
         return redFlagConfig switch
         {
             // 显式禁用
             false or "false" or "none" or "disabled" => null,
-            
+
             // 显式启用（使用默认配置）
             true or "true" or "default" => _redFlagStrategy,
-            
+
             // 指定策略名称
             "english" => new DefaultEnglishRedFlagStrategy(),
             "chinese" => new ChineseRedFlagStrategy(),
             "code" => new CodeAwareRedFlagStrategy(),
-            
+
             // 嵌套配置对象
             Dictionary<string, object?> config => ResolveRedFlagFromConfig(config),
-            
+
             // 未配置：使用 Coordinator 默认
             null => _redFlagStrategy,
-            
+
             // 其他：尝试解析为策略名
             string name => ResolveRedFlagByName(name),
-            
+
             _ => _redFlagStrategy
         };
     }
-    
+
     private IRedFlagStrategy? ResolveRedFlagFromConfig(Dictionary<string, object?> config)
     {
         var enabled = config.GetValueOrDefault("enabled");
@@ -905,19 +1540,21 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             return null;
         }
-        
+
         var strategyName = config.GetValueOrDefault("strategy")?.ToString() ?? "english";
         var options = new RedFlagOptions
         {
-            MinContentLength = config.TryGetValue("min_length", out var min) && min != null 
-                ? Convert.ToInt32(min) : 10,
-            MaxContentLength = config.TryGetValue("max_length", out var max) && max != null 
-                ? Convert.ToInt32(max) : 8000,
+            MinContentLength = config.TryGetValue("min_length", out var min) && min != null
+                ? Convert.ToInt32(min)
+                : 10,
+            MaxContentLength = config.TryGetValue("max_length", out var max) && max != null
+                ? Convert.ToInt32(max)
+                : 8000,
             EnableRefusalDetection = config.GetValueOrDefault("detect_refusal") is not (false or "false"),
             EnableDegenerationDetection = config.GetValueOrDefault("detect_degeneration") is not (false or "false"),
             EnableLengthValidation = config.GetValueOrDefault("validate_length") is not (false or "false")
         };
-        
+
         return strategyName.ToLowerInvariant() switch
         {
             "english" => new DefaultEnglishRedFlagStrategy(options),
@@ -927,7 +1564,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             _ => new DefaultEnglishRedFlagStrategy(options)
         };
     }
-    
+
     private IRedFlagStrategy? ResolveRedFlagByName(string name) => name.ToLowerInvariant() switch
     {
         "english" => new DefaultEnglishRedFlagStrategy(),
@@ -936,15 +1573,15 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         "none" or "disabled" or "false" => null,
         _ => _redFlagStrategy
     };
-    
+
     // ============================================================
     //  参数解析辅助方法
     // ============================================================
-    
+
     private int ResolveIntParameter(Dictionary<string, object?> parameters, string key, int defaultValue)
     {
         var value = ParameterExtensions.GetOptional<object>(parameters, key, defaultValue);
-        
+
         return value switch
         {
             int i => i,
@@ -956,11 +1593,11 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             _ => defaultValue
         };
     }
-    
+
     private float ResolveFloatParameter(Dictionary<string, object?> parameters, string key, float defaultValue)
     {
         var value = ParameterExtensions.GetOptional<object>(parameters, key, defaultValue);
-        
+
         return value switch
         {
             float f => f,
@@ -972,7 +1609,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             _ => defaultValue
         };
     }
-    
+
     /// <summary>
     /// 安全转换为 int，处理 object unboxing
     /// </summary>
@@ -986,7 +1623,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         string s when int.TryParse(s, out var parsed) => parsed,
         _ => defaultValue
     };
-    
+
     /// <summary>
     /// 安全转换为 float，处理 object unboxing
     /// </summary>
@@ -1000,17 +1637,17 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         string s when float.TryParse(s, out var parsed) => parsed,
         _ => defaultValue
     };
-    
+
     private async Task<PrimitiveResult> ExecuteWorkflowCallAsync(StepDefinition step)
     {
         var workflowName = step.Workflow ?? "";
         var workflow = _workflowRegistry.Get(workflowName);
-        
+
         if (workflow == null)
         {
             return PrimitiveResult.Fail($"Workflow '{workflowName}' not found");
         }
-        
+
         // 检查递归深度
         CustomState.CurrentDepth++;
         if (CustomState.CurrentDepth > CustomState.MaxDepth)
@@ -1018,7 +1655,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             CustomState.CurrentDepth--;
             return PrimitiveResult.Fail($"Max recursion depth {CustomState.MaxDepth} exceeded");
         }
-        
+
         try
         {
             // 构建子上下文
@@ -1029,11 +1666,13 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 {
                     if (value != null)
                     {
-                        childVariables[key] = _templateEngine.ResolveValue(value, _workflowVariables)!;
+                        var resolved = _templateEngine.ResolveValue(value, _workflowVariables);
+                        if (resolved != null)
+                            childVariables[key] = resolved;
                     }
                 }
             }
-            
+
             // 临时替换变量
             var savedVariables = new Dictionary<string, object>(_workflowVariables);
             _workflowVariables.Clear();
@@ -1041,19 +1680,31 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             {
                 _workflowVariables[key] = value;
             }
-            
+
             // 执行子工作流
             await ExecuteWorkflowAsync(workflow);
-            
+
             var output = _workflowVariables.GetValueOrDefault("_output");
-            
+
+            // DEBUG: 检查子工作流输出
+            Logger.LogInformation("[DEBUG][WorkflowCall] _output is null: {IsNull}, type: {Type}",
+                output == null, output?.GetType().FullName ?? "null");
+            if (output is Dictionary<string, object?> dict)
+            {
+                foreach (var (k, v) in dict)
+                {
+                    Logger.LogInformation("[DEBUG][WorkflowCall] _output[{Key}] = {Value}",
+                        k, v?.ToString()?.Substring(0, Math.Min(100, v?.ToString()?.Length ?? 0)) ?? "null");
+                }
+            }
+
             // 恢复变量
             _workflowVariables.Clear();
             foreach (var (key, value) in savedVariables)
             {
                 _workflowVariables[key] = value;
             }
-            
+
             return PrimitiveResult.Ok(output);
         }
         finally
@@ -1061,23 +1712,23 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             CustomState.CurrentDepth--;
         }
     }
-    
+
     private Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
         Logger.LogDebug("Checkpoint at step: {StepId}", step.Id);
         return Task.FromResult(PrimitiveResult.Ok(null));
     }
-    
+
     // ============================================================
     //  辅助方法
     // ============================================================
-    
+
     private async Task FailExecutionAsync(string error)
     {
         CustomState.Status = ExecutionStatus.EsFailed;
         CustomState.CurrentPhase = "Failed";
         CustomState.Error = error;
-        
+
         await PublishAsync(new WorkflowCompletedEventProto
         {
             ExecutionId = CustomState.ExecutionId,
@@ -1085,20 +1736,21 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             Error = error
         });
     }
-    
+
     private object BuildOutput(Dictionary<string, string> outputDef)
     {
         if (outputDef.Count == 0)
             return _workflowVariables;
-        
+
         var output = new Dictionary<string, object?>();
         foreach (var (key, template) in outputDef)
         {
             output[key] = _templateEngine.ResolveValue(template, _workflowVariables);
         }
+
         return output;
     }
-    
+
     private static List<object> ConvertToList(object items)
     {
         return items switch
@@ -1109,7 +1761,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             _ => [items]
         };
     }
-    
+
     private static object ApplyReducer(List<object> results, string reducer)
     {
         return reducer.ToLowerInvariant() switch
@@ -1127,68 +1779,13 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             _ => results
         };
     }
-    
-    // ============================================================
-    //  Protobuf 转换
-    // ============================================================
-    
-    private static object ConvertFromProtoValue(Value value)
-    {
-        return value.KindCase switch
-        {
-            Value.KindOneofCase.NullValue => null!,
-            Value.KindOneofCase.NumberValue => value.NumberValue,
-            Value.KindOneofCase.StringValue => value.StringValue,
-            Value.KindOneofCase.BoolValue => value.BoolValue,
-            Value.KindOneofCase.StructValue => ConvertFromProtoStruct(value.StructValue),
-            Value.KindOneofCase.ListValue => value.ListValue.Values
-                .Select(ConvertFromProtoValue)
-                .ToList(),
-            _ => value.ToString()
-        };
-    }
-    
-    private static Dictionary<string, object> ConvertFromProtoStruct(Struct protoStruct)
-    {
-        var result = new Dictionary<string, object>();
-        foreach (var (key, value) in protoStruct.Fields)
-        {
-            result[key] = ConvertFromProtoValue(value);
-        }
-        return result;
-    }
-    
-    private static Value ConvertToProtoValue(object? value)
-    {
-        return value switch
-        {
-            null => Value.ForNull(),
-            bool b => Value.ForBool(b),
-            int i => Value.ForNumber(i),
-            long l => Value.ForNumber(l),
-            float f => Value.ForNumber(f),
-            double d => Value.ForNumber(d),
-            string s => Value.ForString(s),
-            IEnumerable<object> list => Value.ForList(list.Select(ConvertToProtoValue).ToArray()),
-            IDictionary<string, object> dict => ConvertDictToProtoValue(dict),
-            _ => Value.ForString(value.ToString() ?? "")
-        };
-    }
-    
-    private static Value ConvertDictToProtoValue(IDictionary<string, object> dict)
-    {
-        var structValue = new Struct();
-        foreach (var (key, value) in dict)
-        {
-            structValue.Fields[key] = ConvertToProtoValue(value);
-        }
-        return Value.ForStruct(structValue);
-    }
-    
+
+    // Protobuf 转换：使用 ProtoValueConverter 工具类
+
     // ============================================================
     //  步骤事件追踪
     // ============================================================
-    
+
     private void EmitStepEvent(
         StepDefinition step,
         StepStatus status,
@@ -1211,7 +1808,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         var now = DateTime.UtcNow;
         var durationMs = 0;
-        
+
         if (status == StepStatus.Running)
         {
             _stepStartTimes[step.Id] = now;
@@ -1220,7 +1817,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         {
             durationMs = (int)(now - startTime).TotalMilliseconds;
         }
-        
+
         var evt = new WorkflowStepEvent
         {
             RunId = CustomState.ExecutionId ?? "",
@@ -1250,14 +1847,18 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             // Red-Flag 信息
             RedFlagReason = redFlagReason ?? ""
         };
-        
-        _stepEvents.Add(evt);
+
+        // 多任务并行（vote streaming）时，避免 List 并发写导致内存损坏/卡死
+        lock (_stepEventsLock)
+        {
+            _stepEvents.Add(evt);
+        }
         _onStepEvent?.Invoke(evt);
-        
+
         Logger.LogDebug("[Workflow] Step {StepId} ({Type}): {Status} - {Message}",
             step.Id, step.Type, status, message);
     }
-    
+
     private static string GetDefaultMessage(StepDefinition step, StepStatus status)
     {
         return status switch
@@ -1271,4 +1872,3 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         };
     }
 }
-

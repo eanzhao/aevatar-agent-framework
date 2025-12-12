@@ -27,6 +27,35 @@ public enum ReviewStatus
 }
 
 // ============================================================
+//  REVIEW PHASE - 评审阶段（替代 MakerPhase）
+// ============================================================
+
+/// <summary>
+/// 评审阶段枚举。
+/// </summary>
+public enum ReviewPhase
+{
+    /// <summary>启动中</summary>
+    Starting,
+    /// <summary>分析任务</summary>
+    Assessing,
+    /// <summary>分解任务</summary>
+    Decomposing,
+    /// <summary>求解中</summary>
+    Solving,
+    /// <summary>执行子任务</summary>
+    Executing,
+    /// <summary>投票共识</summary>
+    Voting,
+    /// <summary>合成结果</summary>
+    Composing,
+    /// <summary>已完成</summary>
+    Completed,
+    /// <summary>失败</summary>
+    Failed
+}
+
+// ============================================================
 //  REVIEW TYPE - MAKER 共识难度等级
 //  基于论文公式: K = 领先票数, N = 2K - 1 = 采样数
 //  参考: https://arxiv.org/html/2511.09030v1
@@ -195,6 +224,30 @@ public record ProgressEvent : ReviewEvent
     public string? Message { get; init; }
     public int ProgressPercent { get; init; }
     public int? Depth { get; init; }
+    
+    // DSL 步骤信息
+    public string? StepId { get; init; }
+    public string? StepType { get; init; }
+    public string? StepStatus { get; init; }
+    
+    // Atomic Point（可选）：用于 UI 绑定“论证点/子任务”树
+    public string? PointId { get; init; }
+    public string? PointTitle { get; init; }
+    
+    // Vote 相关
+    public int VoteRound { get; init; }
+    public int VoteMaxRounds { get; init; }
+    public int VoteK { get; init; }
+    public int VoteCurrentVotes { get; init; }
+    
+    // Parallel 相关
+    public int ParallelTotal { get; init; }
+    public int ParallelCompleted { get; init; }
+    public int ParallelFailed { get; init; }
+    
+    // 统计信息
+    public int TotalLlmCalls { get; init; }
+    public long TotalTokens { get; init; }
 }
 
 /// <summary>
@@ -253,12 +306,42 @@ public record TaskDecomposedEvent : ReviewEvent
 {
     /// <summary>父任务 ID</summary>
     public string ParentTaskId { get; init; } = "";
+    
+    /// <summary>
+    /// 父 atomic point（可选）。
+    /// - 空表示根任务（整篇论文评审）
+    /// - 非空表示某个 point 被进一步拆分
+    /// </summary>
+    public string? ParentPointId { get; init; }
+    
+    /// <summary>父 atomic point 标题/描述（可选）</summary>
+    public string? ParentPointTitle { get; init; }
+    
     /// <summary>子任务列表</summary>
     public List<SubTaskInfo> SubTasks { get; init; } = [];
     /// <summary>分解深度</summary>
     public int Depth { get; init; }
     /// <summary>分解原因</summary>
     public string Reason { get; init; } = "";
+}
+
+/// <summary>
+/// Atomic Point 共识事件（每个子任务/论证点的最终共识结论）。
+/// </summary>
+public record AtomicPointConsensusEvent : ReviewEvent
+{
+    /// <summary>Point ID（建议使用可追踪的 StepId，例如 execute_subtasks[0]）</summary>
+    public string PointId { get; init; } = "";
+    /// <summary>Point 标题/描述（来自 decompose 的 subtask.description）</summary>
+    public string? PointTitle { get; init; }
+    /// <summary>产生共识的步骤（solve_atomic / compose 等）</summary>
+    public string SourceStepId { get; init; } = "";
+    /// <summary>递归深度（用于区分顶层/子任务）</summary>
+    public int Depth { get; init; }
+    /// <summary>共识是否成功（目前默认 true；失败场景可扩展）</summary>
+    public bool Success { get; init; } = true;
+    /// <summary>最终共识结论正文</summary>
+    public string Conclusion { get; init; } = "";
 }
 
 /// <summary>
@@ -280,12 +363,23 @@ public record WorkerStartedEvent : ReviewEvent
     public string WorkerId { get; init; } = "";
     /// <summary>任务 ID</summary>
     public string TaskId { get; init; } = "";
+    /// <summary>展示名称（友好名）</summary>
+    public string DisplayName { get; init; } = "";
     /// <summary>Worker 角色</summary>
     public string Role { get; init; } = "";
     /// <summary>LLM 提供商</summary>
     public string? ProviderName { get; init; }
     /// <summary>温度参数</summary>
     public float Temperature { get; init; }
+    
+    /// <summary>
+    /// 当前 Worker 所在的 atomic point（可选）。
+    /// 用于 UI 把对话绑定到 “论证点/子任务” 上。
+    /// </summary>
+    public string? PointId { get; init; }
+    
+    /// <summary>atomic point 标题/描述（可选）</summary>
+    public string? PointTitle { get; init; }
 }
 
 /// <summary>
@@ -297,6 +391,8 @@ public record WorkerCompletedEvent : ReviewEvent
     public string WorkerId { get; init; } = "";
     /// <summary>任务 ID</summary>
     public string TaskId { get; init; } = "";
+    /// <summary>展示名称（友好名）</summary>
+    public string DisplayName { get; init; } = "";
     /// <summary>是否成功</summary>
     public bool Success { get; init; }
     /// <summary>输出内容摘要</summary>
@@ -307,6 +403,12 @@ public record WorkerCompletedEvent : ReviewEvent
     public long LatencyMs { get; init; }
     /// <summary>Token 使用</summary>
     public int TotalTokens { get; init; }
+    
+    /// <summary>atomic point（可选）</summary>
+    public string? PointId { get; init; }
+    
+    /// <summary>atomic point 标题/描述（可选）</summary>
+    public string? PointTitle { get; init; }
 }
 
 /// <summary>
@@ -486,6 +588,8 @@ public record LlmCallStartEvent : ReviewEvent
     public string CallId { get; init; } = "";
     /// <summary>Worker ID</summary>
     public string WorkerId { get; init; } = "";
+    /// <summary>展示名称（友好名）</summary>
+    public string DisplayName { get; init; } = "";
     /// <summary>LLM 提供商</summary>
     public string? ProviderName { get; init; }
     /// <summary>System Prompt</summary>
@@ -494,6 +598,12 @@ public record LlmCallStartEvent : ReviewEvent
     public string? UserPrompt { get; init; }
     /// <summary>调用阶段</summary>
     public string Phase { get; init; } = "";
+    
+    /// <summary>atomic point（可选）</summary>
+    public string? PointId { get; init; }
+    
+    /// <summary>atomic point 标题/描述（可选）</summary>
+    public string? PointTitle { get; init; }
 }
 
 /// <summary>
@@ -505,6 +615,8 @@ public record LlmStreamingEvent : ReviewEvent
     public string CallId { get; init; } = "";
     /// <summary>Worker ID</summary>
     public string WorkerId { get; init; } = "";
+    /// <summary>展示名称（友好名）</summary>
+    public string DisplayName { get; init; } = "";
     /// <summary>当前 Token 块</summary>
     public string Token { get; init; } = "";
     /// <summary>累积内容</summary>
@@ -515,6 +627,12 @@ public record LlmStreamingEvent : ReviewEvent
     public bool IsFirstToken { get; init; }
     /// <summary>是否最后 Token</summary>
     public bool IsLastToken { get; init; }
+    
+    /// <summary>atomic point（可选）</summary>
+    public string? PointId { get; init; }
+    
+    /// <summary>atomic point 标题/描述（可选）</summary>
+    public string? PointTitle { get; init; }
 }
 
 /// <summary>
@@ -526,6 +644,8 @@ public record LlmCallCompleteEvent : ReviewEvent
     public string CallId { get; init; } = "";
     /// <summary>Worker ID</summary>
     public string WorkerId { get; init; } = "";
+    /// <summary>展示名称（友好名）</summary>
+    public string DisplayName { get; init; } = "";
     /// <summary>是否成功</summary>
     public bool Success { get; init; }
     /// <summary>完整响应内容</summary>
@@ -544,6 +664,12 @@ public record LlmCallCompleteEvent : ReviewEvent
     public string? ProviderName { get; init; }
     /// <summary>调用阶段</summary>
     public string Phase { get; init; } = "";
+    
+    /// <summary>atomic point（可选）</summary>
+    public string? PointId { get; init; }
+    
+    /// <summary>atomic point 标题/描述（可选）</summary>
+    public string? PointTitle { get; init; }
 }
 
 // ============================================================

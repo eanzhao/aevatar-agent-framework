@@ -266,7 +266,7 @@ public partial class MakerCoordinatorGAgent
                 Logger.LogInformation(
                     "[ACADEMIC] Depth {Depth}: Forcing DECOMPOSITION (Academic mode)",
                     current.Depth);
-                current.Phase = TaskExecutionPhase.Decomposing;
+            current.Phase = TaskExecutionPhase.Decomposing;
             }
         }
         else
