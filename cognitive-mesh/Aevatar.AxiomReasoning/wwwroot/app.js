@@ -37,6 +37,52 @@ const state = {
   },
 };
 
+// ============================================================
+//  Run Config (persisted in localStorage)
+// ============================================================
+const RUNCFG_KEY = "axiom_reasoning.run_config.v1";
+
+function readInt(id, fallback) {
+  const el = $(id);
+  if (!el) return fallback;
+  const n = parseInt(el.value, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function readBool(id, fallback) {
+  const el = $(id);
+  if (!el) return fallback;
+  return !!el.checked;
+}
+
+function loadRunConfig() {
+  try {
+    const raw = localStorage.getItem(RUNCFG_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === "object" ? obj : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRunConfig(cfg) {
+  try {
+    localStorage.setItem(RUNCFG_KEY, JSON.stringify(cfg));
+  } catch {
+    // ignore
+  }
+}
+
+function applyRunConfigToForm(cfg) {
+  if (!cfg) return;
+  if ($("input-max-duration-minutes") && typeof cfg.maxDurationMinutes === "number") $("input-max-duration-minutes").value = String(cfg.maxDurationMinutes);
+  if ($("input-max-llm-calls") && typeof cfg.maxLlmCalls === "number") $("input-max-llm-calls").value = String(cfg.maxLlmCalls);
+  if ($("input-max-tokens") && typeof cfg.maxTokens === "number") $("input-max-tokens").value = String(cfg.maxTokens);
+  if ($("input-max-depth") && typeof cfg.maxDepth === "number") $("input-max-depth").value = String(cfg.maxDepth);
+  if ($("input-continue-on-failure") && typeof cfg.continueOnFailure === "boolean") $("input-continue-on-failure").checked = cfg.continueOnFailure;
+}
+
 function fetchJson(url) {
   return fetch(url).then((r) => r.json());
 }
@@ -845,7 +891,22 @@ async function createSession() {
     k: parseInt($("input-k").value, 10) || 3,
     maxRounds: parseInt($("input-max-rounds").value, 10) || 10,
     maxDepth: parseInt($("input-max-depth").value, 10) || 10,
+
+    // Long-run budgets (frontend-configurable)
+    maxDurationMinutes: readInt("input-max-duration-minutes", 120),
+    maxLlmCalls: readInt("input-max-llm-calls", 5000),
+    maxTokens: readInt("input-max-tokens", 8000000),
+    continueOnFailure: readBool("input-continue-on-failure", true),
   };
+
+  // Persist run config for next page load
+  saveRunConfig({
+    maxDurationMinutes: payload.maxDurationMinutes,
+    maxLlmCalls: payload.maxLlmCalls,
+    maxTokens: payload.maxTokens,
+    maxDepth: payload.maxDepth,
+    continueOnFailure: payload.continueOnFailure,
+  });
 
   const res = await API.createSession(payload);
   if (!res.success) {
@@ -896,6 +957,7 @@ function initDefaults() {
 
 window.addEventListener("load", async () => {
   initDefaults();
+  applyRunConfigToForm(loadRunConfig());
 
   $("btn-refresh").addEventListener("click", () => refreshSessions());
   $("btn-create").addEventListener("click", createSession);

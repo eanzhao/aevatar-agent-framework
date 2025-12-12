@@ -63,9 +63,34 @@
             </label>
             <label class="field">
               <span>max_depth</span>
-              <input id="input-max-depth" type="number" min="1" max="200" value="10">
+              <input id="input-max-depth" type="number" min="1" max="200" value="200">
             </label>
           </div>
+
+          <details class="advanced" open>
+            <summary>Advanced (long-run budgets)</summary>
+            <div class="row-3">
+              <label class="field">
+                <span>max_duration_minutes</span>
+                <input id="input-max-duration-minutes" type="number" min="1" max="1440" value="120">
+              </label>
+              <label class="field">
+                <span>max_llm_calls</span>
+                <input id="input-max-llm-calls" type="number" min="1" max="200000" value="5000">
+              </label>
+              <label class="field">
+                <span>max_tokens</span>
+                <input id="input-max-tokens" type="number" min="1" max="200000000" value="8000000">
+              </label>
+            </div>
+            <label class="field field-inline">
+              <input id="input-continue-on-failure" type="checkbox" checked>
+              <span>continue_on_failure (proved=false 也继续下一轮)</span>
+            </label>
+            <div class="hint">
+              Tip: 长跑建议同时调大 max_depth；预算越大越烧钱。若模型流式输出很慢，Worker 内部有 idle/total timeout 防“假死”。
+            </div>
+          </details>
 
           <button id="btn-create" class="btn block">Create Session</button>
           <button id="btn-run" class="btn primary block" disabled>Run</button>
