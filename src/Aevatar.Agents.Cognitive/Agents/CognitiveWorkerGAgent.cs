@@ -175,36 +175,125 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         {
             var sb = new System.Text.StringBuilder();
             var tokenIndex = 0;
-            await foreach (var token in LLMProvider.GenerateStreamAsync(llmRequest))
+            // IMPORTANT:
+            // - Provider 的 stream 可能出现两类“假死”：
+            //   1) 无视 CancellationToken（CancelAfter 触发也不返回）
+            //   2) MoveNextAsync 永远不完成（网络 read 卡住）
+            // - 一旦发生，fan_out 会一直等，Pipeline 看起来“前端停了 & 后端也不动”
+            // - 解决：不用 await foreach 盲等；改为 MoveNextAsync + WhenAny(Idle/Total timeout)，并对中间态事件做节流。
+            var callTimeout = TimeSpan.FromMinutes(3);
+            var idleTimeout = TimeSpan.FromSeconds(30);
+            var startAt = DateTimeOffset.UtcNow;
+
+            // Streaming events throttling (reduce event storm & threadpool starvation)
+            const int StreamPublishEveryN = 16;
+            var streamPublishMinInterval = TimeSpan.FromMilliseconds(250);
+            var lastPublishAt = DateTimeOffset.MinValue;
+
+            try
             {
-                var content = token.Content ?? string.Empty;
-                if (string.IsNullOrEmpty(content) && !token.IsComplete)
-                    continue;
-
-                sb.Append(content);
-                finalContent = sb.ToString();
-
-                // 流式上报（Success=false 表示中间态）
-                await PublishAsync(new StepCompletedEventProto
+                var stream = LLMProvider.GenerateStreamAsync(llmRequest, cancellationToken: default);
+                var enumerator = stream.GetAsyncEnumerator();
+                try
                 {
-                    RequestId = request.RequestId,
-                    StepId = request.StepId,
-                    WorkerId = CustomState.WorkerId,
-                    Success = false,
-                    Result = finalContent,
-                    Error = "",
-                    TokensUsed = tokenIndex, // 简单用 token 序号
-                    LlmCalls = 0,
-                    DurationMs = 0
-                }, EventDirection.Up);
+                    while (true)
+                    {
+                        var elapsed = DateTimeOffset.UtcNow - startAt;
+                        var remaining = callTimeout - elapsed;
+                        if (remaining <= TimeSpan.Zero)
+                            return new PrimitiveResult { Success = false, Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s" };
 
-                tokenIndex++;
+                        // Wait for next token, but don't block forever.
+                        var moveNextTask = enumerator.MoveNextAsync().AsTask();
+                        var waitTimeout = remaining < idleTimeout ? remaining : idleTimeout;
+                        var completed = await Task.WhenAny(moveNextTask, Task.Delay(waitTimeout));
+                        if (completed != moveNextTask)
+                        {
+                            // If we haven't received anything for idleTimeout, treat as hang.
+                            return new PrimitiveResult
+                            {
+                                Success = false,
+                                Error = waitTimeout == idleTimeout
+                                    ? $"llm-idle-timeout>{(int)idleTimeout.TotalSeconds}s"
+                                    : $"llm-timeout>{(int)callTimeout.TotalSeconds}s"
+                            };
+                        }
 
-                if (token.IsComplete)
-                {
-                    totalCompletionTokens = tokenIndex;
-                    break;
+                        if (!await moveNextTask)
+                        {
+                            // Stream completed without explicit IsComplete token.
+                            totalCompletionTokens = tokenIndex;
+                            break;
+                        }
+
+                        var token = enumerator.Current;
+                        var content = token.Content ?? string.Empty;
+                        if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                            continue;
+
+                        sb.Append(content);
+                        finalContent = sb.ToString();
+
+                        // Streaming report (Success=false indicates intermediate state)
+                        // Throttle: publish first/last OR every N "tokens" OR time-based heartbeat.
+                        var now = DateTimeOffset.UtcNow;
+                        var isFirst = tokenIndex == 0;
+                        var shouldPublish =
+                            isFirst ||
+                            token.IsComplete ||
+                            (tokenIndex % StreamPublishEveryN == 0) ||
+                            (now - lastPublishAt >= streamPublishMinInterval);
+
+                        if (shouldPublish)
+                        {
+                            lastPublishAt = now;
+
+                            await PublishAsync(new StepCompletedEventProto
+                            {
+                                RequestId = request.RequestId,
+                                StepId = request.StepId,
+                                WorkerId = CustomState.WorkerId,
+                                Success = false,
+                                Result = finalContent,
+                                Error = "",
+                                TokensUsed = tokenIndex, // 简单用 token 序号
+                                LlmCalls = 0,
+                                DurationMs = 0
+                            }, EventDirection.Up);
+                        }
+
+                        tokenIndex++;
+
+                        // Safety stop for pathological streams
+                        if (tokenIndex > 20000)
+                        {
+                            return new PrimitiveResult { Success = false, Error = "llm-stream-too-long>20000" };
+                        }
+
+                        if (token.IsComplete)
+                        {
+                            totalCompletionTokens = tokenIndex;
+                            break;
+                        }
+                    }
                 }
+                finally
+                {
+                    // Don't allow DisposeAsync to block forever if provider is misbehaving.
+                    try
+                    {
+                        var disposeTask = enumerator.DisposeAsync().AsTask();
+                        await Task.WhenAny(disposeTask, Task.Delay(1000));
+                    }
+                    catch
+                    {
+                        // ignored
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return new PrimitiveResult { Success = false, Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s" };
             }
 
             // Red-flag：长度

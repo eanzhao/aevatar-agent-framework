@@ -96,6 +96,14 @@ public record ProgressEvent : AxiomEvent
     public string? AssistantResponsePreview { get; init; }
     public string? AssistantResponse { get; init; }
 
+    // Failure details (when stepStatus == Failed)
+    public string? Error { get; init; }
+
+    // Streaming meta (PaperReview-like)
+    public string? ProviderName { get; init; }
+    public int? TokenIndex { get; init; }
+    public string? TokenDelta { get; init; }
+
     // vote
     public int VoteRound { get; init; }
     public int VoteMaxRounds { get; init; }
@@ -125,6 +133,24 @@ public record ErrorEvent : AxiomEvent
 {
     public string Message { get; init; } = "";
     public string? StackTrace { get; init; }
+}
+
+// ============================================================
+//  Graph (Axiom/Theorem Dependencies)
+// ============================================================
+
+public record TheoremNode
+{
+    public string Id { get; init; } = "";
+    public string Statement { get; init; } = "";
+    public List<string> DependsOn { get; init; } = [];
+}
+
+public record GraphEvent : AxiomEvent
+{
+    public int Iteration { get; init; }
+    public List<string> Axioms { get; init; } = [];
+    public List<TheoremNode> Theorems { get; init; } = [];
 }
 
 

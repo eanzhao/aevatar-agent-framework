@@ -124,11 +124,26 @@
         <div class="panel-header">
           <div>
             <div class="panel-title">Workers</div>
-            <div class="panel-subtitle">Grouped by logical worker id</div>
+            <div class="panel-subtitle">Click card for full history (PaperReview-style)</div>
           </div>
-          <div class="stat-chip">N=<span id="worker-n">-</span></div>
+          <div class="stat-chip"><span id="worker-count">0</span> workers</div>
         </div>
-        <div id="workers" class="workers empty-state">No worker output yet</div>
+        <div id="worker-grid" class="worker-grid empty-state">Waiting for workers</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Dependency Graph</div>
+            <div class="panel-subtitle">Axioms → Theorems (edges = depends_on)</div>
+          </div>
+          <div class="stat-chip">iter=<span id="graph-iter">0</span></div>
+        </div>
+        <div id="graph-canvas" class="graph-canvas">
+          <svg id="graph-svg" width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg">
+            <g id="graph-viewport"></g>
+          </svg>
+        </div>
       </section>
 
       <section class="panel">
@@ -155,37 +170,18 @@
   </div>
 </div>
 
-<!-- Modal (PaperReview-like) -->
-<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
-  <div class="modal-backdrop" id="modal-backdrop"></div>
-  <div class="modal-card" role="document">
+<!-- Worker Detail Modal (PaperReview-style) -->
+<div id="modal" class="modal hidden">
+  <div id="modal-backdrop" class="modal-backdrop"></div>
+  <div class="modal-content">
     <div class="modal-header">
       <div>
-        <div class="modal-title" id="modal-title">Details</div>
-        <div class="modal-sub" id="modal-sub">-</div>
+        <div class="modal-title" id="modal-title">Worker</div>
+        <div class="modal-subtitle" id="modal-subtitle">Chat History</div>
       </div>
-      <button class="icon-btn" id="modal-close" title="Close">✕</button>
+      <button id="modal-close" class="icon-btn" title="Close">✕</button>
     </div>
-    <div class="modal-body">
-      <div class="modal-section">
-        <div class="modal-label">Message</div>
-        <div class="mono" id="modal-message"></div>
-      </div>
-      <div class="modal-grid">
-        <div class="modal-section">
-          <div class="modal-label">User Prompt</div>
-          <div class="mono" id="modal-user"></div>
-        </div>
-        <div class="modal-section">
-          <div class="modal-label">Assistant Output</div>
-          <div class="mono" id="modal-output"></div>
-        </div>
-      </div>
-      <div class="modal-section">
-        <div class="modal-label">Proposals (if any)</div>
-        <div id="modal-proposals" class="modal-proposals empty-state">No proposals</div>
-      </div>
-    </div>
+    <div id="modal-body" class="modal-body"></div>
   </div>
 </div>
 

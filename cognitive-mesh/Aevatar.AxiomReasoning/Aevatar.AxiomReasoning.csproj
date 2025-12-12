@@ -26,6 +26,9 @@
     <!-- Health Checks -->
     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
 
+    <!-- Supabase (Postgres) -->
+    <PackageReference Include="Supabase" />
+
     <!-- OpenTelemetry -->
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />

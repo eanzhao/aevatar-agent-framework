@@ -375,11 +375,18 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
 
         // 收集结果
         _collectedResults[evt.RequestId] = evt;
-        // 只在成功时移除 childType，流式事件需要保留
+        // fan_out completion semantics:
+        // - streaming 中间态：Success=false && Error=""（不计入完成）
+        // - 终态完成：Success=true 或 Success=false 且 Error!= ""（失败也算“完成”，否则 fan_out 会无意义卡住）
         _fanOutChildTypes.TryGetValue(evt.RequestId, out var childType);
+        var isStreaming = !evt.Success && string.IsNullOrEmpty(evt.Error);
+        var isTerminal = evt.Success || (!evt.Success && !string.IsNullOrEmpty(evt.Error));
         if (evt.Success)
         {
             _fanOutSuccessCount++;
+        }
+        if (isTerminal)
+        {
             _fanOutChildTypes.TryRemove(evt.RequestId, out _);
         }
 
@@ -392,8 +399,11 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 Type = childType
             };
 
-            // 如果 Success=false 但有 Result，视为流式中间进度；Success=true 表示完成
-            var status = evt.Success ? StepStatus.Completed : StepStatus.Running;
+            // UI semantics:
+            // - streaming: Running
+            // - terminal fail: Failed
+            // - terminal success: Completed
+            var status = evt.Success ? StepStatus.Completed : (isStreaming ? StepStatus.Running : StepStatus.Failed);
             var userPrompt = _fanOutUserPrompts.TryGetValue(evt.RequestId, out var up) ? up : "";
             var systemPrompt = _fanOutSystemPrompts.TryGetValue(evt.RequestId, out var sp) ? sp : "";
             EmitStepEvent(childDef,
@@ -411,19 +421,22 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         // 发送并行进度事件
         if (_currentFanOutStep != null)
         {
-            var completed = _fanOutSuccessCount;
+            var succeeded = _fanOutSuccessCount;
             var failed = _collectedResults.Values.Count(r => !r.Success && !string.IsNullOrEmpty(r.Error));
+            var terminal = _collectedResults.Values.Count(r => r.Success || !string.IsNullOrEmpty(r.Error));
 
             EmitStepEvent(_currentFanOutStep, StepStatus.Running,
-                $"Progress: {completed}/{_expectedResults} (failed: {failed})",
-                progress: (float)completed / _expectedResults,
+                $"Progress: {terminal}/{_expectedResults} (ok: {succeeded}, failed: {failed})",
+                progress: (float)terminal / _expectedResults,
                 parallelTotal: _expectedResults,
-                parallelCompleted: completed,
+                // parallelCompleted 表示“终态完成数”（成功+失败），避免失败导致永远不满格
+                parallelCompleted: terminal,
                 parallelFailed: failed);
         }
 
         // 检查是否所有结果已收集
-        if (_fanOutSuccessCount >= _expectedResults)
+        // 终态完成（成功或失败）都算“收集完毕”
+        if (_collectedResults.Values.Count(r => r.Success || !string.IsNullOrEmpty(r.Error)) >= _expectedResults)
         {
             _currentFanOutStep = null; // 清除当前 fan-out 步骤
             _fanOutCompletionSource?.TrySetResult(true);

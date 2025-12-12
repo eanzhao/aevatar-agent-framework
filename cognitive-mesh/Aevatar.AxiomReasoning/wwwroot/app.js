@@ -25,9 +25,16 @@ const state = {
   es: null,
   cache: {}, // sessionId -> { status, phase, tokens, llm, progress, steps: Map, workers: Map, lastVoteStepId }
   rawOpen: false,
+  rawDropped: 0,
   renderScheduled: false,
   lastRenderAt: 0,
-  modal: { open: false, kind: null, id: null },
+  modal: { sessionId: null, workerId: null, headTs: 0 },
+  ui: {
+    pointerDownWorkerId: null,
+    pointerDownAt: 0,
+    pointerDownX: 0,
+    pointerDownY: 0,
+  },
 };
 
 function fetchJson(url) {
@@ -61,11 +68,115 @@ function ensureSessionCache(sessionId) {
       llm: 0,
       progress: 0,
       steps: new Map(), // stepId -> { last: evt, proposals: Map }
-      workers: new Map(), // workerId -> { lastEvt }
+      // PaperReview-like worker cache (stable DOM + history)
+      workers: Object.create(null), // workerId -> { ... }
+      graph: { iteration: 0, axioms: [], theorems: [] },
       lastVoteStepId: null,
+      _stepsDirty: false,
     };
   }
   return state.cache[sessionId];
+}
+
+function getWorkerDisplayName(workerId) {
+  if (workerId === "coordinator") return "Coordinator";
+  const m = String(workerId).match(/worker-(\d+)/);
+  if (m) return `Worker ${m[1]}`;
+  return workerId;
+}
+
+function createWorkerCardDom(workerId) {
+  const card = document.createElement("div");
+  card.className = "worker-card";
+  card.dataset.workerId = workerId;
+
+  const header = document.createElement("div");
+  header.className = "worker-header";
+
+  const info = document.createElement("div");
+  info.className = "worker-info";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "worker-name";
+
+  const metaEl = document.createElement("div");
+  metaEl.className = "worker-meta";
+
+  info.appendChild(nameEl);
+  info.appendChild(metaEl);
+
+  const badgeEl = document.createElement("span");
+  badgeEl.className = "badge pending";
+  badgeEl.textContent = "pending";
+
+  header.appendChild(info);
+  header.appendChild(badgeEl);
+
+  const body = document.createElement("div");
+  body.className = "worker-body";
+
+  const contentEl = document.createElement("div");
+  contentEl.className = "worker-content";
+
+  const emptyEl = document.createElement("div");
+  emptyEl.className = "worker-empty";
+  emptyEl.textContent = "Waiting for response...";
+
+  body.appendChild(contentEl);
+  body.appendChild(emptyEl);
+
+  card.appendChild(header);
+  card.appendChild(body);
+
+  return { card, nameEl, metaEl, badgeEl, contentEl, emptyEl };
+}
+
+function updateWorkerCardDom(dom, w) {
+  dom.nameEl.textContent = w.name || w.id;
+  const provider = w.provider || "-";
+  const tokens = w.tokenIndex || 0;
+  const stepType = w.stepType || "-";
+  const err = w.errorMessage ? ` · FAIL: ${String(w.errorMessage).slice(0, 80)}` : "";
+  dom.metaEl.textContent = `${provider} · ${tokens} tokens · ${stepType}` + (w.streaming ? " · streaming" : "") + (w.status === "error" ? err : "");
+
+  const statusClass = w.streaming ? "running" : (w.status || "pending");
+  const statusText = w.streaming ? "streaming" : (w.status || "pending");
+  dom.badgeEl.className = `badge ${statusClass}`;
+  dom.badgeEl.textContent = statusText;
+  dom.card.classList.toggle("streaming", !!w.streaming);
+
+  // Content: show full content, keep scroll stable
+  const displayContent = w.streamContent || w.lastResponse || "";
+  if (displayContent) {
+    dom.contentEl.style.display = "";
+    dom.emptyEl.style.display = "none";
+
+    const atBottom = dom.contentEl.scrollTop + dom.contentEl.clientHeight >= dom.contentEl.scrollHeight - 8;
+    const oldTop = dom.contentEl.scrollTop;
+
+    // Streaming perf:
+    // - Prefer incremental append during streaming (PaperReview silky mode)
+    // - Fallback to full replace when something is inconsistent (e.g. card recreated)
+    const pending = w.pendingAppend || "";
+    if (pending) {
+      const current = dom.contentEl.textContent || "";
+      const okToAppend = (current.length + pending.length === displayContent.length) && displayContent.endsWith(pending);
+      if (okToAppend) {
+        dom.contentEl.insertAdjacentText("beforeend", pending);
+      } else {
+        dom.contentEl.textContent = displayContent;
+      }
+      w.pendingAppend = "";
+      dom.contentEl.scrollTop = atBottom ? dom.contentEl.scrollHeight : oldTop;
+    } else if (dom.contentEl.textContent !== displayContent) {
+      dom.contentEl.textContent = displayContent;
+      dom.contentEl.scrollTop = atBottom ? dom.contentEl.scrollHeight : oldTop;
+    }
+    dom.contentEl.classList.toggle("streaming-text", !!w.streaming);
+  } else {
+    dom.contentEl.style.display = "none";
+    dom.emptyEl.style.display = "";
+  }
 }
 
 function scheduleRender(sessionId, force = false) {
@@ -84,8 +195,28 @@ function scheduleRender(sessionId, force = false) {
     const cache = ensureSessionCache(sessionId);
     renderTop(cache);
     renderVoting(cache);
-    renderWorkers(cache);
-    renderSteps(cache);
+    if (force || cache._stepsDirty) {
+      cache._stepsDirty = false;
+      renderSteps(cache);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Render Scheduling (avoid re-render per token)
+// ─────────────────────────────────────────────────────────────
+let _workersRenderRaf = 0;
+let _workersRenderCache = null;
+
+function scheduleRenderWorkers(cache) {
+  _workersRenderCache = cache;
+  if (_workersRenderRaf) return;
+  _workersRenderRaf = requestAnimationFrame(() => {
+    _workersRenderRaf = 0;
+    if (_workersRenderCache) {
+      renderWorkers(_workersRenderCache);
+      updateModalIfOpen(_workersRenderCache);
+    }
   });
 }
 
@@ -189,38 +320,34 @@ function renderVoting(cache) {
 }
 
 function renderWorkers(cache) {
-  const host = $("workers");
-  const entries = Array.from(cache.workers.entries());
-  if (entries.length === 0) {
+  const host = $("worker-grid");
+  const workers = cache.workers || {};
+  const ids = Object.keys(workers);
+
+  $("worker-count").textContent = String(ids.length || 0);
+
+  if (!ids.length) {
     host.classList.add("empty-state");
-    host.textContent = "No worker output yet";
-    $("worker-n").textContent = "-";
+    host.textContent = "Waiting for workers";
     return;
   }
+
+  // Remove empty placeholder text node without destroying existing cards
   host.classList.remove("empty-state");
+  for (const n of Array.from(host.childNodes)) {
+    if (n.nodeType === Node.TEXT_NODE && (n.textContent || "").trim().length > 0) {
+      host.removeChild(n);
+    }
+  }
 
-  // Estimate N: if K exists in last vote, N=2K-1; else infer from workers count (excluding coordinator)
-  const k = cache.lastVoteStepId ? (cache.steps.get(cache.lastVoteStepId)?.last?.voteK || 0) : 0;
-  const n = k > 0 ? (2 * k - 1) : entries.filter(([id]) => id !== "coordinator").length;
-  $("worker-n").textContent = String(n || "-");
-
-  host.innerHTML = entries
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([workerId, w]) => {
-      const evt = w.lastEvt || {};
-      const body = evt.assistantResponsePreview || evt.assistantResponse || evt.message || "";
-      const meta = `${evt.stepType || "-"} · ${evt.stepStatus || "-"}`;
-      return `
-        <div class="worker">
-          <div class="hdr">
-            <div class="wid">${escapeHtml(workerId)}</div>
-            <div class="meta">${escapeHtml(meta)}</div>
-          </div>
-          <div class="body">${escapeHtml(body)}</div>
-        </div>
-      `;
-    })
-    .join("");
+  for (const workerId of ids.sort()) {
+    const w = workers[workerId];
+    if (!w.dom) {
+      w.dom = createWorkerCardDom(workerId);
+      host.appendChild(w.dom.card);
+    }
+    updateWorkerCardDom(w.dom, w);
+  }
 }
 
 function renderSteps(cache) {
@@ -288,67 +415,146 @@ function renderResultBox(text, ok) {
 }
 
 function appendRaw(evt) {
-  const el = $("raw");
-  const s = JSON.stringify(evt);
-  el.textContent += (el.textContent ? "\n" : "") + s;
   if (!state.rawOpen) return;
+  const el = $("raw");
+  // Debug only: keep this lightweight to avoid killing streaming performance.
+  // NOTE: This still does work; that's why it's collapsed by default.
+  const s = JSON.stringify(evt);
+  el.insertAdjacentText("beforeend", (el.textContent ? "\n" : "") + s);
+  // Soft cap: if debug view gets too big, keep last ~200KB.
+  if (el.textContent.length > 200_000) {
+    el.textContent = el.textContent.slice(-180_000);
+  }
   el.scrollTop = el.scrollHeight;
 }
 
-function openModalForStep(sessionId, stepId) {
-  const cache = ensureSessionCache(sessionId);
-  const step = cache.steps.get(stepId);
-  if (!step || !step.last) return;
-  const evt = step.last;
+function openWorkerModal(workerId) {
+  const cache = state.current ? ensureSessionCache(state.current) : null;
+  const worker = cache?.workers?.[workerId];
+  if (!worker) return;
 
-  $("modal-title").textContent = evt.stepId || stepId;
-  $("modal-sub").textContent = `type=${evt.stepType || "-"} · status=${evt.stepStatus || "-"} · worker=${evt.workerId || "-"}`;
-  $("modal-message").textContent = evt.message || "";
-  $("modal-user").textContent = evt.userPrompt || "";
-  $("modal-output").textContent = evt.assistantResponse || evt.assistantResponsePreview || "";
+  state.modal.sessionId = state.current;
+  state.modal.workerId = workerId;
+  state.modal.headTs = worker.history?.[0]?.timestamp || 0;
 
-  const proposalsHost = $("modal-proposals");
-  const proposals = step.proposals ? Array.from(step.proposals.values()) : [];
-  if (!proposals.length) {
-    proposalsHost.classList.add("empty-state");
-    proposalsHost.textContent = "No proposals";
-  } else {
-    proposalsHost.classList.remove("empty-state");
-    proposalsHost.innerHTML = proposals
-      .map((p) => {
-        const title = `${p.stepId || ""} · ${p.workerId || ""} · ${p.stepStatus || ""}`;
-        const body = p.assistantResponse || p.assistantResponsePreview || p.message || "";
-        return `<div class="mono"><b>${escapeHtml(title)}</b>\n${escapeHtml(body)}</div>`;
-      })
-      .join("");
-  }
-
+  renderModal(worker);
   $("modal").classList.remove("hidden");
-  state.modal = { open: true, kind: "step", id: stepId };
+  document.body.style.overflow = "hidden";
 }
 
-function openModalForWorker(sessionId, workerId) {
-  const cache = ensureSessionCache(sessionId);
-  const w = cache.workers.get(workerId);
-  if (!w || !w.lastEvt) return;
-  const evt = w.lastEvt;
+function renderModal(worker) {
+  $("modal-title").textContent = worker.name || worker.id;
+  const err = worker.status === "error" && worker.errorMessage ? ` · FAIL: ${String(worker.errorMessage).slice(0, 120)}` : "";
+  $("modal-subtitle").textContent =
+    `${worker.provider || "-"} · ${worker.tokenIndex || 0} tokens · ${worker.history.length} conversations` +
+    (worker.streaming ? " · streaming..." : "") + err;
 
-  $("modal-title").textContent = workerId;
-  $("modal-sub").textContent = `lastStep=${evt.stepId || "-"} · ${evt.stepType || "-"} · ${evt.stepStatus || "-"}`;
-  $("modal-message").textContent = evt.message || "";
-  $("modal-user").textContent = evt.userPrompt || "";
-  $("modal-output").textContent = evt.assistantResponse || evt.assistantResponsePreview || "";
-  const proposalsHost = $("modal-proposals");
-  proposalsHost.classList.add("empty-state");
-  proposalsHost.textContent = "Open a vote step to see proposals.";
+  const body = $("modal-body");
+  body.innerHTML = "";
 
-  $("modal").classList.remove("hidden");
-  state.modal = { open: true, kind: "worker", id: workerId };
+  if (!worker.history.length) {
+    body.innerHTML = '<div class="empty-state">No conversation history</div>';
+    return;
+  }
+
+  worker.history.forEach((h, idx) => {
+    const item = document.createElement("details");
+    item.className = "chat-item";
+    item.open = idx === 0;
+
+    const summary = document.createElement("summary");
+    summary.className = "chat-header";
+    summary.innerHTML = `
+      <div class="chat-phase">${escapeHtml(h.phase || "LLM Call")}</div>
+      <div class="chat-time">${new Date(h.timestamp).toLocaleTimeString()}</div>
+    `;
+    item.appendChild(summary);
+
+    const bodyDiv = document.createElement("div");
+    bodyDiv.className = "chat-body";
+
+    if (h.system) bodyDiv.appendChild(buildChatSection("System Prompt", h.system, false));
+    if (h.user) bodyDiv.appendChild(buildChatSection("User Prompt", h.user, true));
+
+    const respSection = buildChatSection("Response", h.response || "", true);
+    const respContent = respSection.querySelector(".chat-content");
+    if (respContent) {
+      respContent.dataset.role = "modal-response";
+      respContent.dataset.idx = String(idx);
+      setChatContentText(respContent, h.response || "", worker.streaming && idx === 0);
+    }
+    bodyDiv.appendChild(respSection);
+
+    item.appendChild(bodyDiv);
+    body.appendChild(item);
+  });
+}
+
+function buildChatSection(label, text, open = true) {
+  const section = document.createElement("details");
+  section.className = "chat-section";
+  section.open = !!open;
+
+  const summary = document.createElement("summary");
+  summary.className = "chat-label";
+  summary.textContent = label;
+
+  const content = document.createElement("div");
+  content.className = "chat-content";
+  setChatContentText(content, text, false);
+
+  section.appendChild(summary);
+  section.appendChild(content);
+  return section;
+}
+
+function setChatContentText(el, text, showWaitingWhenEmpty) {
+  const val = text || "";
+  if (!val && showWaitingWhenEmpty) {
+    el.textContent = "Waiting...";
+    el.style.color = "var(--text-muted)";
+    return;
+  }
+  el.textContent = val;
+  el.style.color = "";
+}
+
+function updateModalIfOpen(cache) {
+  const modalEl = $("modal");
+  if (modalEl.classList.contains("hidden")) return;
+
+  const { sessionId, workerId } = state.modal || {};
+  if (!sessionId || !workerId) return;
+  if (sessionId !== state.current) return;
+
+  const worker = cache?.workers?.[workerId];
+  if (!worker) return;
+
+  const headTs = worker.history?.[0]?.timestamp || 0;
+  if (headTs && headTs !== state.modal.headTs) {
+    state.modal.headTs = headTs;
+    renderModal(worker);
+    return;
+  }
+
+  $("modal-title").textContent = worker.name || worker.id;
+  const err = worker.status === "error" && worker.errorMessage ? ` · FAIL: ${String(worker.errorMessage).slice(0, 120)}` : "";
+  $("modal-subtitle").textContent =
+    `${worker.provider || "-"} · ${worker.tokenIndex || 0} tokens · ${worker.history.length} conversations` +
+    (worker.streaming ? " · streaming..." : "") + err;
+
+  const respEl = $("modal-body").querySelector('[data-role="modal-response"][data-idx="0"]');
+  if (!respEl) return;
+  const latest = worker.history?.[0]?.response || "";
+  setChatContentText(respEl, latest, !!worker.streaming);
 }
 
 function closeModal() {
   $("modal").classList.add("hidden");
-  state.modal = { open: false, kind: null, id: null };
+  document.body.style.overflow = "";
+  state.modal.sessionId = null;
+  state.modal.workerId = null;
+  state.modal.headTs = 0;
 }
 
 function applyEvent(sessionId, evt) {
@@ -362,7 +568,37 @@ function applyEvent(sessionId, evt) {
     cache.status = "running";
 
     const workerId = evt.workerId || "coordinator";
-    cache.workers.set(workerId, { lastEvt: evt });
+    if (!cache.workers[workerId]) {
+      cache.workers[workerId] = {
+        id: workerId,
+        name: getWorkerDisplayName(workerId),
+        provider: "",
+        tokenIndex: 0,
+        status: "pending",
+        streaming: false,
+        streamContent: "",
+        lastResponse: "",
+        pendingAppend: "",
+        errorMessage: "",
+        history: [],
+        stepId: "",
+        stepType: "",
+        dom: null,
+      };
+    }
+    const w = cache.workers[workerId];
+    w.stepId = evt.stepId || "";
+    w.stepType = evt.stepType || "";
+    if (evt.providerName) w.provider = evt.providerName;
+    if (typeof evt.tokenIndex === "number") w.tokenIndex = evt.tokenIndex;
+
+    const st = String(evt.stepStatus || "").toLowerCase();
+    w.status = st.includes("failed") ? "error" : st.includes("completed") ? "completed" : "running";
+    if (w.status === "error") {
+      w.errorMessage = evt.error || evt.message || w.errorMessage || "failed";
+    } else if (w.status === "completed") {
+      w.errorMessage = "";
+    }
 
     const sid = evt.stepId || evt.phase || "main";
     const parent = stepParentId(sid);
@@ -381,10 +617,74 @@ function applyEvent(sessionId, evt) {
       cache.lastVoteStepId = sid;
     }
 
+    // Worker history (PaperReview-like):
+    // - We treat each completed llm_call as one history item.
+    // - During streaming, we keep updating the head item to show live text.
+    if (String(evt.stepType || "").toLowerCase() === "llm_call") {
+      const now = Date.now();
+      const isCompleted = st.includes("completed");
+      const isFailed = st.includes("failed");
+      const delta = evt.tokenDelta || "";
+      const finalBody = evt.assistantResponse || "";
+      const content = finalBody || evt.assistantResponsePreview || "";
+
+      const head = w.history[0];
+      const isSameStep = head && head.stepId === (evt.stepId || "");
+      if (!isSameStep) {
+        w.history.unshift({
+          timestamp: now,
+          stepId: evt.stepId || "",
+          phase: evt.phase || "LLM Call",
+          status: evt.stepStatus || "",
+          system: evt.systemPrompt || "",
+          user: evt.userPrompt || "",
+          response: "",
+        });
+        if (w.history.length > 12) w.history.pop();
+      }
+      if (w.history.length) {
+        if (delta) w.history[0].response = (w.history[0].response || "") + delta;
+        else if (content) w.history[0].response = content;
+        w.history[0].status = evt.stepStatus || w.history[0].status;
+        // fill prompts if they arrive later
+        if (!w.history[0].system && evt.systemPrompt) w.history[0].system = evt.systemPrompt;
+        if (!w.history[0].user && evt.userPrompt) w.history[0].user = evt.userPrompt;
+      }
+
+      w.streaming = !(isCompleted || isFailed);
+      if (delta) {
+        w.pendingAppend = (w.pendingAppend || "") + delta;
+        w.streamContent = (w.streamContent || "") + delta;
+      } else if (content) {
+        // Completed/fallback: replace to authoritative content
+        w.pendingAppend = "";
+        w.streamContent = content;
+      }
+      if (isCompleted && content) w.lastResponse = content;
+    }
+
     // 高频流式事件：节流渲染，避免卡顿
-    const stepStatus = String(evt.stepStatus || "");
-    const isCompleted = stepStatus.toLowerCase().includes("completed") || stepStatus.toLowerCase().includes("failed");
-    scheduleRender(sessionId, isCompleted);
+    const isDone = st.includes("completed") || st.includes("failed");
+    const stepType = String(evt.stepType || "").toLowerCase();
+    // Only mark steps panel dirty for non-streaming / stateful transitions
+    if (isDone || (stepType && stepType !== "llm_call")) {
+      cache._stepsDirty = true;
+    }
+    scheduleRender(sessionId, isDone);
+
+    // Keep workers/cards stable: update via rAF to avoid per-token DOM churn
+    scheduleRenderWorkers(cache);
+    return;
+  }
+
+  if (evt.type === "GraphEvent") {
+    cache.graph = {
+      iteration: evt.iteration || 0,
+      axioms: Array.isArray(evt.axioms) ? evt.axioms : [],
+      theorems: Array.isArray(evt.theorems) ? evt.theorems : [],
+    };
+    $("graph-iter").textContent = String(cache.graph.iteration || 0);
+    renderGraph(cache.graph);
     return;
   }
 
@@ -416,6 +716,85 @@ function applyEvent(sessionId, evt) {
   }
 }
 
+function renderGraph(graph) {
+  const viewport = $("graph-viewport");
+  if (!viewport) return;
+
+  const axioms = Array.isArray(graph.axioms) ? graph.axioms : [];
+  const theorems = Array.isArray(graph.theorems) ? graph.theorems : [];
+
+  function axId(line, idx) {
+    const m = String(line || "").match(/^([A-Za-z]\\w*)\\s*:/);
+    return m ? m[1] : `A${idx + 1}`;
+  }
+
+  const nodes = [];
+  for (let i = 0; i < axioms.length; i++) nodes.push({ id: axId(axioms[i], i), label: axioms[i], kind: "axiom" });
+  for (const t of theorems) nodes.push({
+    id: t.id || "",
+    label: t.statement || t.id || "",
+    kind: "theorem",
+    dependsOn: t.dependsOn || t.depends_on || [],
+  });
+
+  const byId = Object.create(null);
+  for (const n of nodes) byId[n.id] = n;
+
+  // layout
+  const pos = Object.create(null);
+  let y = 50;
+  for (const n of nodes.filter(n => n.kind === "axiom")) {
+    pos[n.id] = { x: 40, y };
+    y += 90;
+  }
+  const ths = nodes.filter(n => n.kind === "theorem").sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const laneY = Object.create(null);
+  for (let i = 0; i < ths.length; i++) {
+    const id = ths[i].id;
+    const m = id.match(/^T(\\d+)$/i);
+    const layer = m ? parseInt(m[1], 10) : (i + 1);
+    if (!laneY[layer]) laneY[layer] = 50;
+    pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
+    laneY[layer] += 120;
+  }
+
+  // edges
+  const edges = [];
+  for (const t of ths) {
+    const deps = Array.isArray(t.dependsOn) ? t.dependsOn : [];
+    for (const d of deps) {
+      const depId = String(d || "").trim();
+      if (byId[depId]) edges.push({ from: depId, to: t.id });
+    }
+  }
+
+  const parts = [];
+  for (const e of edges) {
+    const a = pos[e.from];
+    const b = pos[e.to];
+    if (!a || !b) continue;
+    const x1 = a.x + 220, y1 = a.y;
+    const x2 = b.x, y2 = b.y;
+    const mx = (x1 + x2) / 2;
+    parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
+  }
+  for (const n of nodes) {
+    const p = pos[n.id];
+    if (!p) continue;
+    const fill = n.kind === "axiom" ? "#eff6ff" : "#f0fdf4";
+    const stroke = n.kind === "axiom" ? "#bfdbfe" : "#bbf7d0";
+    const title = escapeHtml(String(n.label || "").replace(/\\s+/g, " ").slice(0, 72));
+    parts.push(`
+      <g>
+        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="220" height="54" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect>
+        <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
+        <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
+      </g>
+    `);
+  }
+  viewport.innerHTML = parts.join("");
+}
+
 function connect(sessionId) {
   if (state.es) {
     state.es.close();
@@ -426,7 +805,11 @@ function connect(sessionId) {
   state.es.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
-      appendRaw(evt);
+      if (state.rawOpen) {
+        appendRaw(evt);
+      } else {
+        state.rawDropped++;
+      }
       applyEvent(sessionId, evt);
     } catch {
       // ignore parse errors
@@ -522,6 +905,13 @@ window.addEventListener("load", async () => {
   $("btn-toggle-raw").addEventListener("click", () => {
     state.rawOpen = !state.rawOpen;
     $("raw").classList.toggle("hidden", !state.rawOpen);
+    if (state.rawOpen) {
+      const el = $("raw");
+      if (state.rawDropped > 0) {
+        el.textContent = `[raw disabled] dropped ${state.rawDropped} events before open\n`;
+        state.rawDropped = 0;
+      }
+    }
   });
 
   // modal close
@@ -531,24 +921,32 @@ window.addEventListener("load", async () => {
     if (e.key === "Escape") closeModal();
   });
 
-  // click-to-open (event delegation)
-  $("workers").addEventListener("click", (e) => {
-    const card = e.target.closest(".worker");
-    if (!card || !state.current) return;
-    const wid = card.querySelector(".wid")?.textContent;
-    if (wid) openModalForWorker(state.current, wid.trim());
+  // Workers: PaperReview-style pointerdown/up to survive DOM churn during streaming
+  const grid = $("worker-grid");
+  grid.addEventListener("pointerdown", (e) => {
+    const card = e.target.closest(".worker-card");
+    if (!card) return;
+    state.ui.pointerDownWorkerId = card.dataset.workerId || null;
+    state.ui.pointerDownAt = Date.now();
+    state.ui.pointerDownX = e.clientX;
+    state.ui.pointerDownY = e.clientY;
+  }, { passive: true });
+  grid.addEventListener("pointerup", (e) => {
+    const wid = state.ui.pointerDownWorkerId;
+    if (!wid || !state.current) return;
+    const dt = Date.now() - (state.ui.pointerDownAt || 0);
+    const dx = Math.abs(e.clientX - (state.ui.pointerDownX || 0));
+    const dy = Math.abs(e.clientY - (state.ui.pointerDownY || 0));
+    state.ui.pointerDownWorkerId = null;
+    if (dt < 600 && dx < 8 && dy < 8) {
+      openWorkerModal(wid);
+    }
   });
-  $("steps").addEventListener("click", (e) => {
-    const card = e.target.closest(".step");
+  grid.addEventListener("click", (e) => {
+    const card = e.target.closest(".worker-card");
     if (!card || !state.current) return;
-    const sid = card.getAttribute("data-step-id") || card.querySelector(".sid")?.textContent;
-    if (sid) openModalForStep(state.current, sid.trim());
-  });
-  $("voting-body").addEventListener("click", (e) => {
-    const card = e.target.closest(".step");
-    if (!card || !state.current) return;
-    const sid = card.getAttribute("data-step-id") || card.querySelector(".sid")?.textContent;
-    if (sid) openModalForStep(state.current, sid.trim());
+    const wid = card.dataset.workerId;
+    if (wid) openWorkerModal(wid);
   });
 
   await refreshSessions(true);

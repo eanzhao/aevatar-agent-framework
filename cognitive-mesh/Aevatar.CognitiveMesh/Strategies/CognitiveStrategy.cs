@@ -657,6 +657,33 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         ("solve", "SOLVE"),             // MakerPhase.Solving
         ("execute", "EXECUTE"),         // MakerPhase.Executing
     ];
+
+    // ============================================================
+    //  Fan-out Step Prefixes (worker grouping)
+    //
+    //  WHY:
+    //  - DSL fan_out 会把 step id 展开成 "{id}[i]"（0-based index）
+    //  - UI 侧依赖 WorkerId 分组；若不识别这些展开形式，就会“永远只有 coordinator”
+    //
+    //  NOTE:
+    //  - 这里用“数据驱动前缀集合”避免写一堆 if/else 分支
+    //  - 新增 fan_out step 时，只需要把 id 加进集合（或升级为从 workflow 元数据自动生成）
+    // ============================================================
+    private static readonly HashSet<string> FanOutStepPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // axiom_theorem_loop.yaml
+        "prove_with_workers",
+
+        // maker-v2.yaml / maker.yaml
+        "execute_subtasks",
+        "solve_subtasks",
+
+        // uot-combinational*.yaml
+        "decompose_thoughts",
+        "synthesize",
+        "synthesize_candidates",
+        "evaluate_candidates"
+    };
     
     private static string GetPhasePrefix(string stepId, string stepType)
     {
@@ -696,6 +723,24 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         {
             var workerIndex = workerCount > 0 ? (genIndex - 1) % workerCount : 0;
             return $"worker-{workerIndex}";
+        }
+
+        // Fan-out patterns: "{stepIdPrefix}[i]" -> worker-{i % workerCount}
+        // e.g. prove_with_workers[2], execute_subtasks[0], decompose_thoughts[4] ...
+        var bracketStart = stepId.IndexOf('[');
+        if (bracketStart > 0)
+        {
+            var bracketEnd = stepId.IndexOf(']', bracketStart + 1);
+            if (bracketEnd > bracketStart + 1)
+            {
+                var prefix = stepId[..bracketStart];
+                var indexText = stepId[(bracketStart + 1)..bracketEnd];
+                if (FanOutStepPrefixes.Contains(prefix) && int.TryParse(indexText, out var i))
+                {
+                    var workerIndex = workerCount > 0 ? i % workerCount : 0;
+                    return $"worker-{workerIndex}";
+                }
+            }
         }
         
         // Default to coordinator for unknown patterns

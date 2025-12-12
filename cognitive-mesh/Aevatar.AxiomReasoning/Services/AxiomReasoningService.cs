@@ -21,16 +21,19 @@ public sealed class AxiomReasoningService
     private readonly ConcurrentDictionary<string, AxiomSession> _sessions = new();
     private readonly CognitiveStrategy _cognitiveStrategy;
     private readonly AxiomReasoningEventBridge _eventBridge;
+    private readonly SupabaseService _supabaseService;
     private readonly ILogger<AxiomReasoningService> _logger;
     private readonly string _outputBasePath;
 
     public AxiomReasoningService(
         CognitiveStrategy cognitiveStrategy,
         AxiomReasoningEventBridge eventBridge,
+        SupabaseService supabaseService,
         ILoggerFactory loggerFactory)
     {
         _cognitiveStrategy = cognitiveStrategy;
         _eventBridge = eventBridge;
+        _supabaseService = supabaseService;
         _logger = loggerFactory.CreateLogger<AxiomReasoningService>();
 
         _outputBasePath = Path.Combine(Directory.GetCurrentDirectory(), "output");
@@ -198,17 +201,45 @@ public sealed class AxiomReasoningService
             session.Error = result.Error;
 
             // 保存 artifacts（best-effort）
+            string? stateJson = null;
+            string? theoremsJson = null;
             try
             {
                 SaveFile(session, "artifacts", "result.txt", result.Content ?? "");
 
                 // axiom_theorem_loop.yaml outputs `state` (object) + `theorems` (list)
-                SaveFile(session, "artifacts", "state.json", ExtractField(result.Content, "state") ?? "{}");
-                SaveFile(session, "artifacts", "theorems.json", ExtractField(result.Content, "theorems") ?? "[]");
+                stateJson = ExtractField(result.Content, "state") ?? "{}";
+                theoremsJson = ExtractField(result.Content, "theorems") ?? "[]";
+                SaveFile(session, "artifacts", "state.json", stateJson);
+                SaveFile(session, "artifacts", "theorems.json", theoremsJson);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[{Id}] Failed to save artifacts (ignored)", session.Id);
+            }
+
+            // Supabase persistence (best-effort)
+            try
+            {
+                if (_supabaseService.IsEnabled)
+                {
+                    await _supabaseService.SaveResultAsync(
+                        sessionId: session.Id,
+                        axiomsText: session.AxiomsText,
+                        goal: session.Goal,
+                        status: session.Status.ToString(),
+                        stateJson: stateJson,
+                        theoremsJson: theoremsJson,
+                        content: result.Content,
+                        error: result.Error,
+                        llmCalls: result.TotalLlmCalls,
+                        totalTokens: result.TotalTokens,
+                        durationSeconds: session.Duration.TotalSeconds);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Id}] Failed to persist result to Supabase (ignored)", session.Id);
             }
 
             session.EventChannel.Writer.TryWrite(new ResultEvent

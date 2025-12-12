@@ -27,6 +27,7 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+builder.Services.Configure<SupabaseConfig>(builder.Configuration.GetSection(SupabaseConfig.SectionName));
 
 // ─────────────────────────────────────────────────────────────
 //  OpenTelemetry (Aspire 集成)
@@ -101,6 +102,7 @@ builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy
 // ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<AxiomReasoningEventBridge>();
 builder.Services.AddSingleton<AxiomReasoningService>();
+builder.Services.AddSingleton<SupabaseService>();
 
 // ─────────────────────────────────────────────────────────────
 //  Logging
@@ -109,6 +111,9 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
 var app = builder.Build();
+
+// Supabase (best-effort init; no-op if not enabled)
+await app.Services.GetRequiredService<SupabaseService>().InitializeAsync();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
