@@ -1,0 +1,206 @@
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
+using Aevatar.Agents.Runtime.Local;
+using Aevatar.AxiomReasoning.Services;
+using HealthChecks.UI.Client;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+// ============================================================
+//  AXIOM REASONING
+//  多智能体公理推理平台 - 基于 Cognitive Mesh + axiom_reasoning.yaml
+// ============================================================
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ─────────────────────────────────────────────────────────────
+//  Configuration
+// ─────────────────────────────────────────────────────────────
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddJsonFile("appsettings.secrets.json", optional: true)
+    .AddEnvironmentVariables();
+
+builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
+
+// ─────────────────────────────────────────────────────────────
+//  OpenTelemetry (Aspire 集成)
+// ─────────────────────────────────────────────────────────────
+var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+var serviceName = "axiom-reasoning";
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService(serviceName))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation(options =>
+            {
+                options.FilterHttpRequestMessage = request =>
+                {
+                    var host = request.RequestUri?.Host ?? "";
+                    return !host.Contains("deepseek.com") &&
+                           !host.Contains("dashscope.aliyuncs.com") &&
+                           !host.Contains("openai.com") &&
+                           !host.Contains("anthropic.com");
+                };
+            })
+            .AddSource("Aevatar.Agents.*")
+            .AddSource("Aevatar.AxiomReasoning.*");
+
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            tracing.AddOtlpExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter("Aevatar.Agents.*")
+            .AddMeter("Aevatar.AxiomReasoning.*");
+
+        if (!string.IsNullOrEmpty(otlpEndpoint))
+            metrics.AddOtlpExporter();
+    });
+
+builder.Logging.AddOpenTelemetry(logging =>
+{
+    logging.IncludeScopes = true;
+    logging.IncludeFormattedMessage = true;
+
+    if (!string.IsNullOrEmpty(otlpEndpoint))
+        logging.AddOtlpExporter();
+});
+
+// ─────────────────────────────────────────────────────────────
+//  Health Checks
+// ─────────────────────────────────────────────────────────────
+builder.Services.AddHealthChecks();
+
+// ─────────────────────────────────────────────────────────────
+//  Agent Framework Infrastructure
+// ─────────────────────────────────────────────────────────────
+builder.Services.AddMassTransitStreamPlugin(
+    builder.Configuration,
+    typeof(Aevatar.Agents.Cognitive.Agents.CognitiveCoordinatorGAgent).Assembly
+);
+builder.Services.AddAevatarLocalRuntime();
+builder.Services.AddMEAI();
+builder.Services.AddCognitiveAgents();
+builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();
+
+// ─────────────────────────────────────────────────────────────
+//  Axiom Reasoning Services
+// ─────────────────────────────────────────────────────────────
+builder.Services.AddSingleton<AxiomReasoningEventBridge>();
+builder.Services.AddSingleton<AxiomReasoningService>();
+
+// ─────────────────────────────────────────────────────────────
+//  Logging
+// ─────────────────────────────────────────────────────────────
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+
+var app = builder.Build();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+});
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// ─────────────────────────────────────────────────────────────
+//  API Endpoints
+// ─────────────────────────────────────────────────────────────
+
+app.MapGet("/api/sessions", (AxiomReasoningService svc) =>
+    Results.Json(svc.GetSessions()));
+
+app.MapPost("/api/sessions", async (HttpContext ctx, AxiomReasoningService svc) =>
+{
+    using var reader = new StreamReader(ctx.Request.Body);
+    var json = await reader.ReadToEndAsync();
+    return Results.Json(await svc.CreateSessionAsync(json));
+});
+
+app.MapPost("/api/sessions/{sessionId}/run", async (string sessionId, AxiomReasoningService svc, CancellationToken ct) =>
+    Results.Json(await svc.StartAsync(sessionId, ct)));
+
+app.MapPost("/api/sessions/{sessionId}/stop", (string sessionId, AxiomReasoningService svc) =>
+    Results.Json(svc.Stop(sessionId)));
+
+app.MapGet("/api/sessions/{sessionId}/status", (string sessionId, AxiomReasoningService svc) =>
+    Results.Json(svc.GetStatus(sessionId)));
+
+app.MapGet("/api/sessions/{sessionId}/result", (string sessionId, AxiomReasoningService svc) =>
+    Results.Json(svc.GetResult(sessionId)));
+
+app.MapGet("/api/sessions/{sessionId}/artifacts", (string sessionId, AxiomReasoningService svc) =>
+    Results.Json(svc.GetArtifacts(sessionId)));
+
+app.MapGet("/api/sessions/{sessionId}/artifacts/state", (string sessionId, AxiomReasoningService svc) =>
+{
+    if (!svc.TryGetFileContent(sessionId, "artifacts", "state.json", out var content))
+        return Results.NotFound(new { success = false, error = "state.json not found" });
+
+    var bytes = System.Text.Encoding.UTF8.GetBytes(content ?? "");
+    var fileName = $"{sessionId}-state.json";
+    return Results.File(bytes, "application/json; charset=utf-8", fileDownloadName: fileName);
+});
+
+app.MapGet("/api/sessions/{sessionId}/artifacts/theorems", (string sessionId, AxiomReasoningService svc) =>
+{
+    if (!svc.TryGetFileContent(sessionId, "artifacts", "theorems.json", out var content))
+        return Results.NotFound(new { success = false, error = "theorems.json not found" });
+
+    var bytes = System.Text.Encoding.UTF8.GetBytes(content ?? "");
+    var fileName = $"{sessionId}-theorems.json";
+    return Results.File(bytes, "application/json; charset=utf-8", fileDownloadName: fileName);
+});
+
+// SSE 实时事件流
+app.MapGet("/api/sessions/{sessionId}/events", async (
+    string sessionId,
+    AxiomReasoningService svc,
+    HttpContext ctx,
+    CancellationToken ct) =>
+{
+    ctx.Response.Headers.ContentType = "text/event-stream";
+    ctx.Response.Headers.CacheControl = "no-cache";
+    ctx.Response.Headers.Connection = "keep-alive";
+
+    var jsonOptions = new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
+
+    await foreach (var evt in svc.GetEventStreamAsync(sessionId, ct))
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(evt, evt.GetType(), jsonOptions);
+        await ctx.Response.WriteAsync($"data: {json}\n\n", ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+});
+
+Console.WriteLine($"""
+
+    ╔══════════════════════════════════════════════════════════╗
+    ║                   AXIOM REASONING                        ║
+    ║                                                          ║
+    ║  Web UI:  http://localhost:5001                          ║
+    ║  Health:  http://localhost:5001/health                   ║
+    ╚══════════════════════════════════════════════════════════╝
+    """);
+
+app.Run();
+
+

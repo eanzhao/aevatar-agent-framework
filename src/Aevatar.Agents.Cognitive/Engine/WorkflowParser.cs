@@ -146,6 +146,10 @@ public class WorkflowParser
         
         if (yaml.Steps != null)
             parameters["steps"] = yaml.Steps.Select(ConvertToStepDefinition).ToList();
+
+        // assign
+        if (!string.IsNullOrEmpty(yaml.From))
+            parameters["from"] = yaml.From;
         
         return parameters;
     }
@@ -210,6 +214,10 @@ internal class YamlStepDefinition
     // checkpoint 字段
     public List<string>? Variables { get; set; }
     
+    // assign 字段
+    // - from: "recursive_output.state" (supports dotted path)
+    public string? From { get; set; }
+
     // parallel 字段
     public List<YamlStepDefinition>? Steps { get; set; }
 }

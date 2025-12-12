@@ -340,7 +340,13 @@ public partial class TemplateEngine
     [GeneratedRegex(@"\{\{else\}\}")]
     private static partial Regex ElseBlockRegex();
     
-    [GeneratedRegex(@"\{\{(.+?)\s*\|\s*(.+?)\}\}")]
+    // NOTE:
+    // - `|` in Scriban is used for filter / pipe expressions (value | filter).
+    // - `||` is a boolean operator, and MUST NOT be treated as a pipe.
+    // - Our previous regex matched `||` accidentally (because it allowed 0 whitespace), which
+    //   caused expressions like `a || b` to be rewritten and crash with errors like:
+    //   "Invalid target function `True` (bool)".
+    [GeneratedRegex(@"\{\{(.+?)\s*(?<!\|)\|(?!\|)\s*(.+?)\}\}")]
     private static partial Regex PipeFilterRegex();
     
     // 转换 Liquid 风格的过滤器参数: `filter: arg` → `filter arg`

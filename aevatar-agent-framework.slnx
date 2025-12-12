@@ -11,12 +11,14 @@
     <Project Path="apps/CognitiveMesh.AppHost/CognitiveMesh.AppHost.csproj" />
     <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
     <Project Path="apps/PaperReview.AppHost/PaperReview.AppHost.csproj" />
+    <Project Path="apps/AxiomReasoning.AppHost/AxiomReasoning.AppHost.csproj" />
   </Folder>
   <Folder Name="/cognitive-mesh/">
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Abstractions/Aevatar.CognitiveMesh.Abstractions.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Dsl/Aevatar.CognitiveMesh.Dsl.csproj" />
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh/Aevatar.CognitiveMesh.csproj" />
     <Project Path="cognitive-mesh/Aevatar.PaperReview/Aevatar.PaperReview.csproj" />
+    <Project Path="cognitive-mesh\Aevatar.AxiomReasoning\Aevatar.AxiomReasoning.csproj" Type="Classic C#" />
     <File Path="cognitive-mesh/README.md" />
   </Folder>
   <Folder Name="/cognitive-mesh/docs/">

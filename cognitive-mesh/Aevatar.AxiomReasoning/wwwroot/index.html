@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axiom Reasoning · Cognitive Mesh</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">AR</div>
+      <div>
+        <div class="brand-title">Axiom Reasoning</div>
+        <div class="brand-sub">Cognitive Mesh · axiom_reasoning</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-stop" class="btn danger" disabled>Stop</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Sessions</div>
+            <div class="panel-subtitle">Click to switch</div>
+          </div>
+          <button id="btn-refresh" class="icon-btn" title="Refresh">⟳</button>
+        </div>
+        <div id="session-list" class="session-list empty-state">No sessions</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">New Run</div>
+            <div class="panel-subtitle">Create a session then run</div>
+          </div>
+        </div>
+
+        <div class="form">
+          <label class="field">
+            <span>Axioms (one per line)</span>
+            <textarea id="input-axioms" rows="8" placeholder="O1: ...&#10;O2: ..."></textarea>
+          </label>
+          <label class="field">
+            <span>Goal</span>
+            <input id="input-goal" type="text" placeholder="What to prove/derive">
+          </label>
+
+          <div class="row-3">
+            <label class="field">
+              <span>K</span>
+              <input id="input-k" type="number" min="1" max="9" value="3">
+            </label>
+            <label class="field">
+              <span>max_rounds</span>
+              <input id="input-max-rounds" type="number" min="1" max="50" value="10">
+            </label>
+            <label class="field">
+              <span>max_depth</span>
+              <input id="input-max-depth" type="number" min="1" max="200" value="10">
+            </label>
+          </div>
+
+          <button id="btn-create" class="btn block">Create Session</button>
+          <button id="btn-run" class="btn primary block" disabled>Run</button>
+          <div class="hint">Tip: voting proposals are grouped; raw token spam is hidden.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Live Progress</div>
+            <div class="panel-subtitle" id="status-text">Waiting to start</div>
+          </div>
+          <div class="stats-row">
+            <div class="stat-chip">Phase: <span id="stat-phase">-</span></div>
+            <div class="stat-chip">Tokens: <span id="stat-tokens">0</span></div>
+            <div class="stat-chip">LLM: <span id="stat-llm">0</span></div>
+          </div>
+        </div>
+        <div class="progress-bar">
+          <div id="progress-bar-inner"></div>
+        </div>
+        <div class="pipeline" id="pipeline-steps"></div>
+      </section>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Voting / Consensus</div>
+              <div class="panel-subtitle">K-threshold progress + final winning content</div>
+            </div>
+            <div class="stat-chip">K=<span id="vote-k">-</span></div>
+          </div>
+          <div id="voting-body" class="voting-body empty-state">Waiting for vote steps</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Result</div>
+              <div class="panel-subtitle">Parsed from artifacts after completion</div>
+            </div>
+            <div class="actions">
+              <a id="dl-state" class="link disabled" href="#" target="_blank" rel="noreferrer">state.json</a>
+            <a id="dl-steps" class="link disabled" href="#" target="_blank" rel="noreferrer">theorems.json</a>
+            </div>
+          </div>
+          <div id="result-body" class="result-body empty-state">Result will appear here</div>
+        </div>
+      </div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Workers</div>
+            <div class="panel-subtitle">Grouped by logical worker id</div>
+          </div>
+          <div class="stat-chip">N=<span id="worker-n">-</span></div>
+        </div>
+        <div id="workers" class="workers empty-state">No worker output yet</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Steps</div>
+            <div class="panel-subtitle">Human-readable cards (proposals + consensus)</div>
+          </div>
+        </div>
+        <div id="steps" class="steps empty-state">No steps yet</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">Raw Events (debug)</div>
+            <div class="panel-subtitle">Collapsed by default</div>
+          </div>
+          <button id="btn-toggle-raw" class="icon-btn" title="Toggle raw">▾</button>
+        </div>
+        <pre id="raw" class="raw hidden"></pre>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Modal (PaperReview-like) -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-card" role="document">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title">Details</div>
+        <div class="modal-sub" id="modal-sub">-</div>
+      </div>
+      <button class="icon-btn" id="modal-close" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-label">Message</div>
+        <div class="mono" id="modal-message"></div>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-section">
+          <div class="modal-label">User Prompt</div>
+          <div class="mono" id="modal-user"></div>
+        </div>
+        <div class="modal-section">
+          <div class="modal-label">Assistant Output</div>
+          <div class="mono" id="modal-output"></div>
+        </div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-label">Proposals (if any)</div>
+        <div id="modal-proposals" class="modal-proposals empty-state">No proposals</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
+
+

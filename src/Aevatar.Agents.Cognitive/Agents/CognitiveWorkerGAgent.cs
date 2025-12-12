@@ -67,6 +67,18 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
     [EventHandler]
     public async Task HandleExecuteStepRequest(ExecuteStepRequestEvent request)
     {
+        // fan_out uses Down broadcast; enforce "exactly one worker handles a subtask"
+        // by honoring the reserved variable `__target_worker` (Guid string in "N" format).
+        if (request.Variables.TryGetValue("__target_worker", out var targetValue))
+        {
+            var target = targetValue?.StringValue;
+            var self = Id.ToString("N");
+            if (!string.IsNullOrWhiteSpace(target) && !string.Equals(target, self, StringComparison.OrdinalIgnoreCase))
+            {
+                return; // ignore tasks not assigned to me
+            }
+        }
+
         Logger.LogDebug("Worker {WorkerId} received step request: {StepId}",
             CustomState.WorkerId, request.StepId);
 

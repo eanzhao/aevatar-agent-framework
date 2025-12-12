@@ -99,7 +99,14 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     {
         await base.OnActivateAsync(ct);
 
-        CustomState.MaxDepth = 5; // 硬锁，正常情况下 check_atomic 会自然停止递归
+        // ============================================================
+        //  递归深度上限（默认值）
+        //
+        //  NOTE:
+        //  - 最终上限应由工作流输入变量 `max_depth` 决定（见 HandleStartWorkflowRequest）。
+        //  - 这里仅提供一个“启动默认值”，避免未配置时无限递归。
+        // ============================================================
+        CustomState.MaxDepth = 50;
         CustomState.Status = ExecutionStatus.EsPending;
 
         // 默认开启 Red-Flag 策略，限制最大内容长度 102400
@@ -198,11 +205,28 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
 
         _workerIds.Clear();
 
+        // Worker needs the same LLM provider as coordinator.
+        // Coordinator is expected to be initialized by CognitiveStrategy before creating the pool.
+        var providerName = ActiveProviderConfig?.Name;
+        if (string.IsNullOrWhiteSpace(providerName))
+        {
+            Logger.LogWarning("Coordinator is not initialized with an LLM provider yet. Workers will NOT be initialized and fan_out will fail.");
+        }
+
         for (int i = 0; i < poolSize; i++)
         {
             // 创建 Worker Actor
             var workerId = Guid.NewGuid();
-            await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
+            var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
+
+            // 初始化 Worker 的 LLM Provider（否则 Worker.LLMProvider 会抛异常）
+            if (!string.IsNullOrWhiteSpace(providerName))
+            {
+                if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
+                {
+                    await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
+                }
+            }
 
             // 设置父子关系（Worker 订阅 Coordinator 的流）
             await _actorManager.LinkParentChildAsync(Id, workerId);
@@ -296,6 +320,19 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             foreach (var (key, value) in request.Variables)
             {
                 _workflowVariables[key] = ProtoValueConverter.FromProto(value);
+            }
+
+            // ============================================================
+            //  输入驱动的 MaxDepth（消灭硬编码）
+            //
+            //  约定：
+            //  - 统一使用 `max_depth` 作为工作流递归深度控制输入
+            //  - 若未提供，则保留 OnActivateAsync 的默认值或 YAML input 默认值
+            // ============================================================
+            if (TryGetPositiveInt(_workflowVariables, "max_depth", out var inputMaxDepth))
+            {
+                // 安全阀：避免配置错误导致极端深度把系统打爆
+                CustomState.MaxDepth = Math.Clamp(inputMaxDepth, 1, 200);
             }
 
             // DEBUG: 输出变量内容
@@ -490,6 +527,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 "vote" => await ExecuteVoteAsync(step),
                 "workflow_call" => await ExecuteWorkflowCallAsync(step),
                 "checkpoint" => await ExecuteCheckpointAsync(step),
+                "assign" => await ExecuteAssignAsync(step),
 
                 _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
             };
@@ -860,12 +898,16 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         for (int i = 0; i < items.Count; i++)
         {
             var item = items[i];
+            var targetWorker = _workerIds[i % _workerIds.Count];
 
             // 构建子上下文
             var childVariables = new Dictionary<string, object>(_workflowVariables)
             {
                 ["item"] = item,
-                ["index"] = i
+                ["index"] = i,
+                // Ensure exactly-one worker executes this task (fan_out uses Down broadcast).
+                // Worker will ignore if not matching its own Id.
+                ["__target_worker"] = targetWorker.ToString("N")
             };
 
             // 创建 Protobuf 请求事件
@@ -1648,6 +1690,15 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             return PrimitiveResult.Fail($"Workflow '{workflowName}' not found");
         }
 
+        // ============================================================
+        //  对单次 workflow_call 允许覆盖 max_depth
+        //
+        //  WHY:
+        //  - YAML 既支持 workflow 输入 max_depth，也可能在 workflow_call.params 里传 max_depth
+        //  - Coordinator 内部执行 workflow_call 不走 StartWorkflowRequest，因此需要在这里显式处理
+        // ============================================================
+        var savedMaxDepth = CustomState.MaxDepth;
+
         // 检查递归深度
         CustomState.CurrentDepth++;
         if (CustomState.CurrentDepth > CustomState.MaxDepth)
@@ -1671,6 +1722,12 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                             childVariables[key] = resolved;
                     }
                 }
+            }
+
+            // 允许子调用用 params.max_depth 覆盖（仅对本次调用生效）
+            if (TryGetPositiveInt(childVariables, "max_depth", out var callMaxDepth))
+            {
+                CustomState.MaxDepth = Math.Clamp(callMaxDepth, 1, 200);
             }
 
             // 临时替换变量
@@ -1709,14 +1766,103 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         }
         finally
         {
+            // 恢复本次调用前的 maxDepth，避免污染外层流程
+            CustomState.MaxDepth = savedMaxDepth;
             CustomState.CurrentDepth--;
         }
+    }
+
+    // ============================================================
+    //  小工具：从变量表里解析正整数
+    // ============================================================
+    private static bool TryGetPositiveInt(
+        Dictionary<string, object> variables,
+        string key,
+        out int value)
+    {
+        value = 0;
+        if (!variables.TryGetValue(key, out var raw) || raw == null) return false;
+
+        try
+        {
+            value = raw switch
+            {
+                int i => i,
+                long l => (int)l,
+                float f => (int)f,
+                double d => (int)d,
+                decimal m => (int)m,
+                string s when int.TryParse(s, out var parsed) => parsed,
+                _ => Convert.ToInt32(raw)
+            };
+        }
+        catch
+        {
+            value = 0;
+            return false;
+        }
+
+        return value > 0;
     }
 
     private Task<PrimitiveResult> ExecuteCheckpointAsync(StepDefinition step)
     {
         Logger.LogDebug("Checkpoint at step: {StepId}", step.Id);
         return Task.FromResult(PrimitiveResult.Ok(null));
+    }
+
+    // ============================================================
+    //  assign: variable copy / projection
+    //
+    //  WHY:
+    //  - workflow_call returns an object (dictionary) but DSL lacks a cheap "set var" primitive.
+    //  - for theorem-loop recursion we need: state = recursive_output.state (without an extra LLM call).
+    //
+    //  DSL:
+    //    - id: unwrap
+    //      type: assign
+    //      from: "recursive_output.state"
+    //      store: state
+    // ============================================================
+    private Task<PrimitiveResult> ExecuteAssignAsync(StepDefinition step)
+    {
+        var from = step.Parameters.GetValueOrDefault("from")?.ToString();
+        if (string.IsNullOrWhiteSpace(from))
+            return Task.FromResult(PrimitiveResult.Fail("assign requires 'from'"));
+
+        if (string.IsNullOrWhiteSpace(step.Store))
+            return Task.FromResult(PrimitiveResult.Fail("assign requires 'store' as target variable name"));
+
+        var value = ResolvePathValue(_workflowVariables, from!);
+        if (value == null)
+            return Task.FromResult(PrimitiveResult.Fail($"assign source '{from}' resolved to null"));
+
+        _workflowVariables[step.Store!] = value;
+        return Task.FromResult(PrimitiveResult.Ok(value));
+    }
+
+    private static object? ResolvePathValue(Dictionary<string, object> variables, string path)
+    {
+        // supports dotted paths: "a.b.c"
+        var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0) return null;
+
+        if (!variables.TryGetValue(parts[0], out var current) || current == null)
+            return null;
+
+        for (var i = 1; i < parts.Length; i++)
+        {
+            var key = parts[i];
+            current = current switch
+            {
+                IDictionary<string, object> dict => dict.TryGetValue(key, out var v) ? v : null,
+                System.Collections.IDictionary nd => nd.Contains(key) ? nd[key] : null,
+                _ => null
+            };
+            if (current == null) return null;
+        }
+
+        return current;
     }
 
     // ============================================================

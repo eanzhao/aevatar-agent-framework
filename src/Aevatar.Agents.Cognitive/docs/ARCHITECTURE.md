@@ -31,6 +31,7 @@ Aevatar.Agents.Cognitive/
 │   └── ServiceCollectionExtensions.cs
 ├── workflows/                   # 内置工作流定义
 │   ├── maker-v2.yaml                  # MAKER 系统 v2
+│   ├── axiom_theorem_loop.yaml        # 公理 → 定理发现循环（Coordinator 提出，Workers 证明）
 │   ├── direct.yaml                    # 直接执行
 │   └── uot-combinational.yaml         # UoT 组合
 └── cognitive_messages.proto     # Protobuf 消息定义

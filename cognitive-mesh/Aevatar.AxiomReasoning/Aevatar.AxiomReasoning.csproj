@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Aevatar.AxiomReasoning</RootNamespace>
+    <DisableReferencedProjectStaticWebAssets>true</DisableReferencedProjectStaticWebAssets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Cognitive Mesh 核心引用 -->
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Abstractions\Aevatar.CognitiveMesh.Abstractions.csproj" />
+    <ProjectReference Include="..\Aevatar.CognitiveMesh.Dsl\Aevatar.CognitiveMesh.Dsl.csproj" />
+
+    <!-- Agent Framework 核心 -->
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
+    <ProjectReference Include="..\..\plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" />
+
+    <!-- Cognitive DSL 系统 -->
+    <ProjectReference Include="..\..\src\Aevatar.Agents.Cognitive\Aevatar.Agents.Cognitive.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Health Checks -->
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
+
+    <!-- OpenTelemetry -->
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Link CognitiveStrategy + ProjectStore + MeshProject (避免引用整个 Aevatar.CognitiveMesh 项目) -->
+    <Compile Include="..\Aevatar.CognitiveMesh\Strategies\CognitiveStrategy.cs">
+      <Link>Strategies\CognitiveStrategy.cs</Link>
+    </Compile>
+    <Compile Include="..\Aevatar.CognitiveMesh\Services\ProjectStore.cs">
+      <Link>Services\ProjectStore.cs</Link>
+    </Compile>
+    <Compile Include="..\Aevatar.CognitiveMesh\Models\MeshProject.cs">
+      <Link>Models\MeshProject.cs</Link>
+    </Compile>
+
+    <!-- Copy workflow to output (CognitiveStrategy loads workflows from ./workflows) -->
+    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\axiom_reasoning.yaml">
+      <Link>workflows\axiom_reasoning.yaml</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\axiom_theorem_loop.yaml">
+      <Link>workflows\axiom_theorem_loop.yaml</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
+
+
