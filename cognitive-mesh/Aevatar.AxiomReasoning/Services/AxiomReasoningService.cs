@@ -69,6 +69,14 @@ public sealed class AxiomReasoningService
         public int? MaxRounds { get; init; }
         public int? MaxDepth { get; init; }
         public string? ProviderName { get; init; }
+
+        // Long-run budgets (optional)
+        public int? MaxDurationMinutes { get; init; }
+        public int? MaxLlmCalls { get; init; }
+        public long? MaxTokens { get; init; }
+
+        // Workflow behavior
+        public bool? ContinueOnFailure { get; init; }
     }
 
     public async Task<object> CreateSessionAsync(string configJson)
@@ -93,7 +101,14 @@ public sealed class AxiomReasoningService
                 Goal = goal,
                 K = req.K is > 0 ? req.K.Value : 3,
                 MaxRounds = req.MaxRounds is > 0 ? req.MaxRounds.Value : 10,
-                MaxDepth = req.MaxDepth is > 0 ? req.MaxDepth.Value : 10
+                MaxDepth = req.MaxDepth is > 0 ? req.MaxDepth.Value : 10,
+
+                // Budgets (keep prior defaults if not provided)
+                MaxDurationMinutes = req.MaxDurationMinutes is > 0 ? Math.Clamp(req.MaxDurationMinutes.Value, 1, 24 * 60) : 30,
+                MaxLlmCallsBudget = req.MaxLlmCalls is > 0 ? Math.Clamp(req.MaxLlmCalls.Value, 1, 200_000) : 300,
+                MaxTokensBudget = req.MaxTokens is > 0 ? Math.Clamp(req.MaxTokens.Value, 1, 200_000_000) : 800_000,
+
+                ContinueOnFailure = req.ContinueOnFailure ?? false
             };
 
             _sessions[session.Id] = session;
@@ -297,6 +312,9 @@ public sealed class AxiomReasoningService
 
                Focus (optional):
                {focus}
+
+               ContinueOnFailure:
+               {session.ContinueOnFailure}
                """;
     }
 
@@ -308,9 +326,9 @@ public sealed class AxiomReasoningService
         return new ReasoningOptions
         {
             ProviderName = Aevatar.Agents.Abstractions.AevatarAgentsConstants.DefaultProviderName,
-            MaxLlmCalls = 300,
-            MaxTokens = 800_000,
-            MaxDuration = TimeSpan.FromMinutes(30),
+            MaxLlmCalls = session.MaxLlmCallsBudget,
+            MaxTokens = session.MaxTokensBudget,
+            MaxDuration = TimeSpan.FromMinutes(Math.Clamp(session.MaxDurationMinutes, 1, 24 * 60)),
 
             // Theorem discovery loop: coordinator proposes -> workers prove -> vote judge -> iterate
             CognitiveWorkflow = "axiom_theorem_loop",
@@ -319,7 +337,7 @@ public sealed class AxiomReasoningService
             CognitiveMaxRounds = Math.Clamp(session.MaxRounds, 1, 50),
             CognitiveMaxDepth = Math.Clamp(session.MaxDepth, 1, 200),
             CognitiveSemanticSimilarity = 0.85f,
-            CognitiveTimeoutMinutes = 30
+            CognitiveTimeoutMinutes = Math.Clamp(session.MaxDurationMinutes, 1, 24 * 60)
         };
     }
 

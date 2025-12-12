@@ -38,6 +38,17 @@ public sealed class AxiomSession
     public int MaxRounds { get; set; } = 10;
     public int MaxDepth { get; set; } = 10;
 
+    // 运行预算（用于长时间探索）
+    // NOTE:
+    // - 这些是“服务端执行预算”，用于限制/放宽 MaxDuration/MaxTokens/MaxLlmCalls
+    // - 不跨运行时边界，仅用于本服务配置
+    public int MaxDurationMinutes { get; set; } = 30;
+    public int MaxLlmCallsBudget { get; set; } = 300;
+    public long MaxTokensBudget { get; set; } = 800_000;
+
+    // 工作流行为开关：是否在某次证明失败后继续提出新定理
+    public bool ContinueOnFailure { get; set; } = false;
+
     // 运行统计
     public int ProgressPercent { get; set; }
     public string CurrentPhase { get; set; } = "";
