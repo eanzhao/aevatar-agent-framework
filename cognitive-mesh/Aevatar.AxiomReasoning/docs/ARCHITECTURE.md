@@ -17,7 +17,11 @@ Aevatar.AxiomReasoning/
 │   └── AxiomSession.cs
 ├── Services/
 │   ├── AxiomReasoningService.cs
-│   └── AxiomReasoningEventBridge.cs
+│   ├── AxiomReasoningEventBridge.cs
+│   ├── IGraphStore.cs
+│   ├── AxiomDagService.cs          # InMemory graph store（默认）
+│   ├── SupabaseGraphStore.cs       # Supabase graph store（可选落盘）
+│   └── SupabaseService.cs          # 会话结果落盘（state/theorems）
 └── wwwroot/
     ├── index.html
     ├── styles.css
@@ -26,17 +30,74 @@ Aevatar.AxiomReasoning/
 
 ## 关键路径
 
-1. 前端提交公理与目标 → `POST /api/sessions`
+1. 前端提交公理与目标（可选 workflow / language / budgets）→ `POST /api/sessions`
 2. 启动推理 → `POST /api/sessions/{id}/run`
-3. 后端调用 `CognitiveStrategy.ExecuteAsync`，指定 `CognitiveWorkflow="axiom_theorem_loop"`
+3. 后端调用 `CognitiveStrategy.ExecuteAsync`，使用 session 选择的 `CognitiveWorkflow`
 4. 进度回调 `ReasoningProgress` 经 `AxiomReasoningEventBridge` 映射成 SSE 事件推给前端
-5. 完成后落盘 artifacts：`state.json / theorems.json`
-6. （可选）完成后写入 Supabase：将 `state.json / theorems.json` 作为 JSON 字符串持久化到 Postgres
+5. `update_state` 完成时：`AxiomReasoningEventBridge` 解析 `state`，发 `GraphEvent`，并写入 `IGraphStore`（InMemory 或 Supabase）
+6. 完成后落盘 artifacts：`state.json / theorems.json`
+7. （可选）完成后写入 Supabase：将 `state.json / theorems.json` 作为 JSON 字符串持久化到 Postgres
 
 ## 设计约束
 
 - **不改动框架调用链**：沿用 `CognitiveStrategy` 的 Actor 并行与 vote 共识机制。
-- **输入限制**：当前 `CognitiveStrategy` 默认只注入 `task/context`，所以本项目把 `axioms + focus(可选)` 编码进 task 文本，由 `axiom_theorem_loop.yaml` 在 init 步骤解析并写入 `state`。
+- **输入限制**：`CognitiveStrategy` 注入 `task/context`（以及少量 Context 变量），所以本项目把 `axioms + focus(可选)` 编码进 task 文本，由 workflow 在 init 步骤解析并写入 `state`。
+
+## 多 Workflow / 多语言 / 长跑预算
+
+### UI 参数（Create Session）
+
+- `workflow`: 选择 Cognitive DSL workflow（例：`axiom_theorem_loop`）
+- `language`: 生成内容语言（例：`English` / `Chinese`；不影响 JSON keys）
+- `maxDurationMinutes / maxLlmCalls / maxTokens`: 长跑预算
+- `continueOnFailure`: `proved=false` 时是否继续探索
+
+### Workflow 透传方式
+
+- `AxiomReasoningService.BuildReasoningOptions` 将 `language / continue_on_failure` 放入 `ReasoningOptions.Context`
+- `CognitiveStrategy` 会把 Context 变量注入 workflow 初始变量（`initialVariables`）
+- `axiom_theorem_loop.yaml` 声明了 `language` 输入，并在 prompt 中引用
+
+## Graph DB（DAG）推理
+
+### 数据模型（按 session 分区）
+
+- **Node**：`Axiom | Theorem | Hypothesis | Assumption | Unknown`
+- **Edge**：`depends_on`（`fromId -> toId`）
+
+### 写入时机
+
+- `AxiomReasoningEventBridge` 在 `update_state` step `Completed` 时解析 state 里的 `axioms/theorems/depends_on`
+- 将结果 upsert 进 `IGraphStore`
+  - 默认：`AxiomDagService`（内存态，最快）
+  - 可选：`SupabaseGraphStore`（落盘到 Supabase/Postgres，便于后续迁移 Neo4j）
+
+### DAG 推理能力（最小可用）
+
+- 依赖闭包（dependency closure）
+- 缺失依赖（Hypothesis/Unknown 视为“需要额外假设”）
+- 环检测（cycle）
+- 近似可证明性：`no cycle && no missing deps`
+
+## API 一览
+
+### Sessions
+
+- `GET /api/sessions`：列出 sessions（包含 workflow/language）
+- `POST /api/sessions`：创建 session（可传 workflow/language/budgets）
+- `POST /api/sessions/{id}/run`：启动
+- `POST /api/sessions/{id}/stop`：停止
+- `GET /api/sessions/{id}/result`：结果
+
+### Workflows
+
+- `GET /api/workflows`：列出可用 workflow 名称（用于 UI 下拉框）
+  - `Aevatar.AxiomReasoning.csproj` 会将 `src/Aevatar.Agents.Cognitive/workflows/**.yaml` 全量拷贝到输出目录 `./workflows/`
+
+### DAG (Graph DB)
+
+- `GET /api/sessions/{id}/dag`：返回节点/边（含 kind 标注）
+- `GET /api/sessions/{id}/dag/{nodeId}`：返回节点推理解释（deps/missing/topo/cycle/provable）
 
 ## Supabase 持久化（JSON）
 
@@ -48,6 +109,8 @@ Aevatar.AxiomReasoning/
   - `Url`: 项目 URL
   - `Key`: anon key
   - `ResultsTable`: 表名（兼容旧字段名 `ReviewsTable`）
+  - `DagEnabled`: 是否启用 DAG 持久化（默认 false）
+  - `DagNodesTable / DagEdgesTable`: DAG 表名（默认 `axiom_reasoning_dag_nodes / axiom_reasoning_dag_edges`）
 
 ### 建表 SQL
 
@@ -76,6 +139,51 @@ CREATE INDEX idx_axiom_reasoning_results_created_at ON axiom_reasoning_results(c
 
 ALTER TABLE axiom_reasoning_results ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow anonymous access" ON axiom_reasoning_results
+  FOR ALL USING (true) WITH CHECK (true);
+```
+
+### DAG GraphStore 建表 SQL（可选）
+
+当你开启 `DagEnabled=true` 时，需要额外建两张表：
+
+```sql
+-- DAG nodes: (session_id, node_id) 唯一
+CREATE TABLE axiom_reasoning_dag_nodes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  label TEXT,
+  proof TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(session_id, node_id)
+);
+
+-- DAG edges: (session_id, from_id, to_id, kind) 唯一
+CREATE TABLE axiom_reasoning_dag_edges (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'depends_on',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(session_id, from_id, to_id, kind)
+);
+
+-- Indexes
+CREATE INDEX idx_axiom_reasoning_dag_nodes_session ON axiom_reasoning_dag_nodes(session_id);
+CREATE INDEX idx_axiom_reasoning_dag_nodes_node_id ON axiom_reasoning_dag_nodes(node_id);
+CREATE INDEX idx_axiom_reasoning_dag_edges_session ON axiom_reasoning_dag_edges(session_id);
+CREATE INDEX idx_axiom_reasoning_dag_edges_to ON axiom_reasoning_dag_edges(session_id, to_id);
+CREATE INDEX idx_axiom_reasoning_dag_edges_from ON axiom_reasoning_dag_edges(session_id, from_id);
+
+-- RLS (允许匿名访问；若对外展示需加鉴权，请自行收紧策略)
+ALTER TABLE axiom_reasoning_dag_nodes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow anonymous access" ON axiom_reasoning_dag_nodes
+  FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE axiom_reasoning_dag_edges ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow anonymous access" ON axiom_reasoning_dag_edges
   FOR ALL USING (true) WITH CHECK (true);
 ```
 

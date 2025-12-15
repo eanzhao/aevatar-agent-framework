@@ -20,10 +20,14 @@ public sealed class AxiomReasoningEventBridge
     private const int MaxBodyChars = 20_000;
 
     private readonly ILogger<AxiomReasoningEventBridge> _logger;
+    private readonly IGraphStore _graphStore;
 
-    public AxiomReasoningEventBridge(ILogger<AxiomReasoningEventBridge> logger)
+    public AxiomReasoningEventBridge(
+        ILogger<AxiomReasoningEventBridge> logger,
+        IGraphStore graphStore)
     {
         _logger = logger;
+        _graphStore = graphStore;
     }
 
     public void HandleProgress(AxiomSession session, ReasoningProgress p)
@@ -174,6 +178,8 @@ public sealed class AxiomReasoningEventBridge
             // Graph snapshot (for theorem loop): parse full update_state JSON and emit a small graph payload.
             if (isCompleted && TryExtractGraph(p.StepId, p.StepType, p.AssistantResponse, out var graph))
             {
+                // Persist into graph store (best-effort; NEVER throw from this boundary).
+                _ = PersistGraphBestEffortAsync(session.Id, graph);
                 session.EventChannel.Writer.TryWrite(graph with { SessionId = session.Id });
             }
 
@@ -185,6 +191,18 @@ public sealed class AxiomReasoningEventBridge
             _logger.LogError(ex,
                 "[AXIOM] HandleProgress failed (session={SessionId}, phase={Phase}, step={StepId}, type={StepType})",
                 session.Id, p.Phase, p.StepId, p.StepType);
+        }
+    }
+
+    private async Task PersistGraphBestEffortAsync(string sessionId, GraphEvent graph)
+    {
+        try
+        {
+            await _graphStore.UpsertFromGraphEventAsync(sessionId, graph);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[AXIOM] GraphStore upsert failed (session={SessionId})", sessionId);
         }
     }
 

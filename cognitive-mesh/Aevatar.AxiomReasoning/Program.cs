@@ -102,6 +102,15 @@ builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy
 // ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<AxiomReasoningEventBridge>();
 builder.Services.AddSingleton<AxiomReasoningService>();
+builder.Services.AddSingleton<AxiomDagService>();        // InMemory fallback
+builder.Services.AddSingleton<SupabaseGraphStore>();     // Supabase backend (optional)
+builder.Services.AddSingleton<IGraphStore>(sp =>
+{
+    var cfg = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SupabaseConfig>>().Value;
+    if (cfg.Enabled && cfg.DagEnabled)
+        return sp.GetRequiredService<SupabaseGraphStore>();
+    return sp.GetRequiredService<AxiomDagService>();
+});
 builder.Services.AddSingleton<SupabaseService>();
 
 // ─────────────────────────────────────────────────────────────
@@ -114,6 +123,7 @@ var app = builder.Build();
 
 // Supabase (best-effort init; no-op if not enabled)
 await app.Services.GetRequiredService<SupabaseService>().InitializeAsync();
+await app.Services.GetRequiredService<SupabaseGraphStore>().InitializeAsync();
 
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
@@ -129,6 +139,17 @@ app.UseStaticFiles();
 
 app.MapGet("/api/sessions", (AxiomReasoningService svc) =>
     Results.Json(svc.GetSessions()));
+
+// Available Cognitive DSL workflows (for UI dropdown)
+app.MapGet("/api/workflows", (Aevatar.CognitiveMesh.Strategies.CognitiveStrategy strategy) =>
+    Results.Json(strategy.GetAvailableWorkflows()));
+
+// Graph DB (DAG) APIs
+app.MapGet("/api/sessions/{sessionId}/dag", async (string sessionId, IGraphStore store, CancellationToken ct) =>
+    Results.Json(await store.GetSnapshotAsync(sessionId, ct)));
+
+app.MapGet("/api/sessions/{sessionId}/dag/{nodeId}", async (string sessionId, string nodeId, IGraphStore store, CancellationToken ct) =>
+    Results.Json(await store.ExplainAsync(sessionId, nodeId, ct)));
 
 app.MapPost("/api/sessions", async (HttpContext ctx, AxiomReasoningService svc) =>
 {

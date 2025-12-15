@@ -361,6 +361,13 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             {
                 initialVariables["continue_on_failure"] = continueOnFailure;
             }
+
+            if (options.Context != null &&
+                options.Context.TryGetValue("language", out var lang) &&
+                !string.IsNullOrWhiteSpace(lang))
+            {
+                initialVariables["language"] = lang.Trim();
+            }
             
             // 直接调用 Coordinator 启动工作流（不通过事件流）
             _ = coordinator.StartWorkflowAsync(workflowName, initialVariables);

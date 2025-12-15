@@ -31,6 +31,15 @@ public sealed class SupabaseConfig
     /// <summary>存储推理结果的表名</summary>
     public string ResultsTable { get; set; } = "axiom_reasoning_results";
 
+    /// <summary>存储 DAG 节点的表名</summary>
+    public string DagNodesTable { get; set; } = "axiom_reasoning_dag_nodes";
+
+    /// <summary>存储 DAG 边的表名</summary>
+    public string DagEdgesTable { get; set; } = "axiom_reasoning_dag_edges";
+
+    /// <summary>是否启用 DAG 持久化（GraphStore）</summary>
+    public bool DagEnabled { get; set; } = false;
+
     /// <summary>
     /// 兼容 PaperReview 的历史字段名（ReviewsTable）。
     /// </summary>

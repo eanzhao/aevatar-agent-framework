@@ -49,13 +49,9 @@
       <Link>Models\MeshProject.cs</Link>
     </Compile>
 
-    <!-- Copy workflow to output (CognitiveStrategy loads workflows from ./workflows) -->
-    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\axiom_reasoning.yaml">
-      <Link>workflows\axiom_reasoning.yaml</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\axiom_theorem_loop.yaml">
-      <Link>workflows\axiom_theorem_loop.yaml</Link>
+    <!-- Copy ALL workflows to output (CognitiveStrategy loads workflows from ./workflows) -->
+    <Content Include="..\..\src\Aevatar.Agents.Cognitive\workflows\**\*.yaml">
+      <Link>workflows\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

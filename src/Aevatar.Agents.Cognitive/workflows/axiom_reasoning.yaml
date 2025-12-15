@@ -70,6 +70,11 @@ inputs:
     default: 5
     description: "最大推理步数/递归深度（与框架约定字段 max_depth 对齐）"
 
+  - name: language
+    type: string
+    default: "English"
+    description: "Natural language for statements/justifications/final_answer (JSON keys remain unchanged)."
+
 # ============================================================
 #  步骤定义
 # ============================================================
@@ -124,6 +129,8 @@ steps:
             "status": "in_progress" | "completed" | "step_limit",
             "final_answer": string
           }
+
+          Language: {{language}}
         output: json
         store: state
 
@@ -164,6 +171,8 @@ steps:
           "depends_on": [string],
           "is_goal_reached": bool
         }
+
+        Language: {{language}}
       output: json
     store: proposed_step
 
@@ -207,6 +216,8 @@ steps:
           },
           "issues": [string]
         }
+
+        Language: {{language}}
       output: json
     store: verified_step
 
@@ -230,6 +241,7 @@ steps:
 
       Inputs:
       max_depth: {{ max_depth }}
+      language: {{ language }}
       state: {{ state | json }}
       verified_step: {{ verified_step | json }}
 
@@ -255,6 +267,7 @@ steps:
           max_rounds: "{{max_rounds}}"
           similarity: "{{similarity}}"
           max_depth: "{{max_depth}}"
+          language: "{{language}}"
         store: recursive_output
 
 # ============================================================

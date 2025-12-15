@@ -356,6 +356,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "[WORKFLOW] Execution failed: {Message}", ex.Message);
             await FailExecutionAsync(ex.Message);
         }
     }
@@ -1199,7 +1200,22 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     private async Task<PrimitiveResult> ExecuteConditionalAsync(StepDefinition step)
     {
         var conditionExpr = step.Condition ?? "false";
-        var conditionResult = _templateEngine.Evaluate(conditionExpr, _workflowVariables);
+        object? conditionResult;
+        string? evalError = null;
+        try
+        {
+            conditionResult = _templateEngine.Evaluate(conditionExpr, _workflowVariables);
+        }
+        catch (Exception ex)
+        {
+            // IMPORTANT:
+            // - conditional 是控制流关键节点（stop_or_continue / ensure_state）
+            // - 这里抛异常会直接 FailExecutionAsync，表现为“系统彻底停了”
+            // - 策略：默认走 if_false（继续执行），并把错误记录下来（可从 UI/日志看到）
+            conditionResult = false;
+            evalError = $"conditional-eval-error: {ex.Message}";
+            Logger.LogWarning(ex, "[Conditional] Evaluate failed at step {StepId}: {Expr}", step.Id, conditionExpr);
+        }
 
         var isTrue = conditionResult switch
         {
@@ -1213,7 +1229,9 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         var branch = isTrue ? step.IfTrue : step.IfFalse;
         if (branch == null || branch.Count == 0)
         {
-            return PrimitiveResult.Ok(null);
+            // Even if evaluation failed, do not fail the workflow here.
+            if (evalError != null) _workflowVariables["_last_conditional_error"] = evalError;
+            return PrimitiveResult.Ok();
         }
 
         // 执行分支
@@ -1250,6 +1268,14 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         }
 
         Logger.LogInformation("[DEBUG][Conditional] Branch execution completed");
+        // If we had an eval error but branch executed successfully, keep the workflow moving.
+        if (evalError != null && lastResult is { Success: true })
+        {
+            _workflowVariables["_last_conditional_error"] = evalError;
+            // Preserve success & value; attach debug info through variables (visible in logs if needed)
+            return PrimitiveResult.Ok(lastResult.Value, lastResult.TokensUsed, lastResult.LlmCalls);
+        }
+        if (evalError != null) _workflowVariables["_last_conditional_error"] = evalError;
         return lastResult ?? PrimitiveResult.Ok(null);
     }
 
@@ -1887,6 +1913,12 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         CustomState.Status = ExecutionStatus.EsFailed;
         CustomState.CurrentPhase = "Failed";
         CustomState.Error = error;
+
+        // IMPORTANT:
+        // - 之前这里不打日志，导致“后端没有报错但系统停了”的错觉
+        // - 失败必须在日志里可见（至少包含 executionId / 当前 step）
+        Logger.LogError("[WORKFLOW] Failed (executionId={ExecutionId}, step={StepId}, phase={Phase}): {Error}",
+            CustomState.ExecutionId, CustomState.CurrentStepId, CustomState.CurrentPhase, error);
 
         await PublishAsync(new WorkflowCompletedEventProto
         {

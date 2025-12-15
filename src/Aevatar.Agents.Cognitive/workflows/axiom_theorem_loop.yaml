@@ -53,6 +53,11 @@ inputs:
     default: false
     description: "If true, continue proposing new candidates even when judgement.proved=false (long-run exploration)."
 
+  - name: language
+    type: string
+    default: "English"
+    description: "Natural language for statements/proofs/reasons (JSON keys remain unchanged)."
+
 steps:
   # --------------------------------------------------------
   # Step 0: init state (parse axioms from raw task)
@@ -100,6 +105,8 @@ steps:
             "status": "running" | "completed" | "failed" | "limit",
             "summary": string
           }
+
+          Language: {{language}}
         output: json
         store: state
 
@@ -134,6 +141,8 @@ steps:
         "depends_on": [string],
         "difficulty": "easy" | "medium" | "hard"
       }
+
+      Language: {{language}}
     output: json
     store: candidate
 
@@ -155,6 +164,8 @@ steps:
         { "id": "worker-0", "role": "string", "angle": "string" },
         ...
       ]
+
+      Language: {{language}}
     output: json_array
     store: provers
 
@@ -189,6 +200,8 @@ steps:
 
         Candidate theorem:
         {{ candidate | json }}
+
+        Output language: {{language}}
       output: text
     store: worker_proofs
 
@@ -229,6 +242,8 @@ steps:
           "final_proof": string,
           "depends_on": [string]
         }
+
+        Language: {{language}}
       output: json
     store: judgement
 
@@ -256,6 +271,7 @@ steps:
       Inputs:
       max_depth={{max_depth}}
       continue_on_failure={{continue_on_failure}}
+      language={{language}}
       state={{ state | json }}
       candidate={{ candidate | json }}
       judgement={{ judgement | json }}
@@ -283,6 +299,7 @@ steps:
           similarity: "{{similarity}}"
           max_depth: "{{max_depth}}"
           continue_on_failure: "{{continue_on_failure}}"
+          language: "{{language}}"
         store: recursive_output
       - id: unwrap_state
         type: assign

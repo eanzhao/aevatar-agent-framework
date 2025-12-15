@@ -56,6 +56,8 @@ public sealed class AxiomReasoningService
                 s.CurrentPhase,
                 s.TotalLlmCalls,
                 s.TotalTokens,
+                workflow = s.Workflow,
+                language = s.Language,
                 s.K,
                 s.MaxRounds,
                 maxDepth = s.MaxDepth
@@ -65,6 +67,8 @@ public sealed class AxiomReasoningService
     {
         public string? Axioms { get; init; }
         public string? Goal { get; init; }
+        public string? Workflow { get; init; }
+        public string? Language { get; init; }
         public int? K { get; init; }
         public int? MaxRounds { get; init; }
         public int? MaxDepth { get; init; }
@@ -99,6 +103,8 @@ public sealed class AxiomReasoningService
             {
                 AxiomsText = axiomsText,
                 Goal = goal,
+                Workflow = ResolveWorkflow(req.Workflow),
+                Language = NormalizeLanguage(req.Language),
                 K = req.K is > 0 ? req.K.Value : 3,
                 MaxRounds = req.MaxRounds is > 0 ? req.MaxRounds.Value : 10,
                 MaxDepth = req.MaxDepth is > 0 ? req.MaxDepth.Value : 10,
@@ -137,6 +143,44 @@ public sealed class AxiomReasoningService
             _logger.LogError(ex, "Failed to create session");
             return new { success = false, error = ex.Message };
         }
+    }
+
+    private string ResolveWorkflow(string? requested)
+    {
+        var wf = string.IsNullOrWhiteSpace(requested) ? "axiom_theorem_loop" : requested.Trim();
+
+        try
+        {
+            var available = _cognitiveStrategy.GetAvailableWorkflows();
+            if (available.Any(x => string.Equals(x, wf, StringComparison.OrdinalIgnoreCase)))
+                return wf;
+
+            _logger.LogWarning("Unknown workflow '{Workflow}', falling back to axiom_theorem_loop. Available=[{List}]",
+                wf, string.Join(", ", available));
+        }
+        catch (Exception ex)
+        {
+            // best-effort: if registry cannot be read, still allow default workflow
+            _logger.LogWarning(ex, "Failed to list workflows; using default workflow");
+        }
+
+        return "axiom_theorem_loop";
+    }
+
+    private static string NormalizeLanguage(string? requested)
+    {
+        var raw = (requested ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(raw)) return "English";
+
+        // Common aliases
+        var lower = raw.ToLowerInvariant();
+        if (lower is "zh" or "zh-cn" or "zh-hans" or "cn" or "chinese" or "中文" or "汉语")
+            return "Chinese";
+        if (lower is "en" or "en-us" or "en-gb" or "english" or "英文")
+            return "English";
+
+        // If user already passes a natural language label (e.g. "Japanese"), keep it.
+        return raw;
     }
 
     // ─────────────────────────────────────────────────────────
@@ -269,6 +313,7 @@ public sealed class AxiomReasoningService
 
             if (!result.Success)
             {
+                _logger.LogError("[{Id}] Workflow failed: {Error}", session.Id, result.Error ?? "(unknown)");
                 session.EventChannel.Writer.TryWrite(new ErrorEvent
                 {
                     SessionId = session.Id,
@@ -332,11 +377,12 @@ public sealed class AxiomReasoningService
             Context = new Dictionary<string, string>
             {
                 // Propagate workflow behavior flags to CognitiveStrategy initial variables
-                ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false"
+                ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false",
+                ["language"] = session.Language
             },
 
             // Theorem discovery loop: coordinator proposes -> workers prove -> vote judge -> iterate
-            CognitiveWorkflow = "axiom_theorem_loop",
+            CognitiveWorkflow = session.Workflow,
             CognitiveWorkerCount = n,
             CognitiveConsensusK = k,
             CognitiveMaxRounds = Math.Clamp(session.MaxRounds, 1, 50),

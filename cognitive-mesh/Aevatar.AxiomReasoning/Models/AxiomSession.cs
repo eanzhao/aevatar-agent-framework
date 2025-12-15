@@ -33,6 +33,12 @@ public sealed class AxiomSession
     public string AxiomsText { get; set; } = "";
     public string Goal { get; set; } = "";
 
+    // 运行模式
+    // - Workflow: 选择 Cognitive DSL workflow（支持多个）
+    // - Language: 控制 LLM 生成内容的自然语言（不影响 JSON key）
+    public string Workflow { get; set; } = "axiom_theorem_loop";
+    public string Language { get; set; } = "English";
+
     // 共识参数
     public int K { get; set; } = 3;
     public int MaxRounds { get; set; } = 10;

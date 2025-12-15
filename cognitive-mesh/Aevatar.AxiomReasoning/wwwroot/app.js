@@ -8,6 +8,9 @@ const $ = (id) => document.getElementById(id);
 
 const API = {
   listSessions: () => fetchJson("/api/sessions"),
+  listWorkflows: () => fetchJson("/api/workflows"),
+  dagSnapshot: (id) => fetchJson(`/api/sessions/${id}/dag`),
+  dagExplain: (id, nodeId) => fetchJson(`/api/sessions/${id}/dag/${encodeURIComponent(nodeId)}`),
   createSession: (payload) =>
     fetch("/api/sessions", { method: "POST", body: JSON.stringify(payload) }).then((r) => r.json()),
   run: (id) => fetch(`/api/sessions/${id}/run`, { method: "POST" }).then((r) => r.json()),
@@ -81,6 +84,23 @@ function applyRunConfigToForm(cfg) {
   if ($("input-max-tokens") && typeof cfg.maxTokens === "number") $("input-max-tokens").value = String(cfg.maxTokens);
   if ($("input-max-depth") && typeof cfg.maxDepth === "number") $("input-max-depth").value = String(cfg.maxDepth);
   if ($("input-continue-on-failure") && typeof cfg.continueOnFailure === "boolean") $("input-continue-on-failure").checked = cfg.continueOnFailure;
+  if ($("input-workflow") && typeof cfg.workflow === "string") $("input-workflow").value = cfg.workflow;
+  if ($("input-language") && typeof cfg.language === "string") $("input-language").value = cfg.language;
+}
+
+async function loadWorkflowsIntoSelect() {
+  const sel = $("input-workflow");
+  if (!sel) return;
+  try {
+    const list = await API.listWorkflows();
+    const workflows = Array.isArray(list) ? list : [];
+    sel.innerHTML = workflows.map((w) => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
+    if (!workflows.length) {
+      sel.innerHTML = `<option value="axiom_theorem_loop">axiom_theorem_loop</option>`;
+    }
+  } catch {
+    sel.innerHTML = `<option value="axiom_theorem_loop">axiom_theorem_loop</option>`;
+  }
 }
 
 function fetchJson(url) {
@@ -123,6 +143,8 @@ function ensureSessionCache(sessionId) {
       graph: { iteration: 0, axioms: [], theorems: [] },
       graphIndex: { axiomsById: Object.create(null), theoremsById: Object.create(null) },
       graphSelectedId: null,
+      dag: null,          // snapshot from /api/sessions/{id}/dag
+      dagExplain: null,   // explain result from /api/sessions/{id}/dag/{nodeId}
       lastVoteStepId: null,
       _stepsDirty: false,
     };
@@ -752,8 +774,17 @@ function applyEvent(sessionId, evt) {
     }
     cache.graphIndex = { axiomsById, theoremsById };
 
-    renderGraph(cache.graph, cache.graphSelectedId);
-    renderGraphInspector(cache);
+    // Refresh DAG snapshot from backend graph DB (includes node kinds like Hypothesis)
+    void (async () => {
+      try {
+        cache.dag = await API.dagSnapshot(sessionId);
+      } catch {
+        cache.dag = null;
+      }
+      if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
+      else renderGraph(cache.graph, cache.graphSelectedId);
+      renderGraphInspector(cache);
+    })();
     return;
   }
 
@@ -782,6 +813,19 @@ function applyEvent(sessionId, evt) {
         // ignore
       }
     })();
+  }
+
+  if (evt.type === "ErrorEvent") {
+    // Session-level error (execution failed / stopped). Show it immediately.
+    cache.status = "failed";
+    cache.phase = "COMPLETE";
+    cache.progress = 100;
+    const msg = evt.message || evt.error || "Execution failed";
+    $("status-text").textContent = `FAILED: ${msg}`;
+    renderResultBox(msg, false);
+    $("btn-stop").disabled = true;
+    $("btn-run").disabled = false;
+    return;
   }
 }
 
@@ -867,9 +911,130 @@ function renderGraph(graph, selectedId) {
   viewport.innerHTML = parts.join("");
 }
 
+function renderDagGraph(dag, selectedId) {
+  const viewport = $("graph-viewport");
+  if (!viewport) return;
+  if (!dag || !Array.isArray(dag.nodes) || !Array.isArray(dag.edges)) {
+    viewport.innerHTML = "";
+    return;
+  }
+
+  const nodes = dag.nodes.map((n) => ({
+    id: n.id || "",
+    kind: n.kind || "Unknown",
+    label: n.label || "",
+    proof: n.proof || "",
+  })).filter((n) => n.id);
+
+  const byId = Object.create(null);
+  for (const n of nodes) byId[n.id] = n;
+
+  // layout: sources (axiom/hypothesis/assumption/unknown) on the left, theorems on the right
+  const sources = nodes.filter((n) => String(n.kind).toLowerCase() !== "theorem")
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const theorems = nodes.filter((n) => String(n.kind).toLowerCase() === "theorem")
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  const pos = Object.create(null);
+  let y = 50;
+  for (const n of sources) {
+    pos[n.id] = { x: 40, y };
+    y += 90;
+  }
+
+  const laneY = Object.create(null);
+  for (let i = 0; i < theorems.length; i++) {
+    const id = theorems[i].id;
+    const m = String(id).match(/^T(\d+)$/i);
+    const layer = m ? parseInt(m[1], 10) : (i + 1);
+    if (!laneY[layer]) laneY[layer] = 50;
+    pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
+    laneY[layer] += 120;
+  }
+
+  const edges = dag.edges
+    .map((e) => ({ from: e.fromId, to: e.toId }))
+    .filter((e) => e.from && e.to && pos[e.from] && pos[e.to]);
+
+  const parts = [];
+  for (const e of edges) {
+    const a = pos[e.from];
+    const b = pos[e.to];
+    const x1 = a.x + 220, y1 = a.y;
+    const x2 = b.x, y2 = b.y;
+    const mx = (x1 + x2) / 2;
+    parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
+  }
+
+  function colors(kind) {
+    const k = String(kind || "").toLowerCase();
+    if (k === "axiom") return { fill: "#eff6ff", stroke: "#bfdbfe" };
+    if (k === "theorem") return { fill: "#f0fdf4", stroke: "#bbf7d0" };
+    if (k === "hypothesis") return { fill: "#fffbeb", stroke: "#fde68a" };
+    if (k === "assumption") return { fill: "#fff7ed", stroke: "#fdba74" };
+    return { fill: "#f8fafc", stroke: "#e2e8f0" };
+  }
+
+  for (const n of nodes) {
+    const p = pos[n.id];
+    if (!p) continue;
+    const c = colors(n.kind);
+    const title = escapeHtml(String(n.label || n.id).replace(/\s+/g, " ").slice(0, 72));
+    const sel = selectedId && selectedId === n.id;
+    parts.push(`
+      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}">
+        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="220" height="54" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"></rect>
+        <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
+        <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
+      </g>
+    `);
+  }
+
+  viewport.innerHTML = parts.join("");
+}
+
 function renderGraphInspector(cache) {
   const host = $("graph-inspector");
   if (!host) return;
+
+  // Prefer Graph DB explain data (DAG reasoning)
+  if (cache?.dagExplain && cache?.graphSelectedId) {
+    const ex = cache.dagExplain;
+    const node = ex.node;
+    if (!node) {
+      host.classList.add("empty-state");
+      host.textContent = "Node not found in DAG.";
+      return;
+    }
+
+    host.classList.remove("empty-state");
+    const deps = Array.isArray(ex.directDependencies) ? ex.directDependencies : [];
+    const depPills = deps.map((d) => `<div class="pill">${escapeHtml(String(d))}</div>`).join("");
+    const missing = Array.isArray(ex.missingDependencies) ? ex.missingDependencies : [];
+    const missingHtml = missing.length
+      ? missing.map((m) => `<div class="pill">${escapeHtml(m.id)} · ${escapeHtml(String(m.kind || "unknown"))}</div>`).join("")
+      : '<div class="empty-state">none</div>';
+
+    const topo = Array.isArray(ex.topologicalOrder) ? ex.topologicalOrder : [];
+    const topoText = topo.length ? topo.join(" → ") : "";
+
+    host.innerHTML = `
+      <div class="title">${escapeHtml(String(node.kind || "Unknown"))} · ${escapeHtml(node.id || "")}</div>
+      <div class="kv">
+        <div class="pill">provable=${ex.provableFromAxioms ? "true" : "false"}</div>
+        <div class="pill">cycle=${ex.hasCycle ? "true" : "false"}</div>
+        <div class="pill">deps=${deps.length}</div>
+      </div>
+      <div class="mono">${escapeHtml(node.label || "")}</div>
+      <div style="margin-top:10px; font-weight:800; color: var(--text);">Depends on</div>
+      <div class="kv" style="margin-top:6px;">${depPills || '<div class="empty-state">none</div>'}</div>
+      <div style="margin-top:10px; font-weight:800; color: var(--text);">Missing / Hypotheses</div>
+      <div class="kv" style="margin-top:6px;">${missingHtml}</div>
+      ${topoText ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-weight:800; color: var(--text-secondary);">Topological order</summary><div class="mono" style="margin-top:8px;">${escapeHtml(topoText)}</div></details>` : ""}
+      ${node.proof ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-weight:800; color: var(--text-secondary);">Proof</summary><div class="mono" style="margin-top:8px;">${escapeHtml(node.proof)}</div></details>` : ""}
+    `;
+    return;
+  }
 
   const graph = cache?.graph;
   const axioms = Array.isArray(graph?.axioms) ? graph.axioms : [];
@@ -964,8 +1129,17 @@ function selectSession(sessionId) {
   setDownloads(sessionId, false);
   const cache = ensureSessionCache(sessionId);
   connect(sessionId);
-  renderGraph(cache.graph, cache.graphSelectedId);
-  renderGraphInspector(cache);
+  // Best-effort: fetch DAG snapshot for graph view (kinds + hypotheses)
+  void (async () => {
+    try {
+      cache.dag = await API.dagSnapshot(sessionId);
+    } catch {
+      cache.dag = null;
+    }
+    if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
+    else renderGraph(cache.graph, cache.graphSelectedId);
+    renderGraphInspector(cache);
+  })();
 
   // Allow stop/run for current
   $("btn-stop").disabled = false;
@@ -976,6 +1150,8 @@ async function createSession() {
   const payload = {
     axioms: $("input-axioms").value.trim(),
     goal: $("input-goal").value.trim(),
+    workflow: $("input-workflow") ? $("input-workflow").value : "axiom_theorem_loop",
+    language: $("input-language") ? $("input-language").value : "English",
     k: parseInt($("input-k").value, 10) || 3,
     maxRounds: parseInt($("input-max-rounds").value, 10) || 10,
     maxDepth: parseInt($("input-max-depth").value, 10) || 10,
@@ -994,6 +1170,8 @@ async function createSession() {
     maxTokens: payload.maxTokens,
     maxDepth: payload.maxDepth,
     continueOnFailure: payload.continueOnFailure,
+    workflow: payload.workflow,
+    language: payload.language,
   });
 
   const res = await API.createSession(payload);
@@ -1045,6 +1223,7 @@ function initDefaults() {
 
 window.addEventListener("load", async () => {
   initDefaults();
+  await loadWorkflowsIntoSelect();
   applyRunConfigToForm(loadRunConfig());
 
   $("btn-refresh").addEventListener("click", () => refreshSessions());
@@ -1108,13 +1287,24 @@ window.addEventListener("load", async () => {
       if (!t || typeof t.closest !== "function") return;
       const node = t.closest(".graph-node");
       if (!node) return;
-      const id = node.dataset.nodeId;
+      const id = node.dataset.nodeId || node.dataset.id;
       if (!id) return;
 
       const cache = ensureSessionCache(state.current);
       cache.graphSelectedId = id;
-      renderGraph(cache.graph, cache.graphSelectedId);
-      renderGraphInspector(cache);
+      cache.dagExplain = null;
+      if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
+      else renderGraph(cache.graph, cache.graphSelectedId);
+
+      // Pull DAG reasoning detail (best-effort)
+      void (async () => {
+        try {
+          cache.dagExplain = await API.dagExplain(state.current, id);
+        } catch {
+          cache.dagExplain = null;
+        }
+        renderGraphInspector(cache);
+      })();
     });
   }
 
