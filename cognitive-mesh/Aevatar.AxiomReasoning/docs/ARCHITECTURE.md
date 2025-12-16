@@ -51,12 +51,21 @@ Aevatar.AxiomReasoning/
 - `language`: 生成内容语言（例：`English` / `Chinese`；不影响 JSON keys）
 - `maxDurationMinutes / maxLlmCalls / maxTokens`: 长跑预算
 - `continueOnFailure`: `proved=false` 时是否继续探索
+- `hpaEnabled`: 是否启用 HPA 透传（仅对支持 `hpa` 的 workflow 生效，例如 `hypothesis_promotion_loop_hpa`）
+- `hpaAlpha / hpaSeedPhase`: Θ 扫描参数（默认黄金 α=φ^{-1}）
+- `hpaBetaModel / hpaBeta0 / hpaBeta1 / hpaSeed`: embedding 参数（phase model + deterministic seed）
+- `hpaRadialWBase / hpaRadialWScale`: ρ（radial）参数
+- `minCoherence / maxGapNorm / maxAssociatorMean`: HPA gate 阈值（用于“是否进入验证/升级”）
 
 ### Workflow 透传方式
 
 - `AxiomReasoningService.BuildReasoningOptions` 将 `language / continue_on_failure` 放入 `ReasoningOptions.Context`
+- 当 `hpaEnabled=true` 时，会额外把 `hpa_*` 与 gate 阈值写入 `ReasoningOptions.Context`
 - `CognitiveStrategy` 会把 Context 变量注入 workflow 初始变量（`initialVariables`）
 - `axiom_theorem_loop.yaml` 声明了 `language` 输入，并在 prompt 中引用
+
+> NOTE: DAG 增量更新依赖 workflow 产生 `update_state`（LLM 回写 state）的 Completed 事件；  
+> HPL/HPA 类 workflow 通常用 `transform/hpa` 直接修改 state，默认不会触发 DAG 增量更新（可通过后续增强在结束时补一次 snapshot）。
 
 ## Graph DB（DAG）推理
 
@@ -98,6 +107,7 @@ Aevatar.AxiomReasoning/
 
 - `GET /api/sessions/{id}/dag`：返回节点/边（含 kind 标注）
 - `GET /api/sessions/{id}/dag/{nodeId}`：返回节点推理解释（deps/missing/topo/cycle/provable）
+- `GET /api/graphstore/diagnostics`：查看当前 GraphStore 后端（InMemory/Supabase）与表/缓存状态
 
 ## Supabase 持久化（JSON）
 
@@ -110,7 +120,7 @@ Aevatar.AxiomReasoning/
   - `Key`: anon key
   - `ResultsTable`: 表名（兼容旧字段名 `ReviewsTable`）
   - `DagEnabled`: 是否启用 DAG 持久化（默认 false）
-  - `DagNodesTable / DagEdgesTable`: DAG 表名（默认 `axiom_reasoning_dag_nodes / axiom_reasoning_dag_edges`）
+  - `DagNodesTable / DagEdgesTable`: DAG 表名（默认 `axiom_reasoning_dag_nodes / axiom_reasoning_dag_edges`；建议保持默认，当前 SDK 表名映射为编译期固定）
 
 ### 建表 SQL
 

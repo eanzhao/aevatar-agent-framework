@@ -144,6 +144,17 @@ app.MapGet("/api/sessions", (AxiomReasoningService svc) =>
 app.MapGet("/api/workflows", (Aevatar.CognitiveMesh.Strategies.CognitiveStrategy strategy) =>
     Results.Json(strategy.GetAvailableWorkflows()));
 
+// GraphStore diagnostics (which backend is active + table status)
+app.MapGet("/api/graphstore/diagnostics", (IGraphStore store) =>
+{
+    return store switch
+    {
+        SupabaseGraphStore s => Results.Json(s.GetDiagnostics()),
+        AxiomDagService m => Results.Json(m.GetDiagnostics()),
+        _ => Results.Json(new { type = store.GetType().Name })
+    };
+});
+
 // Graph DB (DAG) APIs
 app.MapGet("/api/sessions/{sessionId}/dag", async (string sessionId, IGraphStore store, CancellationToken ct) =>
     Results.Json(await store.GetSnapshotAsync(sessionId, ct)));

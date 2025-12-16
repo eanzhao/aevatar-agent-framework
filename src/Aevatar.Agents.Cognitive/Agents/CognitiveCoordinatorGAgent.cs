@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
@@ -55,6 +56,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     private readonly ConcurrentDictionary<string, string> _fanOutChildTypes = new();
     private readonly ConcurrentDictionary<string, string> _fanOutUserPrompts = new();
     private readonly ConcurrentDictionary<string, string> _fanOutSystemPrompts = new();
+    private readonly ConcurrentDictionary<string, string> _fanOutOutputTypes = new();
     private int _expectedResults;
     private int _fanOutSuccessCount;
     private TaskCompletionSource<bool>? _fanOutCompletionSource;
@@ -71,6 +73,11 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
     // Red-Flagging (可选, 可插拔)
     private IRedFlagStrategy? _redFlagStrategy;
     private IRedFlagHandler _redFlagHandler = new DefaultRedFlagHandler();
+
+    // Token-free primitives
+    private TransformExecutor? _transformExecutor;
+    private RetrieveFactsExecutor? _retrieveFactsExecutor;
+    private HpaExecutor? _hpaExecutor;
 
     // 步骤事件追踪（用于前端可视化）
     private readonly List<WorkflowStepEvent> _stepEvents = [];
@@ -542,6 +549,9 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 "workflow_call" => await ExecuteWorkflowCallAsync(step),
                 "checkpoint" => await ExecuteCheckpointAsync(step),
                 "assign" => await ExecuteAssignAsync(step),
+                "transform" => await ExecuteTransformAsync(step),
+                "retrieve_facts" => await ExecuteRetrieveFactsAsync(step),
+                "hpa" => await ExecuteHpaAsync(step),
 
                 _ => PrimitiveResult.Fail($"Unknown step type: {step.Type}")
             };
@@ -564,6 +574,34 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         }
     }
 
+    private Task<PrimitiveResult> ExecuteTransformAsync(StepDefinition step)
+    {
+        _transformExecutor ??= new TransformExecutor(_templateEngine, Logger);
+        var result = _transformExecutor.Execute(step, _workflowVariables);
+        return Task.FromResult(result);
+    }
+
+    private Task<PrimitiveResult> ExecuteRetrieveFactsAsync(StepDefinition step)
+    {
+        _retrieveFactsExecutor ??= new RetrieveFactsExecutor(_templateEngine, Logger);
+        var result = _retrieveFactsExecutor.Execute(step, _workflowVariables);
+        return Task.FromResult(result);
+    }
+
+    private Task<PrimitiveResult> ExecuteHpaAsync(StepDefinition step)
+    {
+        // ============================================================
+        //  HPA (token-free, coordinator-only)
+        //
+        //  WHY:
+        //  - 把 HPA 的“可计算几何层”从 prompt 中剥离出来
+        //  - 让 workflow 可以用 deterministic 指标做分流/调度，而不是让 LLM 自己讲故事
+        // ============================================================
+        _hpaExecutor ??= new HpaExecutor(_templateEngine, Logger);
+        var result = _hpaExecutor.Execute(step, _workflowVariables);
+        return Task.FromResult(result);
+    }
+
     // ============================================================
     //  简单步骤 - Coordinator 直接执行
     // ============================================================
@@ -573,9 +611,6 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         string? preRenderedPrompt = null,
         string? preRenderedSystem = null)
     {
-        var outputType = step.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
-        const int MaxContentLength = 102400;
-
         // 使用预渲染的 prompt（如果提供），否则现场渲染
         var prompt = preRenderedPrompt ?? _templateEngine.Render(
             step.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "",
@@ -587,91 +622,11 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             systemPrompt = _templateEngine.Render(sysObj.ToString()!, _workflowVariables);
         }
 
-        // 构建请求
-        var request = new AI.Abstractions.AevatarLLMRequest
-        {
-            SystemPrompt = systemPrompt,
-            UserPrompt = prompt
-        };
-
-        // 尝试流式
-        var modelInfo = await LLMProvider.GetModelInfoAsync();
-        var supportsStreaming = modelInfo.SupportsStreaming;
-
-        var output = string.Empty;
-        var promptTokens = 0;
-        var completionTokens = 0;
-
-        if (supportsStreaming)
-        {
-            var sb = new System.Text.StringBuilder();
-            var tokenIndex = 0;
-
-            await foreach (var token in LLMProvider.GenerateStreamAsync(request))
-            {
-                var content = token.Content ?? string.Empty;
-                if (string.IsNullOrEmpty(content) && !token.IsComplete)
-                    continue;
-
-                sb.Append(content);
-                output = sb.ToString();
-
-                // 中间流式事件（Running，带累计回答）
-                EmitStepEvent(step, StepStatus.Running,
-                    $"Streaming token {tokenIndex}",
-                    progress: 0,
-                    systemPrompt: systemPrompt,
-                    userPrompt: prompt,
-                    assistantResponse: output);
-
-                tokenIndex++;
-
-                if (token.IsComplete)
-                {
-                    // 流式模式下没有 Usage，先置零
-                    promptTokens = 0;
-                    completionTokens = tokenIndex;
-                    break;
-                }
-            }
-        }
-        else
-        {
-            var response = await LLMProvider.GenerateAsync(request);
-            output = response.Content ?? string.Empty;
-            promptTokens = response.Usage?.PromptTokens ?? 0;
-            completionTokens = response.Usage?.CompletionTokens ?? 0;
-        }
-
-        // 更新统计
-        CustomState.TotalTokensUsed += promptTokens + completionTokens;
-        CustomState.TotalLlmCalls++;
-
-        // 解析输出
-        if (output.Length > MaxContentLength)
-        {
-            return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
-        }
-
-        var parser = _parserFactory.Create(outputType);
-        var parsed = parser.Parse(output);
-        if (parsed == null)
-        {
-            return PrimitiveResult.Fail("redflag-parse-null");
-        }
-
-        return new PrimitiveResult
-        {
-            Success = true,
-            Value = parsed,
-            TokensUsed = promptTokens + completionTokens,
-            PromptTokens = promptTokens,
-            CompletionTokens = completionTokens,
-            LlmCalls = 1,
-            SystemPrompt = systemPrompt,
-            UserPrompt = prompt,
-            AssistantResponse = output
-        };
+        // Unify all Coordinator-side LLM calls with the same reliability guardrails used by vote proposals:
+        // - max_length / timeout_seconds / idle_timeout_seconds
+        // - streaming hang protection
+        // - strict parsing for json/json_array (red-flag on parse null)
+        return await ExecuteLlmCallWithStreamingAsync(step, step, systemPrompt, prompt);
     }
 
     /// <summary>
@@ -695,10 +650,22 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             eventStep.Id, userPrompt.Length);
 
         var outputType = generator.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
-        const int MaxContentLength = 102400;
+
+        // Guardrails (configurable via DSL / workflow defaults)
+        var maxLength = ResolveIntParameter(generator.Parameters, "max_length", 102400);
+        maxLength = Math.Clamp(maxLength, 1024, 1024 * 1024); // [1KB, 1MB]
+
+        var timeoutSeconds = ResolveIntParameter(generator.Parameters, "timeout_seconds", 360);
+        timeoutSeconds = Math.Clamp(timeoutSeconds, 5, 3600); // [5s, 1h]
+
+        var idleTimeoutSeconds = ResolveIntParameter(generator.Parameters, "idle_timeout_seconds", 30);
+        idleTimeoutSeconds = Math.Clamp(idleTimeoutSeconds, 1, timeoutSeconds);
+
+        var strictParse = ResolveBoolParameter(generator.Parameters, "strict_parse", true);
 
         // NOTE: 不绑定外部 CancellationToken（当前 Coordinator 执行链路未贯通），至少保证不会无限挂死
-        var callTimeout = TimeSpan.FromMinutes(6);
+        var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
+        var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
         using var timeoutCts = new CancellationTokenSource(callTimeout);
         var ct = timeoutCts.Token;
 
@@ -723,47 +690,126 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             {
                 var sb = new System.Text.StringBuilder();
                 var tokenIndex = 0;
+                var startAt = DateTimeOffset.UtcNow;
+
+                // Streaming events throttling (reduce event storm & threadpool starvation)
+                const int StreamPublishEveryN = 16;
+                var streamPublishMinInterval = TimeSpan.FromMilliseconds(250);
+                var lastPublishAt = DateTimeOffset.MinValue;
 
                 Logger.LogInformation("[STREAM] Starting streaming for {StepId}, Type={Type}",
                     eventStep.Id, eventStep.Type);
 
-                await foreach (var token in LLMProvider.GenerateStreamAsync(request, ct).WithCancellation(ct))
+                var stream = LLMProvider.GenerateStreamAsync(request, ct);
+                var enumerator = stream.GetAsyncEnumerator();
+                try
                 {
-                    var content = token.Content ?? string.Empty;
-                    if (string.IsNullOrEmpty(content) && !token.IsComplete)
-                        continue;
-
-                    sb.Append(content);
-                    output = sb.ToString();
-
-                    // 防止输出爆炸导致内存/渲染/日志被打穿（这类“卡住”看起来像死循环）
-                    if (output.Length > MaxContentLength)
+                    while (true)
                     {
-                        return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
+                        var elapsed = DateTimeOffset.UtcNow - startAt;
+                        var remaining = callTimeout - elapsed;
+                        if (remaining <= TimeSpan.Zero)
+                        {
+                            return new PrimitiveResult
+                            {
+                                Success = false,
+                                Error = $"llm-timeout>{timeoutSeconds}s",
+                                SystemPrompt = systemPrompt,
+                                UserPrompt = userPrompt,
+                                AssistantResponse = output,
+                                TokensUsed = 0,
+                                LlmCalls = 1
+                            };
+                        }
+
+                        var moveNextTask = enumerator.MoveNextAsync().AsTask();
+                        var waitTimeout = remaining < idleTimeout ? remaining : idleTimeout;
+                        var completed = await Task.WhenAny(moveNextTask, Task.Delay(waitTimeout));
+                        if (completed != moveNextTask)
+                        {
+                            // No tokens for idleTimeout => treat as hang (or total timeout if remaining < idleTimeout).
+                            return new PrimitiveResult
+                            {
+                                Success = false,
+                                Error = waitTimeout == idleTimeout
+                                    ? $"llm-idle-timeout>{idleTimeoutSeconds}s"
+                                    : $"llm-timeout>{timeoutSeconds}s",
+                                SystemPrompt = systemPrompt,
+                                UserPrompt = userPrompt,
+                                AssistantResponse = output,
+                                TokensUsed = 0,
+                                LlmCalls = 1
+                            };
+                        }
+
+                        if (!await moveNextTask)
+                        {
+                            completionTokens = tokenIndex;
+                            break;
+                        }
+
+                        var token = enumerator.Current;
+                        var content = token.Content ?? string.Empty;
+                        if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                            continue;
+
+                        sb.Append(content);
+                        output = sb.ToString();
+
+                        // 防止输出爆炸导致内存/渲染/日志被打穿（这类“卡住”看起来像死循环）
+                        if (output.Length > maxLength)
+                        {
+                            return PrimitiveResult.Fail($"redflag-length>{maxLength}");
+                        }
+
+                        // 流式事件发送到指定的步骤（每个提案独立显示）
+                        var now = DateTimeOffset.UtcNow;
+                        var isFirst = tokenIndex == 0;
+                        var shouldPublish =
+                            isFirst ||
+                            token.IsComplete ||
+                            (tokenIndex % StreamPublishEveryN == 0) ||
+                            (now - lastPublishAt >= streamPublishMinInterval);
+
+                        if (shouldPublish)
+                        {
+                            lastPublishAt = now;
+                            EmitStepEvent(eventStep, StepStatus.Running,
+                                $"Streaming... ({tokenIndex} tokens)",
+                                progress: 0,
+                                systemPrompt: systemPrompt,
+                                userPrompt: userPrompt,
+                                assistantResponse: output);
+                        }
+
+                        tokenIndex++;
+
+                        // Safety stop for pathological streams
+                        if (tokenIndex > 20000)
+                        {
+                            return PrimitiveResult.Fail("llm-stream-too-long>20000");
+                        }
+
+                        if (token.IsComplete)
+                        {
+                            completionTokens = tokenIndex;
+                            Logger.LogInformation("[STREAM] Completed {StepId}: {Tokens} tokens",
+                                eventStep.Id, tokenIndex);
+                            break;
+                        }
                     }
-
-                    // 流式事件发送到指定的步骤（每个提案独立显示）
-                    EmitStepEvent(eventStep, StepStatus.Running,
-                        $"Streaming... ({tokenIndex} tokens)",
-                        progress: 0,
-                        systemPrompt: systemPrompt,
-                        userPrompt: userPrompt,
-                        assistantResponse: output);
-
-                    tokenIndex++;
-
-                    if (tokenIndex % 10 == 0)
+                }
+                finally
+                {
+                    // Don't allow DisposeAsync to block forever if provider is misbehaving.
+                    try
                     {
-                        Logger.LogDebug("[STREAM] {StepId}: {Tokens} tokens, len={Len}",
-                            eventStep.Id, tokenIndex, output.Length);
+                        var disposeTask = enumerator.DisposeAsync().AsTask();
+                        await Task.WhenAny(disposeTask, Task.Delay(1000));
                     }
-
-                    if (token.IsComplete)
+                    catch
                     {
-                        completionTokens = tokenIndex;
-                        Logger.LogInformation("[STREAM] Completed {StepId}: {Tokens} tokens",
-                            eventStep.Id, tokenIndex);
-                        break;
+                        // ignored
                     }
                 }
 
@@ -775,7 +821,24 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             }
             else
             {
-                var response = await LLMProvider.GenerateAsync(request, ct);
+                AI.Abstractions.AevatarLLMResponse response;
+                try
+                {
+                    response = await LLMProvider.GenerateAsync(request, ct).WaitAsync(callTimeout);
+                }
+                catch (TimeoutException)
+                {
+                    return new PrimitiveResult
+                    {
+                        Success = false,
+                        Error = $"llm-timeout>{timeoutSeconds}s",
+                        SystemPrompt = systemPrompt,
+                        UserPrompt = userPrompt,
+                        AssistantResponse = output,
+                        TokensUsed = 0,
+                        LlmCalls = 1
+                    };
+                }
                 output = response.Content ?? string.Empty;
                 promptTokens = response.Usage?.PromptTokens ?? 0;
                 completionTokens = response.Usage?.CompletionTokens ?? 0;
@@ -787,16 +850,23 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 CustomState.TotalLlmCalls++;
             }
 
-            if (output.Length > MaxContentLength)
+            if (output.Length > maxLength)
             {
-                return PrimitiveResult.Fail($"redflag-length>{MaxContentLength}");
+                return PrimitiveResult.Fail($"redflag-length>{maxLength}");
             }
 
             var parser = _parserFactory.Create(outputType);
             var parsed = parser.Parse(output);
             if (parsed == null)
             {
-                return PrimitiveResult.Fail("redflag-parse-null");
+                if (!strictParse)
+                {
+                    parsed = output;
+                }
+                else
+                {
+                    return PrimitiveResult.Fail("redflag-parse-null");
+                }
             }
 
             return new PrimitiveResult
@@ -901,6 +971,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         _fanOutChildTypes.Clear();
         _fanOutUserPrompts.Clear();
         _fanOutSystemPrompts.Clear();
+        _fanOutOutputTypes.Clear();
 
         // 发送 fan-out 开始事件
         EmitStepEvent(step, StepStatus.Running,
@@ -945,6 +1016,12 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
 
             _fanOutChildTypes[request.RequestId] = childStep.Type;
 
+            // Keep the declared output type so Coordinator can parse worker raw results deterministically.
+            // NOTE: We intentionally do NOT remove this mapping on terminal events, because ExecuteFanOutAsync
+            //       needs it after fan_out completes to parse and reduce results.
+            _fanOutOutputTypes[request.RequestId] =
+                childStep.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
+
             // 预渲染子任务的 prompt，后续用于前端展示
             var renderedPrompt = childStep.Parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
             var renderedSystem = childStep.Parameters.GetValueOrDefault("system")?.ToString();
@@ -978,7 +1055,9 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         }
 
         // 等待所有 Worker 完成（事件驱动，非阻塞等待）
-        var timeout = TimeSpan.FromMinutes(10);
+        var timeoutSeconds = ResolveIntParameter(step.Parameters, "timeout_seconds", 600);
+        timeoutSeconds = Math.Clamp(timeoutSeconds, 5, 3600);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         var completed = await Task.WhenAny(
             _fanOutCompletionSource.Task,
             Task.Delay(timeout));
@@ -988,12 +1067,58 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             return PrimitiveResult.Fail($"Fan-out timed out after {timeout}");
         }
 
-        // 收集结果
-        var results = _collectedResults.Values
-            .OrderBy(r => r.StepId)
-            .Select(r => r.Success ? (object)r.Result : null!)
-            .Where(r => r != null)
-            .ToList();
+        // 收集并解析结果：
+        // - Worker returns RAW assistant response in StepCompletedEventProto.Result (string)
+        // - Coordinator parses it according to the declared output type (json/json_array/first_line/...)
+        // - Optionally keep failures as items (include_failures=true) to enable deterministic aggregation
+        var includeFailures = ResolveBoolParameter(step.Parameters, "include_failures", false);
+
+        var results = new List<object>();
+        foreach (var r in _collectedResults.Values.OrderBy(r => r.StepId))
+        {
+            // Determine output type (default: text)
+            var outputType = _fanOutOutputTypes.TryGetValue(r.RequestId, out var ot) ? ot : "text";
+            outputType = string.IsNullOrWhiteSpace(outputType) ? "text" : outputType;
+
+            if (r.Success)
+            {
+                object? parsed;
+                if (string.Equals(outputType, "text", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Preserve legacy behavior for text fan_out (no trimming/parsing side effects).
+                    parsed = r.Result;
+                }
+                else
+                {
+                    parsed = ParseOutput(r.Result ?? "", outputType);
+                }
+
+                if (parsed != null)
+                {
+                    results.Add(parsed);
+                }
+                else if (includeFailures)
+                {
+                    results.Add(new Dictionary<string, object>
+                    {
+                        ["worker_id"] = r.WorkerId,
+                        ["step_id"] = r.StepId,
+                        ["success"] = false,
+                        ["error"] = "redflag-parse-null"
+                    });
+                }
+            }
+            else if (includeFailures)
+            {
+                results.Add(new Dictionary<string, object>
+                {
+                    ["worker_id"] = r.WorkerId,
+                    ["step_id"] = r.StepId,
+                    ["success"] = false,
+                    ["error"] = r.Error
+                });
+            }
+        }
 
         // 汇聚
         var reducer = step.Reduce ?? "collect";
@@ -1022,6 +1147,7 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             progress: 0,
             parallelTotal: items.Count, parallelCompleted: 0);
 
+        var includeFailures = ResolveBoolParameter(step.Parameters, "include_failures", false);
         var results = new List<object>();
         var totalTokens = 0;
         var totalCalls = 0;
@@ -1084,6 +1210,26 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
                 {
                     Logger.LogWarning(
                         "[DEBUG][FanOut] ⚠️ Subtask {Index} succeeded but Value is null, NOT added to results!", i);
+                    if (includeFailures)
+                    {
+                        results.Add(new Dictionary<string, object>
+                        {
+                            ["worker_id"] = "coordinator",
+                            ["step_id"] = childDef.Id,
+                            ["success"] = false,
+                            ["error"] = "redflag-parse-null"
+                        });
+                    }
+                }
+                else if (!result.Success && includeFailures)
+                {
+                    results.Add(new Dictionary<string, object>
+                    {
+                        ["worker_id"] = "coordinator",
+                        ["step_id"] = childDef.Id,
+                        ["success"] = false,
+                        ["error"] = result.Error ?? ""
+                    });
                 }
 
                 // 发送进度事件
@@ -1182,8 +1328,28 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
             var originalStep = steps.FirstOrDefault(s => s.Id == result.StepId);
             if (originalStep?.Store != null)
             {
-                outputs2[originalStep.Store] = result.Result;
-                _workflowVariables[originalStep.Store] = result.Result;
+                var outputType = originalStep.Parameters.GetValueOrDefault("output")?.ToString() ?? "text";
+                var strictParse = ResolveBoolParameter(originalStep.Parameters, "strict_parse", true);
+
+                object? parsed;
+                if (string.Equals(outputType, "text", StringComparison.OrdinalIgnoreCase))
+                {
+                    parsed = result.Result;
+                }
+                else
+                {
+                    parsed = ParseOutput(result.Result ?? "", outputType);
+                    if (parsed == null && !strictParse)
+                    {
+                        parsed = result.Result;
+                    }
+                }
+
+                if (parsed != null)
+                {
+                    outputs2[originalStep.Store] = parsed;
+                    _workflowVariables[originalStep.Store] = parsed;
+                }
             }
         }
 
@@ -1298,6 +1464,15 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         var redFlagStrategy = ResolveRedFlagStrategy(step.Parameters);
         var redFlagCount = 0;
         var maxRedFlags = ResolveIntParameter(step.Parameters, "max_red_flags", maxRounds * 2);
+        // Compatibility: allow max_red_flags to be nested under red_flag config (maker-v2.yaml style).
+        if (!step.Parameters.ContainsKey("max_red_flags") &&
+            step.Parameters.TryGetValue("red_flag", out var rfObj) &&
+            rfObj is Dictionary<string, object?> rfConfig &&
+            rfConfig.TryGetValue("max_red_flags", out var nestedMax) &&
+            nestedMax != null)
+        {
+            maxRedFlags = ConvertToInt(nestedMax, maxRedFlags);
+        }
 
         // ─────────────────────────────────────────────
         //  使用 MAKER 的语义聚类 VoteEngine
@@ -1702,6 +1877,33 @@ public class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordinatorState
         float f => (int)f,
         decimal m => (int)m,
         string s when int.TryParse(s, out var parsed) => parsed,
+        _ => defaultValue
+    };
+
+    private bool ResolveBoolParameter(Dictionary<string, object?> parameters, string key, bool defaultValue)
+    {
+        var value = ParameterExtensions.GetOptional<object>(parameters, key, defaultValue);
+
+        return value switch
+        {
+            bool b => b,
+            int i => i != 0,
+            long l => l != 0,
+            string s when bool.TryParse(s, out var parsed) => parsed,
+            string s => ConvertToBool(_templateEngine.Evaluate(s, _workflowVariables), defaultValue),
+            _ => defaultValue
+        };
+    }
+
+    private static bool ConvertToBool(object? value, bool defaultValue) => value switch
+    {
+        bool b => b,
+        int i => i != 0,
+        long l => l != 0,
+        double d => Math.Abs(d) > double.Epsilon,
+        float f => Math.Abs(f) > float.Epsilon,
+        decimal m => m != 0,
+        string s when bool.TryParse(s, out var parsed) => parsed,
         _ => defaultValue
     };
 

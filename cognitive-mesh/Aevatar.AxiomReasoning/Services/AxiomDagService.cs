@@ -76,6 +76,29 @@ public sealed class AxiomDagService : IGraphStore
 
     private readonly ConcurrentDictionary<string, Graph> _graphs = new(StringComparer.Ordinal);
 
+    public object GetDiagnostics()
+    {
+        var sessions = _graphs.Count;
+        long nodes = 0;
+        long edges = 0;
+        foreach (var g in _graphs.Values)
+        {
+            nodes += g.Nodes.Count;
+            edges += g.Edges.Count;
+        }
+
+        return new
+        {
+            type = "inmemory",
+            sessions,
+            totals = new
+            {
+                nodes,
+                edges
+            }
+        };
+    }
+
     public void UpsertFromGraphEvent(string sessionId, GraphEvent graphEvent)
     {
         if (string.IsNullOrWhiteSpace(sessionId)) return;

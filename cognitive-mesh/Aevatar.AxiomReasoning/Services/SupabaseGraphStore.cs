@@ -69,6 +69,12 @@ public sealed class DagEdgeRecord : BaseModel
 
 public sealed class SupabaseGraphStore : IGraphStore
 {
+    // NOTE:
+    // Supabase .NET 的 Postgrest 映射使用 [Table("...")]，表名目前是“编译期固定”的。
+    // 因此这里的表名必须和 DagNodeRecord/DagEdgeRecord 的 [Table] 一致。
+    private const string NodesTable = "axiom_reasoning_dag_nodes";
+    private const string EdgesTable = "axiom_reasoning_dag_edges";
+
     private static readonly Regex AxiomIdRegex = new(@"^([A-Za-z]\w*)\s*:", RegexOptions.Compiled);
 
     private readonly SupabaseConfig _config;
@@ -82,6 +88,9 @@ public sealed class SupabaseGraphStore : IGraphStore
     // Serialize "delete edges then insert edges" per session to avoid races.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.Ordinal);
 
+    // Hot cache (per-process) to avoid read-after-write races in UI and reduce DB reads.
+    private readonly ConcurrentDictionary<string, DagSnapshot> _cache = new(StringComparer.Ordinal);
+
     public SupabaseGraphStore(IOptions<SupabaseConfig> config, ILogger<SupabaseGraphStore> logger)
     {
         _config = config.Value;
@@ -94,12 +103,43 @@ public sealed class SupabaseGraphStore : IGraphStore
         !string.IsNullOrWhiteSpace(_config.Url) &&
         !string.IsNullOrWhiteSpace(_config.Key);
 
+    public object GetDiagnostics() => new
+    {
+        type = "supabase",
+        enabled = IsEnabled,
+        initialized = _initialized,
+        tables = new
+        {
+            nodes = new { name = NodesTable, exists = _nodesTableExists },
+            edges = new { name = EdgesTable, exists = _edgesTableExists }
+        },
+        cache = new
+        {
+            sessions = _cache.Count
+        },
+        config = new
+        {
+            dagEnabled = _config.DagEnabled,
+            url = _config.Url,
+            dagNodesTable = _config.DagNodesTable,
+            dagEdgesTable = _config.DagEdgesTable
+        }
+    };
+
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         if (_initialized || !IsEnabled) return;
 
         try
         {
+            if (!string.Equals(_config.DagNodesTable, NodesTable, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(_config.DagEdgesTable, EdgesTable, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "SupabaseGraphStore table names are currently fixed by [Table] attributes. Using '{Nodes}'/'{Edges}' (config='{CfgNodes}'/'{CfgEdges}').",
+                    NodesTable, EdgesTable, _config.DagNodesTable, _config.DagEdgesTable);
+            }
+
             var options = new SupabaseOptions { AutoConnectRealtime = false };
             _client = new Client(_config.Url, _config.Key, options);
             await _client.InitializeAsync();
@@ -118,8 +158,8 @@ public sealed class SupabaseGraphStore : IGraphStore
     {
         if (_client == null) return;
 
-        _nodesTableExists = await CheckTableExistsAsync<DagNodeRecord>(_config.DagNodesTable, ct);
-        _edgesTableExists = await CheckTableExistsAsync<DagEdgeRecord>(_config.DagEdgesTable, ct);
+        _nodesTableExists = await CheckTableExistsAsync<DagNodeRecord>(NodesTable, ct);
+        _edgesTableExists = await CheckTableExistsAsync<DagEdgeRecord>(EdgesTable, ct);
 
         if (!_nodesTableExists || !_edgesTableExists)
         {
@@ -146,8 +186,8 @@ public sealed class SupabaseGraphStore : IGraphStore
 
     private void PrintTableCreationSQL()
     {
-        var nodes = _config.DagNodesTable;
-        var edges = _config.DagEdgesTable;
+        var nodes = NodesTable;
+        var edges = EdgesTable;
 
         var sql = $"""
 
@@ -214,6 +254,7 @@ public sealed class SupabaseGraphStore : IGraphStore
         try
         {
             var (nodes, edges) = BuildDag(graphEvent);
+            _cache[sessionId] = new DagSnapshot { SessionId = sessionId, Nodes = nodes, Edges = edges };
             var now = DateTime.UtcNow;
 
             // ─────────────────────────────────────────────
@@ -309,6 +350,9 @@ public sealed class SupabaseGraphStore : IGraphStore
 
     public async Task<DagSnapshot> GetSnapshotAsync(string sessionId, CancellationToken ct = default)
     {
+        if (_cache.TryGetValue(sessionId, out var cached))
+            return cached;
+
         if (!IsEnabled) return new DagSnapshot { SessionId = sessionId };
         await InitializeAsync(ct);
         if (_client == null || !_nodesTableExists || !_edgesTableExists) return new DagSnapshot { SessionId = sessionId };
@@ -344,7 +388,9 @@ public sealed class SupabaseGraphStore : IGraphStore
                 Kind = string.IsNullOrWhiteSpace(r.Kind) ? "depends_on" : r.Kind
             }).ToList();
 
-            return new DagSnapshot { SessionId = sessionId, Nodes = nodes, Edges = edges };
+            var snapshot = new DagSnapshot { SessionId = sessionId, Nodes = nodes, Edges = edges };
+            _cache[sessionId] = snapshot;
+            return snapshot;
         }
         catch (Exception ex)
         {

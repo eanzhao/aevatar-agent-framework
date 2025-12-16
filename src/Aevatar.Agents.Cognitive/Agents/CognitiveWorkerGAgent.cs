@@ -101,7 +101,10 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                 StepId = request.StepId,
                 WorkerId = CustomState.WorkerId,
                 Success = result.Success,
-                Result = result.Value?.ToString() ?? "",
+                // IMPORTANT:
+                // - For json/json_array outputs, result.Value is a Dictionary/List, and ToString() is useless.
+                // - Coordinator needs the RAW assistant response to parse/aggregate deterministically.
+                Result = result.AssistantResponse ?? result.Value?.ToString() ?? "",
                 Error = result.Error ?? "",
                 TokensUsed = result.TokensUsed,
                 LlmCalls = result.LlmCalls,
@@ -147,7 +150,16 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         var prompt = parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
         var systemPrompt = parameters.GetValueOrDefault("system")?.ToString();
         var outputType = parameters.GetValueOrDefault("output")?.ToString() ?? "text";
-        const int MaxContentLength = 102400;
+
+        // Guardrails (configurable via DSL)
+        var maxLength = ResolveInt(parameters.GetValueOrDefault("max_length"), 102400);
+        maxLength = Math.Clamp(maxLength, 1024, 1024 * 1024); // [1KB, 1MB]
+
+        var timeoutSeconds = ResolveInt(parameters.GetValueOrDefault("timeout_seconds"), 180);
+        timeoutSeconds = Math.Clamp(timeoutSeconds, 5, 3600); // [5s, 1h]
+
+        var idleTimeoutSeconds = ResolveInt(parameters.GetValueOrDefault("idle_timeout_seconds"), 30);
+        idleTimeoutSeconds = Math.Clamp(idleTimeoutSeconds, 1, timeoutSeconds);
 
         // 渲染模板
         prompt = _templateEngine.Render(prompt, variables);
@@ -181,8 +193,8 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             //   2) MoveNextAsync 永远不完成（网络 read 卡住）
             // - 一旦发生，fan_out 会一直等，Pipeline 看起来“前端停了 & 后端也不动”
             // - 解决：不用 await foreach 盲等；改为 MoveNextAsync + WhenAny(Idle/Total timeout)，并对中间态事件做节流。
-            var callTimeout = TimeSpan.FromMinutes(3);
-            var idleTimeout = TimeSpan.FromSeconds(30);
+            var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
+            var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
             var startAt = DateTimeOffset.UtcNow;
 
             // Streaming events throttling (reduce event storm & threadpool starvation)
@@ -297,9 +309,9 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             }
 
             // Red-flag：长度
-            if (finalContent.Length > MaxContentLength)
+            if (finalContent.Length > maxLength)
             {
-                return new PrimitiveResult { Success = false, Error = $"redflag-length>{MaxContentLength}" };
+                return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
             }
 
             // 解析输出
@@ -312,14 +324,22 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         }
         else
         {
-            var response = await LLMProvider.GenerateAsync(llmRequest);
+            AevatarLLMResponse response;
+            try
+            {
+                response = await LLMProvider.GenerateAsync(llmRequest).WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
+            }
+            catch (TimeoutException)
+            {
+                return new PrimitiveResult { Success = false, Error = $"llm-timeout>{timeoutSeconds}s" };
+            }
             finalContent = response.Content ?? string.Empty;
             totalPromptTokens = response.Usage?.PromptTokens ?? 0;
             totalCompletionTokens = response.Usage?.CompletionTokens ?? 0;
 
-            if (finalContent.Length > MaxContentLength)
+            if (finalContent.Length > maxLength)
             {
-                return new PrimitiveResult { Success = false, Error = $"redflag-length>{MaxContentLength}" };
+                return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
             }
 
             var parser = _parserFactory.Create(outputType);
@@ -341,6 +361,21 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             SystemPrompt = systemPrompt,
             UserPrompt = prompt,
             AssistantResponse = finalContent
+        };
+    }
+
+    private static int ResolveInt(object? value, int defaultValue)
+    {
+        if (value == null) return defaultValue;
+        return value switch
+        {
+            int i => i,
+            long l => (int)l,
+            double d => (int)d,
+            float f => (int)f,
+            decimal m => (int)m,
+            string s when int.TryParse(s, out var p) => p,
+            _ => defaultValue
         };
     }
 

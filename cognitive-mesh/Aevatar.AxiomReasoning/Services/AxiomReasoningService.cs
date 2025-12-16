@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Aevatar.AxiomReasoning.Models;
@@ -58,6 +59,8 @@ public sealed class AxiomReasoningService
                 s.TotalTokens,
                 workflow = s.Workflow,
                 language = s.Language,
+                hpaEnabled = s.HpaEnabled,
+                hpaBetaModel = s.HpaBetaModel,
                 s.K,
                 s.MaxRounds,
                 maxDepth = s.MaxDepth
@@ -81,6 +84,20 @@ public sealed class AxiomReasoningService
 
         // Workflow behavior
         public bool? ContinueOnFailure { get; init; }
+
+        // HPA (optional; only effective when workflow supports it)
+        public bool? HpaEnabled { get; init; }
+        public double? HpaAlpha { get; init; }
+        public double? HpaSeedPhase { get; init; }
+        public string? HpaBetaModel { get; init; }
+        public double? HpaBeta0 { get; init; }
+        public double? HpaBeta1 { get; init; }
+        public int? HpaSeed { get; init; }
+        public double? HpaRadialWBase { get; init; }
+        public double? HpaRadialWScale { get; init; }
+        public double? MinCoherence { get; init; }
+        public double? MaxGapNorm { get; init; }
+        public double? MaxAssociatorMean { get; init; }
     }
 
     public async Task<object> CreateSessionAsync(string configJson)
@@ -114,7 +131,21 @@ public sealed class AxiomReasoningService
                 MaxLlmCallsBudget = req.MaxLlmCalls is > 0 ? Math.Clamp(req.MaxLlmCalls.Value, 1, 200_000) : 300,
                 MaxTokensBudget = req.MaxTokens is > 0 ? Math.Clamp(req.MaxTokens.Value, 1, 200_000_000) : 800_000,
 
-                ContinueOnFailure = req.ContinueOnFailure ?? false
+                ContinueOnFailure = req.ContinueOnFailure ?? false,
+
+                // HPA (opt-in)
+                HpaEnabled = req.HpaEnabled ?? false,
+                HpaAlpha = NormalizeUnit01(req.HpaAlpha, fallback: 0.6180339887498949),
+                HpaSeedPhase = NormalizeUnit01(req.HpaSeedPhase, fallback: 0.0),
+                HpaBetaModel = string.IsNullOrWhiteSpace(req.HpaBetaModel) ? "random_prime_phase" : req.HpaBetaModel.Trim(),
+                HpaBeta0 = req.HpaBeta0 is > 0 ? req.HpaBeta0.Value : 4.0,
+                HpaBeta1 = req.HpaBeta1 is > 0 ? req.HpaBeta1.Value : 2.0,
+                HpaSeed = req.HpaSeed ?? 0,
+                HpaRadialWBase = req.HpaRadialWBase is >= 0 ? req.HpaRadialWBase.Value : 0.12,
+                HpaRadialWScale = req.HpaRadialWScale is >= 0 ? req.HpaRadialWScale.Value : 0.38,
+                MinCoherence = req.MinCoherence is >= 0 and <= 1 ? req.MinCoherence.Value : 0.65,
+                MaxGapNorm = req.MaxGapNorm is > 0 ? req.MaxGapNorm.Value : 0.35,
+                MaxAssociatorMean = req.MaxAssociatorMean is > 0 ? req.MaxAssociatorMean.Value : 0.95
             };
 
             _sessions[session.Id] = session;
@@ -181,6 +212,16 @@ public sealed class AxiomReasoningService
 
         // If user already passes a natural language label (e.g. "Japanese"), keep it.
         return raw;
+    }
+
+    private static double NormalizeUnit01(double? value, double fallback)
+    {
+        if (!value.HasValue) return fallback;
+        var x = value.Value;
+        if (double.IsNaN(x) || double.IsInfinity(x)) return fallback;
+        x = x - Math.Floor(x);
+        if (x < 0) x += 1.0;
+        return x;
     }
 
     // ─────────────────────────────────────────────────────────
@@ -368,18 +409,36 @@ public sealed class AxiomReasoningService
         var k = Math.Clamp(session.K, 1, 9);
         var n = Math.Clamp(2 * k - 1, 1, 15);
 
+        var ctx = new Dictionary<string, string>
+        {
+            // Propagate workflow behavior flags to CognitiveStrategy initial variables
+            ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false",
+            ["language"] = session.Language
+        };
+
+        // HPA knobs: only propagate when enabled
+        if (session.HpaEnabled)
+        {
+            ctx["hpa_alpha"] = session.HpaAlpha.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_seed_phase"] = session.HpaSeedPhase.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_beta_model"] = session.HpaBetaModel;
+            ctx["hpa_beta0"] = session.HpaBeta0.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_beta1"] = session.HpaBeta1.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_seed"] = session.HpaSeed.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_radial_w_base"] = session.HpaRadialWBase.ToString(CultureInfo.InvariantCulture);
+            ctx["hpa_radial_w_scale"] = session.HpaRadialWScale.ToString(CultureInfo.InvariantCulture);
+            ctx["min_coherence"] = session.MinCoherence.ToString(CultureInfo.InvariantCulture);
+            ctx["max_gap_norm"] = session.MaxGapNorm.ToString(CultureInfo.InvariantCulture);
+            ctx["max_associator_mean"] = session.MaxAssociatorMean.ToString(CultureInfo.InvariantCulture);
+        }
+
         return new ReasoningOptions
         {
             ProviderName = Aevatar.Agents.Abstractions.AevatarAgentsConstants.DefaultProviderName,
             MaxLlmCalls = session.MaxLlmCallsBudget,
             MaxTokens = session.MaxTokensBudget,
             MaxDuration = TimeSpan.FromMinutes(Math.Clamp(session.MaxDurationMinutes, 1, 24 * 60)),
-            Context = new Dictionary<string, string>
-            {
-                // Propagate workflow behavior flags to CognitiveStrategy initial variables
-                ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false",
-                ["language"] = session.Language
-            },
+            Context = ctx,
 
             // Theorem discovery loop: coordinator proposes -> workers prove -> vote judge -> iterate
             CognitiveWorkflow = session.Workflow,

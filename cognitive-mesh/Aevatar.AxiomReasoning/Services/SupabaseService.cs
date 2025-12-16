@@ -31,10 +31,16 @@ public sealed class SupabaseConfig
     /// <summary>存储推理结果的表名</summary>
     public string ResultsTable { get; set; } = "axiom_reasoning_results";
 
-    /// <summary>存储 DAG 节点的表名</summary>
+    /// <summary>
+    /// 存储 DAG 节点的表名。
+    /// NOTE: 当前 Supabase .NET SDK 的 [Table] 映射为编译期固定表名，建议保持默认值不改。
+    /// </summary>
     public string DagNodesTable { get; set; } = "axiom_reasoning_dag_nodes";
 
-    /// <summary>存储 DAG 边的表名</summary>
+    /// <summary>
+    /// 存储 DAG 边的表名。
+    /// NOTE: 当前 Supabase .NET SDK 的 [Table] 映射为编译期固定表名，建议保持默认值不改。
+    /// </summary>
     public string DagEdgesTable { get; set; } = "axiom_reasoning_dag_edges";
 
     /// <summary>是否启用 DAG 持久化（GraphStore）</summary>

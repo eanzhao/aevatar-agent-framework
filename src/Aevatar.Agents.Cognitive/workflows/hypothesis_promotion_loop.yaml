@@ -1,0 +1,1016 @@
+# ============================================================
+#  HYPOTHESIS PROMOTION LOOP (HPL)
+#
+#  Goal:
+#  - Introduce explicit Hypothesis lifecycle: explore -> verify -> promote to Theorem
+#  - Two-stage exploration: refute-first scouts, then full workers
+#  - Token guardrail: RelevantFacts retrieval (top-k) instead of full theorem dump
+#
+#  NOTE (current engine reality):
+#  - fan_out failures are counted as done (no dead wait), but failed items are not returned
+#  - worker total/idle timeouts exist but are currently hard-coded (milestone B will parameterize)
+# ============================================================
+
+name: hypothesis_promotion_loop
+version: "1.0"
+description: "Explore hypotheses, verify with MAKER, then promote to theorems (two-stage fan_out + vote)"
+
+defaults:
+  llm_call:
+    # --------------------------------------------------------
+    #  LLM call guardrails (Worker + Coordinator)
+    # --------------------------------------------------------
+    max_length: 102400
+    strict_parse: true
+    timeout_seconds: 180
+    idle_timeout_seconds: 30
+    # --------------------------------------------------------
+    #  System prompt (shared) - use HPA as thinking foundation
+    #
+    #  NOTE:
+    #  - 这里只是“提示词层”引入 HPA 作为认知/推理框架
+    #  - 不引入任何 token-free 的 HPA 计算模块/新原语
+    # --------------------------------------------------------
+    system: |
+      You are an agent in a multi-agent theorem discovery loop.
+      Use Holographic Polar Arithmetic (HPA) as your reasoning foundation:
+      - Rotation (Θ scan): time = iteration index; diversify search and avoid repetition (golden/irrational-step intuition).
+      - Factorization: treat axioms/theorems as generators; make dependencies explicit by citing IDs like [O1,T3] in each proof step.
+      - Projection (readout): accept only closed proofs; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+      - Minimal complexity: prefer short, checkable statements and minimal repairs (change as little as possible to reduce δ).
+      - Path dependence: reasoning order matters; prefer arguments that are robust (low ordering fragility).
+      Hard constraints:
+      - Do NOT invent axioms or facts.
+      - Follow the output schema exactly.
+      - When JSON is required, output JSON only (no markdown, no commentary).
+
+  fan_out:
+    # --------------------------------------------------------
+    #  fan_out guardrails (Coordinator)
+    # --------------------------------------------------------
+    timeout_seconds: 600
+    include_failures: true
+
+  vote:
+    # --------------------------------------------------------
+    #  vote guardrails (Coordinator)
+    # --------------------------------------------------------
+    red_flag: english
+    max_red_flags: 20
+
+inputs:
+  - name: task
+    type: string
+    required: true
+    description: "Raw task text. Must include AXIOMS lines (O1:/A1: ...)."
+
+  - name: context
+    type: object
+    required: false
+    description: "Optional extra context."
+
+  - name: state
+    type: object
+    required: false
+    description: "Internal loop state (recursive)."
+
+  - name: k
+    type: int
+    default: 3
+    description: "Consensus threshold K. Worker count N is expected to be 2K-1."
+
+  - name: max_rounds
+    type: int
+    default: 10
+    description: "Max rounds for vote steps."
+
+  - name: similarity
+    type: float
+    default: 0.85
+    description: "Semantic clustering threshold (if embeddings enabled)."
+
+  - name: max_depth
+    type: int
+    default: 50
+    description: "Max loop iterations (recursion depth cap)."
+
+  - name: top_k_facts
+    type: int
+    default: 20
+    description: "Top-k relevant theorems for RelevantFacts retrieval."
+
+  - name: language
+    type: string
+    default: "English"
+    description: "Natural language for statements/proofs/reasons (JSON keys remain unchanged)."
+
+steps:
+  # --------------------------------------------------------
+  # Step 0: init state (parse axioms, seed a starting hypothesis)
+  # --------------------------------------------------------
+  - id: ensure_state
+    type: conditional
+    condition: "{{ state != null }}"
+    if_false:
+      - id: init_state
+        type: llm_call
+        prompt: |
+          You are the coordinator of a Hypothesis Promotion Loop.
+          Initialize the loop state from raw_task.
+
+          HPA guidance (prompt-level only):
+          - Treat axioms/theorems as generators (factorization mindset).
+          - Treat "proof success" as a projection/readout: if any extra assumption/lemma is needed, that is a gap δ.
+          - In motivation fields, explicitly mention:
+            - generators: [IDs you expect to rely on]
+            - (optional) gap δ: the minimal missing lemma, if you suspect one
+
+          CRITICAL:
+          - Extract axioms from raw_task. Each axiom is a line starting with "O1:" or "A1:" (or similar).
+          - Do NOT invent axioms.
+          - Seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
+          - Return ONLY JSON (no markdown).
+
+          raw_task:
+          {{ task }}
+          {% if context %}
+          context:
+          {{ context | json }}
+          {% endif %}
+
+          Output JSON schema:
+          {
+            "axioms": [string],
+            "theorems": [
+              { "id": string, "statement": string, "proof": string, "depends_on": [string] }
+            ],
+            "current_hypothesis": { "id": string, "statement": string, "motivation": string },
+            "iteration": int,
+            "max_iterations": int,
+            "seen_hypotheses": [string],
+            "last_candidate": { "id": string, "statement": string, "motivation": string } | null,
+            "last_worker_verdicts": [],
+            "last_b_pool": [],
+            "last_judgement": { "proved": bool, "reason": string } | null,
+            "history": [],
+            "done": bool,
+            "status": "running" | "completed" | "failed" | "limit"
+          }
+
+          Constraints:
+          - iteration MUST start at 0.
+          - max_iterations MUST be set to max_depth={{max_depth}}.
+          - seen_hypotheses MUST start empty.
+
+          Language: {{language}}
+        output: json
+        store: state
+
+  # --------------------------------------------------------
+  # Step 1: choose hypothesis A for this round
+  # - if state.current_hypothesis exists: use it
+  # - else: coordinator proposes one
+  # --------------------------------------------------------
+  - id: ensure_candidate
+    type: conditional
+    condition: "{{ state.current_hypothesis != null }}"
+    if_true:
+      - id: use_current_hypothesis
+        type: assign
+        from: "state.current_hypothesis"
+        store: candidate
+    if_false:
+      - id: prepare_theorem_context
+        type: transform
+        ops:
+          - op: take_last
+            from: state.theorems
+            n: 30
+            store: recent_theorems_raw
+
+          - op: project_fields
+            from: recent_theorems_raw
+            fields: ["id", "statement"]
+            store: recent_theorems
+
+      - id: propose_hypothesis
+        type: llm_call
+        prompt: |
+          You are the coordinator.
+          Propose ONE new hypothesis (Hypothesis A) that is plausibly derivable from axioms + proved theorems.
+
+          HPA guidance (prompt-level only):
+          - Rotation intuition: use iteration={{ state.iteration }} to diversify search and avoid repetition.
+          - Factorization intuition: think in generators. In motivation, include a line like:
+              generators: [O1, T3]
+            where IDs must come from the axioms list or Recent proved theorems list below.
+          - Projection/gap intuition: if you suspect any missing lemma/assumption, write it as:
+              gap δ: <minimal missing piece>
+            and keep the hypothesis narrow (do not smuggle assumptions).
+
+          Requirements:
+          - Return ONLY JSON.
+          - Hypothesis MUST be NEW (not identical to any seen hypothesis).
+          - Prefer hypotheses that can be proved/refuted in <= 10 short steps.
+
+          Axioms:
+          {{ state.axioms | json }}
+
+          Recent proved theorems (id + statement only):
+          {{ recent_theorems | json }}
+
+          Seen hypotheses (normalized strings):
+          {{ state.seen_hypotheses | json }}
+
+          Output JSON schema:
+          {
+            "id": string,
+            "statement": string,
+            "motivation": string
+          }
+
+          Language: {{language}}
+        output: json
+        store: candidate
+
+  # --------------------------------------------------------
+  # Step 2: retrieve RelevantFacts (token guardrail)
+  # --------------------------------------------------------
+  - id: retrieve_relevant_facts
+    type: retrieve_facts
+    query: "{{ candidate.statement }}"
+    source: "state.theorems"
+    text_field: "statement"
+    id_field: "id"
+    top_k: "{{ top_k_facts }}"
+    mode: lexical
+    store: relevant_facts
+
+  # --------------------------------------------------------
+  # Step 3: refute-first scouts (2 workers)
+  # --------------------------------------------------------
+  - id: build_scouts
+    type: transform
+    ops:
+      - op: set
+        value:
+          - { id: "scout-0", role: "Counterexample hunter", angle: "Try to find a fatal counterexample or contradiction quickly." }
+          - { id: "scout-1", role: "Missing-premise hunter", angle: "Try to find the minimal missing assumption that breaks the hypothesis." }
+        store: scouts
+
+  - id: refute_scout
+    type: fan_out
+    for_each: scouts
+    include_failures: true
+    reduce: collect
+    step:
+      type: llm_call
+      prompt: |
+        You are {{item.role}} ({{item.id}}).
+        Angle: {{item.angle}}
+
+        Task:
+        Evaluate Hypothesis A. Your top priority is to find a STRONG refutation if it exists.
+
+        HPA guidance (prompt-level only):
+        - Treat this as a projection/readout check: if ANY hidden assumption/lemma is needed, that is a gap δ.
+        - Put the minimal gap δ (or a minimal counterexample) into gap_or_counterexample when accept=false.
+        - Make dependencies explicit inside the proof: each step ends with citations like [O1,T3].
+        - Prefer minimal repairs in proposed_b (change as little as possible to reduce δ).
+
+        Rules:
+        - Use ONLY the axioms and relevant facts provided. Do NOT invent axioms or facts.
+        - Return ONLY valid JSON (no markdown).
+        - If accept=true: provide a short proof (<= 10 steps), numbered, with citations [ID,...] per step.
+        - If accept=false: gap_or_counterexample MUST be non-empty (the minimal δ or a counterexample).
+        - strong_refutation=true only for a fatal flaw/counterexample that should block verification.
+
+        Axioms:
+        {{ state.axioms | json }}
+
+        RelevantFacts (top-k theorems):
+        {{ relevant_facts | json }}
+
+        Hypothesis A:
+        {{ candidate | json }}
+
+        Output JSON schema:
+        {
+          "worker_id": "{{item.id}}",
+          "accept": bool,
+          "strong_refutation": bool,
+          "confidence": number,
+          "proof": string,
+          "gap_or_counterexample": string,
+          "proposed_b": [
+            { "statement": string, "motivation": string }
+          ]
+        }
+
+        Language: {{language}}
+      output: json
+    store: scout_verdicts
+
+  - id: aggregate_scout
+    type: transform
+    ops:
+      - op: any_where
+        from: scout_verdicts
+        where: { field: "strong_refutation", equals: true }
+        store: scout_has_strong_refutation
+
+      - op: select_many
+        from: scout_verdicts
+        field: "proposed_b"
+        store: scout_b_raw
+
+      - op: distinct
+        from: scout_b_raw
+        key: "statement"
+        store: scout_b_candidates
+
+  # --------------------------------------------------------
+  # Step 4: branch - early stop if strong refutation
+  # --------------------------------------------------------
+  - id: scout_gate
+    type: conditional
+    condition: "{{ scout_has_strong_refutation == true }}"
+
+    # ===== Early stop: strong refutation => go to B pool vote =====
+    if_true:
+      - id: ensure_b_pool_scout
+        type: conditional
+        condition: "{{ (scout_b_candidates | size) > 0 }}"
+        if_true:
+          - id: set_b_pool_from_scout
+            type: assign
+            from: "scout_b_candidates"
+            store: b_pool
+        if_false:
+          - id: propose_fallback_b_scout
+            type: llm_call
+            prompt: |
+              Scouts reported a strong refutation.
+              In HPA terms: the readout failed; there is a gap δ (counterexample or fatal inconsistency).
+
+              Propose 3-5 alternative hypotheses (B candidates) as minimal repairs:
+              - Each B should fix ONE issue: add a missing premise (from axioms/relevant facts) OR weaken the statement.
+              - In each motivation, include:
+                - generators: [IDs you rely on]
+                - repair: how it closes the gap δ from the scout verdicts
+
+              Rules:
+              - Return ONLY JSON array.
+              - Do NOT invent new axioms or facts.
+              - Each candidate must be short and checkable.
+
+              Axioms:
+              {{ state.axioms | json }}
+
+              RelevantFacts:
+              {{ relevant_facts | json }}
+
+              Refuted Hypothesis A:
+              {{ candidate | json }}
+
+              Scout verdicts:
+              {{ scout_verdicts | json }}
+
+              Output JSON schema (array):
+              [
+                { "statement": string, "motivation": string }
+              ]
+
+              Language: {{language}}
+            output: json_array
+            store: b_pool
+
+      - id: vote_next_hypothesis_scout
+        type: vote
+        k: "{{k}}"
+        max_rounds: "{{max_rounds}}"
+        similarity: "{{similarity}}"
+        generator:
+          type: llm_call
+          prompt: |
+            Choose the EASIEST next hypothesis from the candidate pool.
+
+            Rules:
+            - Return ONLY JSON.
+            - You MUST choose ONE statement by copying it EXACTLY from the pool.
+            - Prefer: fewer dependencies, closer to axioms/relevant facts, shortest proof path.
+
+            B pool:
+            {{ b_pool | json }}
+
+            Output JSON schema:
+            { "statement": string, "motivation": string, "reason": string }
+
+            Language: {{language}}
+          output: json
+        store: next_hypothesis
+
+      - id: set_next_hypothesis_after_scout
+        type: transform
+        ops:
+          - op: normalize
+            value: "{{ candidate.statement }}"
+            store: candidate_norm
+
+          - op: inc_path
+            target: state
+            path: iteration
+            by: 1
+
+          - op: set_path
+            target: state
+            path: last_candidate
+            value: "{{ candidate }}"
+
+          - op: set_path
+            target: state
+            path: last_worker_verdicts
+            value: "{{ scout_verdicts }}"
+
+          - op: set_path
+            target: state
+            path: last_b_pool
+            value: "{{ b_pool }}"
+
+          - op: set_path
+            target: state
+            path: last_judgement
+            value: null
+
+          - op: append_unique_path
+            target: state
+            path: seen_hypotheses
+            value: "{{ candidate_norm }}"
+
+          - op: set_path
+            target: state
+            path: current_hypothesis
+            value:
+              id: "H{{ state.iteration }}"
+              statement: "{{ next_hypothesis.statement }}"
+              motivation: "{{ next_hypothesis.motivation }}"
+
+          - op: eval
+            expr: "state.iteration >= max_depth"
+            store: reach_limit
+
+          - op: set_path
+            target: state
+            path: done
+            value: "{{ reach_limit }}"
+
+          - op: set_path
+            target: state
+            path: status
+            value: running
+
+          - op: set_path_if
+            if: "{{ reach_limit }}"
+            target: state
+            path: status
+            value: limit
+
+    # ===== No strong refutation: full exploration =====
+    if_false:
+      # Build N=2K-1 provers (diverse roles)
+      - id: build_provers
+        type: transform
+        ops:
+          - op: make_workers
+            n: "{{ (k * 2) - 1 }}"
+            id_prefix: "worker-"
+            store: provers
+
+      # Full exploration fan_out
+      - id: prove_or_refute_with_workers
+        type: fan_out
+        for_each: provers
+        include_failures: true
+        reduce: collect
+        step:
+          type: llm_call
+          prompt: |
+            You are {{item.role}} ({{item.id}}).
+            Angle: {{item.angle}}
+
+            Task:
+            Evaluate Hypothesis A: prove it OR refute it (gap/counterexample).
+
+            HPA guidance (prompt-level only):
+            - Treat this as a projection/readout: accept=true only if the proof is CLOSED (no hidden lemmas/assumptions).
+            - Any missing lemma/assumption is a gap δ: write it in gap_or_counterexample and set accept=false.
+            - Make dependencies explicit inside the proof: each step ends with citations like [O1,T3].
+            - proposed_b should be minimal repairs that reduce δ (one small change: add one missing premise OR weaken the statement).
+
+            Rules:
+            - Use ONLY the axioms and relevant facts provided. Do NOT invent axioms or facts.
+            - Return ONLY valid JSON (no markdown).
+            - If accept=true: provide a short proof (<= 10 steps), numbered, with citations [ID,...] per step.
+            - If accept=false: provide gap_or_counterexample (minimal δ or counterexample) AND propose 1–3 alternative hypotheses B.
+            - strong_refutation=true indicates a fatal flaw/counterexample.
+
+            Axioms:
+            {{ state.axioms | json }}
+
+            RelevantFacts:
+            {{ relevant_facts | json }}
+
+            Hypothesis A:
+            {{ candidate | json }}
+
+            Output JSON schema:
+            {
+              "worker_id": "{{item.id}}",
+              "accept": bool,
+              "strong_refutation": bool,
+              "confidence": number,
+              "proof": string,
+              "gap_or_counterexample": string,
+              "proposed_b": [
+                { "statement": string, "motivation": string }
+              ]
+            }
+
+            Language: {{language}}
+          output: json
+        store: worker_verdicts
+
+      # Aggregate counts + B pool
+      - id: aggregate_verdicts
+        type: transform
+        ops:
+          - op: count_where
+            from: worker_verdicts
+            where: { field: "accept", equals: true }
+            store: accept_count
+
+          - op: count_where
+            from: worker_verdicts
+            where: { field: "strong_refutation", equals: true }
+            store: strong_refutation_count
+
+          - op: select_many
+            from: worker_verdicts
+            field: "proposed_b"
+            store: b_raw
+
+          - op: distinct
+            from: b_raw
+            key: "statement"
+            store: b_pool
+
+      # Decide: enter verification?
+      - id: decide_verify
+        type: conditional
+        condition: "{{ accept_count >= k && strong_refutation_count == 0 }}"
+
+        # ===== Verification path =====
+        if_true:
+          - id: maker_argumentation
+            type: workflow_call
+            workflow: maker-v2
+            params:
+              task: |
+                Provide a structured argumentation for the following hypothesis.
+
+                Hypothesis A:
+                {{ candidate | json }}
+
+                Use only the following axioms and relevant facts.
+                Axioms:
+                {{ state.axioms | json }}
+
+                RelevantFacts:
+                {{ relevant_facts | json }}
+
+                Requirements:
+                - Do NOT introduce new axioms or undefined symbols.
+                - Keep reasoning structured and auditable.
+              context: "{{context}}"
+              k: "{{k}}"
+              max_rounds: "{{max_rounds}}"
+              max_depth: "{{max_depth}}"
+            store: maker_output
+
+          - id: extract_maker_solution
+            type: assign
+            from: "maker_output.solution"
+            store: maker_solution
+
+          - id: verify_maker_solution
+            type: vote
+            k: "{{k}}"
+            max_rounds: "{{max_rounds}}"
+            similarity: "{{similarity}}"
+            generator:
+              type: llm_call
+              prompt: |
+                You are a strict verifier.
+                Decide whether Hypothesis A is PROVED given axioms + relevant facts, based on the MAKER solution.
+
+                Rules:
+                - Return ONLY JSON.
+                - proved=true only if no missing assumptions.
+                - If proved=false, explain the minimal fatal gap.
+
+                Axioms:
+                {{ state.axioms | json }}
+
+                RelevantFacts:
+                {{ relevant_facts | json }}
+
+                Hypothesis A:
+                {{ candidate | json }}
+
+                MAKER solution:
+                {{ maker_solution }}
+
+                Output JSON schema:
+                {
+                  "proved": bool,
+                  "reason": string,
+                  "final_proof": string,
+                  "depends_on": [string]
+                }
+
+                Language: {{language}}
+              output: json
+            store: judgement
+
+          - id: promote_or_fallback
+            type: conditional
+            condition: "{{ judgement.proved == true }}"
+
+            # ---- Promote to theorem ----
+            if_true:
+              - id: promote_theorem
+                type: transform
+                ops:
+                  - op: normalize
+                    value: "{{ candidate.statement }}"
+                    store: candidate_norm
+
+                  - op: eval
+                    expr: "state.iteration + 1"
+                    store: next_idx
+
+                  - op: set
+                    value: "T{{ next_idx }}"
+                    store: new_theorem_id
+
+                  - op: set
+                    value:
+                      id: "{{ new_theorem_id }}"
+                      statement: "{{ candidate.statement }}"
+                      proof: "{{ judgement.final_proof }}"
+                      depends_on: "{{ judgement.depends_on }}"
+                    store: new_theorem
+
+                  - op: append_path
+                    target: state
+                    path: theorems
+                    value: "{{ new_theorem }}"
+
+                  - op: inc_path
+                    target: state
+                    path: iteration
+                    by: 1
+
+                  - op: set_path
+                    target: state
+                    path: current_hypothesis
+                    value: null
+
+                  - op: set_path
+                    target: state
+                    path: last_candidate
+                    value: "{{ candidate }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_worker_verdicts
+                    value: "{{ worker_verdicts }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_judgement
+                    value: "{{ judgement }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_b_pool
+                    value: "{{ b_pool }}"
+
+                  - op: append_unique_path
+                    target: state
+                    path: seen_hypotheses
+                    value: "{{ candidate_norm }}"
+
+                  - op: eval
+                    expr: "state.iteration >= max_depth"
+                    store: reach_limit
+
+                  - op: set_path
+                    target: state
+                    path: done
+                    value: "{{ reach_limit }}"
+
+                  - op: set_path
+                    target: state
+                    path: status
+                    value: running
+
+                  - op: set_path_if
+                    if: "{{ reach_limit }}"
+                    target: state
+                    path: status
+                    value: limit
+
+            # ---- Verification failed: choose next hypothesis from B pool ----
+            if_false:
+              - id: ensure_b_pool_verify_failed
+                type: conditional
+                condition: "{{ (b_pool | size) > 0 }}"
+                if_false:
+                  - id: propose_fallback_b_verify_failed
+                    type: llm_call
+                    prompt: |
+                      Verification failed. Propose 3-5 alternative hypotheses (B candidates).
+
+                      Rules:
+                      - Return ONLY JSON array.
+                      - Do NOT invent new axioms.
+
+                      Axioms:
+                      {{ state.axioms | json }}
+
+                      RelevantFacts:
+                      {{ relevant_facts | json }}
+
+                      Hypothesis A:
+                      {{ candidate | json }}
+
+                      Verification judgement:
+                      {{ judgement | json }}
+
+                      Output JSON schema (array):
+                      [ { "statement": string, "motivation": string } ]
+
+                      Language: {{language}}
+                    output: json_array
+                    store: b_pool
+
+              - id: vote_next_hypothesis_verify_failed
+                type: vote
+                k: "{{k}}"
+                max_rounds: "{{max_rounds}}"
+                similarity: "{{similarity}}"
+                generator:
+                  type: llm_call
+                  prompt: |
+                    Choose the EASIEST next hypothesis from the candidate pool.
+
+                    Rules:
+                    - Return ONLY JSON.
+                    - You MUST choose ONE statement by copying it EXACTLY from the pool.
+
+                    B pool:
+                    {{ b_pool | json }}
+
+                    Output JSON schema:
+                    { "statement": string, "motivation": string, "reason": string }
+
+                    Language: {{language}}
+                  output: json
+                store: next_hypothesis
+
+              - id: set_next_hypothesis_verify_failed
+                type: transform
+                ops:
+                  - op: normalize
+                    value: "{{ candidate.statement }}"
+                    store: candidate_norm
+
+                  - op: inc_path
+                    target: state
+                    path: iteration
+                    by: 1
+
+                  - op: set_path
+                    target: state
+                    path: last_candidate
+                    value: "{{ candidate }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_worker_verdicts
+                    value: "{{ worker_verdicts }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_b_pool
+                    value: "{{ b_pool }}"
+
+                  - op: set_path
+                    target: state
+                    path: last_judgement
+                    value: "{{ judgement }}"
+
+                  - op: append_unique_path
+                    target: state
+                    path: seen_hypotheses
+                    value: "{{ candidate_norm }}"
+
+                  - op: set_path
+                    target: state
+                    path: current_hypothesis
+                    value:
+                      id: "H{{ state.iteration }}"
+                      statement: "{{ next_hypothesis.statement }}"
+                      motivation: "{{ next_hypothesis.motivation }}"
+
+                  - op: eval
+                    expr: "state.iteration >= max_depth"
+                    store: reach_limit
+
+                  - op: set_path
+                    target: state
+                    path: done
+                    value: "{{ reach_limit }}"
+
+                  - op: set_path
+                    target: state
+                    path: status
+                    value: running
+
+                  - op: set_path_if
+                    if: "{{ reach_limit }}"
+                    target: state
+                    path: status
+                    value: limit
+
+        # ===== No verification: vote next hypothesis from B pool =====
+        if_false:
+          - id: ensure_b_pool_no_verify
+            type: conditional
+            condition: "{{ (b_pool | size) > 0 }}"
+            if_false:
+              - id: propose_fallback_b_no_verify
+                type: llm_call
+                prompt: |
+                  Workers did not sufficiently accept Hypothesis A (or strong refutation exists).
+                  Propose 3-5 alternative hypotheses (B candidates).
+
+                  Rules:
+                  - Return ONLY JSON array.
+                  - Do NOT invent new axioms.
+
+                  Axioms:
+                  {{ state.axioms | json }}
+
+                  RelevantFacts:
+                  {{ relevant_facts | json }}
+
+                  Hypothesis A:
+                  {{ candidate | json }}
+
+                  Worker verdicts:
+                  {{ worker_verdicts | json }}
+
+                  Output JSON schema (array):
+                  [ { "statement": string, "motivation": string } ]
+
+                  Language: {{language}}
+                output: json_array
+                store: b_pool
+
+          - id: vote_next_hypothesis_no_verify
+            type: vote
+            k: "{{k}}"
+            max_rounds: "{{max_rounds}}"
+            similarity: "{{similarity}}"
+            generator:
+              type: llm_call
+              prompt: |
+                Choose the EASIEST next hypothesis from the candidate pool.
+
+                Rules:
+                - Return ONLY JSON.
+                - You MUST choose ONE statement by copying it EXACTLY from the pool.
+
+                B pool:
+                {{ b_pool | json }}
+
+                Output JSON schema:
+                { "statement": string, "motivation": string, "reason": string }
+
+                Language: {{language}}
+              output: json
+            store: next_hypothesis
+
+          - id: set_next_hypothesis_no_verify
+            type: transform
+            ops:
+              - op: normalize
+                value: "{{ candidate.statement }}"
+                store: candidate_norm
+
+              - op: inc_path
+                target: state
+                path: iteration
+                by: 1
+
+              - op: set_path
+                target: state
+                path: last_candidate
+                value: "{{ candidate }}"
+
+              - op: set_path
+                target: state
+                path: last_worker_verdicts
+                value: "{{ worker_verdicts }}"
+
+              - op: set_path
+                target: state
+                path: last_b_pool
+                value: "{{ b_pool }}"
+
+              - op: set_path
+                target: state
+                path: last_judgement
+                value: null
+
+              - op: append_unique_path
+                target: state
+                path: seen_hypotheses
+                value: "{{ candidate_norm }}"
+
+              - op: set_path
+                target: state
+                path: current_hypothesis
+                value:
+                  id: "H{{ state.iteration }}"
+                  statement: "{{ next_hypothesis.statement }}"
+                  motivation: "{{ next_hypothesis.motivation }}"
+
+              - op: eval
+                expr: "state.iteration >= max_depth"
+                store: reach_limit
+
+              - op: set_path
+                target: state
+                path: done
+                value: "{{ reach_limit }}"
+
+              - op: set_path
+                target: state
+                path: status
+                value: running
+
+              - op: set_path_if
+                if: "{{ reach_limit }}"
+                target: state
+                path: status
+                value: limit
+
+  # --------------------------------------------------------
+  # Step 5: stop or recurse
+  # --------------------------------------------------------
+  - id: stop_or_continue
+    type: conditional
+    condition: "{{ state.done == true || state.iteration >= max_depth }}"
+    if_false:
+      - id: recurse
+        type: workflow_call
+        workflow: hypothesis_promotion_loop
+        params:
+          task: "{{task}}"
+          context: "{{context}}"
+          state: "{{state}}"
+          k: "{{k}}"
+          max_rounds: "{{max_rounds}}"
+          similarity: "{{similarity}}"
+          max_depth: "{{max_depth}}"
+          top_k_facts: "{{top_k_facts}}"
+          language: "{{language}}"
+        store: recursive_output
+
+      - id: unwrap_state
+        type: assign
+        from: "recursive_output.state"
+        store: state
+
+output:
+  status: "{{state.status}}"
+  iteration: "{{state.iteration}}"
+  state: "{{state}}"
+  theorems: "{{state.theorems}}"
+  current_hypothesis: "{{state.current_hypothesis}}"
+  last_candidate: "{{state.last_candidate}}"
+  last_judgement: "{{state.last_judgement}}"
+
