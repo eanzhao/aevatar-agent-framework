@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text.Json;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions.CQRS;
@@ -14,7 +15,15 @@ namespace Aevatar.Agents.Plugins.CQRS;
 public class StateDocumentConverter
 {
     private readonly ILogger _logger;
-    private readonly ConcurrentDictionary<string, Type> _typeCache = new();
+    
+    // Core caches (only what's necessary)
+    private static readonly ConcurrentDictionary<string, Type?> _typeCache = new();
+    private static readonly ConcurrentDictionary<Type, MessageParser?> _parserCache = new();
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
 
     public StateDocumentConverter(ILogger logger)
     {
@@ -50,50 +59,46 @@ public class StateDocumentConverter
     #region State Resolution
 
     /// <summary>
-    /// Resolve the state type from agent type and state data.
+    /// Resolve the state type from TypeUrl with caching.
     /// </summary>
     public Type? ResolveStateType(string agentType, Google.Protobuf.WellKnownTypes.Any? stateData)
     {
-        if (stateData == null)
+        if (stateData == null || string.IsNullOrEmpty(stateData.TypeUrl))
             return null;
 
-        // Try to resolve from cached types
-        if (_typeCache.TryGetValue(agentType, out var cachedType))
+        var typeUrl = stateData.TypeUrl;
+        
+        // Check cache first
+        if (_typeCache.TryGetValue(typeUrl, out var cachedType))
             return cachedType;
 
-        // Try to resolve from Any type URL
-        var typeUrl = stateData.TypeUrl;
-        if (string.IsNullOrEmpty(typeUrl))
-            return null;
-
-        // Format: type.googleapis.com/package.TypeName
+        // Parse TypeUrl: type.googleapis.com/package.TypeName -> TypeName
         var typeName = typeUrl.Contains('/')
             ? typeUrl.Substring(typeUrl.LastIndexOf('/') + 1)
             : typeUrl;
+        
+        // Simple type name (after last dot)
+        var simpleName = typeName.Contains('.')
+            ? typeName.Substring(typeName.LastIndexOf('.') + 1)
+            : typeName;
 
-        // Search all loaded assemblies for the type
+        // Search for type (only runs once per TypeUrl due to caching)
         var type = AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(a =>
-            {
-                try { return a.GetTypes(); }
-                catch { return Array.Empty<Type>(); }
-            })
-            .FirstOrDefault(t =>
-                t.FullName == typeName ||
-                t.Name == typeName ||
-                (typeof(IMessage).IsAssignableFrom(t) && t.Name == typeName));
+            .SelectMany(a => { try { return a.GetTypes(); } catch { return []; } })
+            .FirstOrDefault(t => 
+                typeof(IMessage).IsAssignableFrom(t) && 
+                !t.IsAbstract && 
+                (t.Name == simpleName || t.FullName == typeName));
 
-        if (type != null)
+        // Cache result (including null for negative caching)
+        _typeCache[typeUrl] = type;
+        
+        if (type == null)
         {
-            _typeCache[agentType] = type;
-            return type;
+            _logger.LogWarning("Could not resolve type for {AgentType} from {TypeUrl}", agentType, typeUrl);
         }
 
-        _logger.LogWarning(
-            "Could not resolve state type for {AgentType} from TypeUrl: {TypeUrl}",
-            agentType, typeUrl);
-
-        return null;
+        return type;
     }
 
     private IMessage? UnpackState(Google.Protobuf.WellKnownTypes.Any? stateData, Type? stateType)
@@ -103,19 +108,17 @@ public class StateDocumentConverter
 
         try
         {
-            var parserProperty = stateType.GetProperty("Parser",
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-
-            if (parserProperty == null)
+            // Get parser from cache or resolve once
+            var parser = _parserCache.GetOrAdd(stateType, type =>
             {
-                _logger.LogWarning("No Parser property found on type {TypeName}", stateType.Name);
-                return null;
-            }
+                var parserProperty = type.GetProperty("Parser",
+                    BindingFlags.Public | BindingFlags.Static);
+                return parserProperty?.GetValue(null) as MessageParser;
+            });
 
-            var parser = parserProperty.GetValue(null) as MessageParser;
             if (parser == null)
             {
-                _logger.LogWarning("Parser is null for type {TypeName}", stateType.Name);
+                _logger.LogWarning("No Parser found for type {TypeName}", stateType.Name);
                 return null;
             }
 
@@ -137,9 +140,7 @@ public class StateDocumentConverter
         foreach (var property in stateType.GetProperties())
         {
             // Skip Protobuf internal properties
-            if (property.Name == "Parser" ||
-                property.Name == "Descriptor" ||
-                property.Name == "MessageType" ||
+            if (property.Name is "Parser" or "Descriptor" or "MessageType" ||
                 property.DeclaringType == typeof(IMessage) ||
                 property.DeclaringType == typeof(object))
                 continue;
@@ -147,63 +148,30 @@ public class StateDocumentConverter
             try
             {
                 var value = property.GetValue(state);
-                if (value == null)
-                    continue;
+                if (value == null) continue;
 
-                var propertyName = ToCamelCase(property.Name);
+                var name = char.ToLowerInvariant(property.Name[0]) + property.Name[1..]; // camelCase
 
-                if (IsBasicType(property.PropertyType))
+                data[name] = value switch
                 {
-                    // Handle Timestamp specially
-                    if (value is Google.Protobuf.WellKnownTypes.Timestamp timestamp)
-                    {
-                        data[propertyName] = timestamp.ToDateTime();
-                    }
-                    else
-                    {
-                        data[propertyName] = value;
-                    }
-                }
-                else
-                {
-                    // Complex types: serialize to JSON using System.Text.Json
-                    data[propertyName] = JsonSerializer.Serialize(value, new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                        WriteIndented = false
-                    });
-                }
+                    Google.Protobuf.WellKnownTypes.Timestamp ts => ts.ToDateTime(),
+                    _ when IsBasicType(property.PropertyType) => value,
+                    _ => JsonSerializer.Serialize(value, _jsonOptions)
+                };
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to extract property {PropertyName} from state", property.Name);
+                _logger.LogWarning(ex, "Failed to extract property {Property}", property.Name);
             }
         }
     }
 
     private static bool IsBasicType(Type type)
     {
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-        if (underlyingType.IsPrimitive)
-            return true;
-
-        if (underlyingType == typeof(string) ||
-            underlyingType == typeof(DateTime) ||
-            underlyingType == typeof(DateTimeOffset) ||
-            underlyingType == typeof(decimal) ||
-            underlyingType == typeof(Guid) ||
-            underlyingType == typeof(Google.Protobuf.WellKnownTypes.Timestamp))
-            return true;
-
-        return false;
-    }
-
-    private static string ToCamelCase(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return name;
-        return char.ToLowerInvariant(name[0]) + name[1..];
+        var t = Nullable.GetUnderlyingType(type) ?? type;
+        return t.IsPrimitive || t == typeof(string) || t == typeof(DateTime) || 
+               t == typeof(decimal) || t == typeof(Guid) || 
+               t == typeof(Google.Protobuf.WellKnownTypes.Timestamp);
     }
 
     #endregion
