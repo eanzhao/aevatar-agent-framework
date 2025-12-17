@@ -70,9 +70,12 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
         // Arrange
         var eventStore = CreateEventStore();
         var agentId = Guid.NewGuid();
-        await eventStore.AppendEventsAsync(agentId, new[] { CreateTestEvent(agentId, 1, "Event1") }, 0);
+        // First append: version 0 -> 1
+        var firstVersion = await eventStore.AppendEventsAsync(agentId, new[] { CreateTestEvent(agentId, 1, "Event1") }, 0);
+        Assert.Equal(1, firstVersion);
 
         // Act & Assert
+        // Second append: expected version 0, but current version is 1, should throw
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             eventStore.AppendEventsAsync(agentId, new[] { CreateTestEvent(agentId, 2, "Event2") }, 0));
 

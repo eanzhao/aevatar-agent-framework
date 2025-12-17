@@ -2,6 +2,7 @@ using System.Reflection;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Internal;
 using Aevatar.Agents.Rpc;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -21,7 +22,7 @@ namespace Aevatar.Agents.Runtime.Orleans;
 /// 2. Manage local stream subscriptions for hierarchy navigation
 /// 3. Provide IGAgentActor interface for HttpApi layer
 /// </summary>
-public class OrleansGAgentActor : IGAgentActor
+public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
 {
     private readonly IGrainFactory _grainFactory;
     private readonly IStreamProvider? _orleansStreamProvider;
@@ -220,7 +221,19 @@ public class OrleansGAgentActor : IGAgentActor
         await _grain!.SetParentAsync(parentId);
     }
 
+    public async Task SetParentAsync(Guid parentId, CancellationToken ct)
+    {
+        EnsureGrain();
+        await _grain!.SetParentAsync(parentId);
+    }
+
     public async Task ClearParentAsync()
+    {
+        EnsureGrain();
+        await _grain!.ClearParentAsync();
+    }
+
+    public async Task ClearParentAsync(CancellationToken ct)
     {
         EnsureGrain();
         await _grain!.ClearParentAsync();
@@ -232,7 +245,19 @@ public class OrleansGAgentActor : IGAgentActor
         await _grain!.AddChildAsync(childId);
     }
 
+    public async Task AddChildAsync(Guid childId, CancellationToken ct)
+    {
+        EnsureGrain();
+        await _grain!.AddChildAsync(childId);
+    }
+
     public async Task RemoveChildAsync(Guid childId)
+    {
+        EnsureGrain();
+        await _grain!.RemoveChildAsync(childId);
+    }
+
+    public async Task RemoveChildAsync(Guid childId, CancellationToken ct)
     {
         EnsureGrain();
         await _grain!.RemoveChildAsync(childId);
