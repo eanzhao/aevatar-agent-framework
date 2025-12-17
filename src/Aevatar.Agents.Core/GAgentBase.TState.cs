@@ -238,7 +238,14 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         // Default: project to CQRS read model if configured
         if (StateProjector != null)
         {
+            Logger?.LogDebug("OnStateChangedAsync called for agent {AgentId} ({AgentType}), StateProjector is configured", 
+                Id, GetType().Name);
             await ProjectStateAsync(state, ct);
+        }
+        else
+        {
+            Logger?.LogWarning("OnStateChangedAsync called for agent {AgentId} ({AgentType}), but StateProjector is null", 
+                Id, GetType().Name);
         }
     }
 
@@ -251,7 +258,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     {
         if (StateProjector == null)
         {
-            Logger?.LogDebug("StateProjector not configured, state will not be projected");
+            Logger?.LogWarning("StateProjector not configured for agent {AgentId} ({AgentType}), state will not be projected", 
+                Id, GetType().Name);
             return;
         }
 
@@ -329,11 +337,13 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
 
         try
         {
-            // Batch persist
+            // Batch persist (pass agent type name for per-type collection routing)
+            var agentTypeName = GetType().FullName;
             _currentVersion = await EventStore.AppendEventsAsync(
                 Id,
                 _pendingEvents,
                 _currentVersion,
+                agentTypeName,
                 ct);
 
             // Apply events to state
@@ -342,6 +352,7 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
                 await ApplyEventInternalAsync(evt, ct);
             }
 
+            var eventCount = _pendingEvents.Count;
             _pendingEvents.Clear();
 
             // Check snapshot strategy
@@ -350,9 +361,12 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
                 await CreateSnapshotInternalAsync(ct);
             }
 
+            // Note: OnStateChangedAsync is called by HandleEventAsync after ConfirmEventsAsync
+            // to avoid duplicate calls and ensure single notification per event handling
+
             Logger?.LogDebug(
                 "Confirmed {Count} events for agent {AgentId}, version: {Version}",
-                _pendingEvents.Count, Id, _currentVersion);
+                eventCount, Id, _currentVersion);
         }
         catch (Exception ex)
         {
@@ -452,25 +466,20 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         Logger.LogInformation("Replaying events for agent {AgentId}, starting from version {CurrentVersion}", Id,
             _currentVersion);
 
-        // Step 1: Load latest snapshot
-        var snapshot = await EventStore.GetLatestSnapshotAsync(Id, ct);
-        if (snapshot != null)
+        // Step 1: Load latest snapshot from StateStore (if available)
+        // StateStore provides per-type collections (agent_snapshots_{StateType})
+        if (StateStore != null)
         {
-            Logger.LogInformation(
-                "Loading snapshot at version {Version} for agent {AgentId}",
-                snapshot.Version, Id);
-
-            var snapshotState = snapshot.StateData.Unpack<TState>();
-            SetState(snapshotState);
-            _currentVersion = snapshot.Version;
-            Logger.LogInformation("Snapshot loaded, current version: {Version}", _currentVersion);
+            await LoadSnapshotFromStateStoreAsync(ct);
         }
 
-        // Step 2: Replay events after snapshot
+        // Step 2: Replay events after snapshot (pass agent type name for per-type collection routing)
         var fromVersion = _currentVersion + 1;
+        var agentTypeName = GetType().FullName;
         var events = await EventStore.GetEventsAsync(
             Id,
             fromVersion: fromVersion,
+            agentTypeName: agentTypeName,
             ct: ct);
 
         if (!events.Any())
@@ -490,26 +499,87 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
             events.Count, Id, _currentVersion);
     }
 
+    /// <summary>
+    /// Load snapshot from StateStore (supports IVersionedStateStore for version tracking)
+    /// </summary>
+    private async Task LoadSnapshotFromStateStoreAsync(CancellationToken ct)
+    {
+        if (StateStore == null) return;
+
+        try
+        {
+            // Try to load with version if IVersionedStateStore is available
+            if (StateStore is IVersionedStateStore<TState> versionedStore)
+            {
+                var snapshotVersion = await versionedStore.GetCurrentVersionAsync(Id, ct);
+                if (snapshotVersion > 0)
+                {
+                    var snapshotState = await StateStore.LoadAsync(Id, ct);
+                    if (snapshotState != null)
+                    {
+                        SetState(snapshotState);
+                        _currentVersion = snapshotVersion;
+                        Logger.LogInformation(
+                            "Loaded snapshot from StateStore at version {Version} for agent {AgentId}",
+                            _currentVersion, Id);
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: Load without version tracking
+                var snapshotState = await StateStore.LoadAsync(Id, ct);
+                if (snapshotState != null)
+                {
+                    SetState(snapshotState);
+                    // Note: Without version tracking, we start from 0 and replay all events
+                    Logger.LogInformation(
+                        "Loaded snapshot from StateStore (no version) for agent {AgentId}",
+                        Id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, 
+                "Failed to load snapshot from StateStore for agent {AgentId}, will replay all events",
+                Id);
+        }
+    }
+
     // ============ Snapshot Operations ============
 
+    // TODO: Read from configuration (EventSourcing:SnapshotFrequency)
     protected virtual ISnapshotStrategy SnapshotStrategy =>
-        new IntervalSnapshotStrategy(100);
+        new IntervalSnapshotStrategy(1);
 
+    /// <summary>
+    /// Create snapshot using StateStore (preferred) or EventStore (fallback)
+    /// 
+    /// Architecture:
+    /// - StateStore provides per-type collections (agent_states_{StateType})
+    /// - No extra Grain RPC overhead
+    /// </summary>
     private async Task CreateSnapshotInternalAsync(CancellationToken ct)
     {
-        if (EventStore == null) return;
-
-        var snapshot = new AgentSnapshot
+        if (StateStore == null)
         {
-            Version = _currentVersion,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            StateData = Any.Pack(State)
-        };
+            Logger?.LogWarning("StateStore not configured, cannot save snapshot for agent {AgentId}", Id);
+            return;
+        }
 
-        await EventStore.SaveSnapshotAsync(Id, snapshot, ct);
+        // Use IVersionedStateStore if available for version tracking
+        if (StateStore is IVersionedStateStore<TState> versionedStore)
+        {
+            await versionedStore.SaveAsync(Id, State, _currentVersion, ct);
+        }
+        else
+        {
+            await StateStore.SaveAsync(Id, State, ct);
+        }
 
-        Logger?.LogInformation(
-            "Snapshot created for agent {AgentId} at version {Version}",
+        Logger?.LogDebug(
+            "Snapshot saved for agent {AgentId} at version {Version}",
             Id, _currentVersion);
     }
 

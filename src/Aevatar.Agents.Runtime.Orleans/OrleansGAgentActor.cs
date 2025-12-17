@@ -1,3 +1,4 @@
+using System.Reflection;
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core;
@@ -64,23 +65,30 @@ public class OrleansGAgentActor : IGAgentActor
 
     /// <summary>
     /// Activate actor - Initialize Grain with Agent type
+    /// Business State is stored via IStateStore (per-type collections)
+    /// Orleans Grain State only stores metadata (AgentId, ParentId, Children)
     /// </summary>
     public async Task ActivateAsync(CancellationToken ct = default)
     {
-        Logger.LogInformation("Activating Orleans Actor proxy {ActorId}", _id);
+        Logger.LogInformation("Activating Orleans Actor proxy {ActorId}, AgentType: {AgentType}", _id, _agentTypeName);
 
-        // Get Grain reference
-        _grain = _grainFactory.GetGrain<IGAgentGrain>(_id.ToString());
+        // Get non-generic Grain reference
+        // Grain ID = AgentTypeShortName:AgentId (to ensure different Agent types use different Grains)
+        // Business State sharding is handled by IStateStore<TState>, not Orleans Grain
+        var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
+        var grainId = $"{agentTypeShortName}:{_id}";
+        _grain = _grainFactory.GetGrain<IGAgentGrain>(grainId);
 
         // Initialize Agent in Grain (Silo side)
+        // Agent ID is derived from Grain's PrimaryKey, no need to pass separately
         var success = await _grain.InitializeAgentAsync(_agentTypeName);
         if (!success)
         {
             throw new InvalidOperationException(
-                $"Failed to initialize Agent {_agentTypeName} in Grain {_id}");
+                $"Failed to initialize Agent {_agentTypeName} in Grain {grainId}");
         }
 
-        Logger.LogInformation("✅ Orleans Actor proxy {ActorId} activated, Agent running in Silo", _id);
+        Logger.LogInformation("✅ Orleans Actor proxy {GrainId} activated, Agent running in Silo", grainId);
     }
 
     /// <summary>
@@ -250,8 +258,22 @@ public class OrleansGAgentActor : IGAgentActor
     {
         if (_grain == null)
         {
-            _grain = _grainFactory.GetGrain<IGAgentGrain>(_id.ToString());
+            var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
+            var grainId = $"{agentTypeShortName}:{_id}";
+            _grain = _grainFactory.GetGrain<IGAgentGrain>(grainId);
         }
+    }
+
+    /// <summary>
+    /// Extract short type name from assembly qualified name
+    /// Example: "Aevatar.App.Agents.UserQuotaGAgent, Aevatar.App.Agents" -> "UserQuotaGAgent"
+    /// </summary>
+    private static string GetAgentTypeShortName(string agentTypeName)
+    {
+        // Extract class name from assembly qualified name
+        var fullName = agentTypeName.Split(',')[0].Trim();
+        var lastDot = fullName.LastIndexOf('.');
+        return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
     }
 
     /// <summary>
