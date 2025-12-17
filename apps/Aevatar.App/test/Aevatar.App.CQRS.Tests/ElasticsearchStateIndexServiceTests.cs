@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Aevatar.Silo.CQRS;
+using Aevatar.Agents.Abstractions.CQRS;
 using FluentAssertions;
 using Xunit;
 
