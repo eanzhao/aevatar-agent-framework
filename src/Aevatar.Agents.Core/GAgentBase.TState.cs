@@ -207,7 +207,8 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
         {
             // Event Sourcing mode: Persist via events + snapshots
             // EventStore handles all persistence, no StateStore needed
-            await ConfirmEventsAsync(ct);
+            // Pass notifyStateChanged=false to avoid duplicate call (we call it below)
+            await ConfirmEventsAsync(ct, notifyStateChanged: false);
         }
         else if (StateStore != null)
         {
@@ -324,7 +325,9 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
     /// <summary>
     /// Commit pending events (batch persist)
     /// </summary>
-    protected async Task ConfirmEventsAsync(CancellationToken ct = default)
+    /// <param name="ct">Cancellation token</param>
+    /// <param name="notifyStateChanged">Whether to call OnStateChangedAsync after confirming events. Default is true for RPC methods, false when called from HandleEventAsync.</param>
+    protected async Task ConfirmEventsAsync(CancellationToken ct = default, bool notifyStateChanged = true)
     {
         if (_pendingEvents.Count == 0) return;
 
@@ -361,8 +364,11 @@ public abstract class GAgentBase<TState> : GAgentBase, IStateGAgent<TState>
                 await CreateSnapshotInternalAsync(ct);
             }
 
-            // Note: OnStateChangedAsync is called by HandleEventAsync after ConfirmEventsAsync
-            // to avoid duplicate calls and ensure single notification per event handling
+            // Call OnStateChangedAsync if requested (default true for RPC methods, false for HandleEventAsync)
+            if (notifyStateChanged)
+            {
+                await OnStateChangedAsync(_state, ct);
+            }
 
             Logger?.LogDebug(
                 "Confirmed {Count} events for agent {AgentId}, version: {Version}",
