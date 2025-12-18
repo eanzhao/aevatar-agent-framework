@@ -1,7 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Orleans.Streams;
 
-namespace Aevatar.Agents.Runtime.Orleans;
+namespace Aevatar.Agents.Runtime.Orleans.Stream;
 
 /// <summary>
 /// Orleans message stream subscription implementation
@@ -111,3 +111,4 @@ internal class OrleansMessageStreamSubscription : IMessageStreamSubscription
         await UnsubscribeAsync();
     }
 }
+

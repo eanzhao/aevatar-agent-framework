@@ -2,7 +2,7 @@ using System;
 using Orleans.Runtime;
 using Orleans.Streams;
 
-namespace Aevatar.Agents.Runtime.Orleans;
+namespace Aevatar.Agents.Runtime.Orleans.Stream;
 
 /// <summary>
 /// Orleans Message Stream Provider

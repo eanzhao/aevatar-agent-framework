@@ -80,6 +80,7 @@ class Program
                 await TestMessagePublishing(actorManager, results);
                 await TestStateQuery(actorManager, results);
                 await TestParentChildPropagation(actorManager, results);
+                await TestPointToPointSending(actorManager, results);
 
                 PrintSummary(results);
             }
@@ -242,8 +243,8 @@ class Program
         Console.WriteLine("3️⃣  Agent Info Query Time:");
         
         var sw = Stopwatch.StartNew();
-        var agent = results.Agent1!.GetAgent();
-        var description = await agent.GetDescriptionAsync();
+        // Use RPC call instead of GetAgent() for Orleans compatibility
+        var description = await results.Agent1!.GetDescriptionAsync();
         sw.Stop();
         
         results.StateQueryMs = (int)sw.ElapsedMilliseconds;
@@ -273,9 +274,8 @@ class Program
         Console.WriteLine($"   Waiting for stream subscription...");
         await Task.Delay(1000); // Wait for subscription to establish
         
-        // Get initial child state
-        var childAgent = child.GetAgent();
-        var initialDesc = await childAgent.GetDescriptionAsync();
+        // Get initial child state using RPC
+        var initialDesc = await child.GetDescriptionAsync();
         var initialCount = ExtractProcessedCount(initialDesc);
         
         // Test pure publish latency (no wait)
@@ -290,7 +290,7 @@ class Program
         var publishMs = sw.ElapsedMilliseconds;
         Console.WriteLine($"   ✓ Message published (Direction: DOWN)");
         
-        // Wait and verify child received it (try multiple times)
+        // Wait and verify child received it (try multiple times) using RPC
         var finalCount = initialCount;
         var maxWaitMs = 2000;
         var checkIntervalMs = 100;
@@ -300,7 +300,7 @@ class Program
         {
             await Task.Delay(checkIntervalMs);
             totalWait += checkIntervalMs;
-            var currentDesc = await childAgent.GetDescriptionAsync();
+            var currentDesc = await child.GetDescriptionAsync();
             finalCount = ExtractProcessedCount(currentDesc);
         }
         
@@ -325,6 +325,71 @@ class Program
         // Extract "Processed: X" from description like "Simple Business Agent xxx - Processed: 5"
         var match = System.Text.RegularExpressions.Regex.Match(description, @"Processed:\s*(\d+)");
         return match.Success ? int.Parse(match.Groups[1].Value) : 0;
+    }
+
+    static async Task TestPointToPointSending(IGAgentActorManager manager, PerformanceResults results)
+    {
+        Console.WriteLine();
+        Console.WriteLine("5️⃣  Point-to-Point Sending (SendToAsync):");
+        
+        // Create sender and receiver (no parent-child relationship)
+        var senderId = Guid.NewGuid();
+        var receiverId = Guid.NewGuid();
+        var sender = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(senderId);
+        var receiver = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(receiverId);
+        
+        Console.WriteLine($"   Sender:   {senderId}");
+        Console.WriteLine($"   Receiver: {receiverId}");
+        Console.WriteLine($"   (No hierarchy relationship - pure point-to-point)");
+        
+        // Wait for agents to initialize
+        await Task.Delay(500);
+        
+        // Get initial receiver state
+        var initialDesc = await receiver.GetDescriptionAsync();
+        var initialCount = ExtractProcessedCount(initialDesc);
+        Console.WriteLine($"   Initial receiver processed count: {initialCount}");
+        
+        // Test point-to-point send
+        Console.WriteLine($"   Sending message directly to receiver...");
+        var sw = Stopwatch.StartNew();
+        var message = new BusinessMessageEvent
+        {
+            Message = "Point-to-point direct message",
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+        await sender.SendToAsync(receiverId, message);
+        var sendMs = sw.ElapsedMilliseconds;
+        Console.WriteLine($"   ✓ Message sent via SendToAsync");
+        
+        // Wait and verify receiver got it
+        var finalCount = initialCount;
+        var maxWaitMs = 2000;
+        var checkIntervalMs = 100;
+        var totalWait = 0;
+        
+        while (totalWait < maxWaitMs && finalCount == initialCount)
+        {
+            await Task.Delay(checkIntervalMs);
+            totalWait += checkIntervalMs;
+            var currentDesc = await receiver.GetDescriptionAsync();
+            finalCount = ExtractProcessedCount(currentDesc);
+        }
+        
+        results.PointToPointSendMs = (int)sendMs;
+        results.PointToPointReceived = finalCount > initialCount;
+        results.PointToPointE2EMs = totalWait;
+        
+        Console.WriteLine($"   ✅ Send latency: {results.PointToPointSendMs} ms");
+        Console.WriteLine($"   ✅ Receiver got message: {results.PointToPointReceived} (processed: {initialCount} → {finalCount})");
+        if (results.PointToPointReceived)
+        {
+            Console.WriteLine($"   ✅ End-to-end time: {results.PointToPointE2EMs} ms");
+        }
+        else
+        {
+            Console.WriteLine($"   ⚠️  Message not received after {maxWaitMs}ms wait");
+        }
     }
 
     static void PrintComparison(MultiTopicResults results1, MultiTopicResults results2)
@@ -380,15 +445,22 @@ class Program
         Console.WriteLine($"Environment:");
         Console.WriteLine($"  • .NET: {Environment.Version}");
         Console.WriteLine($"  • OS: {Environment.OSVersion}");
-        Console.WriteLine($"  • Orleans: Memory Stream + MongoDB");
+        Console.WriteLine($"  • Orleans + Kafka Stream");
         Console.WriteLine();
         Console.WriteLine($"Results:");
-        Console.WriteLine($"  • Agent Creation:     {results.AgentCreationMs} ms");
-        Console.WriteLine($"  • Message Average:    {results.MessageAverageMs} ms");
-        Console.WriteLine($"  • State Query:        {results.StateQueryMs} ms");
-        Console.WriteLine($"  • Publish Latency:    {results.PropagationMs} ms");
-        Console.WriteLine($"  • End-to-End:         {(results.MessageReceived ? $"{results.EndToEndMs} ms ✅" : "N/A ❌")}");
-        Console.WriteLine($"  • Throughput:         ~{results.ThroughputMsgPerSec} msg/sec");
+        Console.WriteLine($"  • Agent Creation:        {results.AgentCreationMs} ms");
+        Console.WriteLine($"  • Message Average:       {results.MessageAverageMs} ms");
+        Console.WriteLine($"  • State Query:           {results.StateQueryMs} ms");
+        Console.WriteLine();
+        Console.WriteLine($"Broadcast Propagation (Parent→Child via Direction.Down):");
+        Console.WriteLine($"  • Publish Latency:       {results.PropagationMs} ms");
+        Console.WriteLine($"  • E2E Delivery:          {(results.MessageReceived ? $"{results.EndToEndMs} ms ✅" : "N/A ❌")}");
+        Console.WriteLine();
+        Console.WriteLine($"Point-to-Point (SendToAsync - no hierarchy):");
+        Console.WriteLine($"  • Send Latency:          {results.PointToPointSendMs} ms");
+        Console.WriteLine($"  • E2E Delivery:          {(results.PointToPointReceived ? $"{results.PointToPointE2EMs} ms ✅" : "N/A ❌")}");
+        Console.WriteLine();
+        Console.WriteLine($"Throughput:                ~{results.ThroughputMsgPerSec} msg/sec");
         Console.WriteLine();
         Console.WriteLine("✅ Performance tests completed!");
     }
@@ -404,5 +476,10 @@ class Program
         public bool MessageReceived { get; set; }
         public int EndToEndMs { get; set; }
         public int ThroughputMsgPerSec { get; set; }
+        
+        // Point-to-Point results
+        public int PointToPointSendMs { get; set; }
+        public bool PointToPointReceived { get; set; }
+        public int PointToPointE2EMs { get; set; }
     }
 }

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Core.Subscription;
+using Aevatar.Agents.Runtime.Orleans.Stream;
 using Microsoft.Extensions.Logging;
 using Orleans.Streams;
 

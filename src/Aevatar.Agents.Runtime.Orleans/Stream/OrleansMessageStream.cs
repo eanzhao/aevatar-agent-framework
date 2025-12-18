@@ -3,7 +3,7 @@ using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Orleans.Streams;
 
-namespace Aevatar.Agents.Runtime.Orleans;
+namespace Aevatar.Agents.Runtime.Orleans.Stream;
 
 /// <summary>
 /// Orleans 运行时的 Message Stream 实现

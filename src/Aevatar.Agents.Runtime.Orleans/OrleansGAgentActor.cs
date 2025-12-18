@@ -178,7 +178,10 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         codedOutput.Flush();
 
         // Direct RPC to target Grain (no broadcast)
-        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetAgentId.ToString());
+        // Assume target has the same Agent Type as sender (common case for P2P)
+        var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
+        var targetGrainKey = $"{agentTypeShortName}:{targetAgentId}";
+        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetGrainKey);
         await targetGrain.HandleEventAsync(stream.ToArray());
 
         return envelope.Id;

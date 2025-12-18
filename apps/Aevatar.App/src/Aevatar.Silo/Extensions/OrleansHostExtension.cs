@@ -16,6 +16,7 @@ using Orleans.Providers.MongoDB.Configuration;
 using Orleans.Providers.MongoDB.StorageProviders.Serializers;
 using Confluent.Kafka;
 using Serilog;
+using Aevatar.Agents.Runtime.Orleans.Stream;
 
 namespace Aevatar.Silo.Extensions;
 
@@ -106,7 +107,7 @@ public static class OrleansHostExtension
             // 6. Configure Streaming (Orleans Memory Stream for now, Kafka later)
             ConfigureStreaming(siloBuilder, configuration);
             
-            // 7. Configure Serializer
+            // 7. Configure Serializer and Stream Factory
             siloBuilder.ConfigureServices(services => 
             {
                 // Orleans internal serializer (for RPC communication)
@@ -118,6 +119,9 @@ public static class OrleansHostExtension
                 // MongoDB GrainStorage serializer: Use Binary (Orleans serializer) instead of JSON
                 // This enables Protobuf binary storage for Grain State, reducing storage size ~30-50%
                 services.AddSingleton<IGrainStateSerializer, BinaryGrainStateSerializer>();
+                
+                // Register OrleansStreamFactory for unified stream creation (Orleans + MassTransit support)
+                services.AddSingleton<OrleansStreamFactory>();
             });
             
             // 8. Logging & Timeouts

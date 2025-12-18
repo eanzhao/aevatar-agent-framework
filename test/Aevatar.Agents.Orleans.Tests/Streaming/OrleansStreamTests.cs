@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Stream;
 using Google.Protobuf;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -188,6 +189,8 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
                 .ConfigureServices(services =>
                 {
                     services.AddSerializer(serializerBuilder => { serializerBuilder.AddProtobufSerializer(); });
+                    // Register OrleansStreamFactory for unified stream support
+                    services.AddSingleton<OrleansStreamFactory>();
                 })
                 .ConfigureLogging(logging => logging.AddConsole())
                 .AddMemoryStreams("StreamProvider")
