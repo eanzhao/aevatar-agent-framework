@@ -74,8 +74,11 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         Logger.LogInformation("Activating Orleans Actor proxy {ActorId}, AgentType: {AgentType}", _id, _agentTypeName);
 
         // Get non-generic Grain reference
-        // Grain ID = AgentTypeShortName:AgentId (to ensure different Agent types use different Grains)
-        // Business State sharding is handled by IStateStore<TState>, not Orleans Grain
+        // Grain ID = AgentTypeShortName:AgentId
+        //
+        // IMPORTANT:
+        // AgentId is NOT guaranteed to be globally unique across different Agent types in this framework.
+        // Using only agentId as the grain key would cause type collisions (wrong Agent instance reused).
         var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
         var grainId = $"{agentTypeShortName}:{_id}";
         _grain = _grainFactory.GetGrain<IGAgentGrain>(grainId);
@@ -178,7 +181,12 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         codedOutput.Flush();
 
         // Direct RPC to target Grain (no broadcast)
-        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetAgentId.ToString());
+        // NOTE:
+        // We intentionally route by {CurrentAgentType}:{TargetAgentId} to avoid cross-type collisions.
+        // If you need to send to a different Agent type, create the corresponding actor and call SendToAsync on it.
+        var targetAgentTypeShortName = GetAgentTypeShortName(_agentTypeName);
+        var targetGrainId = $"{targetAgentTypeShortName}:{targetAgentId}";
+        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetGrainId);
         await targetGrain.HandleEventAsync(stream.ToArray());
 
         return envelope.Id;
