@@ -352,4 +352,3 @@ public class ExecutorTests
         cur["statement"].ToString().ShouldBe("B");
     }
 }
-

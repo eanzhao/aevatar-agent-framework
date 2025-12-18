@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Aevatar.AxiomReasoning.Models;
@@ -31,7 +32,9 @@ public sealed class LlmTranscriptRecorder
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // Keep JSONL readable (avoid \uXXXX for Chinese/math symbols).
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     private readonly IOptions<LlmTranscriptOptions> _options;
@@ -585,7 +588,13 @@ public sealed class LlmTranscriptRecorder
         if (string.IsNullOrWhiteSpace(content)) return;
 
         sb.AppendLine($"<details><summary>{WebUtility.HtmlEncode(title)}</summary><pre>");
-        sb.AppendLine(WebUtility.HtmlEncode(TruncateWithMarker(content, maxChars)));
+        // Human readability:
+        // - Many prompts include JSON blocks rendered by the template filter `| json`.
+        //   System.Text.Json defaults to \uXXXX escaping for non-ASCII, which is painful in review.md.
+        // - Decode common backslash escapes (e.g. \u210B, \n) BEFORE HtmlEncode.
+        var text = TruncateWithMarker(content, maxChars);
+        text = DecodeBackslashEscapes(text);
+        sb.AppendLine(WebUtility.HtmlEncode(text));
         sb.AppendLine("</pre></details>");
         sb.AppendLine();
     }
@@ -593,6 +602,128 @@ public sealed class LlmTranscriptRecorder
     // ============================================================
     //  Helpers
     // ============================================================
+
+    private static string? DecodeBackslashEscapes(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        if (!s.Contains('\\', StringComparison.Ordinal)) return s;
+
+        // Best-effort JSON-style unescape for readability in review.md:
+        // - \uXXXX (incl. surrogate pairs)
+        // - \n \r \t \\ \" \/
+        // NOTE:
+        // - This is intentionally NOT a strict JSON parser; it just improves human readability.
+        var sb = new StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            var ch = s[i];
+            if (ch != '\\' || i + 1 >= s.Length)
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            var next = s[i + 1];
+            switch (next)
+            {
+                case 'n':
+                    sb.Append('\n');
+                    i++;
+                    break;
+                case 'r':
+                    sb.Append('\r');
+                    i++;
+                    break;
+                case 't':
+                    sb.Append('\t');
+                    i++;
+                    break;
+                case 'b':
+                    sb.Append('\b');
+                    i++;
+                    break;
+                case 'f':
+                    sb.Append('\f');
+                    i++;
+                    break;
+                case '\\':
+                    sb.Append('\\');
+                    i++;
+                    break;
+                case '"':
+                    sb.Append('"');
+                    i++;
+                    break;
+                case '/':
+                    sb.Append('/');
+                    i++;
+                    break;
+                case 'u':
+                {
+                    // Need 4 hex digits
+                    if (i + 6 > s.Length)
+                    {
+                        sb.Append('\\');
+                        break;
+                    }
+
+                    var h1 = s[i + 2];
+                    var h2 = s[i + 3];
+                    var h3 = s[i + 4];
+                    var h4 = s[i + 5];
+                    if (!IsHex(h1) || !IsHex(h2) || !IsHex(h3) || !IsHex(h4))
+                    {
+                        sb.Append('\\');
+                        break;
+                    }
+
+                    var code = (HexVal(h1) << 12) | (HexVal(h2) << 8) | (HexVal(h3) << 4) | HexVal(h4);
+                    var c1 = (char)code;
+                    i += 5;
+
+                    // Surrogate pair: \uD83D\uDE00
+                    if (char.IsHighSurrogate(c1) &&
+                        i + 6 < s.Length &&
+                        s[i + 1] == '\\' &&
+                        s[i + 2] == 'u' &&
+                        IsHex(s[i + 3]) &&
+                        IsHex(s[i + 4]) &&
+                        IsHex(s[i + 5]) &&
+                        IsHex(s[i + 6]))
+                    {
+                        var code2 = (HexVal(s[i + 3]) << 12) | (HexVal(s[i + 4]) << 8) | (HexVal(s[i + 5]) << 4) | HexVal(s[i + 6]);
+                        var c2 = (char)code2;
+                        if (char.IsLowSurrogate(c2))
+                        {
+                            sb.Append(char.ConvertFromUtf32(char.ConvertToUtf32(c1, c2)));
+                            i += 6; // consume \uXXXX (the leading '\' is at i+1)
+                            break;
+                        }
+                    }
+
+                    sb.Append(c1);
+                    break;
+                }
+                default:
+                    // Unknown escape: keep the backslash as-is for safety.
+                    sb.Append('\\');
+                    break;
+            }
+        }
+
+        return sb.ToString();
+
+        static bool IsHex(char c)
+            => c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+
+        static int HexVal(char c) => c switch
+        {
+            >= '0' and <= '9' => c - '0',
+            >= 'a' and <= 'f' => 10 + (c - 'a'),
+            >= 'A' and <= 'F' => 10 + (c - 'A'),
+            _ => 0
+        };
+    }
 
     private SessionState GetOrCreateSessionState(string sessionId, string outputDir)
     {

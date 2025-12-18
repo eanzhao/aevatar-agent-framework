@@ -74,7 +74,9 @@ public class MassTransitMessageStream : IMessageStream
                 }
                 catch (Exception ex)
                 {
-                    // System.Console.WriteLine($"DEBUG: [MassTransitMessageStream] ERROR producing to Kafka: {ex}");
+                    _logger.LogError(ex,
+                        "Failed to produce stream message to Kafka topic {Topic} (StreamId={StreamId})",
+                        topic, StreamId);
                     throw;
                 }
             }

@@ -120,6 +120,24 @@ public sealed class AxiomDagService : IGraphStore
             };
         }
 
+        // 1.5) Upsert assumptions (e.g. S1)
+        var assumptionIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var a in graphEvent.Assumptions ?? [])
+        {
+            var id = (a.Id ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            assumptionIds.Add(id);
+            g.Nodes[id] = new DagNode
+            {
+                Id = id,
+                Kind = DagNodeKind.Assumption,
+                Label = a.Statement ?? "",
+                // Store motivation as "proof" to show in inspector (assumptions have no proof).
+                Proof = a.Motivation ?? "",
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+        }
+
         // 2) Upsert theorems
         var theoremIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in graphEvent.Theorems ?? [])
@@ -154,6 +172,8 @@ public sealed class AxiomDagService : IGraphStore
                 {
                     var kind = axiomIds.Contains(fromId)
                         ? DagNodeKind.Axiom
+                        : assumptionIds.Contains(fromId)
+                            ? DagNodeKind.Assumption
                         : theoremIds.Contains(fromId)
                             ? DagNodeKind.Theorem
                             : DagNodeKind.Hypothesis;
@@ -171,6 +191,8 @@ public sealed class AxiomDagService : IGraphStore
                     // Fix-up kind if we later learn it is an axiom/theorem
                     if (axiomIds.Contains(fromId) && existing.Kind != DagNodeKind.Axiom)
                         g.Nodes[fromId] = existing with { Kind = DagNodeKind.Axiom, UpdatedAt = DateTimeOffset.UtcNow };
+                    else if (assumptionIds.Contains(fromId) && existing.Kind != DagNodeKind.Assumption)
+                        g.Nodes[fromId] = existing with { Kind = DagNodeKind.Assumption, UpdatedAt = DateTimeOffset.UtcNow };
                     else if (theoremIds.Contains(fromId) && existing.Kind != DagNodeKind.Theorem)
                         g.Nodes[fromId] = existing with { Kind = DagNodeKind.Theorem, UpdatedAt = DateTimeOffset.UtcNow };
                 }
@@ -302,5 +324,3 @@ public sealed class AxiomDagService : IGraphStore
         return m.Success ? m.Groups[1].Value : $"A{idx + 1}";
     }
 }
-
-

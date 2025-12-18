@@ -158,6 +158,11 @@ public static class ServiceCollectionExtensions
 
         // Create options instance to merge config and annotations
         var options = section.Get<MassTransitStreamOptions>() ?? new MassTransitStreamOptions();
+        // NOTE:
+        // - Configuration binding can still set reference-type properties to null at runtime.
+        // - Keep a local non-null reference to avoid nullable warnings + NREs.
+        var topicMapping = options.TopicMapping ?? new Dictionary<string, string>();
+        options.TopicMapping = topicMapping;
         
         // Collect all topics to subscribe to and produce to
         var allTopics = new HashSet<string>();
@@ -178,18 +183,14 @@ public static class ServiceCollectionExtensions
         }
 
         // Add topics from configured mapping
-        if (options.TopicMapping != null)
+        foreach (var t in topicMapping.Values)
         {
-            foreach (var t in options.TopicMapping.Values)
-            {
-                if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
-            }
+            if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
         }
 
         // 1.1 Scan Assemblies for [StreamTopic]
         if (agentAssemblies != null && agentAssemblies.Length > 0)
         {
-            System.Console.WriteLine($"DEBUG: Scanning {agentAssemblies.Length} assemblies for [StreamTopic]...");
             foreach (var assembly in agentAssemblies)
             {
                 try 
@@ -204,16 +205,14 @@ public static class ServiceCollectionExtensions
                         {
                             var category = type.Name;
                             var topic = attr.Topic;
-                            
-                            System.Console.WriteLine($"DEBUG: Found [StreamTopic] for Agent {category} -> {topic}");
 
                             // Add to Mapping (for Producer routing)
                             // Note: This modifies the local 'options' object used for setup, 
                             // but NOT the IOptions registered in DI. 
                             // We need to ensure MassTransitMessageStream uses the merged mapping.
-                            if (!options.TopicMapping.ContainsKey(category))
+                            if (!topicMapping.ContainsKey(category))
                             {
-                                options.TopicMapping[category] = topic;
+                                topicMapping[category] = topic;
                             }
                             
                             // Add to Subscription (for Consumer)
@@ -221,9 +220,9 @@ public static class ServiceCollectionExtensions
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Console.WriteLine($"WARNING: Failed to scan assembly {assembly.FullName} for agents: {ex.Message}");
+                    // Best-effort scan: ignore reflection errors from unrelated assemblies.
                 }
             }
         }
@@ -232,19 +231,17 @@ public static class ServiceCollectionExtensions
         // Since we modified 'options' locally, we need to replace the IOptions registration or configure it.
         services.PostConfigure<MassTransitStreamOptions>(o => 
         {
-            foreach (var kvp in options.TopicMapping)
+            var targetMapping = o.TopicMapping ?? new Dictionary<string, string>();
+            o.TopicMapping = targetMapping;
+
+            foreach (var kvp in topicMapping)
             {
-                if (!o.TopicMapping.ContainsKey(kvp.Key))
+                if (!targetMapping.ContainsKey(kvp.Key))
                 {
-                    o.TopicMapping[kvp.Key] = kvp.Value;
+                    targetMapping[kvp.Key] = kvp.Value;
                 }
             }
         });
-
-        System.Console.WriteLine($"DEBUG: [AddMassTransitStreamPlugin] Final Configuration:");
-        System.Console.WriteLine($"DEBUG: - TransportType: {options.TransportType}");
-        System.Console.WriteLine($"DEBUG: - Total Topics: {allTopics.Count}");
-        System.Console.WriteLine($"DEBUG: - Mapped Categories: {options.TopicMapping.Count}");
 
         // 2. Register Provider (both concrete and interface)
         services.AddSingleton<MassTransitMessageStreamProvider>();
@@ -273,7 +270,6 @@ public static class ServiceCollectionExtensions
 
                     x.AddRider(rider =>
                     {
-                        System.Console.WriteLine("DEBUG: Adding Kafka Rider...");
                         rider.AddConsumer<StreamMessageDispatcher>();
                         
                         // Register Producers for ALL topics
@@ -285,7 +281,6 @@ public static class ServiceCollectionExtensions
                         
                         rider.UsingKafka((context, k) =>
                         {
-                            System.Console.WriteLine($"DEBUG: Configuring Kafka Host: {options.Kafka?.BootstrapServers ?? "null"}");
                             if (options.Kafka != null)
                             {
                                 k.Host(options.Kafka.BootstrapServers);
@@ -293,8 +288,6 @@ public static class ServiceCollectionExtensions
                             
                             // Explicitly set security protocol to Plaintext to avoid SASL warnings/errors on local dev
                             k.SecurityProtocol = Confluent.Kafka.SecurityProtocol.Plaintext;
-
-                            System.Console.WriteLine($"DEBUG: Subscribing to {allTopics.Count} topics: {string.Join(", ", allTopics)}");
 
                             foreach (var topic in allTopics)
                             {
@@ -304,7 +297,6 @@ public static class ServiceCollectionExtensions
                                     options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group", 
                                     e =>
                                     {
-                                        System.Console.WriteLine($"DEBUG: Configuring Topic Endpoint: {topic} for Group: {options.Kafka?.ConsumerGroupId ?? "aevatar-agents-group"}");
                                         e.AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Earliest;
                                         
                                         // Optimize Concurrency & Prefetch (Phase 2 Optimization)

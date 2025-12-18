@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Scriban;
@@ -18,7 +19,11 @@ public partial class TemplateEngine
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        // Human-readable JSON in prompts:
+        // - Avoid \uXXXX for non-ASCII (Chinese / math symbols like ℋ, Φ, ⊗)
+        // - Safe here because this JSON is used for LLM prompts, not for HTML/JS embedding.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
     
     /// <summary>

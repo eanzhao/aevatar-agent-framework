@@ -429,6 +429,22 @@ public sealed class SupabaseGraphStore : IGraphStore
             };
         }
 
+        var assumptionIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var a in graphEvent.Assumptions ?? [])
+        {
+            var id = (a.Id ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            assumptionIds.Add(id);
+            nodes[id] = new DagNode
+            {
+                Id = id,
+                Kind = DagNodeKind.Assumption,
+                Label = a.Statement ?? "",
+                Proof = a.Motivation ?? "",
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+        }
+
         var theoremIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in graphEvent.Theorems ?? [])
         {
@@ -459,6 +475,8 @@ public sealed class SupabaseGraphStore : IGraphStore
                 {
                     var kind = axiomIds.Contains(fromId)
                         ? DagNodeKind.Axiom
+                        : assumptionIds.Contains(fromId)
+                            ? DagNodeKind.Assumption
                         : theoremIds.Contains(fromId)
                             ? DagNodeKind.Theorem
                             : DagNodeKind.Hypothesis;
@@ -572,5 +590,3 @@ public sealed class SupabaseGraphStore : IGraphStore
         return m.Success ? m.Groups[1].Value : $"A{idx + 1}";
     }
 }
-
-

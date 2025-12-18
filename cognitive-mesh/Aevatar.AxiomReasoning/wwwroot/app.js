@@ -146,8 +146,8 @@ function ensureSessionCache(sessionId) {
       steps: new Map(), // stepId -> { last: evt, proposals: Map }
       // PaperReview-like worker cache (stable DOM + history)
       workers: Object.create(null), // workerId -> { ... }
-      graph: { iteration: 0, axioms: [], theorems: [] },
-      graphIndex: { axiomsById: Object.create(null), theoremsById: Object.create(null) },
+      graph: { iteration: 0, axioms: [], assumptions: [], theorems: [] },
+      graphIndex: { axiomsById: Object.create(null), assumptionsById: Object.create(null), theoremsById: Object.create(null) },
       graphSelectedId: null,
       dag: null,          // snapshot from /api/sessions/{id}/dag
       dagExplain: null,   // explain result from /api/sessions/{id}/dag/{nodeId}
@@ -769,6 +769,7 @@ function applyEvent(sessionId, evt) {
     cache.graph = {
       iteration: evt.iteration || 0,
       axioms: Array.isArray(evt.axioms) ? evt.axioms : [],
+      assumptions: Array.isArray(evt.assumptions) ? evt.assumptions : [],
       theorems: Array.isArray(evt.theorems) ? evt.theorems : [],
     };
     $("graph-iter").textContent = String(cache.graph.iteration || 0);
@@ -786,7 +787,11 @@ function applyEvent(sessionId, evt) {
     for (const t of cache.graph.theorems) {
       if (t && t.id) theoremsById[t.id] = t;
     }
-    cache.graphIndex = { axiomsById, theoremsById };
+    const assumptionsById = Object.create(null);
+    for (const a of cache.graph.assumptions) {
+      if (a && a.id) assumptionsById[a.id] = a;
+    }
+    cache.graphIndex = { axiomsById, assumptionsById, theoremsById };
 
     // Refresh DAG snapshot from backend graph DB (includes node kinds like Hypothesis)
     void (async () => {
@@ -860,6 +865,7 @@ function renderGraph(graph, selectedId) {
   const NODE_H = 54;
 
   const axioms = Array.isArray(graph.axioms) ? graph.axioms : [];
+  const assumptions = Array.isArray(graph.assumptions) ? graph.assumptions : [];
   const theorems = Array.isArray(graph.theorems) ? graph.theorems : [];
 
   function clipSafeId(id) {
@@ -884,6 +890,16 @@ function renderGraph(graph, selectedId) {
 
   const nodes = [];
   for (let i = 0; i < axioms.length; i++) nodes.push({ id: axId(axioms[i], i), label: axioms[i], kind: "axiom" });
+  for (let i = 0; i < assumptions.length; i++) {
+    const a = assumptions[i] || {};
+    const id = String(a.id || "").trim() || `S${i + 1}`;
+    nodes.push({
+      id,
+      label: a.statement || a.id || id,
+      kind: "assumption",
+      motivation: a.motivation || "",
+    });
+  }
   for (const t of theorems) nodes.push({
     id: t.id || "",
     label: t.statement || t.id || "",
@@ -898,7 +914,10 @@ function renderGraph(graph, selectedId) {
   // layout
   const pos = Object.create(null);
   let y = 50;
-  for (const n of nodes.filter(n => n.kind === "axiom")) {
+  const sources = nodes
+    .filter(n => n.kind !== "theorem")
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  for (const n of sources) {
     pos[n.id] = { x: 40, y };
     y += 90;
   }
@@ -937,8 +956,9 @@ function renderGraph(graph, selectedId) {
   for (const n of nodes) {
     const p = pos[n.id];
     if (!p) continue;
-    const fill = n.kind === "axiom" ? "#eff6ff" : "#f0fdf4";
-    const stroke = n.kind === "axiom" ? "#bfdbfe" : "#bbf7d0";
+    const k = String(n.kind || "").toLowerCase();
+    const fill = k === "axiom" ? "#eff6ff" : (k === "assumption" ? "#fff7ed" : "#f0fdf4");
+    const stroke = k === "axiom" ? "#bfdbfe" : (k === "assumption" ? "#fdba74" : "#bbf7d0");
     const fullLabel = normalizeOneLine(n.label || n.id);
     const title = escapeHtml(shortLabel(fullLabel));
     const clipId = `clip_${clipSafeId(n.id)}`;
@@ -1110,9 +1130,10 @@ function renderGraphInspector(cache) {
 
   const graph = cache?.graph;
   const axioms = Array.isArray(graph?.axioms) ? graph.axioms : [];
+  const assumptions = Array.isArray(graph?.assumptions) ? graph.assumptions : [];
   const theorems = Array.isArray(graph?.theorems) ? graph.theorems : [];
 
-  if (!axioms.length && !theorems.length) {
+  if (!axioms.length && !assumptions.length && !theorems.length) {
     host.classList.add("empty-state");
     host.textContent = "Waiting for graph...";
     return;
@@ -1126,8 +1147,9 @@ function renderGraphInspector(cache) {
   }
 
   host.classList.remove("empty-state");
-  const idx = cache.graphIndex || { axiomsById: {}, theoremsById: {} };
+  const idx = cache.graphIndex || { axiomsById: {}, assumptionsById: {}, theoremsById: {} };
   const ax = idx.axiomsById ? idx.axiomsById[selectedId] : null;
+  const asm = idx.assumptionsById ? idx.assumptionsById[selectedId] : null;
   const th = idx.theoremsById ? idx.theoremsById[selectedId] : null;
 
   if (ax) {
@@ -1135,6 +1157,16 @@ function renderGraphInspector(cache) {
       <div class="title">Axiom · ${escapeHtml(selectedId)}</div>
       <div class="kv"><div class="pill">kind=axiom</div></div>
       <div class="mono">${escapeHtml(ax)}</div>
+    `;
+    return;
+  }
+
+  if (asm) {
+    host.innerHTML = `
+      <div class="title">Assumption · ${escapeHtml(selectedId)}</div>
+      <div class="kv"><div class="pill">kind=assumption</div></div>
+      <div class="mono">${escapeHtml(String(asm.statement || asm.id || ""))}</div>
+      ${asm.motivation ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-weight:800; color: var(--text-secondary);">Motivation</summary><div class="mono" style="margin-top:8px;">${escapeHtml(String(asm.motivation || ""))}</div></details>` : ""}
     `;
     return;
   }

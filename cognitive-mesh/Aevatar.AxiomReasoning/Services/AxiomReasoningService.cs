@@ -655,6 +655,28 @@ public sealed class AxiomReasoningService
                 }
             }
 
+            var assumptions = new List<AssumptionNode>();
+            if (root.TryGetProperty("assumptions", out var asm) && asm.ValueKind == JsonValueKind.Array)
+            {
+                var idx = 0;
+                foreach (var a in asm.EnumerateArray())
+                {
+                    idx++;
+                    if (a.ValueKind == JsonValueKind.Object)
+                    {
+                        var id = a.TryGetProperty("id", out var aid) && aid.ValueKind == JsonValueKind.String ? aid.GetString() ?? "" : "";
+                        var stmt = a.TryGetProperty("statement", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() ?? "" : "";
+                        var mot = a.TryGetProperty("motivation", out var mv) && mv.ValueKind == JsonValueKind.String ? mv.GetString() ?? "" : "";
+                        if (string.IsNullOrWhiteSpace(id)) id = $"S{idx}";
+                        assumptions.Add(new AssumptionNode { Id = id, Statement = stmt, Motivation = mot });
+                    }
+                    else if (a.ValueKind == JsonValueKind.String)
+                    {
+                        assumptions.Add(new AssumptionNode { Id = $"S{idx}", Statement = a.GetString() ?? "", Motivation = "" });
+                    }
+                }
+            }
+
             var theorems = new List<TheoremNode>();
             if (root.TryGetProperty("theorems", out var th) && th.ValueKind == JsonValueKind.Array)
             {
@@ -693,10 +715,11 @@ public sealed class AxiomReasoningService
             {
                 Iteration = iteration,
                 Axioms = axioms,
+                Assumptions = assumptions,
                 Theorems = theorems
             };
 
-            return axioms.Count > 0 || theorems.Count > 0;
+            return axioms.Count > 0 || assumptions.Count > 0 || theorems.Count > 0;
         }
         catch
         {
@@ -704,5 +727,3 @@ public sealed class AxiomReasoningService
         }
     }
 }
-
-

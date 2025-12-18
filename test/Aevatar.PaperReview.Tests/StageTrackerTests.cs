@@ -246,4 +246,3 @@ public class StageTrackerTests
         details.Candidates!.First(c => c.IsWinner).Id.ShouldBe("c1");
     }
 }
-

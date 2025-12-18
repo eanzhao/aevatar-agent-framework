@@ -138,6 +138,12 @@ steps:
           CRITICAL:
           - Extract axioms from raw_task. Each axiom is a line starting with "O1:" or "A1:" (or similar).
           - Do NOT invent axioms.
+          - Propose EXACTLY ONE additional assumption (S1) as a "quantum-structure setup".
+            - It does NOT have to be derivable from the axioms, but it should be plausible and NOT obviously inconsistent with them.
+            - It MUST be explicit and operational (a concrete structural choice), not a vague slogan.
+            - Typical good forms: "the global state is the ground state of a local Hamiltonian on G", "the bulk/boundary code is a tensor network of type X",
+              "local degrees of freedom are qudits of dimension d on vertices", "a gauge constraint / stabilizer-code structure is imposed", etc.
+            - This is NOT an axiom: record it under state.assumptions and cite it as [S1] when used.
           - Seed an initial hypothesis (current_hypothesis) that is plausibly derivable.
           - Return ONLY JSON (no markdown).
 
@@ -151,6 +157,9 @@ steps:
           Output JSON schema:
           {
             "axioms": [string],
+            "assumptions": [
+              { "id": string, "statement": string, "motivation": string }
+            ],
             "theorems": [
               { "id": string, "statement": string, "proof": string, "depends_on": [string] }
             ],
@@ -171,6 +180,7 @@ steps:
           - iteration MUST start at 0.
           - max_iterations MUST be set to max_depth={{max_depth}}.
           - seen_hypotheses MUST start empty.
+          - assumptions MUST contain exactly 1 item with id="S1".
 
           Language: {{language}}
         output: json
@@ -207,13 +217,13 @@ steps:
         type: llm_call
         prompt: |
           You are the coordinator.
-          Propose ONE new hypothesis (Hypothesis A) that is plausibly derivable from axioms + proved theorems.
+          Propose ONE new hypothesis (Hypothesis A) that is plausibly derivable from axioms + assumptions + proved theorems.
 
           HPA guidance (prompt-level only):
           - Rotation intuition: use iteration={{ state.iteration }} to diversify search and avoid repetition.
           - Factorization intuition: think in generators. In motivation, include a line like:
               generators: [O1, T3]
-            where IDs must come from the axioms list or Recent proved theorems list below.
+            where IDs must come from the axioms list, the assumptions list, or the Recent proved theorems list below.
           - Projection/gap intuition: if you suspect any missing lemma/assumption, write it as:
               gap δ: <minimal missing piece>
             and keep the hypothesis narrow (do not smuggle assumptions).
@@ -225,6 +235,9 @@ steps:
 
           Axioms:
           {{ state.axioms | json }}
+
+          Assumptions (extra premises, cite as [S1] when used):
+          {{ state.assumptions | json }}
 
           Recent proved theorems (id + statement only):
           {{ recent_theorems | json }}
@@ -289,7 +302,7 @@ steps:
         - Prefer minimal repairs in proposed_b (change as little as possible to reduce δ).
 
         Rules:
-        - Use ONLY the axioms and relevant facts provided. Do NOT invent axioms or facts.
+        - Use ONLY the axioms + assumptions + relevant facts provided. Do NOT invent axioms or facts.
         - Return ONLY valid JSON (no markdown).
         - If accept=true: provide a short proof (<= 10 steps), numbered, with citations [ID,...] per step.
         - If accept=false: gap_or_counterexample MUST be non-empty (the minimal δ or a counterexample).
@@ -298,6 +311,9 @@ steps:
 
         Axioms:
         {{ state.axioms | json }}
+
+        Assumptions:
+        {{ state.assumptions | json }}
 
         RelevantFacts (top-k theorems):
         {{ relevant_facts | json }}
@@ -382,6 +398,9 @@ steps:
 
               Axioms:
               {{ state.axioms | json }}
+
+              Assumptions:
+              {{ state.assumptions | json }}
 
               RelevantFacts:
               {{ relevant_facts | json }}
@@ -532,7 +551,7 @@ steps:
             - proposed_b should be minimal repairs that reduce δ (one small change: add one missing premise OR weaken the statement).
 
             Rules:
-            - Use ONLY the axioms and relevant facts provided. Do NOT invent axioms or facts.
+            - Use ONLY the axioms + assumptions + relevant facts provided. Do NOT invent axioms or facts.
             - Return ONLY valid JSON (no markdown).
             - If accept=true: provide a short proof SKETCH (<= 10 steps), numbered, with citations [ID,...] per step.
               It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
@@ -542,6 +561,9 @@ steps:
 
             Axioms:
             {{ state.axioms | json }}
+
+            Assumptions:
+            {{ state.assumptions | json }}
 
             RelevantFacts:
             {{ relevant_facts | json }}
@@ -613,9 +635,12 @@ steps:
                 Hypothesis A:
                 {{ candidate | json }}
 
-                Use only the following axioms and relevant facts.
+                Use only the following axioms, assumptions, and relevant facts.
                 Axioms:
                 {{ state.axioms | json }}
+
+                Assumptions:
+                {{ state.assumptions | json }}
 
                 RelevantFacts:
                 {{ relevant_facts | json }}
@@ -643,7 +668,7 @@ steps:
               type: llm_call
               prompt: |
                 You are a strict verifier.
-                Decide whether Hypothesis A is PROVED given axioms + relevant facts, based on the MAKER solution.
+                Decide whether Hypothesis A is PROVED given axioms + assumptions + relevant facts, based on the MAKER solution.
 
                 HPA judgement rules (prompt-level only):
                 - Proof success is a projection/readout: proved=true if the argument is internally consistent and stays within provided axioms/facts.
@@ -658,6 +683,9 @@ steps:
 
                 Axioms:
                 {{ state.axioms | json }}
+
+                Assumptions:
+                {{ state.assumptions | json }}
 
                 RelevantFacts:
                 {{ relevant_facts | json }}
@@ -793,6 +821,9 @@ steps:
                       Axioms:
                       {{ state.axioms | json }}
 
+                      Assumptions:
+                      {{ state.assumptions | json }}
+
                       RelevantFacts:
                       {{ relevant_facts | json }}
 
@@ -922,6 +953,9 @@ steps:
 
                   Axioms:
                   {{ state.axioms | json }}
+
+                  Assumptions:
+                  {{ state.assumptions | json }}
 
                   RelevantFacts:
                   {{ relevant_facts | json }}

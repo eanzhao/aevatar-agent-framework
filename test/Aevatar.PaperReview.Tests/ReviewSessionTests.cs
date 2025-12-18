@@ -266,4 +266,3 @@ public class ReviewEventTests
         stats.SubTaskCount.ShouldBe(4);
     }
 }
-
