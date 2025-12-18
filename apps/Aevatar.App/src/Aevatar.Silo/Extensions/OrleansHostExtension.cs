@@ -136,20 +136,24 @@ public static class OrleansHostExtension
     }
 
     /// <summary>
-    /// Configure streaming providers (Orleans Memory or Kafka)
+    /// Configure streaming providers based on Streaming.Provider setting
+    /// - "Kafka" → Use Orleans Kafka Stream for agent messaging
+    /// - "MemoryStream" or "OrleansStream" → Use Orleans Memory Stream (typically with MassTransit for external)
     /// </summary>
     private static void ConfigureStreaming(ISiloBuilder siloBuilder, IConfiguration configuration)
     {
         var streamConfig = configuration.GetSection("Streaming");
-        var provider = streamConfig.GetValue("Provider", "OrleansStream");
+        var provider = streamConfig.GetValue("Provider", "MemoryStream");
         var providerName = streamConfig.GetValue("ProviderName", "Default");
         
-        if (provider == "Kafka")
+        if (provider.Equals("Kafka", StringComparison.OrdinalIgnoreCase))
         {
+            Log.Information("📡 Streaming.Provider=Kafka → Configuring Orleans Kafka Stream");
             ConfigureKafkaStreaming(siloBuilder, configuration, providerName);
         }
         else
         {
+            Log.Information("📡 Streaming.Provider={Provider} → Configuring Orleans Memory Stream", provider);
             ConfigureOrleansMemoryStreaming(siloBuilder, configuration, providerName);
         }
     }

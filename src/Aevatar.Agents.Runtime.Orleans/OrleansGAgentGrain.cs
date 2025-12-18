@@ -128,6 +128,12 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     {
         _logger.LogInformation("Deactivating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
+        // Unregister grain key from MassTransit event handler
+        if (_grainState.State.AgentId != Guid.Empty)
+        {
+            OrleansMassTransitEventHandler.UnregisterGrainKey(_grainState.State.AgentId);
+        }
+
         // Deactivate Agent
         if (_agent != null)
         {
@@ -181,7 +187,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 // Use MassTransit Stream (Kafka/RabbitMQ)
                 // Agent Category 将在 Agent 初始化后更新
                 _myStream = _externalStreamProvider.GetStream(agentId, null);
-                _logger.LogInformation("📡 Using MassTransit Stream for Grain {GrainId}", this.GetGrainId());
+                _logger.LogInformation("📡 Using MassTransit Stream for Grain {GrainId}, AgentId={AgentId}", this.GetGrainId(), agentId);
             }
             else
             {
@@ -439,6 +445,10 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 _grainState.State.AgentId = agentId;
                 await _grainState.WriteStateAsync();
             }
+            
+            // Register grain key for MassTransit event routing
+            var grainKey = this.GetPrimaryKeyString();
+            OrleansMassTransitEventHandler.RegisterGrainKey(agentId, grainKey);
 
             _logger.LogInformation("✅ Agent initialized successfully in Grain {GrainId}, Type: {AgentType}", 
                 this.GetGrainId(), agentType.Name);

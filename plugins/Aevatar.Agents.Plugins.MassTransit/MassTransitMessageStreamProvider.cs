@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using MassTransit;
+using MassTransit.KafkaIntegration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Aevatar.Agents.Plugins.MassTransit;
@@ -15,6 +17,7 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
     private readonly IServiceProvider _serviceProvider;
     private readonly IOptions<MassTransitStreamOptions> _options;
     private readonly ConcurrentDictionary<Guid, MassTransitMessageStream> _streams = new();
+    private bool _isWarmedUp;
 
     public MassTransitMessageStreamProvider(
         IBus bus,
@@ -24,6 +27,47 @@ public class MassTransitMessageStreamProvider : IMessageStreamProvider
         _bus = bus;
         _serviceProvider = serviceProvider;
         _options = options;
+    }
+
+    /// <summary>
+    /// Warm up the Kafka producer connection to avoid cold-start latency.
+    /// Call this after MassTransit services are started to pre-establish connections.
+    /// </summary>
+    public async Task WarmupAsync(CancellationToken ct = default)
+    {
+        if (_isWarmedUp) return;
+        
+        var logger = _serviceProvider.GetService<ILogger<MassTransitMessageStreamProvider>>();
+        
+        try
+        {
+            if (_options.Value.TransportType == MassTransitTransportType.Kafka)
+            {
+                // Trigger producer metadata fetch by getting producer instance
+                var producerProvider = _serviceProvider.GetService<ITopicProducerProvider>();
+                if (producerProvider != null)
+                {
+                    var topic = _options.Value.TopicPrefix;
+                    var producer = producerProvider.GetProducer<Guid, ByteArrayMessage>(new Uri($"topic:{topic}"));
+                    
+                    // Send a warmup message (will be filtered out by consumers)
+                    var warmupMsg = new ByteArrayMessage
+                    {
+                        StreamId = Guid.Empty,  // Special marker for warmup
+                        Data = Array.Empty<byte>()
+                    };
+                    
+                    await producer.Produce(Guid.Empty, warmupMsg, ct);
+                    logger?.LogDebug("MassTransit Kafka producer warmed up successfully");
+                }
+            }
+            
+            _isWarmedUp = true;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to warm up MassTransit producer (non-fatal)");
+        }
     }
 
     /// <inheritdoc />

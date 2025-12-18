@@ -1,6 +1,7 @@
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Orleans;
+using Orleans.Concurrency;
 
 namespace Aevatar.Agents.Runtime.Orleans;
 
@@ -12,7 +13,9 @@ public interface IGAgentGrain : IGrainWithStringKey
 {
     /// <summary>
     /// 获取关联的 Agent ID
+    /// [AlwaysInterleave] allows this to execute even when Grain is processing other requests
     /// </summary>
+    [AlwaysInterleave]
     Task<Guid> GetIdAsync();
 
     /// <summary>
@@ -25,12 +28,16 @@ public interface IGAgentGrain : IGrainWithStringKey
 
     /// <summary>
     /// 检查 Agent 是否已初始化
+    /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
+    [AlwaysInterleave]
     Task<bool> IsInitializedAsync();
 
     /// <summary>
     /// 获取 Agent 描述
+    /// [AlwaysInterleave] allows this read-only operation to execute without waiting for other calls
     /// </summary>
+    [AlwaysInterleave]
     Task<string> GetDescriptionAsync();
 
     /// <summary>
@@ -60,12 +67,16 @@ public interface IGAgentGrain : IGrainWithStringKey
 
     /// <summary>
     /// 获取所有子 Agent ID
+    /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
+    [AlwaysInterleave]
     Task<IReadOnlyList<Guid>> GetChildrenAsync();
 
     /// <summary>
     /// 获取父 Agent ID
+    /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
+    [AlwaysInterleave]
     Task<Guid?> GetParentAsync();
 
     /// <summary>

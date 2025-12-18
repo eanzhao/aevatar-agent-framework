@@ -6,101 +6,80 @@ using Orleans.Streams;
 namespace Aevatar.Agents.Runtime.Orleans.Stream;
 
 /// <summary>
-/// Orleans 运行时的 Message Stream 实现
-/// 基于 Orleans Stream 系统，支持订阅管理
+/// Orleans Stream implementation of IMessageStream.
+/// Wraps Orleans IAsyncStream&lt;byte[]&gt; to provide IMessageStream interface.
 /// </summary>
 public class OrleansMessageStream : IMessageStream
 {
-    private readonly IAsyncStream<byte[]> _stream;  // 使用 byte[] 避免序列化问题
+    private readonly IAsyncStream<byte[]> _stream;
     private readonly ConcurrentDictionary<Guid, OrleansMessageStreamSubscription> _subscriptions = new();
     
     public Guid StreamId { get; }
-    
+
     public OrleansMessageStream(Guid streamId, IAsyncStream<byte[]> stream)
     {
         StreamId = streamId;
-        _stream = stream;
+        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
     }
-    
-    /// <summary>
-    /// 发布消息到 Stream
-    /// </summary>
+
+    /// <inheritdoc />
     public async Task ProduceAsync<T>(T message, CancellationToken ct = default) where T : IMessage
     {
+        byte[] bytes;
+        
         if (message is EventEnvelope envelope)
         {
-            // 序列化 EventEnvelope 为 byte[]
-            using var stream = new MemoryStream();
-            using var output = new CodedOutputStream(stream);
-            envelope.WriteTo(output);
-            output.Flush();
-            
-            await _stream.OnNextAsync(stream.ToArray());
+            // Serialize EventEnvelope to byte[]
+            bytes = envelope.ToByteArray();
         }
         else
         {
-            throw new InvalidOperationException($"OrleansMessageStream only supports EventEnvelope, got {typeof(T).Name}");
+            // For other message types, pack into EventEnvelope
+            var eventEnvelope = new EventEnvelope
+            {
+                Id = Guid.NewGuid().ToString(),
+                Payload = Google.Protobuf.WellKnownTypes.Any.Pack(message),
+                Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
+                CorrelationId = Guid.NewGuid().ToString()
+            };
+            bytes = eventEnvelope.ToByteArray();
         }
+        
+        await _stream.OnNextAsync(bytes);
     }
-    
-    /// <summary>
-    /// 订阅 Stream 消息
-    /// </summary>
-    public async Task<IMessageStreamSubscription> SubscribeAsync<T>(
+
+    /// <inheritdoc />
+    public Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler, 
         CancellationToken ct = default) where T : IMessage
     {
-        return await SubscribeAsync(handler, filter: null, ct);
+        return SubscribeAsync(handler, filter: null, ct);
     }
     
-    /// <summary>
-    /// 订阅 Stream 消息（带过滤器）
-    /// </summary>
+    /// <inheritdoc />
     public async Task<IMessageStreamSubscription> SubscribeAsync<T>(
         Func<T, Task> handler,
         Func<T, bool>? filter,
         CancellationToken ct = default) where T : IMessage
     {
-        if (typeof(T) != typeof(EventEnvelope))
-        {
-            throw new InvalidOperationException(
-                $"OrleansMessageStream only supports EventEnvelope subscription, got {typeof(T).Name}");
-        }
-        
-        // 创建带过滤器的 Observer
-        var observer = new OrleansStreamObserver(async bytes =>
-        {
-            try
-            {
-                // 反序列化 EventEnvelope
-                var envelope = EventEnvelope.Parser.ParseFrom(bytes);
-                var typedMessage = (T)(object)envelope;
-                
-                // 应用过滤器
-                if (filter != null && !filter(typedMessage))
-                {
-                    return;
-                }
-                
-                await handler(typedMessage);
-            }
-            catch (Exception)
-            {
-                // 忽略反序列化错误
-            }
-        });
-        
-        // 订阅 Stream 并获取句柄
-        var streamHandle = await _stream.SubscribeAsync(observer);
-        
-        // 创建订阅包装器
         var subscriptionId = Guid.NewGuid();
+        
+        // Create Orleans stream observer
+        var observer = new OrleansStreamObserver<T>(
+            subscriptionId,
+            StreamId,
+            handler,
+            filter,
+            () => _subscriptions.TryRemove(subscriptionId, out _));
+        
+        // Subscribe to Orleans stream
+        var streamSubscriptionHandle = await _stream.SubscribeAsync(observer);
+        
+        // Create subscription wrapper
         var subscription = new OrleansMessageStreamSubscription(
             subscriptionId,
             StreamId,
-            streamHandle,
-            observer,
-            _stream,
+            streamSubscriptionHandle,
             () => _subscriptions.TryRemove(subscriptionId, out _));
         
         _subscriptions.TryAdd(subscriptionId, subscription);
@@ -109,30 +88,100 @@ public class OrleansMessageStream : IMessageStream
 }
 
 /// <summary>
-/// Orleans Stream Observer
+/// Orleans stream observer that handles deserialization and filtering
 /// </summary>
-internal class OrleansStreamObserver : IAsyncObserver<byte[]>
+internal class OrleansStreamObserver<T> : IAsyncObserver<byte[]> where T : IMessage
 {
-    private readonly Func<byte[], Task> _handler;
-    
-    public OrleansStreamObserver(Func<byte[], Task> handler)
+    private readonly Guid _subscriptionId;
+    private readonly Guid _streamId;
+    private readonly Func<T, Task> _handler;
+    private readonly Func<T, bool>? _filter;
+    private readonly Action _onDisposed;
+    private bool _isActive = true;
+
+    public OrleansStreamObserver(
+        Guid subscriptionId,
+        Guid streamId,
+        Func<T, Task> handler,
+        Func<T, bool>? filter,
+        Action onDisposed)
     {
-        _handler = handler;
+        _subscriptionId = subscriptionId;
+        _streamId = streamId;
+        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        _filter = filter;
+        _onDisposed = onDisposed;
     }
-    
+
     public async Task OnNextAsync(byte[] item, StreamSequenceToken? token = null)
     {
-        await _handler(item);
+        if (!_isActive)
+        {
+            return;
+        }
+
+        try
+        {
+            // Deserialize EventEnvelope
+            var envelope = EventEnvelope.Parser.ParseFrom(item);
+            
+            // Handle EventEnvelope directly
+            if (typeof(T) == typeof(EventEnvelope))
+            {
+                var typedMessage = (T)(object)envelope;
+                if (_filter != null && !_filter(typedMessage))
+                {
+                    return;
+                }
+                await _handler(typedMessage);
+                return;
+            }
+            
+            // Extract payload from EventEnvelope
+            if (envelope.Payload != null)
+            {
+                try
+                {
+                    // Try to unpack the payload
+                    var unpackMethod = typeof(Google.Protobuf.WellKnownTypes.Any)
+                        .GetMethod("Unpack", Type.EmptyTypes)
+                        ?.MakeGenericMethod(typeof(T));
+
+                    if (unpackMethod != null)
+                    {
+                        var message = (T)unpackMethod.Invoke(envelope.Payload, null)!;
+                        if (_filter != null && !_filter(message))
+                        {
+                            return;
+                        }
+                        await _handler(message);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Ignore type mismatch - this observer might not be interested in this message type
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't throw - Orleans stream will handle retries
+            // TODO: Add logging if needed
+            System.Diagnostics.Debug.WriteLine($"Error in OrleansStreamObserver: {ex.Message}");
+        }
     }
-    
+
     public Task OnCompletedAsync()
     {
+        _isActive = false;
+        _onDisposed?.Invoke();
         return Task.CompletedTask;
     }
-    
+
     public Task OnErrorAsync(Exception ex)
     {
+        _isActive = false;
+        _onDisposed?.Invoke();
         return Task.CompletedTask;
     }
 }
-
