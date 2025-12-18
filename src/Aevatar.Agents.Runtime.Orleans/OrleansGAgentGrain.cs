@@ -370,8 +370,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public Task<bool> InitializeAgentAsync(string agentTypeName)
     {
-        // Grain ID format: "AgentTypeShortName:AgentId" (e.g., "UserQuotaGAgent:abc123-...")
-        // Extract Agent ID from Grain's PrimaryKey
+        // Grain Key format:
+        // - Preferred: "AgentId" (string guid)  ✅ consistent with P2P routing (targetAgentId only)
+        // - Backward compatible: "AgentTypeShortName:AgentId"
+        //
+        // Always extract AgentId from the Grain key for consistency.
         var grainKey = this.GetPrimaryKeyString();
         var agentId = ExtractAgentIdFromGrainKey(grainKey);
         return InitializeAgentInternalAsync(agentTypeName, agentId, persistState: true);
@@ -701,12 +704,16 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public Task<Guid> GetIdAsync()
     {
-        var keyString = this.GetPrimaryKeyString();
-        if (Guid.TryParse(keyString, out var guid))
+        var grainKey = this.GetPrimaryKeyString();
+        try
         {
-            return Task.FromResult(guid);
+            return Task.FromResult(ExtractAgentIdFromGrainKey(grainKey));
         }
-        return Task.FromResult(Guid.Empty);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse AgentId from Grain key '{GrainKey}'", grainKey);
+            return Task.FromResult(Guid.Empty);
+        }
     }
 
     public async Task AddChildAsync(Guid childId)
@@ -888,5 +895,21 @@ internal class GrainEventPublisher : IEventPublisher
         }
 
         return envelope.Id;
+    }
+
+    private static string BuildTargetGrainId(string currentGrainId, Guid targetAgentId)
+    {
+        // Preferred Grain key format: "{AgentTypeShortName}:{AgentId}"
+        // If current grain uses the typed format, default P2P routing to the same agent type.
+        // Cross-type routing is intentionally not supported by this overload because target type is unknown.
+        var colonIndex = currentGrainId.LastIndexOf(':');
+        if (colonIndex > 0)
+        {
+            var typePrefix = currentGrainId.Substring(0, colonIndex);
+            return $"{typePrefix}:{targetAgentId}";
+        }
+
+        // Backward compatible: untyped grain key format "{AgentId}"
+        return targetAgentId.ToString();
     }
 }
