@@ -8,9 +8,11 @@ using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Agents.Runtime.Orleans;
 using Aevatar.Agents.Runtime.Orleans.Extensions;
+using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.App.Agents.Agents;
 using Business.Server;
 using Google.Protobuf.WellKnownTypes;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -184,16 +186,61 @@ class Program
         services.AddSingleton<IGrainFactory>(client);
         services.AddSingleton<IClusterClient>(client);
 
+        // Configure Orleans Stream options
         services.Configure<Aevatar.Agents.StreamingOptions>(options =>
         {
             options.StreamProviderName = "Default";
             options.DefaultStreamNamespace = "AevatarAgents";
         });
 
+        // Configure MessageStreamProviderOptions based on provider argument
+        services.Configure<Aevatar.Agents.Abstractions.MessageStreamProviderOptions>(options =>
+        {
+            options.Provider = provider; // "MassTransit" or "Orleans"
+            options.Runtime["Orleans"] = provider;
+        });
+
+        // If using MassTransit, configure it
+        if (provider == "MassTransit")
+        {
+            Console.WriteLine("   • Configuring MassTransit Kafka Stream Client...");
+            
+            // Build in-memory configuration matching Silo's appsettings.json
+            var configDict = new Dictionary<string, string?>
+            {
+                {"MassTransit:Stream:TopicPrefix", "agent-events"},
+                {"MassTransit:Stream:TransportType", "Kafka"},
+                {"MassTransit:Stream:RuntimeName", "Orleans"},
+                {"MassTransit:Stream:Kafka:BootstrapServers", "localhost:9092"},
+                {"MassTransit:Stream:Kafka:ConsumerGroupId", "aevatar-benchmark-group"}
+            };
+            
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(configDict)
+                .Build();
+            
+            // Add MassTransit Stream Plugin
+            services.AddMassTransitStreamPlugin(configuration);
+        }
+
         // Use new AddAevatarAgentSystem with Orleans runtime
         services.AddAevatarAgentSystem(builder => builder.UseOrleansRuntime());
 
         var serviceProvider = services.BuildServiceProvider();
+        
+        // IMPORTANT: Start MassTransit hosted services (Bus, Riders)
+        if (provider == "MassTransit")
+        {
+            Console.WriteLine("   • Starting MassTransit services...");
+            var hostedServices = serviceProvider.GetServices<IHostedService>();
+            foreach (var hostedService in hostedServices)
+            {
+                await hostedService.StartAsync(default);
+            }
+            await Task.Delay(2000); // Give Kafka time to connect
+            Console.WriteLine("   ✅ MassTransit services started");
+        }
+        
         return serviceProvider.GetRequiredService<IGAgentActorManager>();
     }
 
