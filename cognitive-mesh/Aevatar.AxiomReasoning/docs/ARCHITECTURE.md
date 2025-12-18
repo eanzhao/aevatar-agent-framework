@@ -18,6 +18,8 @@ Aevatar.AxiomReasoning/
 ├── Services/
 │   ├── AxiomReasoningService.cs
 │   ├── AxiomReasoningEventBridge.cs
+│   ├── LlmTranscriptOptions.cs     # 本地 LLM 对话记录配置
+│   ├── LlmTranscriptRecorder.cs    # JSONL + review.md 落盘（便于复盘/AI 分析）
 │   ├── IGraphStore.cs
 │   ├── AxiomDagService.cs          # InMemory graph store（默认）
 │   ├── SupabaseGraphStore.cs       # Supabase graph store（可选落盘）
@@ -34,6 +36,7 @@ Aevatar.AxiomReasoning/
 2. 启动推理 → `POST /api/sessions/{id}/run`
 3. 后端调用 `CognitiveStrategy.ExecuteAsync`，使用 session 选择的 `CognitiveWorkflow`
 4. 进度回调 `ReasoningProgress` 经 `AxiomReasoningEventBridge` 映射成 SSE 事件推给前端
+   - 同时 `LlmTranscriptRecorder` 会把 llm_call/vote 的对话过程落到 `output/{sessionId}/llm/`
 5. `update_state` 完成时：`AxiomReasoningEventBridge` 解析 `state`，发 `GraphEvent`，并写入 `IGraphStore`（InMemory 或 Supabase）
 6. 完成后落盘 artifacts：`state.json / theorems.json`
 7. （可选）完成后写入 Supabase：将 `state.json / theorems.json` 作为 JSON 字符串持久化到 Postgres
@@ -47,7 +50,7 @@ Aevatar.AxiomReasoning/
 
 ### UI 参数（Create Session）
 
-- `workflow`: 选择 Cognitive DSL workflow（例：`axiom_theorem_loop`）
+- `workflow`: 选择 Cognitive DSL workflow（默认：`hypothesis_promotion_loop`）
 - `language`: 生成内容语言（例：`English` / `Chinese`；不影响 JSON keys）
 - `maxDurationMinutes / maxLlmCalls / maxTokens`: 长跑预算
 - `continueOnFailure`: `proved=false` 时是否继续探索
@@ -62,7 +65,7 @@ Aevatar.AxiomReasoning/
 - `AxiomReasoningService.BuildReasoningOptions` 将 `language / continue_on_failure` 放入 `ReasoningOptions.Context`
 - 当 `hpaEnabled=true` 时，会额外把 `hpa_*` 与 gate 阈值写入 `ReasoningOptions.Context`
 - `CognitiveStrategy` 会把 Context 变量注入 workflow 初始变量（`initialVariables`）
-- `axiom_theorem_loop.yaml` 声明了 `language` 输入，并在 prompt 中引用
+- `hypothesis_promotion_loop.yaml` 声明了 `language` 输入，并在 prompt 中引用
 
 > NOTE: DAG 增量更新依赖 workflow 产生 `update_state`（LLM 回写 state）的 Completed 事件；  
 > HPL/HPA 类 workflow 通常用 `transform/hpa` 直接修改 state，默认不会触发 DAG 增量更新（可通过后续增强在结束时补一次 snapshot）。
@@ -108,6 +111,11 @@ Aevatar.AxiomReasoning/
 - `GET /api/sessions/{id}/dag`：返回节点/边（含 kind 标注）
 - `GET /api/sessions/{id}/dag/{nodeId}`：返回节点推理解释（deps/missing/topo/cycle/provable）
 - `GET /api/graphstore/diagnostics`：查看当前 GraphStore 后端（InMemory/Supabase）与表/缓存状态
+
+### LLM Transcript (local output)
+
+- `GET /api/sessions/{id}/llm/review`：下载 `review.md`（人类可读）
+- `GET /api/sessions/{id}/llm/transcript`：下载 `transcript.jsonl`（机器可读 / 可喂给 AI）
 
 ## Supabase 持久化（JSON）
 

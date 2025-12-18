@@ -363,8 +363,124 @@ public partial class JsonArrayOutputParser : IOutputParser<List<object>>
         }
         catch (JsonException)
         {
+            // 解析失败：尝试修复常见的 LLM “伪 JSON”问题（尤其是 LaTeX 反斜杠）
+            // NOTE:
+            // - json_array 常用于 proposed_b / candidate pools；这些字符串经常包含 "\mathcal{H}" 之类的内容
+            // - 若不修复，会导致 strict_parse=true 时直接 redflag-parse-null，流程在 conditional 内“看似无关地”失败
+            var repaired = TryRepairJson(json);
+            if (repaired != null)
+            {
+                try
+                {
+                    var array2 = JsonSerializer.Deserialize<JsonElement>(repaired, Options);
+                    if (array2.ValueKind == JsonValueKind.Array)
+                    {
+                        return array2.EnumerateArray()
+                            .Select(ConvertJsonElement)
+                            .ToList();
+                    }
+                    return [ConvertJsonElement(array2)];
+                }
+                catch (JsonException)
+                {
+                    // fall through
+                }
+            }
             return null;
         }
+    }
+
+    /// <summary>
+    /// Best-effort JSON repair for LLM outputs (array/object).
+    /// Handles common issues:
+    /// - Unescaped backslashes inside JSON string literals (e.g. LaTeX "\mathcal{H}")
+    /// - Raw newline/tab characters inside JSON string literals
+    /// </summary>
+    private static string? TryRepairJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        var trimmed = json.Trim();
+        if (!((trimmed.StartsWith('[') && trimmed.EndsWith(']')) ||
+              (trimmed.StartsWith('{') && trimmed.EndsWith('}'))))
+        {
+            return null;
+        }
+
+        var sb = new System.Text.StringBuilder(trimmed.Length + 32);
+        var inString = false;
+        var escaped = false;
+
+        static bool IsValidJsonEscape(char c)
+            => c is '"' or '\\' or '/' or 'b' or 'f' or 'n' or 'r' or 't' or 'u';
+
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var c = trimmed[i];
+
+            if (!inString)
+            {
+                if (c == '"')
+                {
+                    inString = true;
+                    escaped = false;
+                }
+                sb.Append(c);
+                continue;
+            }
+
+            // In string
+            if (escaped)
+            {
+                sb.Append(c);
+                escaped = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = false;
+                sb.Append(c);
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                var next = i + 1 < trimmed.Length ? trimmed[i + 1] : '\0';
+                if (IsValidJsonEscape(next))
+                {
+                    sb.Append(c);
+                    escaped = true;
+                }
+                else
+                {
+                    // Invalid escape like "\m" → repair as "\\m"
+                    sb.Append("\\\\");
+                }
+                continue;
+            }
+
+            // Raw control chars in string
+            if (c == '\n')
+            {
+                sb.Append("\\n");
+                continue;
+            }
+            if (c == '\r')
+            {
+                sb.Append("\\r");
+                continue;
+            }
+            if (c == '\t')
+            {
+                sb.Append("\\t");
+                continue;
+            }
+
+            sb.Append(c);
+        }
+
+        return sb.ToString();
     }
     
     /// <summary>

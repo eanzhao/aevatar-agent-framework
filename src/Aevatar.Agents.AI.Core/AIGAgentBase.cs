@@ -30,7 +30,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
     protected IAevatarLLMProvider? _llmProvider;
     protected bool _isInitialized;
-    protected ILLMProviderFactory LLMProviderFactory { get; set; }
+    protected ILLMProviderFactory? LLMProviderFactory { get; set; }
     protected IAIAgentEmbeddingFactory? EmbeddingFactory { get; set; }
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private LLMProviderConfig? _activeProviderConfig;
@@ -150,7 +150,8 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
 
         await InitializeStateAndConfigAsync(configAI, cancellationToken);
 
-        _activeProviderConfig = LLMProviderFactory.GetProviderConfig(providerName);
+        var providerFactory = RequireLLMProviderFactory();
+        _activeProviderConfig = providerFactory.GetProviderConfig(providerName);
 
         // Create LLM Provider from factory using provider name
         _llmProvider = await CreateLLMProviderFromFactoryAsync(providerName, cancellationToken);
@@ -206,15 +207,8 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         string providerName,
         CancellationToken cancellationToken)
     {
-        if (LLMProviderFactory == null)
-        {
-            throw new InvalidOperationException(
-                "ILLMProviderFactory is not available. " +
-                "Use the constructor that accepts ILLMProviderFactory or override this method.");
-        }
-
         // Get provider from factory
-        return await LLMProviderFactory.GetProviderAsync(providerName, cancellationToken);
+        return await RequireLLMProviderFactory().GetProviderAsync(providerName, cancellationToken);
     }
 
     /// <summary>
@@ -225,15 +219,16 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         LLMProviderConfig providerConfig,
         CancellationToken cancellationToken)
     {
-        if (LLMProviderFactory == null)
-        {
-            throw new InvalidOperationException(
-                "ILLMProviderFactory is not available. " +
-                "Use the constructor that accepts ILLMProviderFactory or override this method.");
-        }
-
         // Create provider from config using factory
-        return LLMProviderFactory.CreateProvider(providerConfig, cancellationToken);
+        return RequireLLMProviderFactory().CreateProvider(providerConfig, cancellationToken);
+    }
+
+    protected ILLMProviderFactory RequireLLMProviderFactory()
+    {
+        return LLMProviderFactory ?? throw new InvalidOperationException(
+            "ILLMProviderFactory is not available. " +
+            "Ensure DI is configured and AIAgentLLMProviderFactoryInjector runs after activation, " +
+            "or override provider creation in a derived agent.");
     }
 
     #endregion

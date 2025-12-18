@@ -228,10 +228,11 @@ public sealed class AxiomReasoningEventBridge
         if (string.IsNullOrWhiteSpace(assistantResponse)) return false;
         if (!string.Equals(stepType, "llm_call", StringComparison.OrdinalIgnoreCase)) return false;
 
-        // update_state is the only step guaranteed to return full state JSON (axioms + theorems).
-        var sid = stepId ?? "";
-        if (!(sid.EndsWith("update_state", StringComparison.OrdinalIgnoreCase) || sid.Contains(".update_state", StringComparison.OrdinalIgnoreCase)))
-            return false;
+        // Graph snapshot policy:
+        // - Historically we only extracted graph from "update_state" (axiom_theorem_loop).
+        // - HPL/HPA workflows evolve `state` via deterministic transform/hpa, so the earliest full snapshot
+        //   is usually `init_state` (or any llm_call that returns {axioms:[..], theorems:[..]} / {state:{..}}).
+        // - Therefore: try best-effort extraction from ANY llm_call output that contains axioms/theorems.
 
         static IEnumerable<string> EnumerateJsonCandidates(string raw)
         {

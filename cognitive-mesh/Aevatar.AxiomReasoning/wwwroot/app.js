@@ -96,10 +96,16 @@ async function loadWorkflowsIntoSelect() {
     const workflows = Array.isArray(list) ? list : [];
     sel.innerHTML = workflows.map((w) => `<option value="${escapeAttr(w)}">${escapeHtml(w)}</option>`).join("");
     if (!workflows.length) {
-      sel.innerHTML = `<option value="axiom_theorem_loop">axiom_theorem_loop</option>`;
+      sel.innerHTML = `<option value="hypothesis_promotion_loop">hypothesis_promotion_loop</option>`;
+    }
+
+    // Prefer HPL as default when present (unless user already has persisted selection).
+    const hasHpl = workflows.includes("hypothesis_promotion_loop");
+    if (hasHpl && (!sel.value || !workflows.includes(sel.value))) {
+      sel.value = "hypothesis_promotion_loop";
     }
   } catch {
-    sel.innerHTML = `<option value="axiom_theorem_loop">axiom_theorem_loop</option>`;
+    sel.innerHTML = `<option value="hypothesis_promotion_loop">hypothesis_promotion_loop</option>`;
   }
 }
 
@@ -297,14 +303,22 @@ function scheduleRenderWorkers(cache) {
 function setDownloads(sessionId, enabled) {
   const aState = $("dl-state");
   const aSteps = $("dl-steps");
-  aState.href = `/api/sessions/${sessionId}/artifacts/state`;
-  aSteps.href = `/api/sessions/${sessionId}/artifacts/theorems`;
+  const aReview = $("dl-review");
+  const aTranscript = $("dl-transcript");
+  if (aState) aState.href = `/api/sessions/${sessionId}/artifacts/state`;
+  if (aSteps) aSteps.href = `/api/sessions/${sessionId}/artifacts/theorems`;
+  if (aReview) aReview.href = `/api/sessions/${sessionId}/llm/review`;
+  if (aTranscript) aTranscript.href = `/api/sessions/${sessionId}/llm/transcript`;
   if (enabled) {
-    aState.classList.remove("disabled");
-    aSteps.classList.remove("disabled");
+    if (aState) aState.classList.remove("disabled");
+    if (aSteps) aSteps.classList.remove("disabled");
+    if (aReview) aReview.classList.remove("disabled");
+    if (aTranscript) aTranscript.classList.remove("disabled");
   } else {
-    aState.classList.add("disabled");
-    aSteps.classList.add("disabled");
+    if (aState) aState.classList.add("disabled");
+    if (aSteps) aSteps.classList.add("disabled");
+    if (aReview) aReview.classList.add("disabled");
+    if (aTranscript) aTranscript.classList.add("disabled");
   }
 }
 
@@ -781,7 +795,13 @@ function applyEvent(sessionId, evt) {
       } catch {
         cache.dag = null;
       }
-      if (cache.dag) renderDagGraph(cache.dag, cache.graphSelectedId);
+      // If DAG store is still empty (race / backend not yet upserted), fall back to GraphEvent snapshot
+      // so the UI never shows an empty dependency graph when we already have axioms/theorems.
+      const hasDag =
+        !!cache.dag &&
+        ((Array.isArray(cache.dag.nodes) && cache.dag.nodes.length) ||
+          (Array.isArray(cache.dag.edges) && cache.dag.edges.length));
+      if (hasDag) renderDagGraph(cache.dag, cache.graphSelectedId);
       else renderGraph(cache.graph, cache.graphSelectedId);
       renderGraphInspector(cache);
     })();
@@ -825,6 +845,8 @@ function applyEvent(sessionId, evt) {
     renderResultBox(msg, false);
     $("btn-stop").disabled = true;
     $("btn-run").disabled = false;
+    // Even on failure/stop, transcript/review may exist.
+    setDownloads(sessionId, true);
     return;
   }
 }
@@ -833,8 +855,26 @@ function renderGraph(graph, selectedId) {
   const viewport = $("graph-viewport");
   if (!viewport) return;
 
+  // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
+  const NODE_W = 220;
+  const NODE_H = 54;
+
   const axioms = Array.isArray(graph.axioms) ? graph.axioms : [];
   const theorems = Array.isArray(graph.theorems) ? graph.theorems : [];
+
+  function clipSafeId(id) {
+    return String(id || "").replace(/[^\w\-]/g, "_");
+  }
+
+  function normalizeOneLine(s) {
+    return String(s || "").replace(/\s+/g, " ").trim();
+  }
+
+  function shortLabel(s, maxChars = 34) {
+    const t = normalizeOneLine(s);
+    if (t.length <= maxChars) return t;
+    return t.slice(0, Math.max(1, maxChars - 1)) + "…";
+  }
 
   function axId(line, idx) {
     // NOTE: Regex literal must use single backslashes (\w, \s). Double backslashes would match literal "\w".
@@ -866,7 +906,7 @@ function renderGraph(graph, selectedId) {
   const laneY = Object.create(null);
   for (let i = 0; i < ths.length; i++) {
     const id = ths[i].id;
-    const m = id.match(/^T(\\d+)$/i);
+    const m = id.match(/^T(\d+)$/i);
     const layer = m ? parseInt(m[1], 10) : (i + 1);
     if (!laneY[layer]) laneY[layer] = 50;
     pos[id] = { x: 320 + (layer - 1) * 280, y: laneY[layer] };
@@ -883,12 +923,13 @@ function renderGraph(graph, selectedId) {
     }
   }
 
+  const defs = [];
   const parts = [];
   for (const e of edges) {
     const a = pos[e.from];
     const b = pos[e.to];
     if (!a || !b) continue;
-    const x1 = a.x + 220, y1 = a.y;
+    const x1 = a.x + NODE_W, y1 = a.y;
     const x2 = b.x, y2 = b.y;
     const mx = (x1 + x2) / 2;
     parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
@@ -898,17 +939,23 @@ function renderGraph(graph, selectedId) {
     if (!p) continue;
     const fill = n.kind === "axiom" ? "#eff6ff" : "#f0fdf4";
     const stroke = n.kind === "axiom" ? "#bfdbfe" : "#bbf7d0";
-    const title = escapeHtml(String(n.label || "").replace(/\\s+/g, " ").slice(0, 72));
+    const fullLabel = normalizeOneLine(n.label || n.id);
+    const title = escapeHtml(shortLabel(fullLabel));
+    const clipId = `clip_${clipSafeId(n.id)}`;
     const sel = selectedId && selectedId === n.id;
+
+    // Clip to node rect so label never overflows into neighbors.
+    defs.push(`<clipPath id="${clipId}"><rect x="${p.x}" y="${p.y - 22}" width="${NODE_W}" height="${NODE_H}" rx="10" ry="10"></rect></clipPath>`);
     parts.push(`
-      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}">
-        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="220" height="54" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect>
+      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}" clip-path="url(#${clipId})">
+        <title>${escapeHtml(fullLabel)}</title>
+        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="${NODE_W}" height="${NODE_H}" fill="${fill}" stroke="${stroke}" stroke-width="2"></rect>
         <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
         <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
       </g>
     `);
   }
-  viewport.innerHTML = parts.join("");
+  viewport.innerHTML = `${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${parts.join("")}`;
 }
 
 function renderDagGraph(dag, selectedId) {
@@ -917,6 +964,24 @@ function renderDagGraph(dag, selectedId) {
   if (!dag || !Array.isArray(dag.nodes) || !Array.isArray(dag.edges)) {
     viewport.innerHTML = "";
     return;
+  }
+
+  // SVG nodes have fixed size; text must be clipped/truncated to avoid overlap.
+  const NODE_W = 220;
+  const NODE_H = 54;
+
+  function clipSafeId(id) {
+    return String(id || "").replace(/[^\w\-]/g, "_");
+  }
+
+  function normalizeOneLine(s) {
+    return String(s || "").replace(/\s+/g, " ").trim();
+  }
+
+  function shortLabel(s, maxChars = 34) {
+    const t = normalizeOneLine(s);
+    if (t.length <= maxChars) return t;
+    return t.slice(0, Math.max(1, maxChars - 1)) + "…";
   }
 
   const nodes = dag.nodes.map((n) => ({
@@ -956,11 +1021,12 @@ function renderDagGraph(dag, selectedId) {
     .map((e) => ({ from: e.fromId, to: e.toId }))
     .filter((e) => e.from && e.to && pos[e.from] && pos[e.to]);
 
+  const defs = [];
   const parts = [];
   for (const e of edges) {
     const a = pos[e.from];
     const b = pos[e.to];
-    const x1 = a.x + 220, y1 = a.y;
+    const x1 = a.x + NODE_W, y1 = a.y;
     const x2 = b.x, y2 = b.y;
     const mx = (x1 + x2) / 2;
     parts.push(`<path d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" stroke="#94a3b8" stroke-width="2" fill="none" />`);
@@ -979,18 +1045,24 @@ function renderDagGraph(dag, selectedId) {
     const p = pos[n.id];
     if (!p) continue;
     const c = colors(n.kind);
-    const title = escapeHtml(String(n.label || n.id).replace(/\s+/g, " ").slice(0, 72));
+    const fullLabel = normalizeOneLine(n.label || n.id);
+    const title = escapeHtml(shortLabel(fullLabel));
+    const clipId = `clip_${clipSafeId(n.id)}`;
     const sel = selectedId && selectedId === n.id;
+
+    // Clip to node rect so label never overflows into neighbors.
+    defs.push(`<clipPath id="${clipId}"><rect x="${p.x}" y="${p.y - 22}" width="${NODE_W}" height="${NODE_H}" rx="10" ry="10"></rect></clipPath>`);
     parts.push(`
-      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}">
-        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="220" height="54" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"></rect>
+      <g class="graph-node ${sel ? "selected" : ""}" data-node-id="${escapeAttr(n.id)}" data-node-kind="${escapeAttr(n.kind)}" clip-path="url(#${clipId})">
+        <title>${escapeHtml(fullLabel)}</title>
+        <rect x="${p.x}" y="${p.y - 22}" rx="10" ry="10" width="${NODE_W}" height="${NODE_H}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"></rect>
         <text x="${p.x + 10}" y="${p.y - 2}" font-family="ui-monospace, Menlo, Consolas" font-size="12" fill="#0f172a">${escapeHtml(n.id)}</text>
         <text x="${p.x + 10}" y="${p.y + 16}" font-family="ui-sans-serif, system-ui" font-size="12" fill="#334155">${title}</text>
       </g>
     `);
   }
 
-  viewport.innerHTML = parts.join("");
+  viewport.innerHTML = `${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${parts.join("")}`;
 }
 
 function renderGraphInspector(cache) {
@@ -1150,7 +1222,7 @@ async function createSession() {
   const payload = {
     axioms: $("input-axioms").value.trim(),
     goal: $("input-goal").value.trim(),
-    workflow: $("input-workflow") ? $("input-workflow").value : "axiom_theorem_loop",
+    workflow: $("input-workflow") ? $("input-workflow").value : "hypothesis_promotion_loop",
     language: $("input-language") ? $("input-language").value : "English",
     k: parseInt($("input-k").value, 10) || 3,
     maxRounds: parseInt($("input-max-rounds").value, 10) || 10,

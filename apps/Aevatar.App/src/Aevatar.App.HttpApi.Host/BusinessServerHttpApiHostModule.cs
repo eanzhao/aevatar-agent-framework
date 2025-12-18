@@ -125,8 +125,7 @@ public class AppHttpApiHostModule : AbpModule
                 });
                 options.DocInclusionPredicate((docName, description) => true);
                 options.CustomSchemaIds(type => type.FullName);
-            },
-            configuration["AuthServer:SwaggerClientId"]);
+            });
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)

@@ -4,6 +4,7 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
+using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -31,10 +32,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
     private readonly OutputParserFactory _parserFactory = new();
 
     public CognitiveWorkerGAgent()
-    {
-    }
-
-    public CognitiveWorkerGAgent(Guid id) : base(id)
     {
     }
 
@@ -150,6 +147,7 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         var prompt = parameters.GetValueOrDefault("prompt")?.ToString() ?? "";
         var systemPrompt = parameters.GetValueOrDefault("system")?.ToString();
         var outputType = parameters.GetValueOrDefault("output")?.ToString() ?? "text";
+        var strictParse = ResolveBool(parameters.GetValueOrDefault("strict_parse"), true);
 
         // Guardrails (configurable via DSL)
         var maxLength = ResolveInt(parameters.GetValueOrDefault("max_length"), 102400);
@@ -246,6 +244,12 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                         sb.Append(content);
                         finalContent = sb.ToString();
 
+                        // Red-flag：长度（尽早停止，避免输出爆炸导致内存/渲染被打穿）
+                        if (finalContent.Length > maxLength)
+                        {
+                            return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
+                        }
+
                         // Streaming report (Success=false indicates intermediate state)
                         // Throttle: publish first/last OR every N "tokens" OR time-based heartbeat.
                         var now = DateTimeOffset.UtcNow;
@@ -268,7 +272,10 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                                 Success = false,
                                 Result = finalContent,
                                 Error = "",
-                                TokensUsed = tokenIndex, // 简单用 token 序号
+                                // IMPORTANT:
+                                // - 这是 streaming 中间态事件，Coordinator 只用于 UI 展示
+                                // - TokensUsed/LlmCalls 不应累计（否则会被反复加总，导致统计爆炸）
+                                TokensUsed = 0,
                                 LlmCalls = 0,
                                 DurationMs = 0
                             }, EventDirection.Up);
@@ -307,20 +314,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             {
                 return new PrimitiveResult { Success = false, Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s" };
             }
-
-            // Red-flag：长度
-            if (finalContent.Length > maxLength)
-            {
-                return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
-            }
-
-            // 解析输出
-            var parser = _parserFactory.Create(outputType);
-            parsedValue = parser.Parse(finalContent);
-            if (parsedValue == null)
-            {
-                return new PrimitiveResult { Success = false, Error = "redflag-parse-null" };
-            }
         }
         else
         {
@@ -336,17 +329,33 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             finalContent = response.Content ?? string.Empty;
             totalPromptTokens = response.Usage?.PromptTokens ?? 0;
             totalCompletionTokens = response.Usage?.CompletionTokens ?? 0;
+        }
 
-            if (finalContent.Length > maxLength)
-            {
-                return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
-            }
+        // Red-flag：长度（non-streaming 兜底）
+        if (finalContent.Length > maxLength)
+        {
+            return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
+        }
 
+        // 解析输出（与 Coordinator 语义对齐：text 不解析；非 text 可 strict/loose）
+        if (string.Equals(outputType, "text", StringComparison.OrdinalIgnoreCase))
+        {
+            parsedValue = finalContent;
+        }
+        else
+        {
             var parser = _parserFactory.Create(outputType);
             parsedValue = parser.Parse(finalContent);
             if (parsedValue == null)
             {
-                return new PrimitiveResult { Success = false, Error = "redflag-parse-null" };
+                if (!strictParse)
+                {
+                    parsedValue = finalContent;
+                }
+                else
+                {
+                    return new PrimitiveResult { Success = false, Error = "redflag-parse-null" };
+                }
             }
         }
 
@@ -379,6 +388,22 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         };
     }
 
+    private static bool ResolveBool(object? value, bool defaultValue)
+    {
+        if (value == null) return defaultValue;
+        return value switch
+        {
+            bool b => b,
+            int i => i != 0,
+            long l => l != 0,
+            double d => Math.Abs(d) > double.Epsilon,
+            float f => Math.Abs(f) > float.Epsilon,
+            decimal m => m != 0,
+            string s when bool.TryParse(s, out var p) => p,
+            _ => defaultValue
+        };
+    }
+
     // ============================================================
     //  辅助方法
     // ============================================================
@@ -393,41 +418,7 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
 
         foreach (var (key, value) in protoMap)
         {
-            result[key] = ConvertFromProtoValue(value);
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// 将 Protobuf Value 转换为 CLR 对象
-    /// </summary>
-    private static object ConvertFromProtoValue(Value value)
-    {
-        return value.KindCase switch
-        {
-            Value.KindOneofCase.NullValue => null!,
-            Value.KindOneofCase.NumberValue => value.NumberValue,
-            Value.KindOneofCase.StringValue => value.StringValue,
-            Value.KindOneofCase.BoolValue => value.BoolValue,
-            Value.KindOneofCase.StructValue => ConvertFromProtoStruct(value.StructValue),
-            Value.KindOneofCase.ListValue => value.ListValue.Values
-                .Select(ConvertFromProtoValue)
-                .ToList(),
-            _ => value.ToString()
-        };
-    }
-
-    /// <summary>
-    /// 将 Protobuf Struct 转换为字典
-    /// </summary>
-    private static Dictionary<string, object> ConvertFromProtoStruct(Struct protoStruct)
-    {
-        var result = new Dictionary<string, object>();
-
-        foreach (var (key, value) in protoStruct.Fields)
-        {
-            result[key] = ConvertFromProtoValue(value);
+            result[key] = ProtoValueConverter.FromProto(value);
         }
 
         return result;

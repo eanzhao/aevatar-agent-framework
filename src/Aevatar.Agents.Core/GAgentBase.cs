@@ -476,7 +476,8 @@ public abstract class GAgentBase : IGAgent
                          // Log why message is null if we expected it to work
                          if (!handler.IsAllEventHandler)
                          {
-                            var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {envelope.Payload.TypeUrl}";
+                            var actualTypeUrl = envelope.Payload?.TypeUrl ?? "null";
+                            var msg = $"Skipping handler {handler.Method.Name} because message could not be unpacked (Type mismatch or Unpack failure). Expected: {handler.ParameterType.FullName}, Actual URL: {actualTypeUrl}";
                             Logger.LogDebug(msg);
                          }
                     }

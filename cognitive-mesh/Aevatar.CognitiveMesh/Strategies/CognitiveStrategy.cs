@@ -710,6 +710,13 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         // axiom_theorem_loop.yaml
         "prove_with_workers",
 
+        // hypothesis_promotion_loop*.yaml
+        // NOTE:
+        // - fan_out 会展开成 "{id}[i]"，若不加入这里，UI 会把所有并行子任务都归到 coordinator，
+        //   进而造成 streaming token 交错时“每个 token 都新增一条 history 记录”的错觉。
+        "refute_scout",
+        "prove_or_refute_with_workers",
+
         // maker-v2.yaml / maker.yaml
         "execute_subtasks",
         "solve_subtasks",

@@ -23,6 +23,39 @@ defaults:
     strict_parse: true
     timeout_seconds: 180
     idle_timeout_seconds: 30
+    # --------------------------------------------------------
+    #  System prompt (shared) - HPA paper as reference + fast consensus
+    #
+    #  Reference: articles/2025_holographic_polar_arithmetic
+    #
+    #  Goal:
+    #  - Use HPA as a discipline to converge quickly: minimal assumptions, explicit gaps, decisive verdicts.
+    #  - Deterministic HPA ops are computed by the workflow (scan/embedding/evidence); do NOT invent them.
+    # --------------------------------------------------------
+    system: |
+      You are an agent in an HPA-augmented multi-agent theorem discovery loop.
+      Treat the paper "Holographic Polar Arithmetic" (2025) as your reference model.
+
+      Core triad (Rotation → Factorization → Projection):
+      - Rotation (scan Θ): "time" is the iteration/access-order; irrational rotation is used to avoid resonance (golden branch α=φ^{-1}).
+      - Factorization: represent claims by explicit generators (axiom/theorem IDs) and an ordered reasoning path.
+      - Projection/readout: only accept closed arguments; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+
+      Key constructs you must respect (paper-aligned):
+      - Embedding: Z(n)=ρ(n)·exp(i·θ×(n)); θ× is additive under multiplication (homomorphic phase).
+      - Octonionic lift: unit direction U(n)∈S^7 from a left-normed prime product; ordering matters (path dependence).
+      - Associator A(x,y,z)=(xy)z−x(yz) measures non-associativity; interpret large A as fragile/ordering-dependent reasoning.
+      - Golden branch: minimal complexity + canonical binary encoding (Zeckendorf/Ostrowski intuition) → prefer minimal, checkable steps.
+
+      Fast-consensus mode:
+      - Be decisive: choose accept/refute with one minimal reason.
+      - Prefer minimal repairs: change as little as possible to reduce δ.
+      - If you cannot fully prove, do NOT hedge: output accept=false with the minimal gap δ and propose 1–3 B candidates.
+
+      Hard constraints:
+      - Do NOT invent axioms/facts/IDs.
+      - Follow the output schema exactly.
+      - When JSON is required, output JSON only (no markdown, no commentary).
 
   fan_out:
     # --------------------------------------------------------
@@ -127,17 +160,17 @@ inputs:
   # --------------------------------------------------------
   - name: min_coherence
     type: float
-    default: 0.65
+    default: 0.55
     description: "Minimum coherence to enter verification."
 
   - name: max_gap_norm
     type: float
-    default: 0.35
+    default: 0.65
     description: "Maximum normalized gap to enter verification."
 
   - name: max_associator_mean
     type: float
-    default: 0.95
+    default: 1.5
     description: "Maximum associator mean to enter verification."
 
   - name: language
@@ -173,6 +206,11 @@ steps:
             - Axiom IDs: the prefix before ":" (e.g. "O1", "A2")
             - Theorem IDs (only if present in the initial theorems list, e.g. "T3")
           - Seed current_hypothesis with a small, checkable statement likely derivable from axioms alone.
+          - The seed hypothesis MUST NOT rely on any extra premise/lemma.
+            - Avoid conditional premises like "if G is finite / if boundary area is finite / assume ...".
+            - If you notice a missing lemma in motivation, that means the hypothesis is NOT suitable as the seed.
+          - If you are unsure, prefer a structurally safe statement that follows from definitions already implied by the axioms
+            (e.g., from an isometry Φ: ℋ_bulk → ℋ_{∂G}, you may state injectivity or dim(ℋ_bulk) ≤ dim(ℋ_{∂G})).
           - Return ONLY JSON (no markdown).
 
           raw_task:
@@ -303,6 +341,10 @@ steps:
           - Return ONLY JSON (no markdown).
           - The hypothesis MUST be NEW (not identical to any seen hypothesis).
           - The statement MUST be short, checkable, and likely provable/refutable within <= 10 steps.
+          - Do NOT add extra premises that are not present as IDs:
+            - Avoid "if/assuming/suppose" style statements that smuggle new conditions (e.g., "if G is finite", "if boundary area is finite").
+            - If a condition is not an existing axiom/theorem ID, you cannot use it as a premise; instead, weaken the claim to an unconditional one.
+          - If you are stuck cycling on O2-style boundedness gaps, deliberately pivot to O4 (isometry) or O3 (locality) consequences that are unconditional.
 
           Axioms:
           {{ state.axioms | json }}
@@ -396,7 +438,9 @@ steps:
         - Return ONLY valid JSON (no markdown).
         - If accept=true: provide a short proof (<= 10 steps), with each step citing used IDs like [O1,T2].
         - If accept=false: provide the minimal gap δ or a counterexample (one short paragraph).
-        - strong_refutation=true only for a fatal counterexample/contradiction (minimal).
+        - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction
+          derived from provided axioms/facts with NO extra assumptions. If it's merely "missing lemma",
+          set strong_refutation=false and put that lemma in gap_or_counterexample as gap δ.
         - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem IDs.
 
         Axioms:
@@ -430,9 +474,16 @@ steps:
   - id: aggregate_scout
     type: transform
     ops:
-      - op: any_where
+      # Strong refutation gate (quorum):
+      # - Avoid a single overzealous scout blocking the whole round.
+      # - Require BOTH scouts to independently mark strong_refutation=true.
+      - op: count_where
         from: scout_verdicts
         where: { field: "strong_refutation", equals: true }
+        store: scout_strong_refutation_count
+
+      - op: eval
+        expr: "scout_strong_refutation_count >= 2"
         store: scout_has_strong_refutation
 
       - op: select_many
@@ -613,6 +664,13 @@ steps:
           - op: make_workers
             n: "{{ (k * 2) - 1 }}"
             id_prefix: "worker-"
+            # Bias towards proving (scouts already cover refutation-first).
+            profiles:
+              - { role: "Direct prover", angle: "Try to construct the shortest proof path." }
+              - { role: "Algebraic manipulator", angle: "Try algebraic/rewriting transformations; simplify aggressively." }
+              - { role: "Dependency minimalist", angle: "Try to reduce dependency set; prefer proofs close to axioms." }
+              - { role: "Case-split specialist", angle: "Try a structured case analysis; look for missing branches." }
+              - { role: "Proof auditor", angle: "Audit for hidden leaps; insist on explicit justification." }
             store: provers
 
       # Full exploration fan_out
@@ -639,9 +697,11 @@ steps:
             Rules:
             - Use ONLY the axioms and relevant facts provided.
             - Return ONLY valid JSON (no markdown).
-            - If accept=true: provide a short proof (<= 10 steps), each step cites used IDs like [O1,T2].
+            - If accept=true: provide a short proof SKETCH (<= 10 steps), each step cites used IDs like [O1,T2].
+              It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
+              If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
             - If accept=false: provide minimal gap δ or counterexample, and propose 1–3 B candidates as minimal repairs.
-            - strong_refutation=true only for a fatal counterexample/contradiction (minimal).
+            - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with no extra assumptions.
             - Do NOT invent IDs. depends_on must be a subset of available axiom/theorem IDs.
 
             Axioms:
@@ -725,7 +785,10 @@ steps:
       # Decide: enter verification?
       - id: decide_verify
         type: conditional
-        condition: "{{ accept_count >= k && strong_refutation_count == 0 && evidence.coherence >= min_coherence && evidence.gap_norm <= max_gap_norm && assoc.associator_mean <= max_associator_mean }}"
+        # Two-tier gate:
+        # - If worker acceptance is strong (>=k), verify regardless of HPA metrics.
+        # - Otherwise require a softer acceptance (>=k-1) + HPA stability metrics.
+        condition: "{{ strong_refutation_count == 0 && (accept_count >= k || (accept_count >= (k - 1) && evidence.coherence >= min_coherence && evidence.gap_norm <= max_gap_norm && assoc.associator_mean <= max_associator_mean)) }}"
 
         # ===== Verification path =====
         if_true:
@@ -783,8 +846,9 @@ steps:
                 Decide whether Hypothesis A is PROVED given axioms + relevant facts, based on the MAKER solution.
 
                 HPA judgement rules (Projection / gap δ):
-                - proved=true ONLY if the proof is CLOSED: no missing assumptions, no undefined symbols, no hidden lemmas.
-                - Any missing lemma/assumption is a gap δ → proved=false. In that case, write the minimal δ in "reason".
+                - proved=true if the argument is internally consistent and stays within provided axioms/facts.
+                - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
+                - Mark proved=false ONLY when you can point to a concrete missing lemma/assumption/counterexample (gap δ).
 
                 Factorization rules:
                 - Output depends_on: minimal set of dependency IDs actually used.

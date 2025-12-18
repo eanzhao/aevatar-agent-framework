@@ -22,19 +22,25 @@ public sealed class AxiomReasoningService
     private readonly ConcurrentDictionary<string, AxiomSession> _sessions = new();
     private readonly CognitiveStrategy _cognitiveStrategy;
     private readonly AxiomReasoningEventBridge _eventBridge;
+    private readonly LlmTranscriptRecorder _transcriptRecorder;
     private readonly SupabaseService _supabaseService;
+    private readonly IGraphStore _graphStore;
     private readonly ILogger<AxiomReasoningService> _logger;
     private readonly string _outputBasePath;
 
     public AxiomReasoningService(
         CognitiveStrategy cognitiveStrategy,
         AxiomReasoningEventBridge eventBridge,
+        LlmTranscriptRecorder transcriptRecorder,
         SupabaseService supabaseService,
+        IGraphStore graphStore,
         ILoggerFactory loggerFactory)
     {
         _cognitiveStrategy = cognitiveStrategy;
         _eventBridge = eventBridge;
+        _transcriptRecorder = transcriptRecorder;
         _supabaseService = supabaseService;
+        _graphStore = graphStore;
         _logger = loggerFactory.CreateLogger<AxiomReasoningService>();
 
         _outputBasePath = Path.Combine(Directory.GetCurrentDirectory(), "output");
@@ -143,9 +149,10 @@ public sealed class AxiomReasoningService
                 HpaSeed = req.HpaSeed ?? 0,
                 HpaRadialWBase = req.HpaRadialWBase is >= 0 ? req.HpaRadialWBase.Value : 0.12,
                 HpaRadialWScale = req.HpaRadialWScale is >= 0 ? req.HpaRadialWScale.Value : 0.38,
-                MinCoherence = req.MinCoherence is >= 0 and <= 1 ? req.MinCoherence.Value : 0.65,
-                MaxGapNorm = req.MaxGapNorm is > 0 ? req.MaxGapNorm.Value : 0.35,
-                MaxAssociatorMean = req.MaxAssociatorMean is > 0 ? req.MaxAssociatorMean.Value : 0.95
+                // HPA gates (exploration-friendly defaults; can be tightened later)
+                MinCoherence = req.MinCoherence is >= 0 and <= 1 ? req.MinCoherence.Value : 0.55,
+                MaxGapNorm = req.MaxGapNorm is > 0 ? req.MaxGapNorm.Value : 0.65,
+                MaxAssociatorMean = req.MaxAssociatorMean is > 0 ? req.MaxAssociatorMean.Value : 1.5
             };
 
             _sessions[session.Id] = session;
@@ -178,7 +185,7 @@ public sealed class AxiomReasoningService
 
     private string ResolveWorkflow(string? requested)
     {
-        var wf = string.IsNullOrWhiteSpace(requested) ? "axiom_theorem_loop" : requested.Trim();
+        var wf = string.IsNullOrWhiteSpace(requested) ? "hypothesis_promotion_loop" : requested.Trim();
 
         try
         {
@@ -186,7 +193,7 @@ public sealed class AxiomReasoningService
             if (available.Any(x => string.Equals(x, wf, StringComparison.OrdinalIgnoreCase)))
                 return wf;
 
-            _logger.LogWarning("Unknown workflow '{Workflow}', falling back to axiom_theorem_loop. Available=[{List}]",
+            _logger.LogWarning("Unknown workflow '{Workflow}', falling back to hypothesis_promotion_loop. Available=[{List}]",
                 wf, string.Join(", ", available));
         }
         catch (Exception ex)
@@ -195,7 +202,7 @@ public sealed class AxiomReasoningService
             _logger.LogWarning(ex, "Failed to list workflows; using default workflow");
         }
 
-        return "axiom_theorem_loop";
+        return "hypothesis_promotion_loop";
     }
 
     private static string NormalizeLanguage(string? requested)
@@ -239,6 +246,9 @@ public sealed class AxiomReasoningService
         session.Status = AxiomSessionStatus.Running;
         session.OutputDir = Path.Combine(_outputBasePath, session.Id);
         Directory.CreateDirectory(session.OutputDir);
+
+        // Initialize local transcript outputs (best-effort)
+        _transcriptRecorder.OnSessionStarted(session);
 
         _ = ExecuteAsync(session, session.CancellationTokenSource.Token);
         await Task.CompletedTask;
@@ -284,7 +294,21 @@ public sealed class AxiomReasoningService
         {
             var task = BuildTask(session);
             var options = BuildReasoningOptions(session);
-            var progress = new Progress<ReasoningProgress>(p => _eventBridge.HandleProgress(session, p));
+            var progress = new Progress<ReasoningProgress>(p =>
+            {
+                // IMPORTANT:
+                // - Progress<T> 回调抛异常会直接杀进程
+                // - event bridge / transcript recorder 都必须是 best-effort
+                try
+                {
+                    _eventBridge.HandleProgress(session, p);
+                    _transcriptRecorder.HandleProgress(session, p);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[{Id}] Progress pipeline crashed (ignored)", session.Id);
+                }
+            });
 
             _logger.LogInformation("[{Id}] Starting workflow={Workflow}, K={K}, N={N}, max_depth={Depth}",
                 session.Id, options.CognitiveWorkflow, options.CognitiveConsensusK, options.CognitiveWorkerCount, options.CognitiveMaxDepth);
@@ -316,6 +340,23 @@ public sealed class AxiomReasoningService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[{Id}] Failed to save artifacts (ignored)", session.Id);
+            }
+
+            // Dependency Graph (DAG) persistence + SSE snapshot (best-effort)
+            // WHY:
+            // - HPL/HPA workflows don't necessarily emit a dedicated "update_state" llm_call step.
+            // - We still want the UI dependency graph to be non-empty at least at completion.
+            try
+            {
+                if (TryBuildGraphFromStateJson(stateJson, out var graph))
+                {
+                    await _graphStore.UpsertFromGraphEventAsync(session.Id, graph, CancellationToken.None);
+                    session.EventChannel.Writer.TryWrite(graph with { SessionId = session.Id });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Id}] Failed to update dependency graph (ignored)", session.Id);
             }
 
             // Supabase persistence (best-effort)
@@ -379,6 +420,8 @@ public sealed class AxiomReasoningService
         }
         finally
         {
+            // Always flush local transcript before ending the session.
+            _transcriptRecorder.OnSessionCompleted(session);
             session.EventChannel.Writer.TryComplete();
         }
     }
@@ -391,7 +434,7 @@ public sealed class AxiomReasoningService
         var focus = string.IsNullOrWhiteSpace(session.Goal) ? "" : session.Goal.Trim();
 
         return $"""
-               AXIOM THEOREM LOOP
+               HYPOTHESIS PROMOTION LOOP (HPL)
 
                AXIOMS (one per line, authoritative):
                {session.AxiomsText}
@@ -509,6 +552,26 @@ public sealed class AxiomReasoningService
         return true;
     }
 
+    public bool TryReadOutputFileBytes(string sessionId, string category, string fileName, out byte[] bytes)
+    {
+        bytes = [];
+        if (!_sessions.ContainsKey(sessionId)) return false;
+        if (string.IsNullOrWhiteSpace(category) || string.IsNullOrWhiteSpace(fileName)) return false;
+
+        try
+        {
+            var path = Path.Combine(_outputBasePath, sessionId, category, fileName);
+            if (!File.Exists(path)) return false;
+            bytes = File.ReadAllBytes(path);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[{Id}] Failed to read output file: {Category}/{File}", sessionId, category, fileName);
+            return false;
+        }
+    }
+
     public async IAsyncEnumerable<AxiomEvent> GetEventStreamAsync(
         string sessionId,
         [EnumeratorCancellation] CancellationToken ct)
@@ -569,6 +632,75 @@ public sealed class AxiomReasoningService
         catch
         {
             return null;
+        }
+    }
+
+    private static bool TryBuildGraphFromStateJson(string? stateJson, out GraphEvent graph)
+    {
+        graph = new GraphEvent();
+        if (string.IsNullOrWhiteSpace(stateJson)) return false;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(stateJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            var root = doc.RootElement;
+
+            var axioms = new List<string>();
+            if (root.TryGetProperty("axioms", out var ax) && ax.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var a in ax.EnumerateArray())
+                {
+                    if (a.ValueKind == JsonValueKind.String) axioms.Add(a.GetString() ?? "");
+                }
+            }
+
+            var theorems = new List<TheoremNode>();
+            if (root.TryGetProperty("theorems", out var th) && th.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var t in th.EnumerateArray())
+                {
+                    if (t.ValueKind != JsonValueKind.Object) continue;
+                    var id = t.TryGetProperty("id", out var tid) && tid.ValueKind == JsonValueKind.String ? tid.GetString() ?? "" : "";
+                    var stmt = t.TryGetProperty("statement", out var st) && st.ValueKind == JsonValueKind.String ? st.GetString() ?? "" : "";
+                    var proof = t.TryGetProperty("proof", out var pf) && pf.ValueKind == JsonValueKind.String ? pf.GetString() ?? "" : "";
+
+                    var deps = new List<string>();
+                    if (t.TryGetProperty("depends_on", out var dp) && dp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var d in dp.EnumerateArray())
+                        {
+                            if (d.ValueKind == JsonValueKind.String) deps.Add(d.GetString() ?? "");
+                        }
+                    }
+                    else if (t.TryGetProperty("dependsOn", out var dp2) && dp2.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var d in dp2.EnumerateArray())
+                        {
+                            if (d.ValueKind == JsonValueKind.String) deps.Add(d.GetString() ?? "");
+                        }
+                    }
+
+                    theorems.Add(new TheoremNode { Id = id, Statement = stmt, Proof = proof, DependsOn = deps });
+                }
+            }
+
+            var iteration = root.TryGetProperty("iteration", out var it) && it.ValueKind == JsonValueKind.Number
+                ? it.GetInt32()
+                : theorems.Count;
+
+            graph = new GraphEvent
+            {
+                Iteration = iteration,
+                Axioms = axioms,
+                Theorems = theorems
+            };
+
+            return axioms.Count > 0 || theorems.Count > 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

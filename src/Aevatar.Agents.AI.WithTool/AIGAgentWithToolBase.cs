@@ -298,12 +298,12 @@ public abstract class AIGAgentWithToolBase<TState> : AIGAgentBase<TState>
 
         public LoggerAdapter(ILogger inner) => _inner = inner;
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        public IDisposable? BeginScope<TLogState>(TLogState state) where TLogState : notnull
             => _inner.BeginScope(state);
 
         public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TLogState>(LogLevel logLevel, EventId eventId, TLogState state, Exception? exception, Func<TLogState, Exception?, string> formatter)
             => _inner.Log(logLevel, eventId, state, exception, formatter);
     }
 

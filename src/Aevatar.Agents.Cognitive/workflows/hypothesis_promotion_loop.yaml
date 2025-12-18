@@ -33,12 +33,22 @@ defaults:
     # --------------------------------------------------------
     system: |
       You are an agent in a multi-agent theorem discovery loop.
-      Use Holographic Polar Arithmetic (HPA) as your reasoning foundation:
-      - Rotation (Θ scan): time = iteration index; diversify search and avoid repetition (golden/irrational-step intuition).
-      - Factorization: treat axioms/theorems as generators; make dependencies explicit by citing IDs like [O1,T3] in each proof step.
-      - Projection (readout): accept only closed proofs; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
-      - Minimal complexity: prefer short, checkable statements and minimal repairs (change as little as possible to reduce δ).
-      - Path dependence: reasoning order matters; prefer arguments that are robust (low ordering fragility).
+      Treat the paper "Holographic Polar Arithmetic" (2025) as a reference model for how to reason and converge.
+
+      Core triad (Rotation → Factorization → Projection):
+      - Rotation (scan Θ): time is iteration/access-order; use irrational rotation intuition (golden α=φ^{-1}) to avoid repetition/resonance.
+      - Factorization: treat axioms/theorems as generators; in proofs, cite IDs like [O1,T3] per step.
+      - Projection/readout: accept only closed proofs; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+
+      Paper-aligned discipline:
+      - Embedding view: Z=ρ·exp(i·θ×) separates magnitude ρ from multiplicative phase θ× (do not conflate with scan time).
+      - Non-associativity intuition: ordering/path matters (associator signal) → prefer robust, low-fragility arguments.
+      - Minimal complexity: prefer short, checkable statements and minimal repairs (Zeckendorf/Ostrowski intuition).
+
+      Fast-consensus mode:
+      - Be decisive: pick accept/refute and give one minimal reason.
+      - If not provable now, output accept=false with the minimal gap δ and propose 1–3 minimal repairs.
+
       Hard constraints:
       - Do NOT invent axioms or facts.
       - Follow the output schema exactly.
@@ -283,7 +293,8 @@ steps:
         - Return ONLY valid JSON (no markdown).
         - If accept=true: provide a short proof (<= 10 steps), numbered, with citations [ID,...] per step.
         - If accept=false: gap_or_counterexample MUST be non-empty (the minimal δ or a counterexample).
-        - strong_refutation=true only for a fatal flaw/counterexample that should block verification.
+        - strong_refutation=true ONLY if you can state an explicit fatal counterexample/contradiction from provided axioms/facts
+          with NO extra assumptions. If it's merely "missing lemma", set strong_refutation=false and describe it as gap δ.
 
         Axioms:
         {{ state.axioms | json }}
@@ -314,9 +325,14 @@ steps:
   - id: aggregate_scout
     type: transform
     ops:
-      - op: any_where
+      # Strong refutation gate (quorum): require BOTH scouts
+      - op: count_where
         from: scout_verdicts
         where: { field: "strong_refutation", equals: true }
+        store: scout_strong_refutation_count
+
+      - op: eval
+        expr: "scout_strong_refutation_count >= 2"
         store: scout_has_strong_refutation
 
       - op: select_many
@@ -395,10 +411,11 @@ steps:
           prompt: |
             Choose the EASIEST next hypothesis from the candidate pool.
 
-            Rules:
+            HPA selection rules (prompt-level only):
             - Return ONLY JSON.
             - You MUST choose ONE statement by copying it EXACTLY from the pool.
-            - Prefer: fewer dependencies, closer to axioms/relevant facts, shortest proof path.
+            - Prefer the candidate that most directly reduces the scout-found gap δ, with minimal change/complexity.
+            - Prefer shortest proof path and least fragile reasoning (avoid relying on many hidden steps).
 
             B pool:
             {{ b_pool | json }}
@@ -484,6 +501,13 @@ steps:
           - op: make_workers
             n: "{{ (k * 2) - 1 }}"
             id_prefix: "worker-"
+            # Bias towards proving (scouts already cover refutation-first).
+            profiles:
+              - { role: "Direct prover", angle: "Try to construct the shortest proof path." }
+              - { role: "Algebraic manipulator", angle: "Try algebraic/rewriting transformations; simplify aggressively." }
+              - { role: "Dependency minimalist", angle: "Try to reduce dependency set; prefer proofs close to axioms." }
+              - { role: "Case-split specialist", angle: "Try a structured case analysis; look for missing branches." }
+              - { role: "Proof auditor", angle: "Audit for hidden leaps; insist on explicit justification." }
             store: provers
 
       # Full exploration fan_out
@@ -510,9 +534,11 @@ steps:
             Rules:
             - Use ONLY the axioms and relevant facts provided. Do NOT invent axioms or facts.
             - Return ONLY valid JSON (no markdown).
-            - If accept=true: provide a short proof (<= 10 steps), numbered, with citations [ID,...] per step.
+            - If accept=true: provide a short proof SKETCH (<= 10 steps), numbered, with citations [ID,...] per step.
+              It can be high-level, but MUST stay within provided axioms/facts and MUST NOT introduce new assumptions.
+              If you're uncertain but see no refutation and the sketch is plausible, you may still set accept=true with lower confidence.
             - If accept=false: provide gap_or_counterexample (minimal δ or counterexample) AND propose 1–3 alternative hypotheses B.
-            - strong_refutation=true indicates a fatal flaw/counterexample.
+            - strong_refutation=true ONLY for an explicit fatal counterexample/contradiction with NO extra assumptions.
 
             Axioms:
             {{ state.axioms | json }}
@@ -567,7 +593,8 @@ steps:
       # Decide: enter verification?
       - id: decide_verify
         type: conditional
-        condition: "{{ accept_count >= k && strong_refutation_count == 0 }}"
+        # Lower the gate a bit: workers are heuristic, verification is where we pay the full cost.
+        condition: "{{ accept_count >= (k - 1) && strong_refutation_count == 0 }}"
 
         # ===== Verification path =====
         if_true:
@@ -577,6 +604,11 @@ steps:
             params:
               task: |
                 Provide a structured argumentation for the following hypothesis.
+
+                Use HPA as a thinking foundation (prompt-level only):
+                - Factorization mindset: treat axioms/theorems as generators; keep dependencies explicit.
+                - Projection/readout mindset: if any hidden lemma/assumption is required, declare GAP δ and STOP.
+                - Keep the reasoning short and checkable; prefer minimal complexity.
 
                 Hypothesis A:
                 {{ candidate | json }}
@@ -613,10 +645,16 @@ steps:
                 You are a strict verifier.
                 Decide whether Hypothesis A is PROVED given axioms + relevant facts, based on the MAKER solution.
 
+                HPA judgement rules (prompt-level only):
+                - Proof success is a projection/readout: proved=true if the argument is internally consistent and stays within provided axioms/facts.
+                - Be pragmatic: allow standard inference steps (algebra/rewriting) as long as they do NOT introduce new assumptions.
+                - Mark proved=false ONLY when you can point to a concrete missing lemma/assumption/counterexample (gap δ).
+                - Fill depends_on as the minimal set of IDs actually used (generators).
+
                 Rules:
                 - Return ONLY JSON.
                 - proved=true only if no missing assumptions.
-                - If proved=false, explain the minimal fatal gap.
+                - If proved=false, explain the minimal fatal gap δ.
 
                 Axioms:
                 {{ state.axioms | json }}
@@ -740,11 +778,17 @@ steps:
                   - id: propose_fallback_b_verify_failed
                     type: llm_call
                     prompt: |
-                      Verification failed. Propose 3-5 alternative hypotheses (B candidates).
+                      Verification failed.
+                      In HPA terms: the argument did not project to a closed proof; there is a gap δ described in the judgement.
+
+                      Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
+                      In each motivation, include:
+                      - generators: [IDs you rely on]
+                      - repair: how it addresses the gap δ in the judgement (add one missing premise OR weaken the statement)
 
                       Rules:
                       - Return ONLY JSON array.
-                      - Do NOT invent new axioms.
+                      - Do NOT invent new axioms or facts.
 
                       Axioms:
                       {{ state.axioms | json }}
@@ -775,9 +819,10 @@ steps:
                   prompt: |
                     Choose the EASIEST next hypothesis from the candidate pool.
 
-                    Rules:
+                    HPA selection rules (prompt-level only):
                     - Return ONLY JSON.
                     - You MUST choose ONE statement by copying it EXACTLY from the pool.
+                    - Prefer the candidate that most directly closes the judgement gap δ with minimal complexity.
 
                     B pool:
                     {{ b_pool | json }}
@@ -864,11 +909,16 @@ steps:
                 type: llm_call
                 prompt: |
                   Workers did not sufficiently accept Hypothesis A (or strong refutation exists).
-                  Propose 3-5 alternative hypotheses (B candidates).
+                  In HPA terms: the readout did not stabilize; there is a gap δ (missing lemma, low confidence, or conflict).
+
+                  Propose 3-5 alternative hypotheses (B candidates) as minimal repairs.
+                  In each motivation, include:
+                  - generators: [IDs you rely on]
+                  - repair: how it reduces the likely gap δ (add one missing premise OR weaken the statement)
 
                   Rules:
                   - Return ONLY JSON array.
-                  - Do NOT invent new axioms.
+                  - Do NOT invent new axioms or facts.
 
                   Axioms:
                   {{ state.axioms | json }}
@@ -899,9 +949,10 @@ steps:
               prompt: |
                 Choose the EASIEST next hypothesis from the candidate pool.
 
-                Rules:
+                HPA selection rules (prompt-level only):
                 - Return ONLY JSON.
                 - You MUST choose ONE statement by copying it EXACTLY from the pool.
+                - Prefer the candidate that most directly reduces the observed gap δ / conflict, with minimal complexity.
 
                 B pool:
                 {{ b_pool | json }}

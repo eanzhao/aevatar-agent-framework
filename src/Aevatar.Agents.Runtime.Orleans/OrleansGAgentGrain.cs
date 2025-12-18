@@ -482,17 +482,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     #endregion
 
-    #region Legacy Methods
-
-    [Obsolete("Use InitializeAgentAsync instead")]
-    public Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null)
-    {
-        if (!string.IsNullOrEmpty(agentTypeName))
-        {
-            return InitializeAgentAsync(agentTypeName);
-        }
-        return Task.CompletedTask;
-    }
+    #region Lifecycle Control
 
     public Task DeactivateAsync()
     {

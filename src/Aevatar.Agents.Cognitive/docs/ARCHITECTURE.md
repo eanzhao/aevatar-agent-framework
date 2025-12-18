@@ -5,34 +5,32 @@
 ```
 Aevatar.Agents.Cognitive/
 ├── Agents/                      # Agent 实现
-│   ├── CognitiveCoordinatorGAgent.cs  # 工作流协调器
-│   └── CognitiveWorkerGAgent.cs       # 并行 Worker
+│   ├── CognitiveCoordinatorGAgent.cs                     # Coordinator: state + lifecycle + step dispatcher
+│   ├── CognitiveCoordinatorGAgent.Workflow.cs            # Workflow start/fail/output build
+│   ├── CognitiveCoordinatorGAgent.Parallel.cs            # fan_out/parallel + worker completion
+│   ├── CognitiveCoordinatorGAgent.Llm.cs                 # Coordinator-side LLM (streaming + guardrails)
+│   ├── CognitiveCoordinatorGAgent.Vote.cs                # vote consensus (semantic clustering + red-flag)
+│   ├── CognitiveCoordinatorGAgent.StepEvents.cs          # step events for UI/observability
+│   ├── CognitiveCoordinatorGAgent.Parameters.cs          # output parsing + parameter helpers + red-flag config
+│   └── CognitiveWorkerGAgent.cs                          # Worker: execute llm_call and report results
 ├── Engine/                      # 工作流引擎
 │   └── WorkflowParser.cs              # YAML 工作流解析
-├── Events/                      # 事件处理
-│   └── StepEventEmitter.cs            # 步骤事件发射器
 ├── Execution/                   # 执行器
-│   └── FanOutExecutor.cs              # Fan-out 并行执行器
-│   └── TransformExecutor.cs            # transform 原语执行器（token-free）
-│   └── RetrieveFactsExecutor.cs        # retrieve_facts 原语执行器（token-free）
+│   ├── TransformExecutor.cs            # transform 原语执行器（token-free）
+│   ├── RetrieveFactsExecutor.cs        # retrieve_facts 原语执行器（token-free）
 │   └── HpaExecutor.cs                  # hpa 原语执行器（token-free, HPA 几何证据层）
 ├── Hpa/                         # HPA 数学核心（deterministic）
 │   ├── Octonion.cs                    # 八元数（乘法/范数/结合子）
 │   └── HpaEmbedding.cs                # 复相位 + 八元数 lift（可复现 embedding）
 ├── Primitives/                  # DSL 原语
-│   ├── IPrimitive.cs                  # 原语接口和上下文
-│   ├── LlmCallPrimitive.cs            # LLM 调用
-│   ├── VotePrimitive.cs               # 投票共识
-│   ├── ConditionalPrimitive.cs        # 条件分支
-│   ├── WorkflowCallPrimitive.cs       # 工作流调用
-│   ├── CheckpointPrimitive.cs         # 检查点
-│   └── WorkflowResult.cs              # 执行结果
+│   ├── IPrimitive.cs                  # 原语上下文 + PrimitiveResult + 参数扩展
+│   ├── WorkflowDefinition.cs          # WorkflowDefinition/StepDefinition/InputParameter + IWorkflowRegistry
+│   └── WorkflowResult.cs              # 执行结果 + InMemoryWorkflowRegistry
 ├── Template/                    # 模板引擎
 │   ├── TemplateEngine.cs              # 模板渲染
 │   └── OutputParser.cs                # 输出解析
 ├── Utilities/                   # 工具类
 │   ├── ProtoValueConverter.cs         # Protobuf 值转换
-│   └── ParameterResolver.cs           # 参数解析
 ├── DependencyInjection/         # DI 扩展
 │   └── ServiceCollectionExtensions.cs
 ├── workflows/                   # 内置工作流定义
@@ -58,6 +56,15 @@ Aevatar.Agents.Cognitive/
 - 管理投票共识流程
 - 发送步骤事件供前端可视化
 
+**实现形态**：`partial` 拆分（避免巨型文件、降低耦合）
+
+- `CognitiveCoordinatorGAgent.Workflow.cs`：启动/失败/输出构建/主循环
+- `CognitiveCoordinatorGAgent.Parallel.cs`：`fan_out`/`parallel` + Worker 完成事件聚合
+- `CognitiveCoordinatorGAgent.Llm.cs`：Coordinator 直连 LLM（含 streaming & 超时护栏）
+- `CognitiveCoordinatorGAgent.Vote.cs`：投票共识（语义聚类 + 红旗）
+- `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
+- `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
+
 ### 2. CognitiveWorkerGAgent
 **职责**: 并行任务执行
 
@@ -65,38 +72,7 @@ Aevatar.Agents.Cognitive/
 - 执行 LLM 调用（支持流式）
 - 向上报告执行结果
 
-### 3. FanOutExecutor
-**职责**: 并行任务管理
-
-- 准备并行子任务
-- 收集执行结果
-- 聚合最终输出
-
-```csharp
-// 使用示例
-var executor = new FanOutExecutor(templateEngine, logger);
-var tasks = executor.Prepare(step, childStep, items, variables, executionId);
-// 分发任务...
-var (results, tokens, calls) = executor.CollectResults("collect");
-```
-
-### 4. StepEventEmitter
-**职责**: 事件发射
-
-- 统一管理步骤事件的创建
-- 跟踪执行时间
-- 发送回调通知
-
-```csharp
-// 使用示例
-var emitter = new StepEventEmitter(logger);
-emitter.SetContext(runId, workflowName);
-emitter.OnStepEvent += evt => SendToFrontend(evt);
-emitter.EmitRunning(step, "Starting...");
-emitter.EmitCompleted(step, "Done", assistantResponse: response);
-```
-
-### 5. ProtoValueConverter
+### 3. ProtoValueConverter
 **职责**: Protobuf 转换
 
 - C# 对象 ↔ Protobuf Value
@@ -108,26 +84,11 @@ var protoValue = ProtoValueConverter.ToProto(myObject);
 var csharpObject = ProtoValueConverter.FromProto(protoValue);
 ```
 
-### 6. ParameterResolver
-**职责**: 参数解析
+### 4. 参数/聚合辅助（Coordinator 内聚）
+**职责**：把“参数解析 / 红旗配置 / 输出解析 / reduce 聚合”等易分叉逻辑收敛到 Coordinator 内部，避免重复实现与语义漂移。
 
-- 从步骤参数解析类型化值
-- 支持模板变量替换
-- 解析 Red-Flag 策略
-
-```csharp
-// 使用示例
-var resolver = new ParameterResolver(templateEngine, variables);
-var k = resolver.GetInt(parameters, "k", 2);
-var prompt = resolver.GetString(parameters, "prompt");
-var redFlag = resolver.GetRedFlagStrategy(parameters, defaultStrategy);
-```
-
-### 7. TypeConverter
-**职责**: 通用类型转换
-
-- 对象转列表
-- 结果聚合（collect/flatten/first/last/concat）
+- `CognitiveCoordinatorGAgent.Parameters.cs`：参数解析 + red-flag 配置 + 输出解析
+- `CognitiveCoordinatorGAgent.cs`：`ConvertToList` / `ApplyReducer`（fan_out reduce）
 
 ## 设计原则
 
@@ -155,20 +116,14 @@ YAML Workflow
 └─────────────────────┘
      │
      ▼
-┌─────────────────────┐
-│ CognitiveCoordinator│ ──协调──▶ 步骤执行
-└─────────────────────┘
-     │
-     ├──────────────────┐
-     ▼                  ▼
-┌──────────┐     ┌──────────────┐
-│ 直接执行  │     │ FanOutExecutor│ ──派发──▶ Workers
-└──────────┘     └──────────────┘
-     │                  │
-     ▼                  ▼
-┌─────────────────────┐
-│  StepEventEmitter   │ ──推送──▶ 前端可视化
-└─────────────────────┘
+┌──────────────────────────────┐
+│ CognitiveCoordinatorGAgent    │
+│ (Workflow/Parallel/LLM/Vote)  │ ──协调──▶ 步骤执行
+└──────────────────────────────┘
+     │                 │
+     │                 ├── fan_out / parallel ──▶ Workers
+     │                 │
+     └── EmitStepEvent ┴────────────────────────▶ 前端可视化
 ```
 
 ## 组件依赖关系
@@ -177,9 +132,6 @@ YAML Workflow
 CognitiveCoordinatorGAgent
 ├── TemplateEngine          # 模板渲染
 ├── OutputParserFactory     # 输出解析
-├── FanOutExecutor          # 并行管理（可选）
-├── StepEventEmitter        # 事件发射（可选）
-├── ParameterResolver       # 参数解析
 ├── ProtoValueConverter     # Protobuf 转换
 └── VoteEngine (MAKER)      # 投票共识
 ```
@@ -189,7 +141,7 @@ CognitiveCoordinatorGAgent
 1. **自定义步骤类型**: 在 `ExecuteStepAsync` 中添加新的 case
 2. **自定义输出解析器**: 实现 `IOutputParser` 接口
 3. **自定义 Red-Flag 策略**: 实现 `IRedFlagStrategy` 接口
-4. **自定义聚合器**: 在 `TypeConverter.ApplyReducer` 中添加
+4. **自定义聚合器**: 在 `CognitiveCoordinatorGAgent.ApplyReducer` 中添加（fan_out.reduce）
 
 ## 变更日志
 
@@ -197,3 +149,5 @@ CognitiveCoordinatorGAgent
 - 2025-12: DSL 支持 workflow-level `defaults` + `max_length/strict_parse/timeout_seconds/idle_timeout_seconds/include_failures` 护栏，使配置不再“写了但不生效”。 
 - 2025-12: 新增工作流 `hypothesis_promotion_loop.yaml`（HPL：Hypothesis→验证→升级定理）。
 - 2025-12: 新增 token-free 原语 `hpa`（HPA 几何证据层：scan/embed/gap/associator/holonomy）与工作流 `hypothesis_promotion_loop_hpa.yaml`。
+- 2025-12: Coordinator 去味：移除未被引用的 `StepEventEmitter/FanOutExecutor`，并将 `CognitiveCoordinatorGAgent` 拆分为多个 `partial` 文件以控制复杂度。
+- 2025-12: 去味：移除未被引用的 `ParameterResolver/*Primitive.cs`，补齐 DSL 数据模型（`WorkflowDefinition/StepDefinition`），并修正 Worker streaming 中间态事件的统计累加语义（只在终态累计 tokens/calls）。

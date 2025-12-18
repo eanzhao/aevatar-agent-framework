@@ -31,31 +31,32 @@ public class DefaultToolExecutor : IToolExecutor
     {
         var stopwatch = Stopwatch.StartNew();
         var executionId = Guid.NewGuid().ToString();
+        ToolExecutionContext? validatedContext = null;
         
         _logger?.LogInformation("Executing tool {ToolName} with execution ID {ExecutionId}", 
             toolName, executionId);
         
         try
         {
-            // 验证上下文
-            ValidateContext(context);
+            validatedContext = context ?? throw new ArgumentNullException(nameof(context));
+            ValidateContext(validatedContext);
             
             // 执行工具
-            var result = await context.ToolManager.ExecuteToolAsync(
+            var result = await validatedContext.ToolManager.ExecuteToolAsync(
                 toolName,
                 parameters,
-                context,
+                validatedContext,
                 cancellationToken);
             
             stopwatch.Stop();
             
             // 发布工具执行事件
-            await PublishToolExecutedEventAsync(result, context, cancellationToken);
+            await PublishToolExecutedEventAsync(result, validatedContext, cancellationToken);
             
             // 记录到内存（如果配置了）
-            if (context is { RecordToMemory: true, Memory: not null })
+            if (validatedContext is { RecordToMemory: true, Memory: not null })
             {
-                await RecordExecutionToMemoryAsync(result, context, cancellationToken);
+                await RecordExecutionToMemoryAsync(result, validatedContext, cancellationToken);
             }
             
             return result;
@@ -76,7 +77,7 @@ public class DefaultToolExecutor : IToolExecutor
             };
             
             // 发布错误事件
-            await PublishToolErrorEventAsync(errorResult, ex, context, cancellationToken);
+            await PublishToolErrorEventAsync(errorResult, ex, validatedContext, cancellationToken);
             
             return errorResult;
         }
@@ -114,7 +115,7 @@ public class DefaultToolExecutor : IToolExecutor
     /// <summary>
     /// 验证执行上下文
     /// </summary>
-    protected virtual void ValidateContext(ToolExecutionContext context)
+    protected virtual void ValidateContext(ToolExecutionContext? context)
     {
         if (context == null)
         {
@@ -137,10 +138,10 @@ public class DefaultToolExecutor : IToolExecutor
     /// </summary>
     protected virtual async Task PublishToolExecutedEventAsync(
         ToolExecutionResult result,
-        ToolExecutionContext context,
+        ToolExecutionContext? context,
         CancellationToken cancellationToken)
     {
-        if (context.PublishEventCallback == null)
+        if (context?.PublishEventCallback == null)
         {
             _logger?.LogDebug("PublishEventCallback not provided, skipping event publication");
             return;
@@ -174,10 +175,10 @@ public class DefaultToolExecutor : IToolExecutor
     protected virtual async Task PublishToolErrorEventAsync(
         ToolExecutionResult result,
         Exception exception,
-        ToolExecutionContext context,
+        ToolExecutionContext? context,
         CancellationToken cancellationToken)
     {
-        if (context.PublishEventCallback == null)
+        if (context?.PublishEventCallback == null)
         {
             return;
         }

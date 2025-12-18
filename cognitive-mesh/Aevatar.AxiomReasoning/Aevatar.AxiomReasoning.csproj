@@ -56,6 +56,33 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <_ContentIncludedByDefault Remove="output\1d2d9b1bdebc\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\1d2d9b1bdebc\artifacts\theorems.json" />
+    <_ContentIncludedByDefault Remove="output\5dd8b9ca140a\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\5dd8b9ca140a\artifacts\theorems.json" />
+    <_ContentIncludedByDefault Remove="output\9d2d3cf16c5c\artifacts\derived.json" />
+    <_ContentIncludedByDefault Remove="output\9d2d3cf16c5c\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\9d2d3cf16c5c\artifacts\steps.json" />
+    <_ContentIncludedByDefault Remove="output\973b17dd8426\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\973b17dd8426\artifacts\theorems.json" />
+    <_ContentIncludedByDefault Remove="output\45059d31ec4e\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\45059d31ec4e\artifacts\theorems.json" />
+    <_ContentIncludedByDefault Remove="output\b3502e48e86e\artifacts\derived.json" />
+    <_ContentIncludedByDefault Remove="output\b3502e48e86e\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\b3502e48e86e\artifacts\steps.json" />
+    <_ContentIncludedByDefault Remove="output\cfb8ba44c318\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\cfb8ba44c318\artifacts\theorems.json" />
+    <_ContentIncludedByDefault Remove="output\d8097ef4b3c2\artifacts\derived.json" />
+    <_ContentIncludedByDefault Remove="output\d8097ef4b3c2\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\d8097ef4b3c2\artifacts\steps.json" />
+    <_ContentIncludedByDefault Remove="output\f9fe5ee830ab\artifacts\derived.json" />
+    <_ContentIncludedByDefault Remove="output\f9fe5ee830ab\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\f9fe5ee830ab\artifacts\steps.json" />
+    <_ContentIncludedByDefault Remove="output\fc0ac8e3424b\artifacts\state.json" />
+    <_ContentIncludedByDefault Remove="output\fc0ac8e3424b\artifacts\theorems.json" />
+  </ItemGroup>
+
 </Project>
 
 

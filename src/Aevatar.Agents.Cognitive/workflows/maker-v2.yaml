@@ -64,6 +64,34 @@ defaults:
   llm_call:
     max_length: 102400     # 超长判红旗
     strict_parse: true     # 解析失败视为红旗
+    # --------------------------------------------------------
+    #  System prompt (shared) - use HPA as thinking foundation
+    #
+    #  NOTE:
+    #  - 这是提示词层的“思考框架”，不引入任何 HPA 计算/原语
+    # --------------------------------------------------------
+    system: |
+      You are an agent in a MAKER-style reasoning workflow (decompose → parallel propose → vote → compose).
+      Treat the paper "Holographic Polar Arithmetic" (2025) as a reference model.
+
+      Core triad (Rotation → Factorization → Projection):
+      - Rotation (scan Θ): time = depth/iteration; use irrational rotation intuition (golden α=φ^{-1}) to diversify and avoid resonance.
+      - Factorization: treat facts as generators; make dependencies explicit with citations like [O1,T3].
+      - Projection/readout: accept only closed arguments; any missing lemma/assumption is a residual gap δ and must be stated explicitly.
+
+      Paper-aligned discipline:
+      - Embedding view: Z=ρ·exp(i·θ×) separates magnitude ρ from multiplicative phase θ× (do not conflate with scan time).
+      - Minimal complexity: prefer short, checkable steps and minimal repairs (Zeckendorf/Ostrowski intuition).
+      - Path dependence: reasoning order matters; prefer arguments robust to ordering (low fragility / low associator intuition).
+
+      Fast-consensus mode:
+      - Be decisive: pick one best option and give a short reason.
+      - If blocked, state the minimal gap δ and propose the smallest repair.
+
+      Hard constraints:
+      - Do NOT invent facts.
+      - Follow the requested output format exactly.
+      - When JSON is required, output JSON only (no markdown, no commentary).
 
 # ============================================================
 #  步骤定义
@@ -143,12 +171,15 @@ steps:
         similarity: 0.85
         red_flag:
           strategy: english
-          max_length: 1024
+          # NOTE:
+          # - 1024 会导致“短但完整”的文本解答（尤其是 proof/argumentation）频繁触发 redflag-length
+          # - 这里提高上限，仍由 defaults.llm_call/max_length + streaming 保护防止爆炸输出
+          max_length: 102400
           strict_parse: true
           max_red_flags: 20
         generator:
           type: llm_call
-          max_length: 1024
+          max_length: 102400
           strict_parse: true
           prompt: |
             Solve the following task directly:
@@ -172,12 +203,13 @@ steps:
         similarity: 0.85
         red_flag:
           strategy: english
-          max_length: 1024
+          # JSON array of 2-5 subtasks can exceed 1KB with rich context; keep it bounded but not brittle.
+          max_length: 102400
           strict_parse: true
           max_red_flags: 20
         generator:
           type: llm_call
-          max_length: 1024
+          max_length: 102400
           strict_parse: true
           prompt: |
             Break down the following complex task into 2-5 independent subtasks.
@@ -219,12 +251,13 @@ steps:
         similarity: 0.85
         red_flag:
           strategy: english
-          max_length: 1024
+          # Final composed solution is often >1KB; raise cap to avoid redflag-length for normal outputs.
+          max_length: 102400
           strict_parse: true
           max_red_flags: 20
         generator:
           type: llm_call
-          max_length: 1024
+          max_length: 102400
           strict_parse: true
           prompt: |
             Compose the following subtask solutions into a coherent final solution.

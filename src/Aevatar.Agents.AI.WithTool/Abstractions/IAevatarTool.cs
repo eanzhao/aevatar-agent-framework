@@ -166,7 +166,24 @@ public abstract class AevatarToolBase : IAevatarTool
         
         return result;
     }
-    
+
+    /// <summary>
+    /// Convert ExecuteAsync parameters (Dictionary&lt;string, object&gt;) to the validator shape
+    /// (Dictionary&lt;string, object?&gt;).
+    ///
+    /// Note: nullability annotations are not part of the CLR type identity, so this is purely for
+    /// compile-time flow analysis and to keep call sites clean.
+    /// </summary>
+    protected static Dictionary<string, object?> ToNullableParameters(Dictionary<string, object> parameters)
+    {
+        var result = new Dictionary<string, object?>(parameters.Count, StringComparer.Ordinal);
+        foreach (var (key, value) in parameters)
+        {
+            result[key] = value;
+        }
+        return result;
+    }
+
     /// <summary>
     /// 是否需要内部访问权限
     /// </summary>

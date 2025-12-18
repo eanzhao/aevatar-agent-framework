@@ -36,7 +36,7 @@ public sealed class AxiomSession
     // 运行模式
     // - Workflow: 选择 Cognitive DSL workflow（支持多个）
     // - Language: 控制 LLM 生成内容的自然语言（不影响 JSON key）
-    public string Workflow { get; set; } = "axiom_theorem_loop";
+    public string Workflow { get; set; } = "hypothesis_promotion_loop";
     public string Language { get; set; } = "English";
 
     // HPA (Holographic Polar Arithmetic) 配置
@@ -54,9 +54,11 @@ public sealed class AxiomSession
     public double HpaRadialWScale { get; set; } = 0.38;
 
     // HPA gate thresholds (workflow 侧可覆盖)
-    public double MinCoherence { get; set; } = 0.65;
-    public double MaxGapNorm { get; set; } = 0.35;
-    public double MaxAssociatorMean { get; set; } = 0.95;
+    // NOTE:
+    // - 默认阈值偏“探索友好”：先让系统更容易进入验证/晋升，形成可增长的 theorem 基座
+    public double MinCoherence { get; set; } = 0.55;
+    public double MaxGapNorm { get; set; } = 0.65;
+    public double MaxAssociatorMean { get; set; } = 1.5;
 
     // 共识参数
     public int K { get; set; } = 3;

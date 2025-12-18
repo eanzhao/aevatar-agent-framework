@@ -28,6 +28,7 @@ builder.Configuration
 
 builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection("LLMProviders"));
 builder.Services.Configure<SupabaseConfig>(builder.Configuration.GetSection(SupabaseConfig.SectionName));
+builder.Services.Configure<LlmTranscriptOptions>(builder.Configuration.GetSection(LlmTranscriptOptions.SectionName));
 
 // ─────────────────────────────────────────────────────────────
 //  OpenTelemetry (Aspire 集成)
@@ -102,6 +103,7 @@ builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy
 // ─────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<AxiomReasoningEventBridge>();
 builder.Services.AddSingleton<AxiomReasoningService>();
+builder.Services.AddSingleton<LlmTranscriptRecorder>();
 builder.Services.AddSingleton<AxiomDagService>();        // InMemory fallback
 builder.Services.AddSingleton<SupabaseGraphStore>();     // Supabase backend (optional)
 builder.Services.AddSingleton<IGraphStore>(sp =>
@@ -202,6 +204,25 @@ app.MapGet("/api/sessions/{sessionId}/artifacts/theorems", (string sessionId, Ax
     var bytes = System.Text.Encoding.UTF8.GetBytes(content ?? "");
     var fileName = $"{sessionId}-theorems.json";
     return Results.File(bytes, "application/json; charset=utf-8", fileDownloadName: fileName);
+});
+
+// LLM transcript artifacts (local files)
+app.MapGet("/api/sessions/{sessionId}/llm/transcript", (string sessionId, AxiomReasoningService svc) =>
+{
+    if (!svc.TryReadOutputFileBytes(sessionId, "llm", "transcript.jsonl", out var bytes))
+        return Results.NotFound(new { success = false, error = "transcript.jsonl not found" });
+
+    var fileName = $"{sessionId}-transcript.jsonl";
+    return Results.File(bytes, "application/x-ndjson; charset=utf-8", fileDownloadName: fileName);
+});
+
+app.MapGet("/api/sessions/{sessionId}/llm/review", (string sessionId, AxiomReasoningService svc) =>
+{
+    if (!svc.TryReadOutputFileBytes(sessionId, "llm", "review.md", out var bytes))
+        return Results.NotFound(new { success = false, error = "review.md not found" });
+
+    var fileName = $"{sessionId}-llm-review.md";
+    return Results.File(bytes, "text/markdown; charset=utf-8", fileDownloadName: fileName);
 });
 
 // SSE 实时事件流

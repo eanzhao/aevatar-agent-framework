@@ -375,7 +375,7 @@ public sealed class MEAILLMProvider : AevatarLLMProviderBase
 
         var result = new AevatarLLMResponse
         {
-            Content = content,
+            Content = content ?? string.Empty,
             ModelName = response.ModelId ?? _config.Model,
             AevatarStopReason = AevatarStopReason.Complete,
             Usage = CreateTokenUsage(

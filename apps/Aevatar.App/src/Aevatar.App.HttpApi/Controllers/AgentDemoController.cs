@@ -272,8 +272,10 @@ public class AgentDemoController : AbpControllerBase
             }
             else
             {
-                _logger.LogWarning("Could not get agent instance directly (Orleans mode). " +
-                    "Use /complex-agent/{id}/init to initialize test data.");
+                _logger.LogWarning(
+                    "Could not get agent instance directly (Orleans mode). " +
+                    "Use /complex-agent/{AgentId}/init to initialize test data.",
+                    agentId);
             }
 
             var description = await actor.GetDescriptionAsync();
