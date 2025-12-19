@@ -34,7 +34,7 @@ public class StreamMessageDispatcher : IConsumer<ByteArrayMessage>
         var data = context.Message.Data;
         
         // Skip warmup messages (used for pre-establishing Kafka connections)
-        if (streamId == Guid.Empty)
+        if (string.IsNullOrEmpty(streamId))
         {
             _logger.LogDebug("Skipping warmup message");
             return;

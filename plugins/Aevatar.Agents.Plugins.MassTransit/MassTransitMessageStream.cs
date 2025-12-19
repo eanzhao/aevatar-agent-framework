@@ -21,10 +21,10 @@ public class MassTransitMessageStream : IMessageStream
     private readonly string? _category;
 
     /// <inheritdoc />
-    public Guid StreamId { get; }
+    public string StreamId { get; }
 
     public MassTransitMessageStream(
-        Guid streamId,
+        string streamId,
         string? category,
         IBus bus,
         IServiceProvider serviceProvider,
@@ -65,7 +65,7 @@ public class MassTransitMessageStream : IMessageStream
                 {
                     // Use ITopicProducerProvider to get a producer for a specific address (topic)
                     var producerProvider = _serviceProvider.GetRequiredService<ITopicProducerProvider>();
-                    var producer = producerProvider.GetProducer<Guid, ByteArrayMessage>(new Uri($"topic:{topic}"));
+                    var producer = producerProvider.GetProducer<string, ByteArrayMessage>(new Uri($"topic:{topic}"));
                     // Use StreamId as Key to ensure partition ordering
                     await producer.Produce(StreamId, payload, ct);
                 }
