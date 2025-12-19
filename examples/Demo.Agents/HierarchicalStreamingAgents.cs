@@ -202,9 +202,10 @@ public static class HierarchicalStreamingTestScenario
         (member3Actor.GetAgent() as TeamMemberAgent)?.SetName("Charlie");
         
         // 建立父子关系（关键：这会触发子节点订阅父节点的stream）
-        await actorManager.LinkParentChildAsync(leaderId, member1Id);
-        await actorManager.LinkParentChildAsync(leaderId, member2Id);
-        await actorManager.LinkParentChildAsync(leaderId, member3Id);
+        // Use actor.Id (full GrainKey format) for Manager operations
+        await actorManager.LinkParentChildAsync(leaderActor.Id, member1Actor.Id);
+        await actorManager.LinkParentChildAsync(leaderActor.Id, member2Actor.Id);
+        await actorManager.LinkParentChildAsync(leaderActor.Id, member3Actor.Id);
         
         logger.LogInformation("Team structure established: 1 leader, 3 members\n");
         

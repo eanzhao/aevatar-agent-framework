@@ -36,12 +36,15 @@ public class OrleansGAgentActorManager : IGAgentActorManager
 
         var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
+        // Use actor.Id (full GrainKey format) as storage key to avoid collisions
+        // when same raw Guid is used for different Agent types
         lock (_lock)
         {
-            _actors[id] = actor;
+            _actors[actor.Id] = actor;
         }
 
-        _logger.LogInformation("Agent actor {Id} created and registered", id);
+        _logger.LogInformation("Agent actor {ActorId} created and registered (input: {InputId})", 
+            actor.Id, id);
 
         return actor;
     }

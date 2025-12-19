@@ -36,9 +36,12 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
 
         var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
-        _actors[id] = actor;
+        // Register using actor.Id (full format) to avoid collisions
+        // when same raw ID is used for different Agent types
+        _actors[actor.Id] = actor;
 
-        _logger.LogInformation("Agent actor {Id} created and registered", id);
+        _logger.LogInformation("Agent actor {ActorId} created and registered (input: {InputId})", 
+            actor.Id, id);
 
         return actor;
     }

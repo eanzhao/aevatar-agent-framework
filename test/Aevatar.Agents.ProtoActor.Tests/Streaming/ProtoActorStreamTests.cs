@@ -68,9 +68,9 @@ public class ProtoActorStreamTests : IDisposable
         var child2Actor = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             child2Id, CancellationToken.None);
         
-        // Act - 建立父子关系
-        await _manager.LinkParentChildAsync(parentId, child1Id);
-        await _manager.LinkParentChildAsync(parentId, child2Id);
+        // Act - 建立父子关系 (use actor.Id for Manager operations)
+        await _manager.LinkParentChildAsync(parentActor.Id, child1Actor.Id);
+        await _manager.LinkParentChildAsync(parentActor.Id, child2Actor.Id);
         
         // Child1发送UP事件（应该广播给所有siblings）
         var child1Agent = child1Actor.GetAgent() as ProtoTestChildAgent;
@@ -187,9 +187,9 @@ public class ProtoActorStreamTests : IDisposable
         var child = await _manager.CreateAndRegisterAsync<ProtoTestChildAgent>(
             childId, CancellationToken.None);
         
-        // 建立层级关系
-        await _manager.LinkParentChildAsync(grandparentId, parentId);
-        await _manager.LinkParentChildAsync(parentId, childId);
+        // 建立层级关系 (use actor.Id for Manager operations)
+        await _manager.LinkParentChildAsync(grandparent.Id, parent.Id);
+        await _manager.LinkParentChildAsync(parent.Id, child.Id);
         
         // Act - child发送UP事件
         var childAgent = child.GetAgent() as ProtoTestChildAgent;

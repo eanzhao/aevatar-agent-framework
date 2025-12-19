@@ -36,11 +36,13 @@ public class LocalGAgentActorManager : IGAgentActorManager
         // Create Actor
         var actor = await _factory.CreateGAgentActorAsync<TAgent>(id, ct);
 
-        // Register
-        _actors[id] = actor;
-        _lastActivityTime[id] = DateTimeOffset.UtcNow;
+        // Register using actor.Id (full format) to avoid collisions
+        // when same raw ID is used for different Agent types
+        _actors[actor.Id] = actor;
+        _lastActivityTime[actor.Id] = DateTimeOffset.UtcNow;
 
-        _logger.LogInformation("Agent actor {Id} created and registered", id);
+        _logger.LogInformation("Agent actor {ActorId} created and registered (input: {InputId})", 
+            actor.Id, id);
         return actor;
     }
 
