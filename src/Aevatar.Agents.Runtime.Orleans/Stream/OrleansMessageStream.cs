@@ -75,12 +75,14 @@ public class OrleansMessageStream : IMessageStream
         // Subscribe to Orleans stream
         var streamSubscriptionHandle = await _stream.SubscribeAsync(observer);
         
-        // Create subscription wrapper
+        // Create subscription wrapper with pause/resume control
         var subscription = new OrleansMessageStreamSubscription(
             subscriptionId,
             StreamId,
             streamSubscriptionHandle,
-            () => _subscriptions.TryRemove(subscriptionId, out _));
+            onPause: () => observer.Pause(),
+            onResume: () => observer.Resume(),
+            onDisposed: () => _subscriptions.TryRemove(subscriptionId, out _));
         
         _subscriptions.TryAdd(subscriptionId, subscription);
         return subscription;
@@ -98,6 +100,11 @@ internal class OrleansStreamObserver<T> : IAsyncObserver<byte[]> where T : IMess
     private readonly Func<T, bool>? _filter;
     private readonly Action _onDisposed;
     private bool _isActive = true;
+    
+    /// <summary>
+    /// Whether the observer is currently processing messages
+    /// </summary>
+    public bool IsActive => _isActive;
 
     public OrleansStreamObserver(
         Guid subscriptionId,
@@ -112,6 +119,16 @@ internal class OrleansStreamObserver<T> : IAsyncObserver<byte[]> where T : IMess
         _filter = filter;
         _onDisposed = onDisposed;
     }
+    
+    /// <summary>
+    /// Pause message processing (messages will be ignored until Resume is called)
+    /// </summary>
+    public void Pause() => _isActive = false;
+    
+    /// <summary>
+    /// Resume message processing
+    /// </summary>
+    public void Resume() => _isActive = true;
 
     public async Task OnNextAsync(byte[] item, StreamSequenceToken? token = null)
     {

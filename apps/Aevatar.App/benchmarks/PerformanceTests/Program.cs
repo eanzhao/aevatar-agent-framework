@@ -257,7 +257,7 @@ class Program
         var warmupManager = serviceProvider.GetRequiredService<IGAgentActorManager>();
         try
         {
-            var warmupId = Guid.NewGuid();
+            var warmupId = Guid.NewGuid().ToString();
             var warmupAgent = await warmupManager.CreateAndRegisterAsync<SimpleBusinessAgent>(warmupId);
             await warmupAgent.GetDescriptionAsync();  // Force RPC to establish connection
             Console.WriteLine("   ✅ Orleans Client warmed up");
@@ -423,8 +423,8 @@ class Program
         Console.WriteLine("5️⃣  Point-to-Point Sending (SendToAsync):");
         
         // Create sender and receiver (no parent-child relationship)
-        var senderId = Guid.NewGuid();
-        var receiverId = Guid.NewGuid();
+        var senderId = Guid.NewGuid().ToString();
+        var receiverId = Guid.NewGuid().ToString();
         var sender = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(senderId);
         var receiver = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(receiverId);
         

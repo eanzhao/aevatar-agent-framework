@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Tasks;
 using Aevatar.Agents.Abstractions;
@@ -12,15 +11,14 @@ namespace Aevatar.Agents.Runtime.Orleans;
 /// <summary>
 /// Orleans implementation of IMassTransitEventHandler.
 /// Routes MassTransit events to Orleans Grains via RPC, ensuring callbacks run on Grain turn.
+/// 
+/// Since AgentId is now a string that directly serves as the GrainKey,
+/// no cache mapping is needed - agentId IS the grainKey.
 /// </summary>
 public class OrleansMassTransitEventHandler : IMassTransitEventHandler
 {
     private readonly IGrainFactory _grainFactory;
     private readonly ILogger<OrleansMassTransitEventHandler> _logger;
-    
-    // Cache: AgentId -> GrainKey (AgentType:AgentId)
-    // Populated when grains register themselves during activation
-    private static readonly ConcurrentDictionary<string, string> _agentGrainKeyCache = new();
 
     public OrleansMassTransitEventHandler(
         IGrainFactory grainFactory,
@@ -30,54 +28,34 @@ public class OrleansMassTransitEventHandler : IMassTransitEventHandler
         _logger = logger;
     }
 
-    /// <summary>
-    /// Register a grain key for an agent ID.
-    /// Called by OrleansGAgentGrain during activation.
-    /// </summary>
-    public static void RegisterGrainKey(string agentId, string grainKey)
-    {
-        _agentGrainKeyCache[agentId] = grainKey;
-    }
-
-    /// <summary>
-    /// Unregister a grain key.
-    /// Called by OrleansGAgentGrain during deactivation.
-    /// </summary>
-    public static void UnregisterGrainKey(string agentId)
-    {
-        _agentGrainKeyCache.TryRemove(agentId, out _);
-    }
-
     /// <inheritdoc />
     public async Task<bool> HandleEventAsync(string agentId, EventEnvelope envelope)
     {
-        // Try to find the grain key from cache
-        if (!_agentGrainKeyCache.TryGetValue(agentId, out var grainKey))
+        if (string.IsNullOrEmpty(agentId))
         {
-            _logger.LogDebug("Grain key not found in cache for AgentId {AgentId}", agentId);
+            _logger.LogDebug("Empty agentId received, skipping");
             return false;
         }
 
         try
         {
-            _logger.LogDebug("Routing event {EventId} to Grain {GrainKey} via RPC", envelope.Id, grainKey);
+            _logger.LogDebug("Routing event {EventId} to Grain {GrainKey} via RPC", envelope.Id, agentId);
             
             // Serialize envelope to bytes
             using var stream = new MemoryStream();
             envelope.WriteTo(stream);
             var envelopeBytes = stream.ToArray();
             
-            // Get grain reference and call HandleEventAsync through Orleans RPC
-            // This ensures the callback runs on the Grain's turn
-            var grain = _grainFactory.GetGrain<IGAgentGrain>(grainKey);
+            // AgentId is the GrainKey - direct mapping after Guid→string migration
+            var grain = _grainFactory.GetGrain<IGAgentGrain>(agentId);
             await grain.HandleEventAsync(envelopeBytes);
             
-            _logger.LogDebug("Successfully handled event {EventId} for Grain {GrainKey}", envelope.Id, grainKey);
+            _logger.LogDebug("Successfully handled event {EventId} for Grain {GrainKey}", envelope.Id, agentId);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to route event {EventId} to Grain {GrainKey}", envelope.Id, grainKey);
+            _logger.LogError(ex, "Failed to route event {EventId} to Grain {GrainKey}", envelope.Id, agentId);
             throw;
         }
     }

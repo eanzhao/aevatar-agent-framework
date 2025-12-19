@@ -278,10 +278,10 @@ public class MultiTopicBenchmark
         sw.Restart();
         Console.WriteLine("📡 Step 2: Creating publisher agents...");
         
-        var publisherA_Id = Guid.NewGuid();
+        var publisherA_Id = Guid.NewGuid().ToString();
         var publisherA = await sharedManager.CreateAndRegisterAsync<TypedAgent>(publisherA_Id); // Use base TypedAgent for publisher
         
-        var publisherB_Id = Guid.NewGuid();
+        var publisherB_Id = Guid.NewGuid().ToString();
         var publisherB = await sharedManager.CreateAndRegisterAsync<TypedAgent>(publisherB_Id);
         
         // Step 3: Subscriptions
@@ -443,11 +443,11 @@ public class MultiTopicBenchmark
         
         // Use TypedAgent base for publishers (they just publish)
         // Agent properties are set in OnActivateAsync, no need to set here
-        var publisherA_Id = Guid.NewGuid();
+        var publisherA_Id = Guid.NewGuid().ToString();
         var publisherA_Manager = _actorManagersByType["TypeA"]; 
         var publisherA = await publisherA_Manager.CreateAndRegisterAsync<TypedAgent>(publisherA_Id); 
         
-        var publisherB_Id = Guid.NewGuid();
+        var publisherB_Id = Guid.NewGuid().ToString();
         var publisherB_Manager = _actorManagersByType["TypeB"];
         var publisherB = await publisherB_Manager.CreateAndRegisterAsync<TypedAgent>(publisherB_Id);
         
@@ -749,7 +749,7 @@ public class MultiTopicResults
 
 public class TypedAgentInfo
 {
-    public Guid AgentId { get; set; }
+    public string AgentId { get; set; } = "";
     public IGAgentActor Actor { get; set; } = null!;
     public string TypeName { get; set; } = "";
 }

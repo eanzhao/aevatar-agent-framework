@@ -127,12 +127,6 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     {
         _logger.LogInformation("Deactivating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
-        // Unregister grain key from MassTransit event handler
-        if (!string.IsNullOrEmpty(_grainState.State.AgentId))
-        {
-            OrleansMassTransitEventHandler.UnregisterGrainKey(_grainState.State.AgentId);
-        }
-
         // Deactivate Agent
         if (_agent != null)
         {
@@ -390,10 +384,6 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 _grainState.State.AgentId = agentId;
                 await _grainState.WriteStateAsync();
             }
-            
-            // Register grain key for MassTransit event routing
-            var grainKey = this.GetPrimaryKeyString();
-            OrleansMassTransitEventHandler.RegisterGrainKey(agentId, grainKey);
 
             _logger.LogInformation("✅ Agent initialized successfully in Grain {GrainId}, Type: {AgentType}", 
                 this.GetGrainId(), agentType.Name);
