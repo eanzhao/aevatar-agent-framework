@@ -82,9 +82,8 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     private IMessageStream? _myStream;
     private IMessageStreamSubscription? _streamSubscription;
 
-    // Stream Provider 配置
-    private MessageStreamProviderOptions _providerOptions = new();
-    private IMessageStreamProvider? _externalStreamProvider;
+    // Stream Factory - 统一管理 Stream 创建逻辑
+    private OrleansStreamFactory? _streamFactory;
 
     // Logger
     private ILogger<OrleansGAgentGrain> _logger = NullLogger<OrleansGAgentGrain>.Instance;
@@ -105,10 +104,10 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
         _logger.LogInformation("🚀 Activating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
-        // Load provider options
-        var providerOptionsAccessor = ServiceProvider.GetService<IOptions<MessageStreamProviderOptions>>();
-        _providerOptions = providerOptionsAccessor?.Value ?? new MessageStreamProviderOptions();
-        _externalStreamProvider = ServiceProvider.GetService<IMessageStreamProvider>();
+        // Initialize Stream Factory - 统一管理 Orleans/MassTransit Stream 选择逻辑
+        // Factory 会从 DI 获取 IMessageStreamProvider (MassTransit) 和配置
+        _streamFactory = ServiceProvider.GetService<OrleansStreamFactory>()
+            ?? ActivatorUtilities.CreateInstance<OrleansStreamFactory>(ServiceProvider);
 
         // Initialize Stream (根据配置选择 Orleans Stream 或 MassTransit)
         await InitializeStreamAsync();
@@ -172,29 +171,24 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     {
         try
         {
-            // Determine provider type (与 Local 模式一致)
-            var providerType = _providerOptions.Provider;
-            if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
+            if (_streamFactory == null)
             {
-                providerType = runtimeProvider;
+                _logger.LogWarning("StreamFactory not initialized for Grain {GrainId}", this.GetGrainId());
+                return;
             }
 
             var grainKey = this.GetPrimaryKeyString();
             var agentId = ExtractAgentIdFromGrainKey(grainKey);
 
-            if (providerType == "MassTransit" && _externalStreamProvider != null)
-            {
-                // Use MassTransit Stream (Kafka/RabbitMQ)
-                // Agent Category 将在 Agent 初始化后更新
-                _myStream = _externalStreamProvider.GetStream(agentId, null);
-                _logger.LogInformation("📡 Using MassTransit Stream for Grain {GrainId}, AgentId={AgentId}", this.GetGrainId(), agentId);
-            }
-            else
-            {
-                // Use Orleans Stream (Default)
-                _myStream = CreateOrleansStream(agentId, grainKey);
-                _logger.LogInformation("📡 Using Orleans Stream for Grain {GrainId}", this.GetGrainId());
-            }
+            // 使用 Factory 统一创建 Stream (自动选择 Orleans/MassTransit)
+            _myStream = await _streamFactory.CreateStreamAsync(
+                agentId,
+                null, // Agent Category 将在 Agent 初始化后更新
+                this.GetStreamProvider);
+
+            var providerType = _streamFactory.DetermineProviderType();
+            _logger.LogInformation("📡 Using {ProviderType} Stream for Grain {GrainId}, AgentId={AgentId}",
+                providerType, this.GetGrainId(), agentId);
 
             // Subscribe to stream for external event handling
             if (_myStream != null)
@@ -211,31 +205,6 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _logger.LogWarning(ex, "Failed to initialize streams for Grain {GrainId}", this.GetGrainId());
         }
     }
-
-    /// <summary>
-    /// Create Orleans Stream wrapped as IMessageStream
-    /// </summary>
-    private IMessageStream? CreateOrleansStream(Guid agentId, string grainKey)
-    {
-        try
-        {
-            var streamingOptions = ServiceProvider.GetService<IOptions<StreamingOptions>>();
-            var streamNamespace = streamingOptions?.Value?.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-            var streamProviderName = streamingOptions?.Value?.StreamProviderName ?? AevatarAgentsOrleansConstants.StreamProviderName;
-
-            var streamProvider = this.GetStreamProvider(streamProviderName);
-            var streamId = StreamId.Create(streamNamespace, grainKey);
-            var orleansStream = streamProvider.GetStream<byte[]>(streamId);
-
-            return new OrleansMessageStream(agentId, orleansStream);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to create Orleans stream for Grain {GrainId}", this.GetGrainId());
-            return null;
-        }
-    }
-
     #endregion
 
     #region Stream-based Message Sending
@@ -273,48 +242,24 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     /// <summary>
     /// Get target Agent's stream
-    /// 根据配置选择 MassTransit 或 Orleans Stream（与 InitializeStreamAsync 保持一致）
+    /// 使用 Factory 统一创建（自动选择 MassTransit 或 Orleans Stream）
     /// </summary>
     private IMessageStream? GetTargetStream(Guid targetAgentId)
     {
-        // Determine provider type (与 InitializeStreamAsync 相同的逻辑)
-        var providerType = _providerOptions.Provider;
-        if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
+        if (_streamFactory == null)
         {
-            providerType = runtimeProvider;
+            _logger.LogWarning("StreamFactory not initialized, cannot get target stream for Agent {TargetId}", targetAgentId);
+            return null;
         }
 
-        if (providerType == "MassTransit" && _externalStreamProvider != null)
-        {
-            return _externalStreamProvider.GetStream(targetAgentId, null);
-        }
-
-        // Use Orleans Stream (Default)
-        return CreateOrleansStreamForTarget(targetAgentId);
-    }
-
-    /// <summary>
-    /// Create Orleans Stream for target Agent (fallback when MassTransit not configured)
-    /// </summary>
-    private IMessageStream? CreateOrleansStreamForTarget(Guid targetAgentId)
-    {
         try
         {
-            var streamingOptions = ServiceProvider.GetService<IOptions<StreamingOptions>>();
-            var streamNamespace = streamingOptions?.Value?.DefaultStreamNamespace ?? AevatarAgentsOrleansConstants.StreamNamespace;
-            var streamProviderName = streamingOptions?.Value?.StreamProviderName ?? AevatarAgentsOrleansConstants.StreamProviderName;
-
-            var targetGrainKey = _agent != null
-                ? $"{_agent.GetType().Name}:{targetAgentId}"
-                : targetAgentId.ToString();
-
-            var streamProvider = this.GetStreamProvider(streamProviderName);
-            var streamId = StreamId.Create(streamNamespace, targetGrainKey);
-            return new OrleansMessageStream(targetAgentId, streamProvider.GetStream<byte[]>(streamId));
+            // 使用 Factory 创建目标 Agent 的 Stream (同步获取，因为 Factory.CreateStreamAsync 本质上是同步的)
+            return _streamFactory.CreateStreamAsync(targetAgentId, null, this.GetStreamProvider).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to create Orleans stream for Agent {TargetId}", targetAgentId);
+            _logger.LogWarning(ex, "Failed to get stream for target Agent {TargetId}", targetAgentId);
             return null;
         }
     }
@@ -577,7 +522,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
         // Inject EventPublisher (Grain acts as the publisher)
         // 支持广播传播和点对点发送 (全部通过 Stream，非阻塞)
-        AgentEventPublisherInjector.InjectEventPublisher(agent, new GrainEventPublisher(this, _myStream, _externalStreamProvider, _logger));
+        AgentEventPublisherInjector.InjectEventPublisher(agent, new GrainEventPublisher(this, _myStream, _streamFactory, _logger));
 
         // Inject ActorFactory (for Agents that need to create child Agents)
         InjectActorFactory(agent);
@@ -810,18 +755,18 @@ internal class GrainEventPublisher : IEventPublisher
 {
     private readonly OrleansGAgentGrain _grain;
     private readonly IMessageStream? _stream;
-    private readonly IMessageStreamProvider? _streamProvider;
+    private readonly OrleansStreamFactory? _streamFactory;
     private readonly ILogger _logger;
 
     public GrainEventPublisher(
         OrleansGAgentGrain grain, 
         IMessageStream? stream,
-        IMessageStreamProvider? streamProvider,
+        OrleansStreamFactory? streamFactory,
         ILogger logger)
     {
         _grain = grain;
         _stream = stream;
-        _streamProvider = streamProvider;
+        _streamFactory = streamFactory;
         _logger = logger;
     }
 
@@ -893,33 +838,24 @@ internal class GrainEventPublisher : IEventPublisher
             "Grain {GrainId} sending P2P event {EventId} to {TargetAgentId} via Stream (non-blocking)",
             grainId, envelope.Id, targetAgentId);
 
-        // Get target Agent's stream and send (non-blocking)
-        var targetStream = _streamProvider?.GetStream(targetAgentId, null);
-        if (targetStream != null)
+        // Get target Agent's stream using Factory (supports both Orleans/MassTransit)
+        if (_streamFactory != null)
         {
-            await targetStream.ProduceAsync(envelope, ct);
+            try
+            {
+                var targetStream = await _streamFactory.CreateStreamAsync(targetAgentId, null, _grain.GetStreamProvider);
+                await targetStream.ProduceAsync(envelope, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send P2P event to Agent {TargetId}", targetAgentId);
+            }
         }
         else
         {
-            _logger.LogWarning("Cannot get stream for target Agent {TargetId}, P2P event not sent", targetAgentId);
+            _logger.LogWarning("StreamFactory not available, cannot send P2P event to Agent {TargetId}", targetAgentId);
         }
 
         return envelope.Id;
-    }
-
-    private static string BuildTargetGrainId(string currentGrainId, Guid targetAgentId)
-    {
-        // Preferred Grain key format: "{AgentTypeShortName}:{AgentId}"
-        // If current grain uses the typed format, default P2P routing to the same agent type.
-        // Cross-type routing is intentionally not supported by this overload because target type is unknown.
-        var colonIndex = currentGrainId.LastIndexOf(':');
-        if (colonIndex > 0)
-        {
-            var typePrefix = currentGrainId.Substring(0, colonIndex);
-            return $"{typePrefix}:{targetAgentId}";
-        }
-
-        // Backward compatible: untyped grain key format "{AgentId}"
-        return targetAgentId.ToString();
     }
 }
