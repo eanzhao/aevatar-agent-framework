@@ -252,8 +252,17 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
         try
         {
+            // Extract category from targetAgentId (format: AgentTypeShortName:AgentId)
+            // Category is needed for MassTransit TopicMapping (e.g., "TypeAAgent" -> "AevatarAgents-TypeA")
+            string? agentCategory = null;
+            var colonIndex = targetAgentId.IndexOf(':');
+            if (colonIndex > 0)
+            {
+                agentCategory = targetAgentId.Substring(0, colonIndex);
+            }
+            
             // 使用 Factory 创建目标 Agent 的 Stream (同步获取，因为 Factory.CreateStreamAsync 本质上是同步的)
-            return _streamFactory.CreateStreamAsync(targetAgentId, null, this.GetStreamProvider).GetAwaiter().GetResult();
+            return _streamFactory.CreateStreamAsync(targetAgentId, agentCategory, this.GetStreamProvider).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

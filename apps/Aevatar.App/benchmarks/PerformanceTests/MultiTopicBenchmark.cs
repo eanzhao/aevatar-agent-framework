@@ -167,10 +167,10 @@ public class MultiTopicBenchmark
         services.AddSingleton<IGrainFactory>(_clusterClient);
         services.AddSingleton<IClusterClient>(_clusterClient);
 
-        // Default Orleans Stream configuration
+        // Orleans Stream configuration - must match Silo's StreamProviderName
         services.Configure<Aevatar.Agents.StreamingOptions>(options =>
         {
-            options.StreamProviderName = "Default";
+            options.StreamProviderName = "AevatarAgents";  // Match Silo's ProviderName
             options.DefaultStreamNamespace = streamNamespace;  // Type-specific namespace!
         });
 
@@ -441,15 +441,15 @@ public class MultiTopicBenchmark
         sw.Restart();
         Console.WriteLine("📡 Step 2: Creating publisher agents...");
         
-        // Use TypedAgent base for publishers (they just publish)
-        // Agent properties are set in OnActivateAsync, no need to set here
+        // Use specific TypeAAgent/TypeBAgent for publishers to ensure correct topic routing
+        // MassTransit TopicMapping routes based on Agent class name
         var publisherA_Id = Guid.NewGuid().ToString();
         var publisherA_Manager = _actorManagersByType["TypeA"]; 
-        var publisherA = await publisherA_Manager.CreateAndRegisterAsync<TypedAgent>(publisherA_Id); 
+        var publisherA = await publisherA_Manager.CreateAndRegisterAsync<TypeAAgent>(publisherA_Id); 
         
         var publisherB_Id = Guid.NewGuid().ToString();
         var publisherB_Manager = _actorManagersByType["TypeB"];
-        var publisherB = await publisherB_Manager.CreateAndRegisterAsync<TypedAgent>(publisherB_Id);
+        var publisherB = await publisherB_Manager.CreateAndRegisterAsync<TypeBAgent>(publisherB_Id);
         
         // Step 3: Subscribe Type A to PublisherA, Type B to PublisherB
         sw.Restart();
@@ -467,6 +467,9 @@ public class MultiTopicBenchmark
         sw.Restart();
         Console.WriteLine($"📤 Step 4: Publishing...");
         
+        var sentCountA = 0;
+        var sentCountB = 0;
+        
         var publishTaskA = Task.Run(async () =>
         {
              if (_providerName == "MassTransit")
@@ -475,8 +478,10 @@ public class MultiTopicBenchmark
                  for(int i=1; i<=messagesPerType; i++) {
                      var msg = new BusinessMessageEvent { Message = $"Test message {i} for TypeA", Timestamp = Timestamp.FromDateTime(DateTime.UtcNow) };
                      tasks.Add(publisherA.PublishEventAsync(msg, EventDirection.Down));
+                     sentCountA++;
                  }
                  await Task.WhenAll(tasks);
+                 Console.WriteLine($"      Published TypeA: {sentCountA}/{messagesPerType}");
             }
             else
             {
@@ -492,8 +497,10 @@ public class MultiTopicBenchmark
                  for(int i=1; i<=messagesPerType; i++) {
                      var msg = new BusinessMessageEvent { Message = $"Test message {i} for TypeB", Timestamp = Timestamp.FromDateTime(DateTime.UtcNow) };
                      tasks.Add(publisherB.PublishEventAsync(msg, EventDirection.Down));
+                     sentCountB++;
                  }
                  await Task.WhenAll(tasks);
+                 Console.WriteLine($"      Published TypeB: {sentCountB}/{messagesPerType}");
             }
             else
             {
@@ -503,6 +510,12 @@ public class MultiTopicBenchmark
         
         await Task.WhenAll(publishTaskA, publishTaskB);
         results.PublishDurationMs = (int)sw.ElapsedMilliseconds;
+        
+        // Update MessagesSent for MassTransit mode
+        if (_providerName == "MassTransit")
+        {
+            results.MessagesSent = sentCountA + sentCountB;
+        }
         
         Console.WriteLine("⏳ Waiting 5s...");
         await Task.Delay(5000);
