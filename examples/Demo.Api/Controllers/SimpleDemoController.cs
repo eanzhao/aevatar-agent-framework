@@ -128,9 +128,9 @@ public class SimpleDemoController : ControllerBase
         try
         {
             // 创建一个小型树结构
-            var rootId = Guid.NewGuid();
-            var child1Id = Guid.NewGuid();
-            var child2Id = Guid.NewGuid();
+            var rootId = Guid.NewGuid().ToString();
+            var child1Id = Guid.NewGuid().ToString();
+            var child2Id = Guid.NewGuid().ToString();
             
             var root = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(rootId);
             var child1 = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(child1Id);

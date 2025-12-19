@@ -143,17 +143,17 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         // Arrange
         var factory = CreateFactory(out _);
 
-        var agentId1 = Guid.NewGuid();
-        var agentId2 = Guid.NewGuid();
+        var agentId1 = Guid.NewGuid().ToString();
+        var agentId2 = Guid.NewGuid().ToString();
 
         // Act
         var actor1 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(agentId1);
         var actor2 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(agentId2);
 
         // Add different children to each
-        var child1 = Guid.NewGuid();
-        var child2 = Guid.NewGuid();
-        var child3 = Guid.NewGuid();
+        var child1 = Guid.NewGuid().ToString();
+        var child2 = Guid.NewGuid().ToString();
+        var child3 = Guid.NewGuid().ToString();
 
         var childActor1 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(child1);
         var childActor2 = await factory.CreateGAgentActorAsync<OrleansTestAgent>(child2);
@@ -200,7 +200,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         }
 
         // Verify all actors have unique IDs
-        var ids = new HashSet<Guid>();
+        var ids = new HashSet<string>();
         foreach (var actor in actors)
         {
             Assert.True(ids.Add(actor.Id), $"Duplicate actor ID found: {actor.Id}");

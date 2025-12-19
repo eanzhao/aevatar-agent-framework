@@ -194,7 +194,7 @@ public class UnifiedGrainEventPublisherTests
         var testEvent = new StringValue { Value = "P2P Message" };
 
         // Act
-        var eventId = await publisher.SendToAsync(targetAgentId, testEvent, EventDirection.Down);
+        var eventId = await publisher.SendToAsync(targetAgentId.ToString(), testEvent, EventDirection.Down);
 
         // Assert
         Assert.NotNull(eventId);
@@ -211,7 +211,7 @@ public class UnifiedGrainEventPublisherTests
     public async Task SendToAsync_Should_Set_OnArrivalDirection()
     {
         // Arrange
-        var targetAgentId = Guid.NewGuid();
+        var targetAgentId = Guid.NewGuid().ToString();
         byte[]? capturedBytes = null;
 
         var mockTargetGrain = new Mock<IGAgentGrain>();
@@ -221,7 +221,7 @@ public class UnifiedGrainEventPublisherTests
             .Returns(Task.CompletedTask);
 
         _mockGrainFactory
-            .Setup(f => f.GetGrain<IGAgentGrain>(targetAgentId.ToString(), null))
+            .Setup(f => f.GetGrain<IGAgentGrain>(targetAgentId, null))
             .Returns(mockTargetGrain.Object);
 
         var publisher = new UnifiedGrainEventPublisher(
@@ -244,7 +244,7 @@ public class UnifiedGrainEventPublisherTests
     public async Task SendToAsync_Should_Not_Use_Stream_For_P2P()
     {
         // Arrange
-        var targetAgentId = Guid.NewGuid();
+        var targetAgentId = Guid.NewGuid().ToString();
 
         var mockTargetGrain = new Mock<IGAgentGrain>();
         mockTargetGrain
@@ -252,7 +252,7 @@ public class UnifiedGrainEventPublisherTests
             .Returns(Task.CompletedTask);
 
         _mockGrainFactory
-            .Setup(f => f.GetGrain<IGAgentGrain>(targetAgentId.ToString(), null))
+            .Setup(f => f.GetGrain<IGAgentGrain>(targetAgentId, null))
             .Returns(mockTargetGrain.Object);
 
         var publisher = new UnifiedGrainEventPublisher(

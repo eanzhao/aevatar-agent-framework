@@ -81,7 +81,7 @@ public class MongoDBEventRouterStoreTests
         {
             AgentId = agentId,
             ParentId = parentId,
-            ChildrenIds = new List<Guid> { childId },
+            ChildrenIds = new List<string> { childId },
             UpdatedAt = DateTime.UtcNow
         };
 
@@ -110,8 +110,8 @@ public class MongoDBEventRouterStoreTests
         var agentId = Guid.NewGuid().ToString();
         var hierarchy = new EventRouterHierarchy
         {
-            ParentId = Guid.NewGuid(),
-            ChildrenIds = new HashSet<Guid> { Guid.NewGuid() }
+            ParentId = Guid.NewGuid().ToString(),
+            ChildrenIds = new HashSet<string> { Guid.NewGuid().ToString() }
         };
 
         _mockCollection

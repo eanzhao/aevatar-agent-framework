@@ -85,8 +85,8 @@ public class MassTransitStreamTests
 
         var streamProvider = provider.GetRequiredService<MassTransitMessageStreamProvider>();
         
-        var stream1 = streamProvider.GetStream(Guid.NewGuid().ToString());
-        var stream2 = streamProvider.GetStream(Guid.NewGuid().ToString());
+        var stream1 = streamProvider.GetStream(Guid.NewGuid().ToString().ToString());
+        var stream2 = streamProvider.GetStream(Guid.NewGuid().ToString().ToString());
 
         var received1 = false;
         var received2 = false;
@@ -144,7 +144,7 @@ public class MassTransitStreamTests
         await harness.Start();
 
         var streamProvider = provider.GetRequiredService<MassTransitMessageStreamProvider>();
-        var stream = streamProvider.GetStream(Guid.NewGuid().ToString());
+        var stream = streamProvider.GetStream(Guid.NewGuid().ToString().ToString());
 
         var receivedCount = 0;
 

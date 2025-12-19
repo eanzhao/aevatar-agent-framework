@@ -27,7 +27,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
 
     private OrleansEventStore CreateEventStore() => new OrleansEventStore(_eventRepository, _logger);
 
-    private AgentStateEvent CreateTestEvent(Guid agentId, long version, string eventType)
+    private AgentStateEvent CreateTestEvent(string agentId, long version, string eventType)
     {
         return new AgentStateEvent
         {
@@ -36,7 +36,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
             Version = version,
             EventType = eventType,
             EventData = Google.Protobuf.WellKnownTypes.Any.Pack(new ChildAddedEvent { ChildId = $"child-{version}" }),
-            AgentId = agentId.ToString(),
+            AgentId = agentId,
             CorrelationId = Guid.NewGuid().ToString(),
             Metadata = { { "testKey", $"testValue-{version}" } }
         };

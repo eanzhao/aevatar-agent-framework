@@ -58,8 +58,8 @@ public class ProtoActorStreamTests : IDisposable
     {
         // Arrange
         var parentId = Guid.NewGuid().ToString();
-        var child1Id = Guid.NewGuid();
-        var child2Id = Guid.NewGuid();
+        var child1Id = Guid.NewGuid().ToString();
+        var child2Id = Guid.NewGuid().ToString();
         
         var parentActor = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
             parentId, CancellationToken.None);
@@ -103,8 +103,8 @@ public class ProtoActorStreamTests : IDisposable
         var parentPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
         var childPid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
         
-        var parentStream = new ProtoActorMessageStream(Guid.NewGuid(), parentPid, rootContext);
-        var childStream = new ProtoActorMessageStream(Guid.NewGuid(), childPid, rootContext);
+        var parentStream = new ProtoActorMessageStream(Guid.NewGuid().ToString(), parentPid, rootContext);
+        var childStream = new ProtoActorMessageStream(Guid.NewGuid().ToString(), childPid, rootContext);
         
         var receivedMessages = new List<string>();
         
@@ -137,7 +137,7 @@ public class ProtoActorStreamTests : IDisposable
         // Arrange
         var rootContext = _actorSystem.Root;
         var pid = rootContext.Spawn(Props.FromFunc(ctx => Task.CompletedTask));
-        var stream = new ProtoActorMessageStream(Guid.NewGuid(), pid, rootContext);
+        var stream = new ProtoActorMessageStream(Guid.NewGuid().ToString(), pid, rootContext);
         
         var receivedMessages = new List<string>();
         var subscription = await stream.SubscribeAsync<EventEnvelope>(
@@ -176,7 +176,7 @@ public class ProtoActorStreamTests : IDisposable
     public async Task ProtoActor_Multi_Level_Propagation_Works()
     {
         // Arrange - 创建三层结构
-        var grandparentId = Guid.NewGuid();
+        var grandparentId = Guid.NewGuid().ToString();
         var parentId = Guid.NewGuid().ToString();
         var childId = Guid.NewGuid().ToString();
         

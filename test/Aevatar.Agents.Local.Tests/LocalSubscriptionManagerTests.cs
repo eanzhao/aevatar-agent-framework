@@ -193,10 +193,10 @@ public class LocalSubscriptionManagerTests
     public async Task GetActiveSubscriptions_ShouldReturnAllSubscriptions()
     {
         // Arrange
-        var parent1 = Guid.NewGuid();
-        var parent2 = Guid.NewGuid();
-        var child1 = Guid.NewGuid();
-        var child2 = Guid.NewGuid();
+        var parent1 = Guid.NewGuid().ToString();
+        var parent2 = Guid.NewGuid().ToString();
+        var child1 = Guid.NewGuid().ToString();
+        var child2 = Guid.NewGuid().ToString();
         
         _streamRegistry.GetOrCreateStream(parent1);
         _streamRegistry.GetOrCreateStream(parent2);

@@ -87,7 +87,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
         var stream = streamProvider.GetStream<byte[]>(streamId);
 
         var receivedMessages = new List<string>();
-        var orleansStream = new OrleansMessageStream(Guid.NewGuid(), stream);
+        var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
 
         // Act - 订阅
         var subscription = await orleansStream.SubscribeAsync<EventEnvelope>(async envelope =>
@@ -126,7 +126,7 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
             Guid.NewGuid().ToString());
         var stream = streamProvider.GetStream<byte[]>(streamId);
 
-        var orleansStream = new OrleansMessageStream(Guid.NewGuid(), stream);
+        var orleansStream = new OrleansMessageStream(Guid.NewGuid().ToString(), stream);
         var filteredMessages = new List<string>();
 
         // Act - 带过滤器订阅
