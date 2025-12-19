@@ -160,6 +160,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// <summary>
     /// Initialize Stream - 根据配置选择 Orleans Stream 或 MassTransit Stream
     /// 与 LocalGAgentActor 保持一致的配置驱动模式
+    /// 
+    /// StreamId format: Full GrainKey (AgentTypeShortName:AgentId)
+    /// This ensures consistency with Client Actor stream addressing.
     /// </summary>
     private async Task InitializeStreamAsync()
     {
@@ -171,18 +174,19 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 return;
             }
 
+            // Use full GrainKey as StreamId for consistency with Client Actor
             var grainKey = this.GetPrimaryKeyString();
-            var agentId = ExtractAgentIdFromGrainKey(grainKey).ToString();
 
             // 使用 Factory 统一创建 Stream (自动选择 Orleans/MassTransit)
+            // Use full GrainKey (AgentType:AgentId) as streamId
             _myStream = await _streamFactory.CreateStreamAsync(
-                agentId,
-                null, // Agent Category 将在 Agent 初始化后更新
+                grainKey,  // Full GrainKey format: AgentTypeShortName:AgentId
+                null,
                 this.GetStreamProvider);
 
             var providerType = _streamFactory.DetermineProviderType();
-            _logger.LogInformation("📡 Using {ProviderType} Stream for Grain {GrainId}, AgentId={AgentId}",
-                providerType, this.GetGrainId(), agentId);
+            _logger.LogInformation("📡 Using {ProviderType} Stream for Grain {GrainId}, StreamKey={StreamKey}",
+                providerType, this.GetGrainId(), grainKey);
 
             // Subscribe to stream for external event handling
             if (_myStream != null)

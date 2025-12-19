@@ -428,8 +428,8 @@ class Program
         var sender = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(senderId);
         var receiver = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(receiverId);
         
-        Console.WriteLine($"   Sender:   {senderId}");
-        Console.WriteLine($"   Receiver: {receiverId}");
+        Console.WriteLine($"   Sender:   {sender.Id}");
+        Console.WriteLine($"   Receiver: {receiver.Id}");
         Console.WriteLine($"   (No hierarchy relationship - pure point-to-point)");
         
         // Wait for agents to initialize
@@ -441,6 +441,7 @@ class Program
         Console.WriteLine($"   Initial receiver processed count: {initialCount}");
         
         // Test point-to-point send
+        // Use receiver.Id (full GrainKey format: AgentType:AgentId) for correct routing
         Console.WriteLine($"   Sending message directly to receiver...");
         var sw = Stopwatch.StartNew();
         var message = new BusinessMessageEvent
@@ -448,7 +449,7 @@ class Program
             Message = "Point-to-point direct message",
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
         };
-        await sender.SendToAsync(receiverId, message);
+        await sender.SendToAsync(receiver.Id, message);
         var sendMs = sw.ElapsedMilliseconds;
         Console.WriteLine($"   ✓ Message sent via SendToAsync");
         

@@ -263,9 +263,10 @@ public static class ServiceCollectionExtensions
                         
                         // Register Producers for ALL topics
                         // This allows MassTransitMessageStream to dynamically produce to any configured topic
+                        // Use string key to match StreamId format (AgentTypeShortName:AgentId)
                         foreach (var topic in allTopics)
                         {
-                            rider.AddProducer<Guid, ByteArrayMessage>(topic);
+                            rider.AddProducer<string, ByteArrayMessage>(topic);
                         }
                         
                         rider.UsingKafka((context, k) =>
@@ -464,9 +465,10 @@ public static class ServiceCollectionExtensions
                     x.AddRider(rider =>
                     {
                         // Register Producers for ALL topics (NO Consumer registration)
+                        // Use string key to match MassTransitMessageStream.ProduceAsync
                         foreach (var topic in allTopics)
                         {
-                            rider.AddProducer<Guid, ByteArrayMessage>(topic);
+                            rider.AddProducer<string, ByteArrayMessage>(topic);
                         }
                         
                         rider.UsingKafka((context, k) =>

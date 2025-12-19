@@ -44,7 +44,11 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     // Logger
     protected ILogger Logger { get; }
 
-    public string Id => _id;
+    /// <summary>
+    /// Returns the full GrainKey format (AgentTypeShortName:AgentId).
+    /// This is consistent with how grains are addressed in Orleans.
+    /// </summary>
+    public string Id => $"{GetAgentTypeShortName(_agentTypeName)}:{_id}";
 
     public OrleansGAgentActor(
         string id,
@@ -116,10 +120,12 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
 
         if (providerType == "MassTransit" && _externalStreamProvider != null)
         {
-            // Use MassTransit stream
-            // Use null category to match Grain's stream subscription
-            _myStream = _externalStreamProvider.GetStream(_id, null);
-            Logger.LogDebug("Using MassTransit stream for Actor {ActorId}", _id);
+            // Use MassTransit stream with full GrainKey format (AgentType:AgentId)
+            // This ensures OrleansMassTransitEventHandler routes to correct Grain
+            var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
+            var grainKey = $"{agentTypeShortName}:{_id}";
+            _myStream = _externalStreamProvider.GetStream(grainKey, agentTypeShortName);
+            Logger.LogDebug("Using MassTransit stream for Actor {ActorId}, GrainKey: {GrainKey}", _id, grainKey);
         }
         else if (_orleansStreamProvider != null)
         {
@@ -236,8 +242,9 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     }
 
     /// <summary>
-    /// Get stream for target agent
-    /// Uses AgentType:AgentId format for stream key to match Grain's subscription
+    /// Get stream for target agent.
+    /// Expects targetAgentId in full GrainKey format (AgentTypeShortName:AgentId)
+    /// to match Grain's subscription.
     /// </summary>
     private IMessageStream? GetTargetStream(string targetAgentId)
     {
@@ -249,17 +256,15 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
 
         if (providerType == "MassTransit" && _externalStreamProvider != null)
         {
-            // Use null category to match Grain's stream subscription
+            // targetAgentId is already in full GrainKey format (TypeName:Id)
             return _externalStreamProvider.GetStream(targetAgentId, null);
         }
         else if (_orleansStreamProvider != null)
         {
-            // Use same StreamId format as Grain (AgentType:AgentId)
-            // Assume target agent is same type as sender (common case for P2P)
+            // targetAgentId is already in full GrainKey format (TypeName:Id)
+            // Use it directly as the StreamKey
             var streamNamespace = _streamingOptions.DefaultStreamNamespace ?? "AevatarAgents";
-            var agentTypeShortName = GetAgentTypeShortName(_agentTypeName);
-            var streamKey = $"{agentTypeShortName}:{targetAgentId}";
-            var orleansStream = _orleansStreamProvider.GetStream<byte[]>(StreamId.Create(streamNamespace, streamKey));
+            var orleansStream = _orleansStreamProvider.GetStream<byte[]>(StreamId.Create(streamNamespace, targetAgentId));
             return new OrleansMessageStream(targetAgentId, orleansStream);
         }
 
