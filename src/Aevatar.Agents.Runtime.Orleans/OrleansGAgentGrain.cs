@@ -37,26 +37,26 @@ public class OrleansAgentState
     /// Agent 的唯一标识
     /// </summary>
     [Id(1)]
-    public Guid AgentId { get; set; }
+    public string AgentId { get; set; } = string.Empty;
 
     /// <summary>
     /// 父节点 ID
     /// </summary>
     [Id(2)]
-    public Guid? ParentId { get; set; }
+    public string? ParentId { get; set; }
 
     /// <summary>
     /// 子节点 ID 列表
     /// </summary>
     [Id(3)]
-    public List<Guid> Children { get; set; } = new();
+    public List<string> Children { get; set; } = new();
 
     public OrleansAgentState() { }
 
-    public OrleansAgentState(Guid? parentId = null)
+    public OrleansAgentState(string? parentId = null)
     {
         ParentId = parentId;
-        Children = new List<Guid>();
+        Children = new List<string>();
     }
 }
 
@@ -113,7 +113,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         await InitializeStreamAsync();
 
         // Restore Agent if previously initialized
-        if (!string.IsNullOrEmpty(_grainState.State.AgentTypeName) && _grainState.State.AgentId != Guid.Empty)
+        if (!string.IsNullOrEmpty(_grainState.State.AgentTypeName) && !string.IsNullOrEmpty(_grainState.State.AgentId))
         {
             _logger.LogInformation("Restoring Agent from persisted state: {AgentType}, AgentId: {AgentId}", 
                 _grainState.State.AgentTypeName, _grainState.State.AgentId);
@@ -128,7 +128,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         _logger.LogInformation("Deactivating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
         // Unregister grain key from MassTransit event handler
-        if (_grainState.State.AgentId != Guid.Empty)
+        if (!string.IsNullOrEmpty(_grainState.State.AgentId))
         {
             OrleansMassTransitEventHandler.UnregisterGrainKey(_grainState.State.AgentId);
         }
@@ -178,7 +178,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             }
 
             var grainKey = this.GetPrimaryKeyString();
-            var agentId = ExtractAgentIdFromGrainKey(grainKey);
+            var agentId = ExtractAgentIdFromGrainKey(grainKey).ToString();
 
             // 使用 Factory 统一创建 Stream (自动选择 Orleans/MassTransit)
             _myStream = await _streamFactory.CreateStreamAsync(
@@ -218,7 +218,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// 3. 解耦：发送者和接收者完全解耦
     /// 4. 弹性：接收者不可用时消息在队列中缓存
     /// </summary>
-    private async Task SendEventToStreamAsync(Guid targetAgentId, EventEnvelope envelope, CancellationToken ct)
+    private async Task SendEventToStreamAsync(string targetAgentId, EventEnvelope envelope, CancellationToken ct)
     {
         try
         {
@@ -244,7 +244,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// Get target Agent's stream
     /// 使用 Factory 统一创建（自动选择 MassTransit 或 Orleans Stream）
     /// </summary>
-    private IMessageStream? GetTargetStream(Guid targetAgentId)
+    private IMessageStream? GetTargetStream(string targetAgentId)
     {
         if (_streamFactory == null)
         {
@@ -308,11 +308,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     private async Task SendToParentViaStreamAsync(EventEnvelope envelope, CancellationToken ct)
     {
         var parentId = _grainState.State.ParentId;
-        if (!parentId.HasValue) return;
+        if (string.IsNullOrEmpty(parentId)) return;
 
         _logger.LogDebug("📤 Sending event {EventId} to parent {ParentId} via Stream", 
-            envelope.Id, parentId.Value);
-        await SendEventToStreamAsync(parentId.Value, envelope, ct);
+            envelope.Id, parentId);
+        await SendEventToStreamAsync(parentId, envelope, ct);
     }
 
     #endregion
@@ -327,7 +327,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         //
         // Always extract AgentId from the Grain key for consistency.
         var grainKey = this.GetPrimaryKeyString();
-        var agentId = ExtractAgentIdFromGrainKey(grainKey);
+        var agentId = ExtractAgentIdFromGrainKey(grainKey).ToString();
         return InitializeAgentInternalAsync(agentTypeName, agentId, persistState: true);
     }
 
@@ -347,7 +347,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         return Guid.Parse(grainKey);
     }
 
-    private async Task<bool> InitializeAgentInternalAsync(string agentTypeName, Guid agentId, bool persistState = false)
+    private async Task<bool> InitializeAgentInternalAsync(string agentTypeName, string agentId, bool persistState = false)
     {
         if (_isInitialized && _agent != null)
         {
@@ -435,7 +435,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         return null;
     }
 
-    private IGAgent? CreateAgentInstance(System.Type agentType, Guid agentId)
+    private IGAgent? CreateAgentInstance(System.Type agentType, string agentId)
     {
         try
         {
@@ -471,7 +471,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         }
     }
 
-    private void SetAgentId(IGAgent agent, Guid id)
+    private void SetAgentId(IGAgent agent, string id)
     {
         // Find Id property in base class hierarchy
         var type = agent.GetType();
@@ -657,21 +657,21 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     #region Hierarchy Management
 
-    public Task<Guid> GetIdAsync()
+    public Task<string> GetIdAsync()
     {
         var grainKey = this.GetPrimaryKeyString();
         try
         {
-            return Task.FromResult(ExtractAgentIdFromGrainKey(grainKey));
+            return Task.FromResult(ExtractAgentIdFromGrainKey(grainKey).ToString());
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse AgentId from Grain key '{GrainKey}'", grainKey);
-            return Task.FromResult(Guid.Empty);
+            return Task.FromResult(string.Empty);
         }
     }
 
-    public async Task AddChildAsync(Guid childId)
+    public async Task AddChildAsync(string childId)
     {
         if (!_grainState.State.Children.Contains(childId))
         {
@@ -681,7 +681,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         }
     }
 
-    public async Task RemoveChildAsync(Guid childId)
+    public async Task RemoveChildAsync(string childId)
     {
         if (_grainState.State.Children.Remove(childId))
         {
@@ -690,7 +690,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         }
     }
 
-    public async Task SetParentAsync(Guid parentId)
+    public async Task SetParentAsync(string parentId)
     {
         if (_grainState.State.ParentId != parentId)
         {
@@ -702,7 +702,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public async Task ClearParentAsync()
     {
-        if (_grainState.State.ParentId.HasValue)
+        if (!string.IsNullOrEmpty(_grainState.State.ParentId))
         {
             _grainState.State.ParentId = null;
             await _grainState.WriteStateAsync();
@@ -710,12 +710,12 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         }
     }
 
-    public Task<IReadOnlyList<Guid>> GetChildrenAsync()
+    public Task<IReadOnlyList<string>> GetChildrenAsync()
     {
-        return Task.FromResult<IReadOnlyList<Guid>>(_grainState.State.Children.AsReadOnly());
+        return Task.FromResult<IReadOnlyList<string>>(_grainState.State.Children.AsReadOnly());
     }
 
-    public Task<Guid?> GetParentAsync()
+    public Task<string?> GetParentAsync()
     {
         return Task.FromResult(_grainState.State.ParentId);
     }

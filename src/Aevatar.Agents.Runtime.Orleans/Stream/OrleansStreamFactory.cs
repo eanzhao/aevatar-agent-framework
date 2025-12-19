@@ -41,7 +41,7 @@ public class OrleansStreamFactory
     /// <param name="agentCategory">Agent category (for MassTransit topic routing)</param>
     /// <param name="getStreamProvider">Function to get Orleans StreamProvider (from Grain)</param>
     public Task<IMessageStream> CreateStreamAsync(
-        Guid agentId,
+        string agentId,
         string? agentCategory = null,
         Func<string, IStreamProvider>? getStreamProvider = null)
     {
@@ -65,7 +65,7 @@ public class OrleansStreamFactory
     /// Create Orleans Stream wrapped as IMessageStream.
     /// </summary>
     private Task<IMessageStream> CreateOrleansStreamAsync(
-        Guid agentId,
+        string agentId,
         Func<string, IStreamProvider>? getStreamProvider)
     {
         var streamNamespace = _streamingOptions?.Value?.DefaultStreamNamespace 
@@ -80,7 +80,7 @@ public class OrleansStreamFactory
         }
 
         var streamProvider = getStreamProvider(streamProviderName);
-        var streamId = StreamId.Create(streamNamespace, agentId.ToString());
+        var streamId = StreamId.Create(streamNamespace, agentId);
         var orleansStream = streamProvider.GetStream<byte[]>(streamId);
 
         _logger.LogDebug("Created Orleans stream for Agent {AgentId}, Namespace: {Namespace}", 

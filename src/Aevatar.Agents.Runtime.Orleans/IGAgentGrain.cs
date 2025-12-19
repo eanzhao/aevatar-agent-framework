@@ -16,7 +16,7 @@ public interface IGAgentGrain : IGrainWithStringKey
     /// [AlwaysInterleave] allows this to execute even when Grain is processing other requests
     /// </summary>
     [AlwaysInterleave]
-    Task<Guid> GetIdAsync();
+    Task<string> GetIdAsync();
 
     /// <summary>
     /// 初始化 Agent 实例（在 Silo 内创建）
@@ -48,17 +48,17 @@ public interface IGAgentGrain : IGrainWithStringKey
     /// <summary>
     /// 添加子 Agent
     /// </summary>
-    Task AddChildAsync(Guid childId);
+    Task AddChildAsync(string childId);
 
     /// <summary>
     /// 移除子 Agent
     /// </summary>
-    Task RemoveChildAsync(Guid childId);
+    Task RemoveChildAsync(string childId);
 
     /// <summary>
     /// 设置父 Agent
     /// </summary>
-    Task SetParentAsync(Guid parentId);
+    Task SetParentAsync(string parentId);
 
     /// <summary>
     /// 清除父 Agent
@@ -70,14 +70,14 @@ public interface IGAgentGrain : IGrainWithStringKey
     /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
     [AlwaysInterleave]
-    Task<IReadOnlyList<Guid>> GetChildrenAsync();
+    Task<IReadOnlyList<string>> GetChildrenAsync();
 
     /// <summary>
     /// 获取父 Agent ID
     /// [AlwaysInterleave] allows concurrent read access
     /// </summary>
     [AlwaysInterleave]
-    Task<Guid?> GetParentAsync();
+    Task<string?> GetParentAsync();
 
     /// <summary>
     /// 激活并设置Agent类型（已废弃，请使用 InitializeAgentAsync）
