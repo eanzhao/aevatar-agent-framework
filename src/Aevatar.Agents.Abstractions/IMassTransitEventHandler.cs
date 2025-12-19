@@ -14,9 +14,9 @@ public interface IMassTransitEventHandler
     /// <summary>
     /// Handle an incoming event for a specific agent.
     /// </summary>
-    /// <param name="agentId">The target agent's ID</param>
+    /// <param name="agentId">The target agent's ID (format varies by runtime)</param>
     /// <param name="envelope">The event envelope containing the message</param>
     /// <returns>True if the event was handled, false if this handler cannot route to the agent</returns>
-    Task<bool> HandleEventAsync(Guid agentId, EventEnvelope envelope);
+    Task<bool> HandleEventAsync(string agentId, EventEnvelope envelope);
 }
 
