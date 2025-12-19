@@ -267,7 +267,7 @@ public abstract class GAgentBase : IGAgent
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var eventId = await EventPublisher.PublishEventAsync(evt, direction, ct);
+            var eventId = await EventPublisher.PublishEventAsync(evt, direction, ct, isInternalCall: true);
 
             // Record publish metrics
             stopwatch.Stop();
@@ -609,7 +609,7 @@ public abstract class GAgentBase : IGAgent
 
             Logger.LogDebug("Publishing exception event for handler {Handler}", handlerName);
 
-            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up, default, isInternalCall: true);
         }
         catch (Exception ex)
         {
@@ -640,7 +640,7 @@ public abstract class GAgentBase : IGAgent
 
             Logger.LogDebug("Publishing framework exception event for operation {Operation}", operation);
 
-            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up);
+            await EventPublisher.PublishEventAsync(exceptionEvent, EventDirection.Up, default, isInternalCall: true);
         }
         catch (Exception ex)
         {

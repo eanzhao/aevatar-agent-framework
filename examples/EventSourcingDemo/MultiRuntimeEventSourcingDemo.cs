@@ -1,10 +1,16 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.EventSourcing;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core.EventSourcing;
+using Aevatar.Agents.Core.Extensions;
 using Aevatar.Agents.Runtime.Local;
+using Aevatar.Agents.Runtime.Orleans;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Orleans.Configuration;
+using Orleans.Hosting;
 
 namespace EventSourcingDemo;
 
@@ -32,8 +38,8 @@ public static class MultiRuntimeEventSourcingDemo
         // 1. Local 运行时演示
         await DemoLocalRuntime(sharedEventStore, serviceProvider);
         
-        // 2. Orleans 运行时说明
-        ShowOrleansInstructions();
+        // 2. Orleans 运行时演示
+        await DemoOrleansRuntime();
         
         Console.WriteLine("\n✅ Multi-Runtime EventSourcing Demo 完成！");
         Console.WriteLine("🌟 所有运行时都使用统一的 EventSourcing API！");
@@ -80,6 +86,52 @@ public static class MultiRuntimeEventSourcingDemo
         Console.WriteLine($"\n  💵 Balance: ${agent.GetState().Balance:F2}");
         Console.WriteLine($"  📈 Version: v{agent.GetCurrentVersion()}");
         Console.WriteLine($"  🔢 Transactions: {agent.GetState().TransactionCount}");
+        
+        // ✅ 场景1.5：类型安全代理调用（Local Runtime 直接调用，无 RPC 开销）
+        Console.WriteLine("\n⚡ 场景1.5：类型安全代理调用");
+        Console.WriteLine("───────────────────────────────────────────────");
+        
+        try
+        {
+            // ✨ 使用类型安全代理（Local Runtime 会直接调用，无序列化开销）
+            var bankAgent = actor.As<IBankAccountAgent>();
+            Console.WriteLine("  ✓ 创建代理: actor.As<IBankAccountAgent>()");
+            Console.WriteLine("  ✓ Local Runtime: 直接调用 Agent 方法（零开销）");
+            
+            var balance = await bankAgent.GetBalanceAsync();
+            var holder = await bankAgent.GetAccountHolderAsync();
+            var txCount = await bankAgent.GetTransactionCountAsync();
+            var version = await bankAgent.GetCurrentVersionAsync();
+            var summary = await bankAgent.GetAccountSummaryAsync();
+            
+            Console.WriteLine($"  ✅ bankAgent.GetBalanceAsync(): ${balance:F2}");
+            Console.WriteLine($"  ✅ bankAgent.GetAccountHolderAsync(): {holder}");
+            Console.WriteLine($"  ✅ bankAgent.GetTransactionCountAsync(): {txCount}");
+            Console.WriteLine($"  ✅ bankAgent.GetCurrentVersionAsync(): v{version}");
+            Console.WriteLine($"  ✅ bankAgent.GetAccountSummaryAsync():");
+            Console.WriteLine($"     - Holder: {summary.AccountHolder}");
+            Console.WriteLine($"     - Balance: ${summary.Balance:F2}");
+            Console.WriteLine($"     - Transactions: {summary.TransactionCount}");
+            Console.WriteLine($"     - Version: v{summary.Version}");
+            
+            // Verify results match direct access
+            if (Math.Abs(balance - agent.GetState().Balance) < 0.01 &&
+                holder == agent.GetState().AccountHolder &&
+                txCount == agent.GetState().TransactionCount &&
+                version == agent.GetCurrentVersion())
+            {
+                Console.WriteLine($"\n  🎉 代理调用验证成功！Local Runtime 直接调用无开销！");
+            }
+            else
+            {
+                Console.WriteLine($"\n  ⚠️ 代理调用结果与直接访问不匹配");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ RPC 调用失败: {ex.Message}");
+            Console.WriteLine($"     {ex.GetType().Name}: {ex.StackTrace}");
+        }
         
         // ✅ 场景2：批量交易演示
         Console.WriteLine("\n⚡ 场景2：批量交易（展示批量提交优势）");
@@ -128,6 +180,32 @@ public static class MultiRuntimeEventSourcingDemo
             {
                 Console.WriteLine($"\n  🎉 Local Runtime EventSourcing 验证成功!");
             }
+            
+            // ✅ 场景3.5：恢复后 RPC 调用测试
+            Console.WriteLine("\n⚡ 场景3.5：恢复后 RPC 调用测试");
+            Console.WriteLine("───────────────────────────────────────────────");
+            
+            try
+            {
+                var bankAgent = newActor.As<IBankAccountAgent>();
+                var recoveredBalance = await bankAgent.GetBalanceAsync();
+                var recoveredSummary = await bankAgent.GetAccountSummaryAsync();
+                
+                Console.WriteLine($"  ✅ 恢复后 RPC GetBalanceAsync: ${recoveredBalance:F2}");
+                Console.WriteLine($"  ✅ 恢复后 RPC GetAccountSummaryAsync:");
+                Console.WriteLine($"     - Balance: ${recoveredSummary.Balance:F2}");
+                Console.WriteLine($"     - Version: v{recoveredSummary.Version}");
+                
+                if (Math.Abs(recoveredBalance - recoveredAgent.GetState().Balance) < 0.01 &&
+                    recoveredSummary.Version == recoveredAgent.GetCurrentVersion())
+                {
+                    Console.WriteLine($"\n  🎉 恢复后 RPC 调用验证成功！");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  ❌ 恢复后 RPC 调用失败: {ex.Message}");
+            }
         }
         
         // ✅ 场景4：展示事件元数据
@@ -151,52 +229,126 @@ public static class MultiRuntimeEventSourcingDemo
     }
     
     /// <summary>
-    /// Orleans 运行时说明
+    /// Orleans 运行时演示
     /// </summary>
-    private static void ShowOrleansInstructions()
+    private static async Task DemoOrleansRuntime()
     {
-        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing");
+        Console.WriteLine("\n\n📍 Orleans Runtime EventSourcing + RPC");
         Console.WriteLine("════════════════════════════════════════════");
-        Console.WriteLine("✅ Orleans 现在使用统一的 IEventStore 接口！\n");
         
-        Console.WriteLine("🔧 配置方式 (ServiceProvider):");
-        Console.WriteLine("───────────────────────────────────────────────");
-        Console.WriteLine("```csharp");
-        Console.WriteLine("// 在 ServiceProvider 中注册 EventStore");
-        Console.WriteLine("services.AddSingleton<IEventStore, OrleansEventStore>();");
-        Console.WriteLine("");
-        Console.WriteLine("// 注册 AIGAgentFactory");
-        Console.WriteLine("services.AddSingleton<IGAgentFactory, AIGAgentFactory>();");
-        Console.WriteLine("```\n");
+        // 启动内嵌 Orleans Silo
+        Console.WriteLine("🚀 启动 Orleans Silo...");
         
-        Console.WriteLine("💡 使用方式 (完全透明):");
-        Console.WriteLine("───────────────────────────────────────────────");
-        Console.WriteLine("```csharp");
-        Console.WriteLine("// AIGAgentFactory 会自动检测并注入 EventStore");
-        Console.WriteLine("var factory = serviceProvider.GetRequiredService<IGAgentFactory>();");
-        Console.WriteLine("var actor = await factory.CreateGAgent<BankAccountAgent>(agentId);");
-        Console.WriteLine("");
-        Console.WriteLine("// EventStore 已自动注入到 Agent 中");
-        Console.WriteLine("// OnActivateAsync 会自动重放事件");
-        Console.WriteLine("```\n");
+        var host = Host.CreateDefaultBuilder()
+            .UseOrleans((context, siloBuilder) =>
+            {
+                siloBuilder.UseLocalhostClustering();
+                siloBuilder.AddMemoryGrainStorage("Default");
+                siloBuilder.AddMemoryStreams("Default");
+                siloBuilder.Configure<ClusterOptions>(options =>
+                {
+                    options.ClusterId = "eventsourcing-demo";
+                    options.ServiceId = "bank-demo";
+                });
+            })
+            .ConfigureServices(services =>
+            {
+                services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+                // EventStore - required for state updates
+                services.AddSingleton<InMemoryEventStore>();
+                services.AddSingleton<IEventStore>(p => p.GetRequiredService<InMemoryEventStore>());
+                services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
+                services.AddGAgentActorFactoryProvider();
+            })
+            .Build();
         
-        Console.WriteLine("🌟 统一的 EventSourcing 特性:");
-        Console.WriteLine("  ✓ 批量事件提交 (RaiseEvent + ConfirmEventsAsync)");
-        Console.WriteLine("  ✓ 纯函数式状态转换 (TransitionState)");
-        Console.WriteLine("  ✓ 自动事件重放 (OnActivateAsync)");
-        Console.WriteLine("  ✓ 快照支持 (Snapshot Strategy)");
-        Console.WriteLine("  ✓ 乐观并发控制 (Optimistic Concurrency)");
-        Console.WriteLine("  ✓ 元数据支持 (Metadata)");
-        Console.WriteLine("  ✓ GrainStorage 持久化 (支持多种存储提供者)");
+        await host.StartAsync();
+        Console.WriteLine("✅ Orleans Silo 已启动\n");
         
-        Console.WriteLine("\n📝 存储提供者支持:");
-        Console.WriteLine("  • MemoryGrainStorage (开发/测试)");
-        Console.WriteLine("  • AzureTableGrainStorage (生产)");
-        Console.WriteLine("  • AdoNetGrainStorage (SQL数据库)");
-        Console.WriteLine("  • 自定义存储提供者");
-        
-        Console.WriteLine("\n💡 提示: Orleans 需要运行完整的 Silo 服务器");
-        Console.WriteLine("        详见: examples/Demo.AppHost/Program.cs");
+        try
+        {
+            // 获取工厂
+            var clusterClient = host.Services.GetRequiredService<IClusterClient>();
+            var logger = host.Services.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();
+            var factory = new OrleansGAgentActorFactory(host.Services, clusterClient, logger);
+            
+            var agentId = Guid.NewGuid();
+            Console.WriteLine($"Agent ID: {agentId:N}");
+            
+            // 创建 Orleans Actor
+            Console.WriteLine("\n⚡ 场景5：Orleans Runtime RPC 调用");
+            Console.WriteLine("───────────────────────────────────────────────");
+            
+            var actor = await factory.CreateGAgentActorAsync<BankAccountAgent>(agentId);
+            Console.WriteLine("  ✓ Orleans Actor 创建成功");
+            
+            // ✨ 使用类型安全代理（Orleans Runtime 自动走 RPC）
+            var bankAgent = actor.As<IBankAccountAgent>();
+            Console.WriteLine("  ✓ 创建代理: actor.As<IBankAccountAgent>()");
+            Console.WriteLine("  ✓ Orleans Runtime: 自动走 RPC（Protobuf 序列化）");
+            
+            // 通过接口调用（类型安全，与 Local Runtime 一致的 API）
+            Console.Write("  bankAgent.CreateAccountAsync(...)... ");
+            await bankAgent.CreateAccountAsync("Orleans User", 2000m);
+            Console.WriteLine("✅");
+            
+            Console.Write("  bankAgent.DepositAsync(800m, ...)... ");
+            await bankAgent.DepositAsync(800m, "Orleans Deposit");
+            Console.WriteLine("✅");
+            
+            Console.Write("  bankAgent.WithdrawAsync(300m, ...)... ");
+            await bankAgent.WithdrawAsync(300m, "Orleans Withdraw");
+            Console.WriteLine("✅");
+            
+            // 通过接口获取状态
+            Console.Write("  bankAgent.GetBalanceAsync()... ");
+            var balance = await bankAgent.GetBalanceAsync();
+            Console.WriteLine($"✅ 返回: ${balance:F2}");
+            
+            Console.Write("  bankAgent.GetAccountHolderAsync()... ");
+            var holder = await bankAgent.GetAccountHolderAsync();
+            Console.WriteLine($"✅ 返回: {holder}");
+            
+            Console.Write("  bankAgent.GetTransactionCountAsync()... ");
+            var txCount = await bankAgent.GetTransactionCountAsync();
+            Console.WriteLine($"✅ 返回: {txCount}");
+            
+            Console.Write("  bankAgent.GetAccountSummaryAsync()... ");
+            var summary = await bankAgent.GetAccountSummaryAsync();
+            Console.WriteLine("✅");
+            Console.WriteLine($"     - Holder: {summary.AccountHolder}");
+            Console.WriteLine($"     - Balance: ${summary.Balance:F2}");
+            Console.WriteLine($"     - Transactions: {summary.TransactionCount}");
+            Console.WriteLine($"     - Version: v{summary.Version}");
+            
+            // 验证 (TransactionCount = 2: Deposit + Withdraw, CreateAccount sets it to 0)
+            var expectedBalance = 2000.0 + 800.0 - 300.0; // 2500
+            if (Math.Abs(balance - expectedBalance) < 0.01 && 
+                holder == "Orleans User" && 
+                txCount == 2)
+            {
+                Console.WriteLine($"\n  🎉 Orleans Runtime RPC 验证成功！");
+                Console.WriteLine($"     预期余额: ${expectedBalance:F2}, 实际: ${balance:F2}");
+                Console.WriteLine($"     交易数: {txCount}");
+            }
+            else
+            {
+                Console.WriteLine($"\n  ❌ Orleans Runtime RPC 验证失败");
+                Console.WriteLine($"     预期余额: ${expectedBalance:F2}, 实际: ${balance:F2}");
+                Console.WriteLine($"     预期交易数: 2, 实际: {txCount}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"\n  ❌ Orleans RPC 调用失败: {ex.Message}");
+            Console.WriteLine($"     {ex.StackTrace}");
+        }
+        finally
+        {
+            Console.WriteLine("\n🛑 停止 Orleans Silo...");
+            await host.StopAsync();
+            Console.WriteLine("✅ Orleans Silo 已停止");
+        }
     }
     
     /// <summary>

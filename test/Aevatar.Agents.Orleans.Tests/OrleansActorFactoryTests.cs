@@ -1,5 +1,6 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.Abstractions.Extensions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Extensions;
@@ -89,7 +90,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         Assert.NotNull(description);
     }
 
-    [Fact(Skip = "OrleansGAgentActor is now a lightweight proxy, hierarchy ops need to use Grain RPC")]
+    [Fact]
     public async Task Factory_Created_Actors_Should_Support_Hierarchical_Relationships()
     {
         // Arrange
@@ -136,7 +137,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         Assert.NotEqual(eventId2, eventId3);
     }
 
-    [Fact(Skip = "OrleansGAgentActor is now a lightweight proxy, hierarchy ops need to use Grain RPC")]
+    [Fact]
     public async Task Multiple_Actors_Should_Work_Independently()
     {
         // Arrange
@@ -205,6 +206,87 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
             Assert.True(ids.Add(actor.Id), $"Duplicate actor ID found: {actor.Id}");
         }
     }
+
+    // ============ RPC Tests ============
+
+    [Fact]
+    public async Task RPC_Should_Invoke_Agent_Methods_Via_Interface()
+    {
+        // Arrange
+        var factory = CreateFactory(out _);
+        var agentId = Guid.NewGuid();
+        var actor = await factory.CreateGAgentActorAsync<OrleansRpcTestAgent>(agentId);
+
+        // Act - Use type-safe proxy
+        var proxy = actor.As<IOrleansRpcTestAgent>();
+        await proxy.SetMessageAsync("Hello Orleans RPC!");
+        await proxy.IncrementAsync(42);
+
+        var message = await proxy.GetMessageAsync();
+        var count = await proxy.GetCountAsync();
+
+        // Assert
+        Assert.Equal("Hello Orleans RPC!", message);
+        Assert.Equal(42, count);
+    }
+
+    [Fact]
+    public async Task RPC_Should_Handle_Multiple_Calls()
+    {
+        // Arrange
+        var factory = CreateFactory(out _);
+        var agentId = Guid.NewGuid();
+        var actor = await factory.CreateGAgentActorAsync<OrleansRpcTestAgent>(agentId);
+
+        // Act - Multiple increments via proxy
+        var proxy = actor.As<IOrleansRpcTestAgent>();
+        await proxy.IncrementAsync(10);
+        await proxy.IncrementAsync(20);
+        await proxy.IncrementAsync(30);
+
+        var finalCount = await proxy.GetCountAsync();
+
+        // Assert
+        Assert.Equal(60, finalCount);
+    }
+
+    [Fact]
+    public async Task RPC_Should_Reject_Non_Existent_Methods()
+    {
+        // Arrange
+        var factory = CreateFactory(out _);
+        var agentId = Guid.NewGuid();
+        var actor = await factory.CreateGAgentActorAsync<OrleansRpcTestAgent>(agentId);
+
+        // Act & Assert - Non-existent method should throw (using dynamic API)
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => actor.InvokeAsync("SomeNonExistentMethod"));
+
+        Assert.Contains("RPC call", exception.Message);
+    }
+
+    [Fact]
+    public async Task RPC_Should_Handle_Concurrent_Calls()
+    {
+        // Arrange
+        var factory = CreateFactory(out _);
+        var agentId = Guid.NewGuid();
+        var actor = await factory.CreateGAgentActorAsync<OrleansRpcTestAgent>(agentId);
+
+        // Act - Concurrent RPC calls via proxy
+        var proxy = actor.As<IOrleansRpcTestAgent>();
+        var tasks = new List<Task>();
+        for (int i = 0; i < 10; i++)
+        {
+            tasks.Add(proxy.IncrementAsync(1));
+        }
+        await Task.WhenAll(tasks);
+
+        var finalCount = await proxy.GetCountAsync();
+
+        // Assert
+        Assert.Equal(10, finalCount);
+    }
 }
 
 // Test Agent Implementation for Orleans
@@ -256,4 +338,40 @@ public class OrleansTestAgent : GAgentBase<OrleansTestState>
     {
         GetState().IsDisposed = true;
     }
+}
+
+/// <summary>
+/// RPC-enabled test agent with interface
+/// </summary>
+public interface IOrleansRpcTestAgent : IGAgent
+{
+    Task<int> GetCountAsync();
+    Task IncrementAsync(int amount);
+    Task<string> GetMessageAsync();
+    Task SetMessageAsync(string message);
+}
+
+public class OrleansRpcTestAgent : GAgentBase<OrleansTestState>, IOrleansRpcTestAgent
+{
+    public OrleansRpcTestAgent() : base() { }
+    public OrleansRpcTestAgent(Guid id) : base(id) { }
+
+    public Task<int> GetCountAsync() => Task.FromResult(State.ProcessedCount);
+    
+    public Task IncrementAsync(int amount)
+    {
+        State.ProcessedCount += amount;
+        return Task.CompletedTask;
+    }
+
+    public Task<string> GetMessageAsync() => Task.FromResult(State.LastMessage ?? "");
+    
+    public Task SetMessageAsync(string message)
+    {
+        State.LastMessage = message;
+        return Task.CompletedTask;
+    }
+
+    public override Task<string> GetDescriptionAsync()
+        => Task.FromResult($"OrleansRpcTestAgent {Id}: Count={State.ProcessedCount}, Message={State.LastMessage}");
 }
