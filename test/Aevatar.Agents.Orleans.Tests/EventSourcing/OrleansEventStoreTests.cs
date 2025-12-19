@@ -47,7 +47,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var eventStore = CreateEventStore();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         var events = new List<AgentStateEvent>
         {
             CreateTestEvent(agentId, 1, "Event1"),
@@ -69,7 +69,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var eventStore = CreateEventStore();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         // First append: version 0 -> 1
         var firstVersion = await eventStore.AppendEventsAsync(agentId, new[] { CreateTestEvent(agentId, 1, "Event1") }, 0);
         Assert.Equal(1, firstVersion);
@@ -87,7 +87,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var eventStore = CreateEventStore();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         var events = new List<AgentStateEvent>
         {
             CreateTestEvent(agentId, 1, "Event1"),
@@ -111,7 +111,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var eventStore = CreateEventStore();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         var events = new List<AgentStateEvent>
         {
             CreateTestEvent(agentId, 1, "Event1"),
@@ -134,7 +134,7 @@ public class OrleansEventStoreTests : AevatarAgentsTestBase
     {
         // Arrange
         var eventStore = CreateEventStore();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
 
         // Act
         var version = await eventStore.GetLatestVersionAsync(agentId);

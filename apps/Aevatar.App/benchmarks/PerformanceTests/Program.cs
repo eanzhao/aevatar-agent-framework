@@ -275,7 +275,7 @@ class Program
         Console.WriteLine("1️⃣  Agent Creation Time:");
         
         var sw = Stopwatch.StartNew();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         results.Agent1 = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(agentId);
         sw.Stop();
         
@@ -348,8 +348,8 @@ class Program
         Console.WriteLine("4️⃣  Parent-Child Event Propagation:");
         
         // Create parent and child
-        var parentId = Guid.NewGuid();
-        var childId = Guid.NewGuid();
+        var parentId = Guid.NewGuid().ToString();
+        var childId = Guid.NewGuid().ToString();
         var parent = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(parentId);
         var child = await manager.CreateAndRegisterAsync<SimpleBusinessAgent>(childId);
         

@@ -35,7 +35,7 @@ public class SimpleDemoController : ControllerBase
         try
         {
             // 创建Agent
-            var agentId = Guid.NewGuid();
+            var agentId = Guid.NewGuid().ToString();
             var agent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(agentId);
             
             _logger.LogInformation("Created agent {AgentId} on {Runtime}", agentId, runtime);
@@ -77,8 +77,8 @@ public class SimpleDemoController : ControllerBase
         try
         {
             // 创建父子Agent
-            var parentId = Guid.NewGuid();
-            var childId = Guid.NewGuid();
+            var parentId = Guid.NewGuid().ToString();
+            var childId = Guid.NewGuid().ToString();
             
             var parent = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(parentId);
             var child = await _agentFactory.CreateGAgentActorAsync<WeatherAgent>(childId);

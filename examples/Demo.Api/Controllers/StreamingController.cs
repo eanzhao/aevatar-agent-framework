@@ -37,7 +37,7 @@ public class StreamingController : ControllerBase
         try
         {
             // 创建流处理Agent
-            var agentId = Guid.NewGuid();
+            var agentId = Guid.NewGuid().ToString();
             var agent = await _agentFactory.CreateGAgentActorAsync<StreamProcessorAgent>(agentId);
             
             _logger.LogInformation("Created StreamProcessorAgent {AgentId} on {Runtime}", agentId, runtime);

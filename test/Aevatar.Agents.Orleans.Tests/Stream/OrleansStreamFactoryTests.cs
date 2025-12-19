@@ -184,7 +184,7 @@ public class OrleansStreamFactoryTests
     public async Task CreateStreamAsync_Should_Create_MassTransit_Stream_When_Configured()
     {
         // Arrange
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         var agentCategory = "TestAgent";
 
         var mockStream = new Mock<IMessageStream>();
@@ -215,7 +215,7 @@ public class OrleansStreamFactoryTests
     public async Task CreateStreamAsync_Should_Throw_When_Orleans_And_No_StreamProvider()
     {
         // Arrange
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         var options = Options.Create(new MessageStreamProviderOptions { Provider = "Orleans" });
         var factory = new OrleansStreamFactory(
             _serviceProviderMock.Object,
@@ -231,7 +231,7 @@ public class OrleansStreamFactoryTests
     public async Task CreateStreamAsync_Should_Create_Orleans_Stream_When_StreamProvider_Available()
     {
         // Arrange
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
 
         var mockOrleansStream = new Mock<IAsyncStream<byte[]>>();
         var mockOrleansStreamProvider = new Mock<IStreamProvider>();

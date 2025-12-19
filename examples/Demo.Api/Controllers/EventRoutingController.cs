@@ -43,7 +43,7 @@ public class EventRoutingController : ControllerBase
             
             for (int i = 0; i < chainLength; i++)
             {
-                var agentId = Guid.NewGuid();
+                var agentId = Guid.NewGuid().ToString();
                 agentIds.Add(agentId);
                 var agent = await _agentFactory.CreateGAgentActorAsync<RouterAgent>(agentId);
                 agents.Add(agent);

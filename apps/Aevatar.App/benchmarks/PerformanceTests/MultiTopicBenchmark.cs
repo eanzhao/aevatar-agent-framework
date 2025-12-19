@@ -259,7 +259,7 @@ public class MultiTopicBenchmark
             
             for (int i = 0; i < AGENTS_PER_TYPE; i++)
             {
-                var agentId = Guid.NewGuid();
+                var agentId = Guid.NewGuid().ToString();
                 IGAgentActor actor;
 
                 // Use specific sub-types even for Shared Test to be consistent
@@ -363,7 +363,7 @@ public class MultiTopicBenchmark
             
             for (int i = 0; i < AGENTS_PER_TYPE; i++)
             {
-                var agentId = Guid.NewGuid();
+                var agentId = Guid.NewGuid().ToString();
                 IGAgentActor actor = null!;
                 
                 // Use specific sub-types for dynamic routing

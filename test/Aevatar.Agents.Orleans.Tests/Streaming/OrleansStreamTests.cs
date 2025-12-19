@@ -40,8 +40,8 @@ public class OrleansStreamTests : IClassFixture<OrleansStreamTests.ClusterFixtur
     public async Task Orleans_SetParent_Should_Subscribe_To_Parent_Stream()
     {
         // Arrange
-        var parentId = Guid.NewGuid();
-        var childId = Guid.NewGuid();
+        var parentId = Guid.NewGuid().ToString();
+        var childId = Guid.NewGuid().ToString();
 
         var parentGrain = _grainFactory.GetGrain<IGAgentGrain>(parentId.ToString());
         var childGrain = _grainFactory.GetGrain<IGAgentGrain>(childId.ToString());

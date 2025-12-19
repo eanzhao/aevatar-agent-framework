@@ -57,7 +57,7 @@ public class ProtoActorStreamTests : IDisposable
     public async Task ProtoActor_Parent_Child_Subscription_Works()
     {
         // Arrange
-        var parentId = Guid.NewGuid();
+        var parentId = Guid.NewGuid().ToString();
         var child1Id = Guid.NewGuid();
         var child2Id = Guid.NewGuid();
         
@@ -177,8 +177,8 @@ public class ProtoActorStreamTests : IDisposable
     {
         // Arrange - 创建三层结构
         var grandparentId = Guid.NewGuid();
-        var parentId = Guid.NewGuid();
-        var childId = Guid.NewGuid();
+        var parentId = Guid.NewGuid().ToString();
+        var childId = Guid.NewGuid().ToString();
         
         var grandparent = await _manager.CreateAndRegisterAsync<ProtoTestParentAgent>(
             grandparentId, CancellationToken.None);
@@ -223,7 +223,7 @@ public class ProtoTestParentAgent : GAgentBase<Messages.TestState>
 {
     public List<string> ReceivedMessages { get; } = new();
     
-    public ProtoTestParentAgent(Guid id) : base(id) { }
+    public ProtoTestParentAgent(string id) : base(id) { }
     public ProtoTestParentAgent() : base() { }
     
     public override Task<string> GetDescriptionAsync() => 
@@ -251,7 +251,7 @@ public class ProtoTestChildAgent : GAgentBase<Messages.TestState>
 {
     public List<string> ReceivedMessages { get; } = new();
 
-    public ProtoTestChildAgent(Guid id) : base(id)
+    public ProtoTestChildAgent(string id) : base(id)
     {
     }
 

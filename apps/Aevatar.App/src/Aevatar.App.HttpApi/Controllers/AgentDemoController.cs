@@ -40,7 +40,7 @@ public class AgentDemoController : AbpControllerBase
     [HttpPost("agents")]
     public async Task<ActionResult<AgentCreatedResponse>> CreateAgent()
     {
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         
         _logger.LogInformation("🚀 Creating agent with ID: {AgentId}", agentId);
 
@@ -253,7 +253,7 @@ public class AgentDemoController : AbpControllerBase
     [HttpPost("complex-agent")]
     public async Task<ActionResult<ComplexAgentCreatedResponse>> CreateComplexAgent()
     {
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString();
         
         _logger.LogInformation("🧪 Creating ComplexStateAgent with ID: {AgentId}", agentId);
 
