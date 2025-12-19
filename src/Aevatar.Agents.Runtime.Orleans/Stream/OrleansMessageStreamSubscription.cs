@@ -14,12 +14,12 @@ public class OrleansMessageStreamSubscription : IMessageStreamSubscription
     private bool _isActive;
 
     public Guid SubscriptionId { get; }
-    public Guid StreamId { get; }
+    public string StreamId { get; }
     public bool IsActive => _isActive && _streamSubscriptionHandle != null;
 
     public OrleansMessageStreamSubscription(
         Guid subscriptionId,
-        Guid streamId,
+        string streamId,
         StreamSubscriptionHandle<byte[]> streamSubscriptionHandle,
         Action onDisposed)
     {

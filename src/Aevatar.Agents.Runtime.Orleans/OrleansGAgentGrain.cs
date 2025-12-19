@@ -812,7 +812,7 @@ internal class GrainEventPublisher : IEventPublisher
     /// 点对点发送 - 直接发送到指定 Agent 的 Stream (非阻塞)
     /// </summary>
     public async Task<string> SendToAsync<TEvent>(
-        Guid targetAgentId,
+        string targetAgentId,
         TEvent evt,
         EventDirection onArrivalDirection = EventDirection.Unspecified,
         CancellationToken ct = default,
@@ -830,7 +830,7 @@ internal class GrainEventPublisher : IEventPublisher
             Direction = onArrivalDirection,
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
             CorrelationId = Guid.NewGuid().ToString(),
-            TargetAgentId = targetAgentId.ToString(),
+            TargetAgentId = targetAgentId,
             OnArrivalDirection = onArrivalDirection
         };
 

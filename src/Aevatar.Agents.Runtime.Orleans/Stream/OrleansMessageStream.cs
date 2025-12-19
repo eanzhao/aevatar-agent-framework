@@ -14,9 +14,9 @@ public class OrleansMessageStream : IMessageStream
     private readonly IAsyncStream<byte[]> _stream;
     private readonly ConcurrentDictionary<Guid, OrleansMessageStreamSubscription> _subscriptions = new();
     
-    public Guid StreamId { get; }
+    public string StreamId { get; }
 
-    public OrleansMessageStream(Guid streamId, IAsyncStream<byte[]> stream)
+    public OrleansMessageStream(string streamId, IAsyncStream<byte[]> stream)
     {
         StreamId = streamId;
         _stream = stream ?? throw new ArgumentNullException(nameof(stream));
@@ -93,7 +93,7 @@ public class OrleansMessageStream : IMessageStream
 internal class OrleansStreamObserver<T> : IAsyncObserver<byte[]> where T : IMessage
 {
     private readonly Guid _subscriptionId;
-    private readonly Guid _streamId;
+    private readonly string _streamId;
     private readonly Func<T, Task> _handler;
     private readonly Func<T, bool>? _filter;
     private readonly Action _onDisposed;
@@ -101,7 +101,7 @@ internal class OrleansStreamObserver<T> : IAsyncObserver<byte[]> where T : IMess
 
     public OrleansStreamObserver(
         Guid subscriptionId,
-        Guid streamId,
+        string streamId,
         Func<T, Task> handler,
         Func<T, bool>? filter,
         Action onDisposed)

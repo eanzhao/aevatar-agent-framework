@@ -38,16 +38,16 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     private IMessageStream? _myStream;
     
     // Agent metadata (from Grain)
-    private Guid _id;
+    private string _id;
     private string _agentTypeName;
     
     // Logger
     protected ILogger Logger { get; }
 
-    public Guid Id => _id;
+    public string Id => _id;
 
     public OrleansGAgentActor(
-        Guid id,
+        string id,
         string agentTypeName,
         IGrainFactory grainFactory,
         IStreamProvider? orleansStreamProvider,
@@ -171,7 +171,7 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
             Id = Guid.NewGuid().ToString(),
             // External calls: empty PublisherId allows Agent to handle the event
             // Internal calls: set to actor ID for self-handling check
-            PublisherId = isInternalCall ? _id.ToString() : "",
+            PublisherId = isInternalCall ? _id : "",
             Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
             Direction = direction,
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
@@ -197,7 +197,7 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     /// </summary>
     /// <param name="isInternalCall">If true, keeps PublisherId; if false (default), clears it for external calls</param>
     public async Task<string> SendToAsync<TEvent>(
-        Guid targetAgentId,
+        string targetAgentId,
         TEvent evt,
         EventDirection onArrivalDirection = EventDirection.Unspecified,
         CancellationToken ct = default,
@@ -208,12 +208,12 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         var envelope = new EventEnvelope
         {
             Id = Guid.NewGuid().ToString(),
-            PublisherId = isInternalCall ? _id.ToString() : "",
+            PublisherId = isInternalCall ? _id : "",
             Payload = Google.Protobuf.WellKnownTypes.Any.Pack(evt),
             Direction = onArrivalDirection,
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
             CorrelationId = Guid.NewGuid().ToString(),
-            TargetAgentId = targetAgentId.ToString(),
+            TargetAgentId = targetAgentId,
             OnArrivalDirection = onArrivalDirection
         };
 
@@ -239,7 +239,7 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
     /// Get stream for target agent
     /// Uses AgentType:AgentId format for stream key to match Grain's subscription
     /// </summary>
-    private IMessageStream? GetTargetStream(Guid targetAgentId)
+    private IMessageStream? GetTargetStream(string targetAgentId)
     {
         var providerType = _providerOptions.Provider;
         if (_providerOptions.Runtime.TryGetValue("Orleans", out var runtimeProvider))
@@ -297,13 +297,13 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
 
     #region Hierarchy Management
 
-    public async Task SetParentAsync(Guid parentId)
+    public async Task SetParentAsync(string parentId)
     {
         EnsureGrain();
         await _grain!.SetParentAsync(parentId);
     }
 
-    public async Task SetParentAsync(Guid parentId, CancellationToken ct)
+    public async Task SetParentAsync(string parentId, CancellationToken ct)
     {
         EnsureGrain();
         await _grain!.SetParentAsync(parentId);
@@ -321,37 +321,37 @@ public class OrleansGAgentActor : IGAgentActor, IActorHierarchyOperations
         await _grain!.ClearParentAsync();
     }
 
-    public async Task AddChildAsync(Guid childId)
+    public async Task AddChildAsync(string childId)
     {
         EnsureGrain();
         await _grain!.AddChildAsync(childId);
     }
 
-    public async Task AddChildAsync(Guid childId, CancellationToken ct)
+    public async Task AddChildAsync(string childId, CancellationToken ct)
     {
         EnsureGrain();
         await _grain!.AddChildAsync(childId);
     }
 
-    public async Task RemoveChildAsync(Guid childId)
+    public async Task RemoveChildAsync(string childId)
     {
         EnsureGrain();
         await _grain!.RemoveChildAsync(childId);
     }
 
-    public async Task RemoveChildAsync(Guid childId, CancellationToken ct)
+    public async Task RemoveChildAsync(string childId, CancellationToken ct)
     {
         EnsureGrain();
         await _grain!.RemoveChildAsync(childId);
     }
 
-    public async Task<Guid?> GetParentAsync()
+    public async Task<string?> GetParentAsync()
     {
         EnsureGrain();
         return await _grain!.GetParentAsync();
     }
 
-    public async Task<IReadOnlyList<Guid>> GetChildrenAsync()
+    public async Task<IReadOnlyList<string>> GetChildrenAsync()
     {
         EnsureGrain();
         return await _grain!.GetChildrenAsync();

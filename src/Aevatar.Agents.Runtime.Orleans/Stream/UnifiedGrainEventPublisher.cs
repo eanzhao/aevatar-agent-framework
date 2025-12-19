@@ -65,7 +65,7 @@ internal class UnifiedGrainEventPublisher : IEventPublisher
     }
 
     public async Task<string> SendToAsync<TEvent>(
-        Guid targetAgentId,
+        string targetAgentId,
         TEvent evt,
         EventDirection onArrivalDirection = EventDirection.Unspecified,
         CancellationToken ct = default,
@@ -83,7 +83,7 @@ internal class UnifiedGrainEventPublisher : IEventPublisher
             Direction = onArrivalDirection,
             Timestamp = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(DateTime.UtcNow),
             CorrelationId = Guid.NewGuid().ToString(),
-            TargetAgentId = targetAgentId.ToString(),
+            TargetAgentId = targetAgentId,
             OnArrivalDirection = onArrivalDirection
         };
 
@@ -99,7 +99,7 @@ internal class UnifiedGrainEventPublisher : IEventPublisher
         var envelopeBytes = memStream.ToArray();
 
         // Direct RPC to target Grain (no stream broadcast)
-        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetAgentId.ToString());
+        var targetGrain = _grainFactory.GetGrain<IGAgentGrain>(targetAgentId);
         await targetGrain.HandleEventAsync(envelopeBytes);
 
         return envelope.Id;

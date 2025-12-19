@@ -20,7 +20,7 @@ public class OrleansMassTransitEventHandler : IMassTransitEventHandler
     
     // Cache: AgentId -> GrainKey (AgentType:AgentId)
     // Populated when grains register themselves during activation
-    private static readonly ConcurrentDictionary<Guid, string> _agentGrainKeyCache = new();
+    private static readonly ConcurrentDictionary<string, string> _agentGrainKeyCache = new();
 
     public OrleansMassTransitEventHandler(
         IGrainFactory grainFactory,
@@ -34,7 +34,7 @@ public class OrleansMassTransitEventHandler : IMassTransitEventHandler
     /// Register a grain key for an agent ID.
     /// Called by OrleansGAgentGrain during activation.
     /// </summary>
-    public static void RegisterGrainKey(Guid agentId, string grainKey)
+    public static void RegisterGrainKey(string agentId, string grainKey)
     {
         _agentGrainKeyCache[agentId] = grainKey;
     }
@@ -43,13 +43,13 @@ public class OrleansMassTransitEventHandler : IMassTransitEventHandler
     /// Unregister a grain key.
     /// Called by OrleansGAgentGrain during deactivation.
     /// </summary>
-    public static void UnregisterGrainKey(Guid agentId)
+    public static void UnregisterGrainKey(string agentId)
     {
         _agentGrainKeyCache.TryRemove(agentId, out _);
     }
 
     /// <inheritdoc />
-    public async Task<bool> HandleEventAsync(Guid agentId, EventEnvelope envelope)
+    public async Task<bool> HandleEventAsync(string agentId, EventEnvelope envelope)
     {
         // Try to find the grain key from cache
         if (!_agentGrainKeyCache.TryGetValue(agentId, out var grainKey))
