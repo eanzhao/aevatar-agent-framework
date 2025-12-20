@@ -249,6 +249,33 @@ app.MapGet("/api/sessions/{sessionId}/events", async (
     }
 });
 
+// AG-UI SSE 事件流（协议标准化）
+// NOTE:
+// - 保留 /events 作为 legacy（项目内 UI 兼容）
+// - /agui/events 输出 AG-UI 事件 + CUSTOM 扩展，便于外部 UI/SDK 直接对接
+app.MapGet("/api/sessions/{sessionId}/agui/events", async (
+    string sessionId,
+    AxiomReasoningService svc,
+    HttpContext ctx,
+    CancellationToken ct) =>
+{
+    ctx.Response.Headers.ContentType = "text/event-stream";
+    ctx.Response.Headers.CacheControl = "no-cache";
+    ctx.Response.Headers.Connection = "keep-alive";
+
+    var jsonOptions = new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+    };
+
+    await foreach (var evt in svc.GetAgUiEventStreamAsync(sessionId, ct))
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(evt, evt.GetType(), jsonOptions);
+        await ctx.Response.WriteAsync($"data: {json}\n\n", ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+});
+
 Console.WriteLine($"""
 
     ╔══════════════════════════════════════════════════════════╗

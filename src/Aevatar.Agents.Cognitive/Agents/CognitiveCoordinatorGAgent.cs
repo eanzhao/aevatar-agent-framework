@@ -197,10 +197,13 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
             var workerId = Guid.NewGuid();
             var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
 
-            // 初始化 Worker 的 LLM Provider（否则 Worker.LLMProvider 会抛异常）
-            if (!string.IsNullOrWhiteSpace(providerName))
+            if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
             {
-                if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
+                // Reuse AIGAgentBase history switch (default off)
+                worker.EnableChatHistoryInState = EnableChatHistoryInState;
+
+                // 初始化 Worker 的 LLM Provider（否则 Worker.LLMProvider 会抛异常）
+                if (!string.IsNullOrWhiteSpace(providerName))
                 {
                     await worker.InitializeAsync(providerName!, cancellationToken: CancellationToken.None);
                 }

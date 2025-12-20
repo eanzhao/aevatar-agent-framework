@@ -37,6 +37,8 @@ dotnet run
 
 - **工作流**：`src/Aevatar.Agents.Cognitive/workflows/axiom_reasoning.yaml`
 - **策略执行**：`CognitiveStrategy.ExecuteAsync(..., CognitiveWorkflow="axiom_reasoning")`
-- **实时事件**：SSE `/api/sessions/{id}/events`
+- **实时事件**：
+  - Legacy SSE：`/api/sessions/{id}/events`
+  - **AG-UI SSE（推荐）**：`/api/sessions/{id}/agui/events`（标准 AG-UI 事件 + CUSTOM 扩展）
 
 

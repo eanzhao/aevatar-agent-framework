@@ -5,7 +5,7 @@
 //
 //  Notes:
 //    - The service already exposes /health and is OTEL-ready.
-//    - We pin HTTP port to 5001 to match the service banner and docs.
+//    - We pin HTTP port to 5011 to match the service banner and docs.
 // =========================================================================
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -17,20 +17,20 @@ Console.WriteLine("===================================");
 // Axiom Reasoning Service
 // -------------------------------------------------------------------------
 // Public endpoints:
-//   - Web UI:  http://localhost:5001
-//   - Health:  http://localhost:5001/health
-//   - API:     http://localhost:5001/api/sessions
+//   - Web UI:  http://localhost:5011
+//   - Health:  http://localhost:5011/health
+//   - API:     http://localhost:5011/api/sessions
 var axiomReasoning = builder.AddProject<Projects.Aevatar_AxiomReasoning>("axiom-reasoning")
-    .WithHttpEndpoint(port: 5001, name: "http")
+    .WithHttpEndpoint(port: 5011, name: "http")
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
 Console.WriteLine("✅ Axiom Reasoning: Axiom/Theorem Reasoning Service");
 Console.WriteLine("");
 Console.WriteLine("📊 服务端点:");
-Console.WriteLine("   - Web UI:  http://localhost:5001");
-Console.WriteLine("   - Health:  http://localhost:5001/health");
-Console.WriteLine("   - API:     http://localhost:5001/api/sessions");
+Console.WriteLine("   - Web UI:  http://localhost:5011");
+Console.WriteLine("   - Health:  http://localhost:5011/health");
+Console.WriteLine("   - API:     http://localhost:5011/api/sessions");
 Console.WriteLine("");
 
 var app = builder.Build();

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using System.Threading.Channels;
 using Aevatar.CognitiveMesh.Abstractions;
+using Aevatar.AxiomReasoning.Infrastructure;
 
 namespace Aevatar.AxiomReasoning.Models;
 
@@ -91,7 +91,10 @@ public sealed class AxiomSession
     public List<TimelineEntry> Timeline { get; } = [];
 
     // SSE 事件通道
-    public Channel<AxiomEvent> EventChannel { get; } = Channel.CreateUnbounded<AxiomEvent>();
+    // NOTE:
+    // - 旧实现用 Channel<T>（queue 语义），多个 SSE 连接会“抢消息”。
+    // - 现在用 BroadcastEventHub<T>（pub-sub 语义），每个连接都能收到完整事件流。
+    public BroadcastEventHub<AxiomEvent> EventHub { get; } = new(replayBufferSize: 256);
 
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 

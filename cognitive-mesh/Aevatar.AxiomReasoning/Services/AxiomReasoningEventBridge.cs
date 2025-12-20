@@ -138,7 +138,7 @@ public sealed class AxiomReasoningEventBridge
             }
 
             // 推送 SSE 事件（类似 PaperReview 的“可读事件”，而不是 token dump）
-            session.EventChannel.Writer.TryWrite(new Aevatar.AxiomReasoning.Models.ProgressEvent
+            session.EventHub.Publish(new Aevatar.AxiomReasoning.Models.ProgressEvent
             {
                 SessionId = session.Id,
                 Phase = p.Phase,
@@ -180,7 +180,7 @@ public sealed class AxiomReasoningEventBridge
             {
                 // Persist into graph store (best-effort; NEVER throw from this boundary).
                 _ = PersistGraphBestEffortAsync(session.Id, graph);
-                session.EventChannel.Writer.TryWrite(graph with { SessionId = session.Id });
+                session.EventHub.Publish(graph with { SessionId = session.Id });
             }
 
             _logger.LogDebug("[AXIOM] {Session} {Phase} {Step} {Status}",

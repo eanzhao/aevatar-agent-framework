@@ -1,3 +1,5 @@
+using Aevatar.Agents.AI;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Microsoft.Extensions.Logging;
@@ -83,11 +85,20 @@ public partial class CognitiveCoordinatorGAgent
         using var timeoutCts = new CancellationTokenSource(callTimeout);
         var ct = timeoutCts.Token;
 
-        var request = new AI.Abstractions.AevatarLLMRequest
+        var request = new AevatarLLMRequest
         {
             SystemPrompt = systemPrompt,
             UserPrompt = userPrompt
         };
+
+        // Optional: persist step-level "chat" transcript to State.History (default off).
+        // NOTE:
+        // - vote 会在同一个 Coordinator 里并行启动多个 LLM 调用
+        // - 这里的 AddMessageToHistory 已在 AIGAgentBase 内部加锁，避免并发写破坏 RepeatedField
+        if (EnableChatHistoryInState)
+        {
+            AddMessageToHistory(userPrompt, AevatarChatRole.User);
+        }
 
         var output = string.Empty;
         var promptTokens = 0;
@@ -281,6 +292,11 @@ public partial class CognitiveCoordinatorGAgent
                 {
                     return PrimitiveResult.Fail("redflag-parse-null");
                 }
+            }
+
+            if (EnableChatHistoryInState && !string.IsNullOrEmpty(output))
+            {
+                AddMessageToHistory(output, AevatarChatRole.Assistant);
             }
 
             return new PrimitiveResult

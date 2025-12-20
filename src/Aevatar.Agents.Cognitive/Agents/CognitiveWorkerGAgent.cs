@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Messages;
@@ -164,6 +165,14 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         if (systemPrompt != null)
         {
             systemPrompt = _templateEngine.Render(systemPrompt, variables);
+        }
+
+        // Optional: persist step-level "chat" transcript to State.History (default off).
+        // NOTE:
+        // - Worker 是 actor 串行执行，但仍然复用 AIGAgentBase 的开关语义。
+        if (EnableChatHistoryInState)
+        {
+            AddMessageToHistory(prompt, AevatarChatRole.User);
         }
 
         // 调用 LLM（优先流式）
@@ -357,6 +366,11 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                     return new PrimitiveResult { Success = false, Error = "redflag-parse-null" };
                 }
             }
+        }
+
+        if (EnableChatHistoryInState && !string.IsNullOrEmpty(finalContent))
+        {
+            AddMessageToHistory(finalContent, AevatarChatRole.Assistant);
         }
 
         return new PrimitiveResult

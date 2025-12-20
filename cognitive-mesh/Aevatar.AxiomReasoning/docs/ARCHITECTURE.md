@@ -11,6 +11,11 @@
 
 ```
 Aevatar.AxiomReasoning/
+├── AgUi/
+│   ├── AgUiEvents.cs               # AG-UI 事件模型（最小子集）
+│   └── AxiomAgUiEventStream.cs     # AxiomEvent → AG-UI 事件流投影
+├── Infrastructure/
+│   └── BroadcastEventHub.cs        # SSE 广播：多订阅者不抢消息
 ├── Program.cs
 ├── Aevatar.AxiomReasoning.csproj
 ├── Models/
@@ -35,11 +40,30 @@ Aevatar.AxiomReasoning/
 1. 前端提交公理与目标（可选 workflow / language / budgets）→ `POST /api/sessions`
 2. 启动推理 → `POST /api/sessions/{id}/run`
 3. 后端调用 `CognitiveStrategy.ExecuteAsync`，使用 session 选择的 `CognitiveWorkflow`
-4. 进度回调 `ReasoningProgress` 经 `AxiomReasoningEventBridge` 映射成 SSE 事件推给前端
+4. 进度回调 `ReasoningProgress` 经 `AxiomReasoningEventBridge` 生成领域事件（ProgressEvent/GraphEvent/ResultEvent/ErrorEvent）
+5. Session 使用 `BroadcastEventHub` fan-out 给所有 SSE 订阅者（避免多连接“抢消息”）
+6. SSE 输出：
+   - Legacy：`GET /api/sessions/{id}/events`（项目内 UI 兼容）
+   - 标准化：`GET /api/sessions/{id}/agui/events`（AG-UI 协议 + CUSTOM 扩展）
    - 同时 `LlmTranscriptRecorder` 会把 llm_call/vote 的对话过程落到 `output/{sessionId}/llm/`
-5. `update_state` 完成时：`AxiomReasoningEventBridge` 解析 `state`，发 `GraphEvent`，并写入 `IGraphStore`（InMemory 或 Supabase）
-6. 完成后落盘 artifacts：`state.json / theorems.json`
-7. （可选）完成后写入 Supabase：将 `state.json / theorems.json` 作为 JSON 字符串持久化到 Postgres
+7. `update_state` 完成时：`AxiomReasoningEventBridge` 解析 `state`，发 `GraphEvent`，并写入 `IGraphStore`（InMemory 或 Supabase）
+8. 完成后落盘 artifacts：`state.json / theorems.json`
+9. （可选）完成后写入 Supabase：将 `state.json / theorems.json` 作为 JSON 字符串持久化到 Postgres
+
+## AG-UI 对接策略（本项目落地版）
+
+- **threadId/runId**：默认都使用 `sessionId`
+- **标准事件**：
+  - `RUN_STARTED/RUN_FINISHED/RUN_ERROR`：对应 session 执行生命周期
+  - `STEP_STARTED/STEP_FINISHED`：对应 DSL step 状态跃迁（Running → Finished）
+  - `TEXT_MESSAGE_*`：对齐 `llm_call` 的 streaming（**token delta 主通道**；避免把每 token 都塞进 progress 事件）
+  - `STATE_SNAPSHOT/STATE_DELTA`：GraphEvent 作为 state（首次 snapshot，后续尽量用 JSON Patch 增量）
+- **CUSTOM 扩展**：为了让现有 Dashboard UI 零痛接入，继续发送：
+  - `CUSTOM(name="aevatar.axiom.progress", value=ProgressEvent)`（**非 streaming token** 的状态/统计事件；token 走 TEXT_MESSAGE_CONTENT）
+  - `CUSTOM(name="aevatar.axiom.graph", value=GraphEvent)`
+  - `CUSTOM(name="aevatar.axiom.result", value=ResultEvent)`
+  - `CUSTOM(name="aevatar.axiom.error", value=ErrorEvent)`
+  - `CUSTOM(name="aevatar.axiom.message_meta", value={workerId/provider/prompts...})`
 
 ## 设计约束
 

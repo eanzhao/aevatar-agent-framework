@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Aevatar.AxiomReasoning.AgUi;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Strategies;
@@ -159,7 +160,7 @@ public sealed class AxiomReasoningService
             _logger.LogInformation("Created axiom session: {Id}", session.Id);
 
             // 立即发一个初始事件，方便前端接入
-            session.EventChannel.Writer.TryWrite(new Aevatar.AxiomReasoning.Models.ProgressEvent
+            session.EventHub.Publish(new Aevatar.AxiomReasoning.Models.ProgressEvent
             {
                 SessionId = session.Id,
                 Phase = "CREATED",
@@ -270,13 +271,13 @@ public sealed class AxiomReasoningService
             session.Status = AxiomSessionStatus.Cancelled;
             session.Error = "Stopped by user";
 
-            session.EventChannel.Writer.TryWrite(new ErrorEvent
+            session.EventHub.Publish(new ErrorEvent
             {
                 SessionId = session.Id,
                 Message = "Stopped by user"
             });
 
-            session.EventChannel.Writer.TryComplete();
+            session.EventHub.Complete();
             return new { success = true };
         }
         catch (Exception ex)
@@ -351,7 +352,7 @@ public sealed class AxiomReasoningService
                 if (TryBuildGraphFromStateJson(stateJson, out var graph))
                 {
                     await _graphStore.UpsertFromGraphEventAsync(session.Id, graph, CancellationToken.None);
-                    session.EventChannel.Writer.TryWrite(graph with { SessionId = session.Id });
+                    session.EventHub.Publish(graph with { SessionId = session.Id });
                 }
             }
             catch (Exception ex)
@@ -383,7 +384,7 @@ public sealed class AxiomReasoningService
                 _logger.LogWarning(ex, "[{Id}] Failed to persist result to Supabase (ignored)", session.Id);
             }
 
-            session.EventChannel.Writer.TryWrite(new ResultEvent
+            session.EventHub.Publish(new ResultEvent
             {
                 SessionId = session.Id,
                 Success = result.Success,
@@ -396,7 +397,7 @@ public sealed class AxiomReasoningService
             if (!result.Success)
             {
                 _logger.LogError("[{Id}] Workflow failed: {Error}", session.Id, result.Error ?? "(unknown)");
-                session.EventChannel.Writer.TryWrite(new ErrorEvent
+                session.EventHub.Publish(new ErrorEvent
                 {
                     SessionId = session.Id,
                     Message = result.Error ?? "Execution failed"
@@ -411,7 +412,7 @@ public sealed class AxiomReasoningService
             session.Error = ex.Message;
 
             _logger.LogError(ex, "[{Id}] Execution failed", session.Id);
-            session.EventChannel.Writer.TryWrite(new ErrorEvent
+            session.EventHub.Publish(new ErrorEvent
             {
                 SessionId = session.Id,
                 Message = ex.Message,
@@ -422,7 +423,7 @@ public sealed class AxiomReasoningService
         {
             // Always flush local transcript before ending the session.
             _transcriptRecorder.OnSessionCompleted(session);
-            session.EventChannel.Writer.TryComplete();
+            session.EventHub.Complete();
         }
     }
 
@@ -579,7 +580,23 @@ public sealed class AxiomReasoningService
         if (!_sessions.TryGetValue(sessionId, out var session))
             yield break;
 
-        await foreach (var evt in session.EventChannel.Reader.ReadAllAsync(ct))
+        await foreach (var evt in session.EventHub.SubscribeAsync(replay: true, ct: ct))
+        {
+            yield return evt;
+        }
+    }
+
+    public async IAsyncEnumerable<AgUiEvent> GetAgUiEventStreamAsync(
+        string sessionId,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var session))
+            yield break;
+
+        await foreach (var evt in AxiomAgUiEventStream.BuildAsync(
+                           session,
+                           session.EventHub.SubscribeAsync(replay: true, ct: ct),
+                           ct))
         {
             yield return evt;
         }

@@ -135,6 +135,18 @@ function stepParentId(stepId) {
   return null;
 }
 
+function parseAgUiMessageId(messageId) {
+  // messageId format (server-side): msg:{sessionId}:{workerId}:{stepName}
+  // stepName may contain ':' in rare cases, so we join the rest.
+  const parts = String(messageId || "").split(":");
+  if (parts.length < 4) return { sessionId: "", workerId: "coordinator", stepId: "" };
+  return {
+    sessionId: parts[1] || "",
+    workerId: parts[2] || "coordinator",
+    stepId: parts.slice(3).join(":") || "",
+  };
+}
+
 function ensureSessionCache(sessionId) {
   if (!state.cache[sessionId]) {
     state.cache[sessionId] = {
@@ -152,6 +164,8 @@ function ensureSessionCache(sessionId) {
       dag: null,          // snapshot from /api/sessions/{id}/dag
       dagExplain: null,   // explain result from /api/sessions/{id}/dag/{nodeId}
       lastVoteStepId: null,
+      // AG-UI: message meta index (messageId -> meta)
+      msgMeta: Object.create(null),
       _stepsDirty: false,
     };
   }
@@ -163,6 +177,29 @@ function getWorkerDisplayName(workerId) {
   const m = String(workerId).match(/worker-(\d+)/);
   if (m) return `Worker ${m[1]}`;
   return workerId;
+}
+
+function ensureWorker(cache, workerId) {
+  const id = workerId || "coordinator";
+  if (!cache.workers[id]) {
+    cache.workers[id] = {
+      id,
+      name: getWorkerDisplayName(id),
+      provider: "",
+      tokenIndex: 0,
+      status: "pending",
+      streaming: false,
+      streamContent: "",
+      lastResponse: "",
+      pendingAppend: "",
+      errorMessage: "",
+      history: [],
+      stepId: "",
+      stepType: "",
+      dom: null,
+    };
+  }
+  return cache.workers[id];
 }
 
 function createWorkerCardDom(workerId) {
@@ -646,7 +683,156 @@ function closeModal() {
 }
 
 function applyEvent(sessionId, evt) {
+  // ============================================================
+  //  AG-UI compatibility
+  //
+  //  Server may emit AG-UI events (RUN_*/STEP_*/TEXT_*/STATE_*).
+  //  For backward-compatible UI rendering, we wrap the old domain events
+  //  (ProgressEvent/GraphEvent/ResultEvent/ErrorEvent) inside:
+  //    { type:"CUSTOM", name:"aevatar.axiom.*", value:{ type:"ProgressEvent", ... } }
+  //
+  //  Here we unwrap that payload so the rest of the UI code can stay unchanged.
+  // ============================================================
+  if (evt && evt.type === "CUSTOM" && evt.value && typeof evt.value === "object" && evt.value.type) {
+    evt = evt.value;
+  }
+
   const cache = ensureSessionCache(sessionId);
+
+  // ============================================================
+  //  AG-UI: message metadata (worker/provider/prompts)
+  // ============================================================
+  if (evt && evt.type === "CUSTOM" && evt.name === "aevatar.axiom.message_meta") {
+    const v = evt.value && typeof evt.value === "object" ? evt.value : null;
+    if (!v) return;
+    const messageId = v.messageId || "";
+    if (messageId) cache.msgMeta[messageId] = v;
+
+    const wid = v.workerId || (messageId ? parseAgUiMessageId(messageId).workerId : "coordinator");
+    const w = ensureWorker(cache, wid);
+    if (v.providerName) w.provider = v.providerName;
+    if (typeof v.tokenIndex === "number") w.tokenIndex = v.tokenIndex;
+    if (v.stepId) w.stepId = v.stepId;
+    if (v.stepType) w.stepType = v.stepType;
+
+    // Fill prompts for the head history item (if any)
+    if (w.history && w.history.length) {
+      if (!w.history[0].system && v.systemPrompt) w.history[0].system = v.systemPrompt;
+      if (!w.history[0].user && v.userPrompt) w.history[0].user = v.userPrompt;
+    }
+
+    scheduleRenderWorkers(cache);
+    return;
+  }
+
+  // ============================================================
+  //  AG-UI: streaming text messages (primary channel for token deltas)
+  // ============================================================
+  if (evt && evt.type === "TEXT_MESSAGE_START") {
+    const messageId = evt.messageId || "";
+    const p = parseAgUiMessageId(messageId);
+    const wid = p.workerId || "coordinator";
+    const stepId = p.stepId || "";
+    const w = ensureWorker(cache, wid);
+
+    w.status = "running";
+    w.streaming = true;
+    w.stepType = w.stepType || "llm_call";
+    if (stepId) w.stepId = stepId;
+
+    // New message => reset card content so we don't append to previous step output.
+    const head = w.history && w.history.length ? w.history[0] : null;
+    const isSameStep = head && head.stepId === stepId;
+    if (!isSameStep) {
+      w.pendingAppend = "";
+      w.streamContent = "";
+      w.lastResponse = "";
+
+      w.history.unshift({
+        timestamp: Date.now(),
+        stepId,
+        phase: "LLM Call",
+        status: "Running",
+        system: "",
+        user: "",
+        response: "",
+      });
+      if (w.history.length > 12) w.history.pop();
+    }
+
+    // Apply any meta we already have.
+    const meta = cache.msgMeta[messageId];
+    if (meta) {
+      if (meta.providerName) w.provider = meta.providerName;
+      if (typeof meta.tokenIndex === "number") w.tokenIndex = meta.tokenIndex;
+      if (w.history.length) {
+        if (!w.history[0].system && meta.systemPrompt) w.history[0].system = meta.systemPrompt;
+        if (!w.history[0].user && meta.userPrompt) w.history[0].user = meta.userPrompt;
+      }
+    }
+
+    scheduleRenderWorkers(cache);
+    return;
+  }
+
+  if (evt && evt.type === "TEXT_MESSAGE_CONTENT") {
+    const messageId = evt.messageId || "";
+    const delta = evt.delta || "";
+    if (!delta) return;
+
+    const p = parseAgUiMessageId(messageId);
+    const wid = p.workerId || "coordinator";
+    const stepId = p.stepId || "";
+    const w = ensureWorker(cache, wid);
+
+    // Ensure we have a head entry for this step.
+    const head = w.history && w.history.length ? w.history[0] : null;
+    const isSameStep = head && head.stepId === stepId;
+    if (!isSameStep) {
+      w.pendingAppend = "";
+      w.streamContent = "";
+      w.lastResponse = "";
+
+      w.history.unshift({
+        timestamp: Date.now(),
+        stepId,
+        phase: "LLM Call",
+        status: "Running",
+        system: "",
+        user: "",
+        response: "",
+      });
+      if (w.history.length > 12) w.history.pop();
+    }
+
+    w.streaming = true;
+    w.status = "running";
+    w.stepType = w.stepType || "llm_call";
+    if (stepId) w.stepId = stepId;
+
+    // Append (DOM will append via pendingAppend in rAF)
+    w.pendingAppend = (w.pendingAppend || "") + delta;
+    w.streamContent = (w.streamContent || "") + delta;
+    if (w.history.length) w.history[0].response = (w.history[0].response || "") + delta;
+
+    scheduleRenderWorkers(cache);
+    return;
+  }
+
+  if (evt && evt.type === "TEXT_MESSAGE_END") {
+    const messageId = evt.messageId || "";
+    const p = parseAgUiMessageId(messageId);
+    const wid = p.workerId || "coordinator";
+    const w = ensureWorker(cache, wid);
+
+    w.streaming = false;
+    // If the step later fails, ProgressEvent will override status to error.
+    w.status = w.status === "error" ? w.status : "completed";
+    if (w.streamContent) w.lastResponse = w.streamContent;
+
+    scheduleRenderWorkers(cache);
+    return;
+  }
 
   if (evt.type === "ProgressEvent") {
     cache.phase = evt.phase || cache.phase;
@@ -719,6 +905,11 @@ function applyEvent(sessionId, evt) {
       const head = w.history[0];
       const isSameStep = head && head.stepId === (evt.stepId || "");
       if (!isSameStep) {
+        // New step: reset in-card streaming buffer, otherwise we'll append to last step's output.
+        w.pendingAppend = "";
+        w.streamContent = "";
+        w.lastResponse = "";
+
         w.history.unshift({
           timestamp: now,
           stepId: evt.stepId || "",
@@ -744,11 +935,15 @@ function applyEvent(sessionId, evt) {
         w.pendingAppend = (w.pendingAppend || "") + delta;
         w.streamContent = (w.streamContent || "") + delta;
       } else if (content) {
-        // Completed/fallback: replace to authoritative content
-        w.pendingAppend = "";
-        w.streamContent = content;
+        // Completed/fallback:
+        // - Avoid overwriting a longer streamed buffer with a shorter (possibly truncated) completion body.
+        const cur = w.streamContent || "";
+        if (!cur || cur.length <= content.length) {
+          w.pendingAppend = "";
+          w.streamContent = content;
+        }
       }
-      if (isCompleted && content) w.lastResponse = content;
+      if (isCompleted) w.lastResponse = w.streamContent || content || w.lastResponse;
     }
 
     // 高频流式事件：节流渲染，避免卡顿
@@ -1202,7 +1397,8 @@ function connect(sessionId) {
     state.es = null;
   }
 
-  state.es = new EventSource(`/api/sessions/${sessionId}/events`);
+  // Prefer AG-UI stream (standardized). Legacy stream is kept server-side as /events.
+  state.es = new EventSource(`/api/sessions/${sessionId}/agui/events`);
   state.es.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
