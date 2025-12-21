@@ -61,6 +61,13 @@
     <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
     <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
   </Folder>
+  <Folder Name="/aevatar-kit/">
+    <Project Path="aevatar-kit\src\AevatarKit.Core\AevatarKit.Core.csproj" />
+    <Project Path="aevatar-kit\src\AevatarKit.Runtime\AevatarKit.Runtime.csproj" />
+    <Project Path="aevatar-kit\src\AevatarKit.Api\AevatarKit.Api.csproj" />
+    <File Path="aevatar-kit\docs\PLAN.md" />
+    <File Path="aevatar-kit\docs\README.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     <Project Path="src\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />

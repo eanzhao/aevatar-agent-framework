@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package aevatarkit;
+
+option csharp_namespace = "AevatarKit";
+
+import "google/protobuf/timestamp.proto";
+
+// =====================================================
+// Run / Workflow (MVP)
+// =====================================================
+
+message RunStartRequest {
+  // For MVP: allow user to paste YAML/JSON in the UI.
+  // In V1: GraphDefinition(IR) should be the SSOT and referenced by id/version.
+  string graph_source = 1;
+
+  // Human input (e.g., question / task).
+  string input = 2;
+
+  // Optional hint for session scope.
+  string session_id = 3;
+}
+
+message RunStartResponse {
+  string run_id = 1;
+}
+
+enum WorkflowStepStatus {
+  WORKFLOW_STEP_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_STEP_STATUS_RUNNING = 1;
+  WORKFLOW_STEP_STATUS_STREAMING = 2;
+  WORKFLOW_STEP_STATUS_COMPLETED = 3;
+  WORKFLOW_STEP_STATUS_FAILED = 4;
+}
+
+message WorkflowStepEvent {
+  string run_id = 1;
+  string step_id = 2;
+  string step_name = 3;
+  WorkflowStepStatus status = 4;
+
+  // Streaming delta or final output preview.
+  string output_chunk = 5;
+
+  // Optional error message (when failed).
+  string error = 6;
+
+  google.protobuf.Timestamp timestamp = 7;
+
+  map<string, string> metadata = 100;
+}
+
+// =====================================================
+// Memory (MVP)
+// =====================================================
+
+enum MemoryScopeType {
+  MEMORY_SCOPE_TYPE_UNSPECIFIED = 0;
+  MEMORY_SCOPE_TYPE_PRIVATE_AGENT = 1;   // private(agent)
+  MEMORY_SCOPE_TYPE_SESSION = 2;         // session(session_id)
+  MEMORY_SCOPE_TYPE_RUN = 3;             // run(run_id)
+  MEMORY_SCOPE_TYPE_GRAPH = 4;           // graph(graph_id@version)
+  MEMORY_SCOPE_TYPE_TENANT = 5;          // tenant(shared)
+}
+
+message MemoryScope {
+  MemoryScopeType type = 1;
+  string scope_id = 2; // agent_id/session_id/run_id/graph_id@version/tenant_id ...
+}
+
+message MemoryEntry {
+  string memory_id = 1;         // resource id
+  MemoryScope scope = 2;
+
+  string run_id = 3;
+  string agent_id = 4;
+
+  string role = 5;              // user/assistant/system/tool/...
+  string content = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+
+  map<string, string> tags = 100;
+}
+
+message ListMemoryEntriesRequest {
+  string memory_id = 1;
+  int32 limit = 2;
+}
+
+message ListMemoryEntriesResponse {
+  repeated MemoryEntry entries = 1;
+}
+
+

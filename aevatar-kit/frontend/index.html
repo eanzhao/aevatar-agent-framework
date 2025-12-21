@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AevatarKit MVP</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">AK</div>
+        <div>
+          <div class="title">AevatarKit</div>
+          <div class="subtitle">MVP · Graph / Run Timeline / Memory / Skills</div>
+        </div>
+      </div>
+      <div class="status">
+        <span id="connDot" class="dot"></span>
+        <span id="connText">Disconnected</span>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="panel">
+        <h2>Graph (YAML / JSON) · MVP</h2>
+        <textarea id="graph" spellcheck="false"># MVP Graph (placeholder)
+steps:
+  - id: input
+    type: input
+  - id: llm_call
+    type: llm_call
+  - id: transform
+    type: transform
+</textarea>
+
+        <h2>Input</h2>
+        <textarea id="input" spellcheck="false">给我一个可视化多智能体工作流平台的 MVP。</textarea>
+
+        <div class="actions">
+          <button id="startBtn" class="btn primary">Start Run</button>
+          <button id="stopBtn" class="btn" disabled>Stop (demo)</button>
+        </div>
+
+        <div class="kv">
+          <div class="k">RunId</div>
+          <div class="v"><code id="runId">-</code></div>
+          <div class="k">SSE</div>
+          <div class="v"><code id="sseUrl">-</code></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="tabs">
+          <button class="tab active" data-tab="timeline">Timeline</button>
+          <button class="tab" data-tab="memory">Memory</button>
+          <button class="tab" data-tab="skills">Skills (idea)</button>
+        </div>
+
+        <div id="timeline" class="tabBody active">
+          <h2>Run Timeline (SSE)</h2>
+          <div id="events" class="events"></div>
+        </div>
+
+        <div id="memory" class="tabBody">
+          <h2>Run Memory</h2>
+          <div class="hint">MVP：从 backend 内存读出（run scope）。V1：scope + RBAC + FTS/Vector。</div>
+          <div class="actions">
+            <button id="refreshMemoryBtn" class="btn">Refresh Memory</button>
+          </div>
+          <div id="memoryList" class="events"></div>
+        </div>
+
+        <div id="skills" class="tabBody">
+          <h2>Agent Skills (SKILL.md) · 方向探索</h2>
+          <div class="hint">
+            MVP 只展示产品形态：未来把 Graph/Tool/Prompt/MemoryProfile 打包成 Skill，接入技能市场。
+            参考：<a href="https://skillsmp.com/" target="_blank" rel="noreferrer">skillsmp.com</a>
+          </div>
+          <div class="skillsGrid">
+            <div class="skillCard">
+              <div class="skillName">graph-as-tool</div>
+              <div class="skillDesc">把已发布 Graph 导出成 Tool（MCP/HTTP）</div>
+              <div class="skillMeta">status: planned</div>
+            </div>
+            <div class="skillCard">
+              <div class="skillName">memory-profile</div>
+              <div class="skillDesc">Graph 绑定 memory source + 策略（保留/总结/检索）</div>
+              <div class="skillMeta">status: planned</div>
+            </div>
+            <div class="skillCard">
+              <div class="skillName">mcp-toolpack</div>
+              <div class="skillDesc">内置 MCP server registry + tool catalog</div>
+              <div class="skillMeta">status: MVP+</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
+
