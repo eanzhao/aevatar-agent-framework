@@ -24,7 +24,7 @@ namespace Aevatar.Agents.AI.Core;
 /// - Manages Standard State (History, Token Usage, etc)
 /// - Manages Standard Config
 /// </summary>
-public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>
+public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAgentConfig>
 {
     #region Fields
 
@@ -69,6 +69,16 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     public bool EnableChatHistoryInState { get; set; }
 
     /// <summary>
+    /// Optional AI memory instance (typically long-term store).
+    /// Injected by runtime (e.g. MongoDB-backed memory).
+    ///
+    /// NOTE:
+    /// - This is NOT part of agent state; it's an external dependency.
+    /// - Implementations should isolate by agent id (factory-created per agent).
+    /// </summary>
+    protected IAevatarAIMemory? AIMemory { get; set; }
+
+    /// <summary>
     /// Layer 1 + 2 (default: false):
     /// - Layer 1: Keep a sliding window of recent messages in <see cref="AevatarAIAgentState.History"/>.
     /// - Layer 2: Archive removed messages into a rolling summary stored in <see cref="AevatarAIAgentState.Context"/>
@@ -76,7 +86,7 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     ///
     /// NOTE:
     /// - This may trigger extra LLM calls (for summarization) when compaction happens.
-    /// - If you want "LLM decides when to recall", prefer tool-based retrieval (AIGAgentWithToolBase + memory tool).
+    /// - If you want "LLM decides when to recall", prefer tool-based retrieval (AIGAgentBase + search_memory tool).
     /// </summary>
     public bool EnableChatHistoryCompaction { get; set; }
 
@@ -91,6 +101,16 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
     /// Default: 4000 characters.
     /// </summary>
     public int ChatHistorySummaryMaxChars { get; set; } = 4000;
+
+    /// <summary>
+    /// When compaction is enabled, also archive removed messages into <see cref="AIMemory"/> if available.
+    /// Default: true.
+    ///
+    /// WHY:
+    /// - Layer 1 keeps a small window; Layer 2 keeps a compact summary.
+    /// - This switch keeps the raw removed content retrievable via memory tools (Layer 3).
+    /// </summary>
+    public bool ArchiveCompactedHistoryToAIMemory { get; set; } = true;
 
     [field: AllowNull, MaybeNull]
     protected ConversationHistoryManager ConversationHistory =>
@@ -185,6 +205,12 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
                 return;
             }
 
+            // Layer 3 (optional): persist removed raw messages into external memory store for later retrieval.
+            if (ArchiveCompactedHistoryToAIMemory && AIMemory != null)
+            {
+                await ArchiveRemovedMessagesToMemoryAsync(removed, cancellationToken);
+            }
+
             var updatedSummary = await UpdateHistorySummaryAsync(existingSummary, removed, cancellationToken);
             if (string.IsNullOrWhiteSpace(updatedSummary))
             {
@@ -207,11 +233,69 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         }
     }
 
+    private async Task ArchiveRemovedMessagesToMemoryAsync(
+        IReadOnlyList<AevatarChatMessage> removed,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Chunk archived transcript to avoid huge single writes.
+            const int ChunkMaxChars = 8000;
+            var sb = new System.Text.StringBuilder();
+
+            foreach (var m in removed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var role = m.Role.ToString().ToLowerInvariant();
+                var content = (m.Content ?? string.Empty).Replace("\r", "").Trim();
+                if (string.IsNullOrWhiteSpace(content)) continue;
+
+                sb.Append(role);
+                sb.Append(": ");
+                sb.AppendLine(content);
+
+                if (sb.Length >= ChunkMaxChars)
+                {
+                    var chunk = sb.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(chunk))
+                    {
+                        await AIMemory!.AddMessageAsync("system", $"ARCHIVED_CONVERSATION\n{chunk}", cancellationToken);
+                    }
+                    sb.Clear();
+                }
+            }
+
+            var tail = sb.ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(tail))
+            {
+                await AIMemory!.AddMessageAsync("system", $"ARCHIVED_CONVERSATION\n{tail}", cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to archive compacted history into external memory (best-effort).");
+        }
+    }
+
     private string BuildEffectiveSystemPromptWithSummary()
     {
         var basePrompt = GetEffectiveSystemPrompt() ?? string.Empty;
+
+        // Merge tool instructions into the system prompt (tools are always available now).
+        var toolBlock = BuildToolInstructionBlock();
+        var mergedPrompt = string.IsNullOrWhiteSpace(toolBlock)
+            ? basePrompt
+            : string.IsNullOrWhiteSpace(basePrompt)
+                ? toolBlock
+                : $"{basePrompt}\n\n{toolBlock}";
+
         if (!EnableChatHistoryInState || !EnableChatHistoryCompaction)
-            return basePrompt;
+            return mergedPrompt;
 
         string? summary;
         lock (_historyLock)
@@ -220,10 +304,10 @@ public abstract class AIGAgentBase : GAgentBase<AevatarAIAgentState, AevatarAIAg
         }
 
         if (string.IsNullOrWhiteSpace(summary))
-            return basePrompt;
+            return mergedPrompt;
 
         // Keep it explicit and stable; avoid fancy formatting that the model may misinterpret.
-        return $"{basePrompt}\n\nConversation summary (memory):\n{summary}\n";
+        return $"{mergedPrompt}\n\nConversation summary (memory):\n{summary}\n";
     }
 
     protected virtual async Task<string?> UpdateHistorySummaryAsync(
@@ -445,6 +529,9 @@ Open questions:
 
         await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
 
+        // Tool system is now part of the core base: every AI agent is tool-capable.
+        await InitializeToolsAsync(cancellationToken);
+
         _isInitialized = true;
 
         Logger.LogInformation("AI Agent {AgentId} initialized with LLM provider '{ProviderName}'", Id, providerName);
@@ -476,6 +563,9 @@ Open questions:
         _llmProvider = await CreateLLMProviderFromConfigAsync(providerConfig, cancellationToken);
 
         await InitializeEmbeddingGeneratorAsync(_activeProviderConfig, cancellationToken);
+
+        // Tool system is now part of the core base: every AI agent is tool-capable.
+        await InitializeToolsAsync(cancellationToken);
 
         _isInitialized = true;
 
@@ -682,6 +772,9 @@ Open questions:
             // Keep history bounded before building request (prevents token blow-up).
             await CompactChatHistoryIfNeededAsync(cancellationToken);
 
+            // Ensure built-in tools are registered and cached.
+            await InitializeToolsAsync(cancellationToken);
+
             // Build LLM request from chat request
             var llmRequest = BuildLLMRequest(request);
 
@@ -693,6 +786,19 @@ Open questions:
 
             // Call LLM
             var llmResponse = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
+            ToolCallInfo? toolCall = null;
+
+            // Tool/function calling loop
+            if (llmResponse.AevatarFunctionCall != null)
+            {
+                var (finalResponse, lastToolCall) = await ExecuteToolCallLoopAsync(
+                    request,
+                    llmRequest,
+                    llmResponse,
+                    cancellationToken);
+                llmResponse = finalResponse;
+                toolCall = lastToolCall;
+            }
 
             // Build chat response
             var response = new ChatResponse
@@ -700,6 +806,12 @@ Open questions:
                 Content = llmResponse.Content,
                 RequestId = request.RequestId
             };
+
+            if (toolCall != null)
+            {
+                response.ToolCalled = true;
+                response.ToolCall = toolCall;
+            }
 
             if (EnableChatHistoryInState && !string.IsNullOrEmpty(response.Content))
             {
@@ -737,7 +849,7 @@ Open questions:
                 new Dictionary<string, string>
                 {
                     ["request_id"] = request.RequestId,
-                    ["chat_type"] = "sync"
+                    ["chat_type"] = toolCall != null ? "tool_execution" : "sync"
                 });
 
             // Auto-confirm if configured and EventStore is present
@@ -797,6 +909,8 @@ Open questions:
             Messages = messages,
             Settings = settings
         };
+
+        AttachToolsToRequest(llmRequest);
 
         if (!string.IsNullOrWhiteSpace(request.StageHint))
         {
@@ -875,6 +989,9 @@ Open questions:
         // Keep history bounded before building request (prevents token blow-up).
         await CompactChatHistoryIfNeededAsync(cancellationToken);
 
+        // Ensure built-in tools are registered and cached.
+        await InitializeToolsAsync(cancellationToken);
+
         // Build LLM request
         var llmRequest = BuildLLMRequest(request);
 
@@ -897,23 +1014,48 @@ Open questions:
         {
             while (true)
             {
-                string? content;
-                bool isComplete;
-
+                AevatarLLMToken token;
                 try
                 {
                     var hasNext = await enumerator.MoveNextAsync();
                     if (!hasNext) break;
-
-                    var token = enumerator.Current;
-                    content = token.Content;
-                    isComplete = token.IsComplete;
+                    token = enumerator.Current;
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "Error in streaming chat request {RequestId}", request.RequestId);
                     throw;
                 }
+
+                // Streaming + tools:
+                // - If the model returns a function call mid-stream, execute tools non-streaming and
+                //   emit the final answer as a single chunk (best-effort).
+                if (token.AevatarFunctionCall != null)
+                {
+                    var toolCallResponse = new AevatarLLMResponse
+                    {
+                        AevatarFunctionCall = token.AevatarFunctionCall
+                    };
+
+                    var (finalResponse, _) = await ExecuteToolCallLoopAsync(
+                        request,
+                        llmRequest,
+                        toolCallResponse,
+                        cancellationToken);
+
+                    var finalText = finalResponse.Content ?? string.Empty;
+                    if (!string.IsNullOrEmpty(finalText))
+                    {
+                        assistantBuffer?.Append(finalText);
+                        yield return finalText;
+                    }
+
+                    completedSuccessfully = true;
+                    break;
+                }
+
+                var content = token.Content;
+                var isComplete = token.IsComplete;
 
                 if (!string.IsNullOrEmpty(content))
                 {

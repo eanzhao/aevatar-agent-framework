@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Engine;
@@ -89,6 +90,22 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
     //  构造函数
     // ============================================================
 
+    // ============================================================
+    //  History compaction policy (no extra LLM calls)
+    //
+    //  WHY:
+    //  - AIGAgentBase's default compaction can call LLM to summarize history.
+    //  - Cognitive workflows already have strict budgets; hidden LLM calls are unacceptable.
+    //  - For UI hydration, we rely on State.History (short-term) + AIMemory (long-term).
+    // ============================================================
+    protected override Task<string?> UpdateHistorySummaryAsync(
+        string? existingSummary,
+        IReadOnlyList<AevatarChatMessage> newlyArchivedMessages,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<string?>(null);
+    }
+
     public CognitiveCoordinatorGAgent()
     {
     }
@@ -174,7 +191,7 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
     /// <summary>
     /// 创建 Worker 池
     /// </summary>
-    public async Task CreateWorkerPoolAsync(int poolSize = 5)
+    public async Task CreateWorkerPoolAsync(int poolSize = 5, IReadOnlyList<Guid>? workerIds = null)
     {
         if (_actorManager == null)
         {
@@ -191,16 +208,37 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
             Logger.LogWarning("Coordinator is not initialized with an LLM provider yet. Workers will NOT be initialized and fan_out will fail.");
         }
 
-        for (int i = 0; i < poolSize; i++)
+        // Stable worker ids (optional):
+        // - When provided, this enables reconnect-friendly deterministic identity.
+        // - When not provided, fall back to random ids (old behavior).
+        var ids = new List<Guid>(capacity: Math.Max(0, poolSize));
+        if (workerIds != null && workerIds.Count > 0)
+        {
+            for (var i = 0; i < workerIds.Count && ids.Count < poolSize; i++)
+            {
+                ids.Add(workerIds[i]);
+            }
+        }
+
+        while (ids.Count < poolSize)
+        {
+            ids.Add(Guid.NewGuid());
+        }
+
+        for (var i = 0; i < ids.Count; i++)
         {
             // 创建 Worker Actor
-            var workerId = Guid.NewGuid();
+            var workerId = ids[i];
             var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
 
             if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
             {
                 // Reuse AIGAgentBase history switch (default off)
                 worker.EnableChatHistoryInState = EnableChatHistoryInState;
+                worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
+                worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
+                worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
+                worker.ArchiveCompactedHistoryToAIMemory = ArchiveCompactedHistoryToAIMemory;
 
                 // 初始化 Worker 的 LLM Provider（否则 Worker.LLMProvider 会抛异常）
                 if (!string.IsNullOrWhiteSpace(providerName))

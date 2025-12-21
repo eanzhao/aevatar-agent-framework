@@ -12,7 +12,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+        <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+        <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     </ItemGroup>
 
     <ItemGroup>

@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Embeddings;
@@ -141,7 +142,19 @@ public sealed class CognitiveStrategy : IReasoningStrategy
                 ProgressPercent = 0.1f
             });
             
-            var coordinatorId = Guid.NewGuid();
+            // ============================================================
+            //  Stable AgentId (session-aware)
+            //
+            //  WHY:
+            //  - Frontend wants "stateless refresh": reconnect must re-hydrate from Agent state/memory.
+            //  - That requires deterministic ids so the service can locate the same Coordinator/Workers.
+            //
+            //  If no session_id/run_id is provided, we keep the old behavior (random Guid).
+            // ============================================================
+            var stableSessionKey = TryGetStableSessionKey(options);
+            var coordinatorId = !string.IsNullOrWhiteSpace(stableSessionKey)
+                ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator")
+                : Guid.NewGuid();
             var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(coordinatorId, ct);
             var coordinator = coordinatorActor.GetAgent() as CognitiveCoordinatorGAgent;
             
@@ -156,6 +169,28 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             // 配置 Coordinator
             coordinator.SetActorManager(_actorManager);
+
+            // ============================================================
+            //  Long-term chat persistence (State.History + AIMemory)
+            //
+            //  Strategy:
+            //  - State.History: short-term window for quick UI hydration
+            //  - AIMemory: long-term append-only log (optional, if factory is registered)
+            //
+            //  NOTE:
+            //  - We enable this automatically when a stable session key exists,
+            //    but callers can explicitly override via options.Context["enable_chat_history"].
+            // ============================================================
+            var enableChatHistory = ShouldEnableChatHistory(options, stableSessionKey);
+            if (enableChatHistory)
+            {
+                coordinator.EnableChatHistoryInState = true;
+                coordinator.EnableChatHistoryCompaction = true;
+
+                // We persist a structured per-step interaction to AIMemory ourselves.
+                // Avoid duplicating the same content via "archive compacted history" (best-effort).
+                coordinator.ArchiveCompactedHistoryToAIMemory = false;
+            }
             
             // 配置语义聚类投票（如果有）
             if (_embeddingGenerator != null)
@@ -308,7 +343,19 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             // 创建 Worker 池
             var workerPoolSize = options.CognitiveWorkerCount > 0 ? options.CognitiveWorkerCount.Value : 5;
-            await coordinator.CreateWorkerPoolAsync(workerPoolSize);
+            
+            IReadOnlyList<Guid>? stableWorkerIds = null;
+            if (!string.IsNullOrWhiteSpace(stableSessionKey))
+            {
+                var ids = new List<Guid>(capacity: workerPoolSize);
+                for (var i = 0; i < workerPoolSize; i++)
+                {
+                    ids.Add(DeterministicGuid.FromString($"cognitive:{stableSessionKey}:worker:{i}"));
+                }
+                stableWorkerIds = ids;
+            }
+            
+            await coordinator.CreateWorkerPoolAsync(workerPoolSize, stableWorkerIds);
             
             _logger.LogInformation("Created Coordinator {Id} with {Workers} workers", coordinatorId, workerPoolSize);
             
@@ -788,6 +835,43 @@ public sealed class CognitiveStrategy : IReasoningStrategy
         
         // Default to coordinator for unknown patterns
         return "coordinator";
+    }
+
+    private static string? TryGetStableSessionKey(ReasoningOptions options)
+    {
+        if (options.Context == null || options.Context.Count == 0)
+            return null;
+
+        // Prefer "session_id" (service-owned); fallback to "run_id" for generic callers.
+        if (options.Context.TryGetValue("session_id", out var sessionId) &&
+            !string.IsNullOrWhiteSpace(sessionId))
+        {
+            return sessionId.Trim();
+        }
+
+        if (options.Context.TryGetValue("run_id", out var runId) &&
+            !string.IsNullOrWhiteSpace(runId))
+        {
+            return runId.Trim();
+        }
+
+        return null;
+    }
+
+    private static bool ShouldEnableChatHistory(ReasoningOptions options, string? stableSessionKey)
+    {
+        // Explicit override (preferred).
+        if (options.Context != null &&
+            options.Context.TryGetValue("enable_chat_history", out var raw) &&
+            !string.IsNullOrWhiteSpace(raw) &&
+            bool.TryParse(raw, out var enabled))
+        {
+            return enabled;
+        }
+
+        // Implicit default:
+        // - if caller provides a stable session key, we assume they want reconnectable history.
+        return !string.IsNullOrWhiteSpace(stableSessionKey);
     }
     
     /// <summary>

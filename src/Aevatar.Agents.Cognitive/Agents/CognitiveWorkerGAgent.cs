@@ -8,6 +8,7 @@ using Aevatar.Agents.Cognitive.Template;
 using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Aevatar.Agents.Cognitive.Agents;
 
@@ -34,6 +35,22 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
 
     public CognitiveWorkerGAgent()
     {
+    }
+
+    // ============================================================
+    //  History compaction policy (no extra LLM calls)
+    //
+    //  WHY:
+    //  - AIGAgentBase's default compaction can call LLM to summarize history.
+    //  - Cognitive workflows already have strict budgets; hidden LLM calls are unacceptable.
+    //  - For UI hydration, we rely on State.History (short-term) + AIMemory (long-term).
+    // ============================================================
+    protected override Task<string?> UpdateHistorySummaryAsync(
+        string? existingSummary,
+        IReadOnlyList<AevatarChatMessage> newlyArchivedMessages,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<string?>(null);
     }
 
     // ============================================================
@@ -140,6 +157,9 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
 
     private async Task<PrimitiveResult> ExecuteLlmCallAsync(ExecuteStepRequestEvent request)
     {
+        // Keep State.History bounded before adding new step messages (best-effort).
+        await CompactChatHistoryIfNeededAsync();
+
         // 从 Protobuf Value 转换参数
         var parameters = ConvertFromProtoMap(request.Parameters);
         var variables = ConvertFromProtoMap(request.Variables);
@@ -167,12 +187,16 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             systemPrompt = _templateEngine.Render(systemPrompt, variables);
         }
 
-        // Optional: persist step-level "chat" transcript to State.History (default off).
+        // Optional: persist step-level transcript to State.History (default off).
         // NOTE:
-        // - Worker 是 actor 串行执行，但仍然复用 AIGAgentBase 的开关语义。
+        // - We MUST attach step metadata so UI can group messages even when calls interleave.
         if (EnableChatHistoryInState)
         {
-            AddMessageToHistory(prompt, AevatarChatRole.User);
+            if (!string.IsNullOrWhiteSpace(systemPrompt))
+            {
+                AppendStepHistoryMessage(AevatarChatRole.System, systemPrompt!, request, tokenUsed: 0);
+            }
+            AppendStepHistoryMessage(AevatarChatRole.User, prompt, request, tokenUsed: 0);
         }
 
         // 调用 LLM（优先流式）
@@ -370,8 +394,25 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
 
         if (EnableChatHistoryInState && !string.IsNullOrEmpty(finalContent))
         {
-            AddMessageToHistory(finalContent, AevatarChatRole.Assistant);
+            AppendStepHistoryMessage(
+                AevatarChatRole.Assistant,
+                finalContent,
+                request,
+                tokenUsed: totalPromptTokens + totalCompletionTokens);
         }
+
+        // Persist a structured per-step interaction into AIMemory (optional).
+        // This is the "long-term" layer; State.History stays as a short-term window.
+        await PersistInteractionToMemoryAsync(
+            request,
+            systemPrompt,
+            prompt,
+            finalContent,
+            totalPromptTokens,
+            totalCompletionTokens);
+
+        // Keep State.History bounded after appending (best-effort).
+        await CompactChatHistoryIfNeededAsync();
 
         return new PrimitiveResult
         {
@@ -385,6 +426,73 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             UserPrompt = prompt,
             AssistantResponse = finalContent
         };
+    }
+
+    private void AppendStepHistoryMessage(
+        AevatarChatRole role,
+        string content,
+        ExecuteStepRequestEvent request,
+        int tokenUsed)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        var msg = new AevatarChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            TokenUsed = tokenUsed
+        };
+
+        // Stable metadata for UI + replay-independent hydration.
+        msg.Metadata["step_id"] = request.StepId ?? string.Empty;
+        msg.Metadata["step_type"] = request.StepType ?? string.Empty;
+        msg.Metadata["request_id"] = request.RequestId ?? string.Empty;
+        msg.Metadata["agent_kind"] = "cognitive_worker";
+        msg.Metadata["worker_id"] = CustomState.WorkerId ?? string.Empty;
+
+        AddMessageToHistory(msg);
+    }
+
+    private async Task PersistInteractionToMemoryAsync(
+        ExecuteStepRequestEvent request,
+        string? systemPrompt,
+        string userPrompt,
+        string assistantResponse,
+        int promptTokens,
+        int completionTokens)
+    {
+        if (AIMemory == null)
+            return;
+
+        try
+        {
+            var payload = new
+            {
+                kind = "aevatar.cognitive.llm_interaction.v1",
+                agentId = Id.ToString("N"),
+                agentKind = "cognitive_worker",
+                workerId = CustomState.WorkerId ?? "",
+                requestId = request.RequestId ?? "",
+                stepId = request.StepId ?? "",
+                stepType = request.StepType ?? "",
+                systemPrompt,
+                userPrompt,
+                assistantResponse,
+                promptTokens,
+                completionTokens,
+                totalTokens = promptTokens + completionTokens,
+                timestamp = DateTimeOffset.UtcNow.ToString("O")
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            await AIMemory.AddMessageAsync("assistant", json);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to persist llm interaction to AIMemory (best-effort).");
+        }
     }
 
     private static int ResolveInt(object? value, int defaultValue)

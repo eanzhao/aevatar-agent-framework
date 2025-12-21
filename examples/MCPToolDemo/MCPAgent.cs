@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.AI.WithTool;
+using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.MCP;
 using Aevatar.Agents.AI.WithTool.MCP.Configuration;
@@ -14,7 +14,7 @@ namespace MCPToolDemo;
 /// <summary>
 /// An agent that demonstrates MCP tool integration.
 /// </summary>
-public class MCPAgent : AIGAgentWithToolBase<AevatarAIAgentState>
+public class MCPAgent : AIGAgentBase
 {
     private readonly IConfiguration _configuration;
 
@@ -23,7 +23,7 @@ public class MCPAgent : AIGAgentWithToolBase<AevatarAIAgentState>
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
-    protected override async Task RegisterToolsAsync()
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
         Logger?.LogInformation("🔧 Starting tool registration...");
 
@@ -33,7 +33,7 @@ public class MCPAgent : AIGAgentWithToolBase<AevatarAIAgentState>
         var context7ApiKey = context7Config["ApiKey"];
 
         // 0. Register local tool
-        await RegisterToolAsync(new TimeTool(), Logger);
+        await RegisterToolAsync(new TimeTool(), Logger, cancellationToken);
         Logger?.LogInformation("✅ Registered local tool: TimeTool");
 
         // 1. Stdio (Docker) - Filesystem Server

@@ -140,6 +140,7 @@ Aevatar.Agents.Runtime.Orleans/
 ```
 Aevatar.Agents.AI.Core/
 ├── AIGAgentBase.cs                   # AI Agent 基类
+├── AIGAgentBase.Tools.cs             # 工具/Function Calling 能力（已合并进 AIGAgentBase）
 ├── AIGAgentBase.TCustomState.cs      # 自定义状态
 ├── AIGAgentBase.TCustomState.TCustomConfig.cs
 ├── AIGAgentFactory.cs                # AI Agent 工厂
@@ -148,7 +149,6 @@ Aevatar.Agents.AI.Core/
 └── ai_messages.proto
 
 Aevatar.Agents.AI.WithTool/
-├── AIGAgentWithToolBase.cs           # 带工具调用的 AI Agent
 ├── ToolAwareConversationHistoryManager.cs
 ├── ToolExecutionCoordinator.cs       # 工具执行协调器
 ├── Abstractions/                     # 工具接口

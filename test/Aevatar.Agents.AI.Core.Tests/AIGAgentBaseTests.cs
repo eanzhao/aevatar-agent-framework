@@ -379,7 +379,8 @@ public class AIGAgentBaseTests(AITestFixture fixture) : IClassFixture<AITestFixt
 
         // Assert
         _mockProvider.CapturedRequests.ShouldNotBeEmpty();
-        _mockProvider.CapturedRequests[0].SystemPrompt.ShouldBe("Custom system prompt");
+        _mockProvider.CapturedRequests[0].SystemPrompt.ShouldNotBeNull();
+        _mockProvider.CapturedRequests[0].SystemPrompt!.ShouldStartWith("Custom system prompt");
     }
 
     [Fact]

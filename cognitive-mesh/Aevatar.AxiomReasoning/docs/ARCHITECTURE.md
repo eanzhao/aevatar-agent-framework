@@ -13,7 +13,8 @@
 Aevatar.AxiomReasoning/
 ├── AgUi/
 │   ├── AgUiEvents.cs               # AG-UI 事件模型（最小子集）
-│   └── AxiomAgUiEventStream.cs     # AxiomEvent → AG-UI 事件流投影
+│   ├── AxiomAgUiEventStream.cs     # AxiomEvent → AG-UI 事件流投影
+│   └── AxiomAgUiBootstrap.cs       # 重连快照：messages/status/graph（避免 replay 爆发）
 ├── Infrastructure/
 │   └── BroadcastEventHub.cs        # SSE 广播：多订阅者不抢消息
 ├── Program.cs
@@ -53,14 +54,22 @@ Aevatar.AxiomReasoning/
 ## AG-UI 对接策略（本项目落地版）
 
 - **threadId/runId**：默认都使用 `sessionId`
+- **连接时序（/agui/events）**：服务端优先发“快照”，不依赖 EventHub replay（避免断线重连时 token/progress 爆发）
+  - `MESSAGES_SNAPSHOT`：user input + **Coordinator/Workers 的 `State.History`（短期窗口）** + **`IAevatarAIMemory`（可选，长期日志）**
+    - 前提：CognitiveStrategy 使用 `session_id` 派生 **确定性 AgentId**（Coordinator + worker-0..N-1），因此服务端可以稳定定位到同一批 Actor
+    - 同时发送 `CUSTOM(name="aevatar.axiom.message_meta")`，把 system/user prompts 绑定到每条 messageId（Workers 卡片刷新后能补齐提示词）
+  - `CUSTOM(name="aevatar.axiom.status_snapshot")`：当前 status/phase/progress/tokens/llm 统计
+  - `STATE_SNAPSHOT`（可选）：从 `IGraphStore.GetSnapshotAsync` best-effort 构造 GraphEvent 并下发（让新订阅者立刻拿到图）
+  - `CUSTOM(name="aevatar.axiom.session")`：会话配置（workflow/budgets/hpa…）
+  - `RUN_STARTED`：若 session 已在 Running
+  - 之后进入 live stream（`SubscribeAsync(replay:false)`）
 - **标准事件**：
   - `RUN_STARTED/RUN_FINISHED/RUN_ERROR`：对应 session 执行生命周期
   - `STEP_STARTED/STEP_FINISHED`：对应 DSL step 状态跃迁（Running → Finished）
   - `TEXT_MESSAGE_*`：对齐 `llm_call` 的 streaming（**token delta 主通道**；避免把每 token 都塞进 progress 事件）
   - `STATE_SNAPSHOT/STATE_DELTA`：GraphEvent 作为 state（首次 snapshot，后续尽量用 JSON Patch 增量）
 - **CUSTOM 扩展**：为了让现有 Dashboard UI 零痛接入，继续发送：
-  - `CUSTOM(name="aevatar.axiom.progress", value=ProgressEvent)`（**非 streaming token** 的状态/统计事件；token 走 TEXT_MESSAGE_CONTENT）
-  - `CUSTOM(name="aevatar.axiom.graph", value=GraphEvent)`
+  - `CUSTOM(name="aevatar.axiom.progress", value=ProgressEvent)`（**非 streaming token** 的状态/统计事件；token 走 TEXT_MESSAGE_CONTENT；并对 fan_out 的“空跑 tick”做去重）
   - `CUSTOM(name="aevatar.axiom.result", value=ResultEvent)`
   - `CUSTOM(name="aevatar.axiom.error", value=ErrorEvent)`
   - `CUSTOM(name="aevatar.axiom.message_meta", value={workerId/provider/prompts...})`
@@ -140,6 +149,22 @@ Aevatar.AxiomReasoning/
 
 - `GET /api/sessions/{id}/llm/review`：下载 `review.md`（人类可读）
 - `GET /api/sessions/{id}/llm/transcript`：下载 `transcript.jsonl`（机器可读 / 可喂给 AI）
+
+## MongoDB 持久化（可选，推荐用于“真正无状态前端”）
+
+当你希望“**刷新/断线重连/甚至服务重启后**仍能恢复 Workers 卡片历史”，需要把“对话历史”从内存升级为可恢复的存储层：
+
+- **StateStore（短期窗口）**：持久化 `AevatarAIAgentState.History`（含 step 元数据）
+- **AIMemory（长期日志）**：持久化每次 `llm_call` 的结构化 interaction（system/user/assistant + stepId）
+
+### 启用方式
+
+在 `appsettings*.json` 或环境变量中提供 Mongo 连接即可自动启用：
+
+- `MongoDB:ConnectionString`（或 `MONGODB_CONNECTION_STRING` / `AEVATAR_MONGODB_CONNECTION_STRING`）
+- `MongoDB:Database`（或 `MONGODB_DATABASE`，默认 `aevatar`）
+
+> NOTE: Transcript 仍会落盘作为 debug artifact，但 **AG-UI bootstrap 不依赖它**。
 
 ## Supabase 持久化（JSON）
 

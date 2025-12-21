@@ -3,10 +3,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.AxiomReasoning.AgUi;
 using Aevatar.AxiomReasoning.Models;
 using Aevatar.CognitiveMesh.Abstractions;
 using Aevatar.CognitiveMesh.Strategies;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ErrorEvent = Aevatar.AxiomReasoning.Models.ErrorEvent;
 using ResultEvent = Aevatar.AxiomReasoning.Models.ResultEvent;
@@ -26,6 +29,8 @@ public sealed class AxiomReasoningService
     private readonly LlmTranscriptRecorder _transcriptRecorder;
     private readonly SupabaseService _supabaseService;
     private readonly IGraphStore _graphStore;
+    private readonly IGAgentActorManager _actorManager;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<AxiomReasoningService> _logger;
     private readonly string _outputBasePath;
 
@@ -35,6 +40,8 @@ public sealed class AxiomReasoningService
         LlmTranscriptRecorder transcriptRecorder,
         SupabaseService supabaseService,
         IGraphStore graphStore,
+        IGAgentActorManager actorManager,
+        IServiceProvider serviceProvider,
         ILoggerFactory loggerFactory)
     {
         _cognitiveStrategy = cognitiveStrategy;
@@ -42,6 +49,8 @@ public sealed class AxiomReasoningService
         _transcriptRecorder = transcriptRecorder;
         _supabaseService = supabaseService;
         _graphStore = graphStore;
+        _actorManager = actorManager;
+        _serviceProvider = serviceProvider;
         _logger = loggerFactory.CreateLogger<AxiomReasoningService>();
 
         _outputBasePath = Path.Combine(Directory.GetCurrentDirectory(), "output");
@@ -155,6 +164,10 @@ public sealed class AxiomReasoningService
                 MaxGapNorm = req.MaxGapNorm is > 0 ? req.MaxGapNorm.Value : 0.65,
                 MaxAssociatorMean = req.MaxAssociatorMean is > 0 ? req.MaxAssociatorMean.Value : 1.5
             };
+
+            // Bootstrap state for AG-UI status snapshot (we don't rely on replay).
+            session.CurrentPhase = "CREATED";
+            session.ProgressPercent = 0;
 
             _sessions[session.Id] = session;
             _logger.LogInformation("Created axiom session: {Id}", session.Id);
@@ -455,6 +468,13 @@ public sealed class AxiomReasoningService
 
         var ctx = new Dictionary<string, string>
         {
+            // Deterministic agent ids (Coordinator/Workers) for reconnect + persistence.
+            // NOTE:
+            // - CognitiveStrategy will use this to derive stable Guid keys.
+            // - With a persistent StateStore/AIMemory, we can re-create actors after restart and still hydrate UI.
+            ["session_id"] = session.Id,
+            ["enable_chat_history"] = "true",
+
             // Propagate workflow behavior flags to CognitiveStrategy initial variables
             ["continue_on_failure"] = session.ContinueOnFailure ? "true" : "false",
             ["language"] = session.Language
@@ -593,9 +613,27 @@ public sealed class AxiomReasoningService
         if (!_sessions.TryGetValue(sessionId, out var session))
             yield break;
 
+        // AG-UI reconnect semantics:
+        // - Prefer deterministic snapshots over replaying a burst of token/progress events.
+        var memoryFactory = _serviceProvider.GetService<IAevatarAIMemoryFactory>();
+        var bootstrap = await AxiomAgUiBootstrap.BuildMessagesSnapshotAsync(
+            session,
+            _actorManager,
+            memoryFactory,
+            maxAssistantMessages: 60,
+            ct: ct);
+
+        var initialGraph = await AxiomAgUiBootstrap.TryBuildGraphSnapshotAsync(
+            _graphStore,
+            sessionId,
+            ct);
+
         await foreach (var evt in AxiomAgUiEventStream.BuildAsync(
                            session,
-                           session.EventHub.SubscribeAsync(replay: true, ct: ct),
+                           session.EventHub.SubscribeAsync(replay: false, ct: ct),
+                           bootstrap.Messages,
+                           initialGraph,
+                           bootstrap.ExtraEvents,
                            ct))
         {
             yield return evt;

@@ -18,7 +18,10 @@ public static class AxiomAgUiEventStream
     public static async IAsyncEnumerable<AgUiEvent> BuildAsync(
         AxiomSession session,
         IAsyncEnumerable<AxiomEvent> source,
-        [EnumeratorCancellation] CancellationToken ct)
+        List<AgUiMessage>? initialMessages = null,
+        GraphEvent? initialGraph = null,
+        IReadOnlyList<AgUiEvent>? initialExtraEvents = null,
+        [EnumeratorCancellation] CancellationToken ct = default)
     {
         var threadId = session.Id;
         var runId = session.Id; // NOTE: 当前 session 默认只有一次 run；未来可扩展为 {sessionId}:{runSeq}
@@ -28,30 +31,77 @@ public static class AxiomAgUiEventStream
         // Track step status transitions to avoid spamming STEP_* events.
         var stepLastStatus = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        // Dedup legacy CUSTOM progress spam (especially fan_out coordinator ticks).
+        var progressLastSignature = new Dictionary<string, string>(StringComparer.Ordinal);
+
         // Track open streaming messages.
         var openMessages = new HashSet<string>(StringComparer.Ordinal);
         var messageSentLen = new Dictionary<string, int>(StringComparer.Ordinal);
         var messageDeltaBuffer = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
 
         // Track last emitted graph snapshot for STATE_DELTA.
-        GraphEvent? lastGraph = null;
+        GraphEvent? lastGraph = initialGraph;
 
         long Ts(DateTimeOffset? ts) => (ts ?? DateTimeOffset.UtcNow).ToUnixTimeMilliseconds();
 
         // 1) Initial snapshots (useful for reconnect / generic AG-UI clients)
-        yield return new MessagesSnapshotEvent
+        var messages = initialMessages;
+        if (messages is null || messages.Count == 0)
         {
-            Timestamp = Ts(DateTimeOffset.UtcNow),
-            Messages =
-            [
-                new AgUiMessage
+            messages = new List<AgUiMessage>(capacity: 1)
+            {
+                new()
                 {
                     Id = $"msg:{threadId}:user:input",
                     Role = "user",
                     Content = BuildUserInputMessage(session)
                 }
-            ]
+            };
+        }
+
+        yield return new MessagesSnapshotEvent
+        {
+            Timestamp = Ts(DateTimeOffset.UtcNow),
+            Messages = messages
         };
+
+        if (initialExtraEvents is { Count: > 0 })
+        {
+            foreach (var e in initialExtraEvents)
+            {
+                if (e == null) continue;
+                yield return e;
+            }
+        }
+
+        yield return new CustomEvent
+        {
+            Timestamp = Ts(DateTimeOffset.UtcNow),
+            Name = "aevatar.axiom.status_snapshot",
+            Value = new
+            {
+                sessionId = session.Id,
+                status = session.Status.ToString(),
+                phase = session.CurrentPhase,
+                progressPercent = session.ProgressPercent,
+                totalLlmCalls = session.TotalLlmCalls,
+                totalTokens = session.TotalTokens
+            }
+        };
+
+        if (initialGraph is not null)
+        {
+            yield return new StateSnapshotEvent
+            {
+                Timestamp = Ts(DateTimeOffset.UtcNow),
+                Snapshot = new
+                {
+                    kind = "aevatar.axiom.graph",
+                    sessionId = session.Id,
+                    graph = initialGraph
+                }
+            };
+        }
 
         yield return new CustomEvent
         {
@@ -124,6 +174,7 @@ public static class AxiomAgUiEventStream
                     runId,
                     ref runStartedSent,
                     stepLastStatus,
+                    progressLastSignature,
                     openMessages,
                     messageSentLen,
                     messageDeltaBuffer,
@@ -148,6 +199,7 @@ public static class AxiomAgUiEventStream
         string runId,
         ref bool runStartedSent,
         Dictionary<string, string> stepLastStatus,
+        Dictionary<string, string> progressLastSignature,
         HashSet<string> openMessages,
         Dictionary<string, int> messageSentLen,
         Dictionary<string, StringBuilder> messageDeltaBuffer,
@@ -170,6 +222,32 @@ public static class AxiomAgUiEventStream
         {
             case ProgressEvent p:
             {
+                // STEP_* (dedup by status transition)
+                var stepName = NormalizeStepName(p.StepId, p.Phase, p.StepType);
+                var progressKey = $"{(string.IsNullOrWhiteSpace(p.WorkerId) ? "coordinator" : p.WorkerId.Trim())}|{stepName}";
+
+                MaybeEmitStepLifecycle(stepName, p.StepStatus, stepLastStatus, out var stepStarted, out var stepFinished);
+                if (stepStarted)
+                {
+                    output.Add(new StepStartedEvent
+                    {
+                        Timestamp = ts,
+                        StepName = stepName
+                    });
+                    // New step => allow the first progress tick through.
+                    progressLastSignature.Remove(progressKey);
+                }
+
+                if (stepFinished)
+                {
+                    output.Add(new StepFinishedEvent
+                    {
+                        Timestamp = ts,
+                        StepName = stepName
+                    });
+                    progressLastSignature.Remove(progressKey);
+                }
+
                 // Keep existing UI stable: wrap legacy event as CUSTOM so frontend can reuse logic.
                 //
                 // Perf:
@@ -183,33 +261,34 @@ public static class AxiomAgUiEventStream
 
                 if (!isStreamingToken)
                 {
-                    output.Add(new CustomEvent
-                    {
-                        Timestamp = ts,
-                        Name = "aevatar.axiom.progress",
-                        Value = p
-                    });
-                }
+                    var emitLegacyProgress = true;
 
-                // STEP_* (dedup by status transition)
-                var stepName = NormalizeStepName(p.StepId, p.Phase, p.StepType);
-                MaybeEmitStepLifecycle(stepName, p.StepStatus, stepLastStatus, out var stepStarted, out var stepFinished);
-                if (stepStarted)
-                {
-                    output.Add(new StepStartedEvent
+                    // Only dedup "lightweight running ticks" (fan_out can be very noisy).
+                    var hasBody = !string.IsNullOrEmpty(p.AssistantResponse) || !string.IsNullOrEmpty(p.AssistantResponsePreview);
+                    var isLightTick = IsRunning(p.StepStatus) && !hasBody && string.IsNullOrEmpty(p.TokenDelta);
+                    if (isLightTick)
                     {
-                        Timestamp = ts,
-                        StepName = stepName
-                    });
-                }
+                        var sig = $"{p.Phase}|{p.ProgressPercent}|{p.ParallelCompleted}|{p.ParallelFailed}|{p.TotalLlmCalls}|{p.TotalTokens}|{p.Message}";
+                        if (progressLastSignature.TryGetValue(progressKey, out var last) &&
+                            string.Equals(last, sig, StringComparison.Ordinal))
+                        {
+                            emitLegacyProgress = false;
+                        }
+                        else
+                        {
+                            progressLastSignature[progressKey] = sig;
+                        }
+                    }
 
-                if (stepFinished)
-                {
-                    output.Add(new StepFinishedEvent
+                    if (emitLegacyProgress)
                     {
-                        Timestamp = ts,
-                        StepName = stepName
-                    });
+                        output.Add(new CustomEvent
+                        {
+                            Timestamp = ts,
+                            Name = "aevatar.axiom.progress",
+                            Value = p
+                        });
+                    }
                 }
 
                 // TEXT_MESSAGE_* for llm_call streaming
@@ -328,13 +407,6 @@ public static class AxiomAgUiEventStream
 
             case GraphEvent g:
             {
-                output.Add(new CustomEvent
-                {
-                    Timestamp = ts,
-                    Name = "aevatar.axiom.graph",
-                    Value = g
-                });
-
                 // AG-UI State:
                 // - First graph: emit STATE_SNAPSHOT
                 // - Subsequent graphs: emit STATE_DELTA (RFC6902), fallback to snapshot if needed
@@ -538,7 +610,11 @@ public static class AxiomAgUiEventStream
 
         sb.Append(delta);
 
-        if (sb.Length >= StreamingDeltaFlushChars)
+        // Flush policy:
+        // - Always flush the very first chunk to minimize "time-to-first-token"
+        // - Afterwards, flush when buffer exceeds a small threshold
+        var sent = messageSentLen.GetValueOrDefault(messageId, 0);
+        if (sent == 0 || sb.Length >= StreamingDeltaFlushChars)
             FlushBufferedDelta(messageId, ts, messageDeltaBuffer, messageSentLen, output);
     }
 
@@ -627,6 +703,13 @@ public static class AxiomAgUiEventStream
         if (!string.IsNullOrEmpty(p.SystemPrompt)) return true;
         if (!string.IsNullOrEmpty(p.UserPrompt)) return true;
         return IsFinished(p.StepStatus);
+    }
+
+    private static bool IsRunning(string? stepStatus)
+    {
+        if (string.IsNullOrWhiteSpace(stepStatus)) return false;
+        var s = stepStatus.ToLowerInvariant();
+        return s.Contains("running") || s.Contains("started");
     }
 
     private static bool IsFinished(string? stepStatus)

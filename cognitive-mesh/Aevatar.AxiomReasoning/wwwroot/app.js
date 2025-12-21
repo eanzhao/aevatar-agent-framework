@@ -166,6 +166,8 @@ function ensureSessionCache(sessionId) {
       lastVoteStepId: null,
       // AG-UI: message meta index (messageId -> meta)
       msgMeta: Object.create(null),
+      // AG-UI: state store for dependency graph (STATE_SNAPSHOT/STATE_DELTA)
+      aguiGraphState: null, // { kind, sessionId, graph: { iteration, axioms, assumptions, theorems, ... } }
       _stepsDirty: false,
     };
   }
@@ -200,6 +202,137 @@ function ensureWorker(cache, workerId) {
     };
   }
   return cache.workers[id];
+}
+
+// ============================================================
+//  AG-UI State (Graph) helpers
+// ============================================================
+
+function inferNodeKind(id) {
+  const s = String(id || "").trim();
+  if (!s) return "Unknown";
+  if (/^A\d+/i.test(s) || /^[A-Z]\w*$/i.test(s) && s.startsWith("A")) return "Axiom";
+  if (/^T\d+/i.test(s)) return "Theorem";
+  if (/^H\d+/i.test(s)) return "Hypothesis";
+  if (/^S\d+/i.test(s)) return "Assumption";
+  return "Unknown";
+}
+
+function buildDagFromGraph(graph) {
+  const g = graph && typeof graph === "object" ? graph : {};
+  const axioms = Array.isArray(g.axioms) ? g.axioms : [];
+  const assumptions = Array.isArray(g.assumptions) ? g.assumptions : [];
+  const theorems = Array.isArray(g.theorems) ? g.theorems : [];
+
+  const nodes = [];
+  const edges = [];
+  const byId = Object.create(null);
+
+  function addNode(id, kind, label, proof) {
+    const nid = String(id || "").trim();
+    if (!nid || byId[nid]) return;
+    const n = { id: nid, kind: kind || inferNodeKind(nid), label: label || "", proof: proof || "" };
+    byId[nid] = n;
+    nodes.push(n);
+  }
+
+  // Axioms: use the same ID heuristic as renderGraph (A1: ... => "A1")
+  const axId = (line, idx) => {
+    const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
+    return m ? m[1] : `A${idx + 1}`;
+  };
+  for (let i = 0; i < axioms.length; i++) addNode(axId(axioms[i], i), "Axiom", axioms[i], "");
+
+  // Assumptions
+  for (const a of assumptions) {
+    const id = a && a.id ? a.id : "";
+    const label = a && (a.statement || a.id) ? (a.statement || a.id) : "";
+    addNode(id, "Assumption", label, "");
+  }
+
+  // Theorems + edges
+  for (const t of theorems) {
+    if (!t) continue;
+    const id = t.id || "";
+    const label = t.statement || t.id || "";
+    const proof = t.proof || "";
+    addNode(id, "Theorem", label, proof);
+
+    const deps = Array.isArray(t.dependsOn) ? t.dependsOn : (Array.isArray(t.depends_on) ? t.depends_on : []);
+    for (const d of deps) {
+      const depId = String(d || "").trim();
+      if (!depId) continue;
+      if (!byId[depId]) addNode(depId, inferNodeKind(depId), depId, "");
+      edges.push({ fromId: depId, toId: id });
+    }
+  }
+
+  return { nodes, edges };
+}
+
+function applyGraphSnapshot(cache, sessionId, graph) {
+  cache.graph = {
+    iteration: graph && typeof graph.iteration === "number" ? graph.iteration : (graph && graph.iteration ? graph.iteration : (cache.graph.iteration || 0)),
+    axioms: Array.isArray(graph && graph.axioms) ? graph.axioms : [],
+    assumptions: Array.isArray(graph && graph.assumptions) ? graph.assumptions : [],
+    theorems: Array.isArray(graph && graph.theorems) ? graph.theorems : [],
+  };
+
+  $("graph-iter").textContent = String(cache.graph.iteration || 0);
+
+  // Build index for inspector (axiomsById / theoremsById / assumptionsById)
+  const axiomsById = Object.create(null);
+  const axId = (line, idx) => {
+    const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
+    return m ? m[1] : `A${idx + 1}`;
+  };
+  for (let i = 0; i < cache.graph.axioms.length; i++) {
+    const line = cache.graph.axioms[i];
+    axiomsById[axId(line, i)] = line;
+  }
+  const theoremsById = Object.create(null);
+  for (const t of cache.graph.theorems) {
+    if (t && t.id) theoremsById[t.id] = t;
+  }
+  const assumptionsById = Object.create(null);
+  for (const a of cache.graph.assumptions) {
+    if (a && a.id) assumptionsById[a.id] = a;
+  }
+  cache.graphIndex = { axiomsById, assumptionsById, theoremsById };
+
+  // Build a local DAG snapshot (no extra HTTP request per update).
+  cache.dag = buildDagFromGraph(cache.graph);
+  renderDagGraph(cache.dag, cache.graphSelectedId);
+  renderGraphInspector(cache);
+}
+
+function applyAgUiGraphDelta(cache, deltaOps) {
+  if (!cache.aguiGraphState || !cache.aguiGraphState.graph) return false;
+  const ops = Array.isArray(deltaOps) ? deltaOps : [];
+  let changed = false;
+
+  const g = cache.aguiGraphState.graph;
+  g.axioms = Array.isArray(g.axioms) ? g.axioms : [];
+  g.assumptions = Array.isArray(g.assumptions) ? g.assumptions : [];
+  g.theorems = Array.isArray(g.theorems) ? g.theorems : [];
+
+  for (const op of ops) {
+    if (!op || typeof op !== "object") continue;
+    const kind = op.op;
+    const path = op.path;
+    const val = op.value;
+    if (kind === "replace") {
+      if (path === "/graph/iteration") { g.iteration = val; changed = true; }
+      else if (path === "/graph/axioms") { g.axioms = Array.isArray(val) ? val : []; changed = true; }
+      else if (path === "/graph/assumptions") { g.assumptions = Array.isArray(val) ? val : []; changed = true; }
+      else if (path === "/graph/theorems") { g.theorems = Array.isArray(val) ? val : []; changed = true; }
+    } else if (kind === "add") {
+      if (path === "/graph/axioms/-") { g.axioms.push(val); changed = true; }
+      else if (path === "/graph/assumptions/-") { g.assumptions.push(val); changed = true; }
+      else if (path === "/graph/theorems/-") { g.theorems.push(val); changed = true; }
+    }
+  }
+  return changed;
 }
 
 function createWorkerCardDom(workerId) {
@@ -700,6 +833,73 @@ function applyEvent(sessionId, evt) {
   const cache = ensureSessionCache(sessionId);
 
   // ============================================================
+  //  AG-UI: status snapshot (no replay needed)
+  // ============================================================
+  if (evt && evt.type === "CUSTOM" && evt.name === "aevatar.axiom.status_snapshot") {
+    const v = evt.value && typeof evt.value === "object" ? evt.value : null;
+    if (!v) return;
+
+    if (typeof v.status === "string") cache.status = v.status;
+    if (typeof v.phase === "string") cache.phase = v.phase;
+    if (typeof v.totalTokens === "number") cache.tokens = v.totalTokens;
+    if (typeof v.totalLlmCalls === "number") cache.llm = v.totalLlmCalls;
+    if (typeof v.progressPercent === "number") cache.progress = v.progressPercent;
+
+    scheduleRender(sessionId, true);
+    return;
+  }
+
+  // ============================================================
+  //  AG-UI: messages snapshot (reconnect bootstrap)
+  // ============================================================
+  if (evt && evt.type === "MESSAGES_SNAPSHOT") {
+    const msgs = Array.isArray(evt.messages) ? evt.messages : [];
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (!m || typeof m !== "object") continue;
+      if (m.role !== "assistant") continue;
+
+      const messageId = m.id || "";
+      const content = m.content || "";
+      if (!messageId || !content) continue;
+
+      const p = parseAgUiMessageId(messageId);
+      const wid = p.workerId || "coordinator";
+      const stepId = p.stepId || "";
+      const w = ensureWorker(cache, wid);
+
+      // Seed history only (don't override an active stream).
+      if (w.streaming) continue;
+
+      const exists = w.history && w.history.some((h) => h.stepId === stepId && h.response === content);
+      if (!exists) {
+        w.history.unshift({
+          timestamp: Date.now(),
+          stepId,
+          phase: "LLM Call",
+          status: "Completed",
+          system: "",
+          user: "",
+          response: content,
+        });
+        if (w.history.length > 12) w.history.pop();
+      }
+
+      w.status = w.status === "error" ? w.status : "completed";
+      w.streaming = false;
+      w.streamContent = "";
+      w.pendingAppend = "";
+      w.lastResponse = content;
+      if (stepId) w.stepId = stepId;
+      w.stepType = w.stepType || "llm_call";
+    }
+
+    scheduleRenderWorkers(cache);
+    scheduleRender(sessionId, true);
+    return;
+  }
+
+  // ============================================================
   //  AG-UI: message metadata (worker/provider/prompts)
   // ============================================================
   if (evt && evt.type === "CUSTOM" && evt.name === "aevatar.axiom.message_meta") {
@@ -708,17 +908,30 @@ function applyEvent(sessionId, evt) {
     const messageId = v.messageId || "";
     if (messageId) cache.msgMeta[messageId] = v;
 
-    const wid = v.workerId || (messageId ? parseAgUiMessageId(messageId).workerId : "coordinator");
+    const parsed = messageId ? parseAgUiMessageId(messageId) : { workerId: "coordinator", stepId: "" };
+    const wid = v.workerId || parsed.workerId || "coordinator";
     const w = ensureWorker(cache, wid);
     if (v.providerName) w.provider = v.providerName;
     if (typeof v.tokenIndex === "number") w.tokenIndex = v.tokenIndex;
     if (v.stepId) w.stepId = v.stepId;
     if (v.stepType) w.stepType = v.stepType;
 
-    // Fill prompts for the head history item (if any)
+    // Fill prompts for the matching history item (by stepId), not just the head.
+    const stepId = v.stepId || parsed.stepId || "";
     if (w.history && w.history.length) {
-      if (!w.history[0].system && v.systemPrompt) w.history[0].system = v.systemPrompt;
-      if (!w.history[0].user && v.userPrompt) w.history[0].user = v.userPrompt;
+      let target = w.history[0];
+      if (stepId) {
+        for (let i = 0; i < w.history.length; i++) {
+          if (w.history[i] && w.history[i].stepId === stepId) {
+            target = w.history[i];
+            break;
+          }
+        }
+      }
+      if (target) {
+        if (!target.system && v.systemPrompt) target.system = v.systemPrompt;
+        if (!target.user && v.userPrompt) target.user = v.userPrompt;
+      }
     }
 
     scheduleRenderWorkers(cache);
@@ -765,9 +978,20 @@ function applyEvent(sessionId, evt) {
     if (meta) {
       if (meta.providerName) w.provider = meta.providerName;
       if (typeof meta.tokenIndex === "number") w.tokenIndex = meta.tokenIndex;
-      if (w.history.length) {
-        if (!w.history[0].system && meta.systemPrompt) w.history[0].system = meta.systemPrompt;
-        if (!w.history[0].user && meta.userPrompt) w.history[0].user = meta.userPrompt;
+      if (w.history && w.history.length) {
+        let target = w.history[0];
+        if (stepId) {
+          for (let i = 0; i < w.history.length; i++) {
+            if (w.history[i] && w.history[i].stepId === stepId) {
+              target = w.history[i];
+              break;
+            }
+          }
+        }
+        if (target) {
+          if (!target.system && meta.systemPrompt) target.system = meta.systemPrompt;
+          if (!target.user && meta.userPrompt) target.user = meta.userPrompt;
+        }
       }
     }
 
@@ -831,6 +1055,28 @@ function applyEvent(sessionId, evt) {
     if (w.streamContent) w.lastResponse = w.streamContent;
 
     scheduleRenderWorkers(cache);
+    return;
+  }
+
+  // ============================================================
+  //  AG-UI: state sync for dependency graph
+  // ============================================================
+  if (evt && evt.type === "STATE_SNAPSHOT") {
+    const snap = evt.snapshot && typeof evt.snapshot === "object" ? evt.snapshot : null;
+    // We currently only publish graph snapshots/deltas via AG-UI state events.
+    if (snap && snap.graph && typeof snap.graph === "object") {
+      cache.aguiGraphState = snap;
+      applyGraphSnapshot(cache, sessionId, snap.graph);
+      return;
+    }
+  }
+
+  if (evt && evt.type === "STATE_DELTA") {
+    const ops = evt.delta;
+    if (applyAgUiGraphDelta(cache, ops)) {
+      const g = cache.aguiGraphState && cache.aguiGraphState.graph ? cache.aguiGraphState.graph : null;
+      if (g) applyGraphSnapshot(cache, sessionId, g);
+    }
     return;
   }
 
@@ -961,50 +1207,10 @@ function applyEvent(sessionId, evt) {
   }
 
   if (evt.type === "GraphEvent") {
-    cache.graph = {
-      iteration: evt.iteration || 0,
-      axioms: Array.isArray(evt.axioms) ? evt.axioms : [],
-      assumptions: Array.isArray(evt.assumptions) ? evt.assumptions : [],
-      theorems: Array.isArray(evt.theorems) ? evt.theorems : [],
-    };
-    $("graph-iter").textContent = String(cache.graph.iteration || 0);
-    // Build index for inspector (axiomsById / theoremsById)
-    const axiomsById = Object.create(null);
-    const axId = (line, idx) => {
-      const m = String(line || "").match(/^([A-Za-z]\w*)\s*:/);
-      return m ? m[1] : `A${idx + 1}`;
-    };
-    for (let i = 0; i < cache.graph.axioms.length; i++) {
-      const line = cache.graph.axioms[i];
-      axiomsById[axId(line, i)] = line;
-    }
-    const theoremsById = Object.create(null);
-    for (const t of cache.graph.theorems) {
-      if (t && t.id) theoremsById[t.id] = t;
-    }
-    const assumptionsById = Object.create(null);
-    for (const a of cache.graph.assumptions) {
-      if (a && a.id) assumptionsById[a.id] = a;
-    }
-    cache.graphIndex = { axiomsById, assumptionsById, theoremsById };
-
-    // Refresh DAG snapshot from backend graph DB (includes node kinds like Hypothesis)
-    void (async () => {
-      try {
-        cache.dag = await API.dagSnapshot(sessionId);
-      } catch {
-        cache.dag = null;
-      }
-      // If DAG store is still empty (race / backend not yet upserted), fall back to GraphEvent snapshot
-      // so the UI never shows an empty dependency graph when we already have axioms/theorems.
-      const hasDag =
-        !!cache.dag &&
-        ((Array.isArray(cache.dag.nodes) && cache.dag.nodes.length) ||
-          (Array.isArray(cache.dag.edges) && cache.dag.edges.length));
-      if (hasDag) renderDagGraph(cache.dag, cache.graphSelectedId);
-      else renderGraph(cache.graph, cache.graphSelectedId);
-      renderGraphInspector(cache);
-    })();
+    // Legacy compatibility:
+    // - Server may still emit GraphEvent (wrapped in CUSTOM) for older clients.
+    // - We now build a local DAG snapshot to avoid extra HTTP per update.
+    applyGraphSnapshot(cache, sessionId, evt);
     return;
   }
 

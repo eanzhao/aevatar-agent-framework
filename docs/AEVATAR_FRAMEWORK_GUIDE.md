@@ -206,13 +206,13 @@ public class MyAIAgent : AIGAgentBase<MyCustomState, MyCustomConfig>
 For agents that need to call external tools:
 
 ```csharp
-public class ToolAgent : AIGAgentWithToolBase<MyState, MyConfig>
+public class ToolAgent : AIGAgentBase<MyState, MyConfig>
 {
-    protected override void RegisterTools()
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
     {
         // Register tools that the AI can call
-        RegisterTool(new WeatherTool());
-        RegisterTool(new CalculatorTool());
+        await RegisterToolAsync(new WeatherTool(), cancellationToken: cancellationToken);
+        await RegisterToolAsync(new CalculatorTool(), cancellationToken: cancellationToken);
     }
 }
 ```

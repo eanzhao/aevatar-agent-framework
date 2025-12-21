@@ -1,6 +1,8 @@
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Cognitive.DependencyInjection;
+using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Plugins.MassTransit.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.AxiomReasoning.Services;
@@ -97,6 +99,30 @@ builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();
 builder.Services.AddCognitiveAgents();
 builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();
+
+// ─────────────────────────────────────────────────────────────
+//  Optional: MongoDB persistence (StateStore + AIMemory)
+//
+//  WHY:
+//  - State.History must survive process restart to support truly stateless frontend.
+//  - AIMemory provides a long-term append-only log for full conversation recovery.
+// ─────────────────────────────────────────────────────────────
+var mongoConn =
+    builder.Configuration["MongoDB:ConnectionString"] ??
+    builder.Configuration["MONGODB_CONNECTION_STRING"] ??
+    builder.Configuration["AEVATAR_MONGODB_CONNECTION_STRING"];
+
+var mongoDb =
+    builder.Configuration["MongoDB:Database"] ??
+    builder.Configuration["MONGODB_DATABASE"] ??
+    "aevatar";
+
+if (!string.IsNullOrWhiteSpace(mongoConn))
+{
+    builder.Services.AddAevatarMongoDB(mongoConn!, mongoDb);
+    builder.Services.AddMongoDBStateStore<AevatarAIAgentState>();
+    builder.Services.AddMongoDBAIMemory();
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Axiom Reasoning Services
@@ -268,12 +294,29 @@ app.MapGet("/api/sessions/{sessionId}/agui/events", async (
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
     };
 
+    // Flush throttling:
+    // - Streaming tokens may produce high-frequency TEXT_MESSAGE_CONTENT events.
+    // - Flushing on every event is expensive; flush frequently enough for UX, but not per token.
+    var lastFlushAt = DateTime.UtcNow;
+    const int flushIntervalMs = 50;
+
     await foreach (var evt in svc.GetAgUiEventStreamAsync(sessionId, ct))
     {
         var json = System.Text.Json.JsonSerializer.Serialize(evt, evt.GetType(), jsonOptions);
         await ctx.Response.WriteAsync($"data: {json}\n\n", ct);
-        await ctx.Response.Body.FlushAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var isStreamingText = string.Equals(evt.Type, "TEXT_MESSAGE_CONTENT", StringComparison.Ordinal);
+        var shouldFlush = !isStreamingText || (now - lastFlushAt).TotalMilliseconds >= flushIntervalMs;
+        if (shouldFlush)
+        {
+            await ctx.Response.Body.FlushAsync(ct);
+            lastFlushAt = now;
+        }
     }
+
+    // Always flush at the end (best-effort).
+    await ctx.Response.Body.FlushAsync(ct);
 });
 
 Console.WriteLine($"""

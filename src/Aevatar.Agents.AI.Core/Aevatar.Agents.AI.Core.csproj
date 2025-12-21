@@ -15,6 +15,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Aevatar.Agents.AI.Abstractions\Aevatar.Agents.AI.Abstractions.csproj" />
+        <ProjectReference Include="..\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Core\Aevatar.Agents.Core.csproj" />
         <ProjectReference Include="..\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />
     </ItemGroup>

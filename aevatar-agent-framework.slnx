@@ -74,6 +74,7 @@
     <Project Path="src\Aevatar.Agents.CreativeReasoning\Aevatar.Agents.CreativeReasoning.csproj" />
     <Project Path="src\Aevatar.Agents.Maker\Aevatar.Agents.Maker.csproj" />
     <Project Path="src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
+    <Project Path="src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans.MongoDB\Aevatar.Agents.Runtime.Orleans.MongoDB.csproj" />
     <Project Path="src\Aevatar.Agents.Runtime.Orleans\Aevatar.Agents.Runtime.Orleans.csproj" />
@@ -93,6 +94,7 @@
     <Project Path="test\Aevatar.Agents.Orleans.MongoDB.Tests\Aevatar.Agents.Orleans.MongoDB.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Orleans.Tests\Aevatar.Agents.Orleans.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Persistence.MongoDB.Tests\Aevatar.Agents.Persistence.MongoDB.Tests.csproj" />
+    <Project Path="test\Aevatar.Agents.Persistence.Supabase.Tests\Aevatar.Agents.Persistence.Supabase.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.Plugins.MassTransit.Tests\Aevatar.Agents.Plugins.MassTransit.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.ProtoActor.Tests\Aevatar.Agents.ProtoActor.Tests.csproj" />
     <Project Path="test\Aevatar.Agents.TestBase\Aevatar.Agents.TestBase.csproj" />

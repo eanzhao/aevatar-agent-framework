@@ -2,7 +2,9 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 using StepDefinition = Aevatar.Agents.Cognitive.Primitives.StepDefinition;
 
@@ -55,6 +57,9 @@ public partial class CognitiveCoordinatorGAgent
         string? systemPrompt,
         string userPrompt)
     {
+        // Keep State.History bounded before adding new step messages (best-effort).
+        await CompactChatHistoryIfNeededAsync();
+
         // ============================================================
         //  可靠性护栏：
         //  - vote 会并行发起多个 LLM 调用
@@ -91,13 +96,17 @@ public partial class CognitiveCoordinatorGAgent
             UserPrompt = userPrompt
         };
 
-        // Optional: persist step-level "chat" transcript to State.History (default off).
+        // Optional: persist step-level transcript to State.History (default off).
         // NOTE:
         // - vote 会在同一个 Coordinator 里并行启动多个 LLM 调用
-        // - 这里的 AddMessageToHistory 已在 AIGAgentBase 内部加锁，避免并发写破坏 RepeatedField
+        // - 我们必须写入 step 元数据，否则并发写入会打乱顺序，UI 无法按 step 归并
         if (EnableChatHistoryInState)
         {
-            AddMessageToHistory(userPrompt, AevatarChatRole.User);
+            if (!string.IsNullOrWhiteSpace(systemPrompt))
+            {
+                AppendStepHistoryMessage(AevatarChatRole.System, systemPrompt!, eventStep, tokenUsed: 0);
+            }
+            AppendStepHistoryMessage(AevatarChatRole.User, userPrompt, eventStep, tokenUsed: 0);
         }
 
         var output = string.Empty;
@@ -296,8 +305,25 @@ public partial class CognitiveCoordinatorGAgent
 
             if (EnableChatHistoryInState && !string.IsNullOrEmpty(output))
             {
-                AddMessageToHistory(output, AevatarChatRole.Assistant);
+                AppendStepHistoryMessage(
+                    AevatarChatRole.Assistant,
+                    output,
+                    eventStep,
+                    tokenUsed: promptTokens + completionTokens);
             }
+
+            // Persist a structured per-step interaction into AIMemory (optional).
+            // This is the "long-term" layer; State.History stays as a short-term window.
+            await PersistInteractionToMemoryAsync(
+                eventStep,
+                systemPrompt,
+                userPrompt,
+                output,
+                promptTokens,
+                completionTokens);
+
+            // Keep State.History bounded after appending (best-effort).
+            await CompactChatHistoryIfNeededAsync();
 
             return new PrimitiveResult
             {
@@ -342,6 +368,70 @@ public partial class CognitiveCoordinatorGAgent
                 TokensUsed = 0,
                 LlmCalls = 1
             };
+        }
+    }
+
+    private void AppendStepHistoryMessage(
+        AevatarChatRole role,
+        string content,
+        StepDefinition step,
+        int tokenUsed)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        var msg = new AevatarChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            TokenUsed = tokenUsed
+        };
+
+        msg.Metadata["step_id"] = step.Id ?? string.Empty;
+        msg.Metadata["step_type"] = step.Type ?? string.Empty;
+        msg.Metadata["execution_id"] = CustomState.ExecutionId ?? string.Empty;
+        msg.Metadata["agent_kind"] = "cognitive_coordinator";
+
+        AddMessageToHistory(msg);
+    }
+
+    private async Task PersistInteractionToMemoryAsync(
+        StepDefinition step,
+        string? systemPrompt,
+        string userPrompt,
+        string assistantResponse,
+        int promptTokens,
+        int completionTokens)
+    {
+        if (AIMemory == null)
+            return;
+
+        try
+        {
+            var payload = new
+            {
+                kind = "aevatar.cognitive.llm_interaction.v1",
+                agentId = Id.ToString("N"),
+                agentKind = "cognitive_coordinator",
+                executionId = CustomState.ExecutionId ?? "",
+                stepId = step.Id ?? "",
+                stepType = step.Type ?? "",
+                systemPrompt,
+                userPrompt,
+                assistantResponse,
+                promptTokens,
+                completionTokens,
+                totalTokens = promptTokens + completionTokens,
+                timestamp = DateTimeOffset.UtcNow.ToString("O")
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            await AIMemory.AddMessageAsync("assistant", json);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to persist llm interaction to AIMemory (best-effort).");
         }
     }
 }

@@ -106,7 +106,7 @@ public sealed class AxiomDagService : IGraphStore
 
         // 1) Upsert axioms
         var axiomIds = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < (graphEvent.Axioms?.Count ?? 0); i++)
+        for (var i = 0; i < graphEvent.Axioms.Count; i++)
         {
             var line = graphEvent.Axioms[i] ?? "";
             var id = ExtractAxiomId(line, i);
