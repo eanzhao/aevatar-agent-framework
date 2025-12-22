@@ -35,8 +35,15 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         _stateTypeName = typeof(TState).FullName ?? typeof(TState).Name;
     }
 
-    public async Task<TState?> LoadAsync(Guid agentId, CancellationToken ct = default)
+    public async Task<TState?> LoadAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         const string selectColumns = "state_data";
         var sql = $"SELECT {selectColumns} FROM {_table} WHERE state_type = @state_type AND agent_id = @agent_id LIMIT 1";
 
@@ -63,17 +70,24 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         return state;
     }
 
-    public Task SaveAsync(Guid agentId, TState state, CancellationToken ct = default)
+    public Task SaveAsync(string agentId, TState state, CancellationToken ct = default)
         => SaveInternalAsync(agentId, state, version: 1, ct);
 
-    public Task SaveAsync(Guid agentId, TState state, long expectedVersion, CancellationToken ct = default)
+    public Task SaveAsync(string agentId, TState state, long expectedVersion, CancellationToken ct = default)
         // NOTE:
         // - Abstractions 里参数名叫 expectedVersion，但框架当前实际语义是“snapshot version”。
         // - MongoDB 版本也直接写入该值。
         => SaveInternalAsync(agentId, state, expectedVersion, ct);
 
-    public async Task<long> GetCurrentVersionAsync(Guid agentId, CancellationToken ct = default)
+    public async Task<long> GetCurrentVersionAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"SELECT version FROM {_table} WHERE state_type = @state_type AND agent_id = @agent_id LIMIT 1";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -91,8 +105,15 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         return Convert.ToInt64(result);
     }
 
-    public async Task DeleteAsync(Guid agentId, CancellationToken ct = default)
+    public async Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"DELETE FROM {_table} WHERE state_type = @state_type AND agent_id = @agent_id";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -103,8 +124,15 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<bool> ExistsAsync(Guid agentId, CancellationToken ct = default)
+    public async Task<bool> ExistsAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"SELECT 1 FROM {_table} WHERE state_type = @state_type AND agent_id = @agent_id LIMIT 1";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -117,9 +145,15 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         return result is not null && result is not DBNull;
     }
 
-    private async Task SaveInternalAsync(Guid agentId, TState state, long version, CancellationToken ct)
+    private async Task SaveInternalAsync(string agentId, TState state, long version, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
 
         var data = state.ToByteArray();
 

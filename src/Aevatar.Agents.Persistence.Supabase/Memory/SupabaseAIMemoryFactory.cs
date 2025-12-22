@@ -20,7 +20,7 @@ public sealed class SupabaseAIMemoryFactory : IAevatarAIMemoryFactory
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public IAevatarAIMemory Create(Guid agentId, string? sessionId = null)
+    public IAevatarAIMemory Create(string agentId, string? sessionId = null)
     {
         return new SupabaseAIMemory(_dataSource, _options, agentId, sessionId);
     }

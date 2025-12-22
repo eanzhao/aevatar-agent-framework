@@ -253,6 +253,33 @@ var tax = args["amount"] * args["rate"];
 Console.WriteLine(JsonSerializer.Serialize(new { tax }));
 ```
 
+### Agent Skills (SKILL.md)
+Agent Skills are **folders** that contain a `SKILL.md` entry file (YAML front matter + instructions), plus scripts/resources.
+See: [Agent Skills overview](https://agentskills.io/home).
+
+In Aevatar, `AIGAgentBase` can expose Agent Skills to LLM via built-in tools:
+- `skills_list`: list available skills under configured roots
+- `skills_load`: load a skill's `SKILL.md` content and (optionally) auto-import dotnet-file tools found in that skill folder
+
+Enable it in your agent:
+
+```csharp
+public sealed class MyAgent : AIGAgentBase
+{
+    public MyAgent()
+    {
+        EnableAgentSkills = true;
+        AddAgentSkillsRoot("agent_skills"); // or absolute path
+    }
+}
+```
+
+Or configure roots via env var:
+
+```bash
+export AEVATAR_AGENT_SKILLS_DIRS="/abs/path/to/agent_skills;/abs/path/to/more_skills"
+```
+
 ---
 
 ## Runtime Architecture

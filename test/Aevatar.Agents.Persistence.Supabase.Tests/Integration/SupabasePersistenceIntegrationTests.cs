@@ -32,7 +32,7 @@ public class SupabasePersistenceIntegrationTests
 
         var store = new SupabaseStateStore<StateStoreTestState>(_fx.DataSource!, _fx.Options!);
 
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString("D");
         var state = new StateStoreTestState { Name = "n", Value = 42 };
 
         await store.SaveAsync(agentId, state, expectedVersion: 123);
@@ -60,7 +60,7 @@ public class SupabasePersistenceIntegrationTests
         var store = new SupabaseConfigStore<TestConfig>(_fx.DataSource!, _fx.Options!);
 
         var agentType = GetType();
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString("D");
         var cfg = new TestConfig { Setting = "s1" };
 
         await store.SaveAsync(agentType, agentId, cfg);
@@ -84,14 +84,14 @@ public class SupabasePersistenceIntegrationTests
 
         var store = new SupabaseEventRouterStore(_fx.DataSource!, _fx.Options!);
 
-        var agentId = Guid.NewGuid();
-        var parentId = Guid.NewGuid();
-        var childId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString("D");
+        var parentId = Guid.NewGuid().ToString("D");
+        var childId = Guid.NewGuid().ToString("D");
 
         var hierarchy = new EventRouterHierarchy
         {
             ParentId = parentId,
-            ChildrenIds = new HashSet<Guid> { childId }
+            ChildrenIds = new HashSet<string> { childId }
         };
 
         await store.SaveAsync(agentId, hierarchy);
@@ -113,7 +113,7 @@ public class SupabasePersistenceIntegrationTests
             return;
         }
 
-        var agentId = Guid.NewGuid();
+        var agentId = Guid.NewGuid().ToString("D");
         var memory = new SupabaseAIMemory(_fx.DataSource!, _fx.Options!, agentId, sessionId: "s1");
 
         await memory.AddMessageAsync("user", "hello world");

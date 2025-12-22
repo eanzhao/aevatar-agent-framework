@@ -10,8 +10,8 @@ namespace Aevatar.Agents.Persistence.Supabase.Stores;
 
 /// <summary>
 /// Supabase(Postgres) EventRouter hierarchy store：
-/// - parent_id：uuid?
-/// - children_ids：uuid[]
+/// - parent_id：text?
+/// - children_ids：text[]
 /// </summary>
 public sealed class SupabaseEventRouterStore : IEventRouterStore
 {
@@ -29,8 +29,15 @@ public sealed class SupabaseEventRouterStore : IEventRouterStore
         _table = SupabaseSql.Table(_options.Schema, _options.EventRouterHierarchiesTable, nameof(_options.EventRouterHierarchiesTable));
     }
 
-    public async Task<EventRouterHierarchy?> LoadAsync(Guid agentId, CancellationToken ct = default)
+    public async Task<EventRouterHierarchy?> LoadAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"SELECT parent_id, children_ids FROM {_table} WHERE agent_id = @agent_id LIMIT 1";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -44,21 +51,41 @@ public sealed class SupabaseEventRouterStore : IEventRouterStore
             return null;
         }
 
-        Guid? parentId = reader.IsDBNull(0) ? null : reader.GetFieldValue<Guid>(0);
-        var children = reader.IsDBNull(1) ? Array.Empty<Guid>() : reader.GetFieldValue<Guid[]>(1);
+        var parentId = reader.IsDBNull(0) ? null : reader.GetString(0);
+        var children = reader.IsDBNull(1) ? Array.Empty<string>() : reader.GetFieldValue<string[]>(1);
+
+        var childrenIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in children)
+        {
+            if (!string.IsNullOrWhiteSpace(c))
+            {
+                childrenIds.Add(c.Trim());
+            }
+        }
 
         return new EventRouterHierarchy
         {
-            ParentId = parentId,
-            ChildrenIds = children.Length == 0 ? new HashSet<Guid>() : new HashSet<Guid>(children)
+            ParentId = string.IsNullOrWhiteSpace(parentId) ? null : parentId.Trim(),
+            ChildrenIds = childrenIds
         };
     }
 
-    public async Task SaveAsync(Guid agentId, EventRouterHierarchy hierarchy, CancellationToken ct = default)
+    public async Task SaveAsync(string agentId, EventRouterHierarchy hierarchy, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(hierarchy);
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
 
-        var childrenArray = hierarchy.ChildrenIds?.ToArray() ?? Array.Empty<Guid>();
+        agentId = agentId.Trim();
+
+        var parentId = string.IsNullOrWhiteSpace(hierarchy.ParentId) ? null : hierarchy.ParentId.Trim();
+        var childrenArray = hierarchy.ChildrenIds?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? Array.Empty<string>();
 
         var sql = $@"
 INSERT INTO {_table} (agent_id, parent_id, children_ids, updated_at)
@@ -73,16 +100,23 @@ DO UPDATE SET
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.Parameters.AddWithValue("agent_id", agentId);
-        cmd.Parameters.AddWithValue("parent_id", (object?)hierarchy.ParentId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("parent_id", (object?)parentId ?? DBNull.Value);
 
-        var p = cmd.Parameters.AddWithValue("children_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid, childrenArray);
+        var p = cmd.Parameters.AddWithValue("children_ids", NpgsqlDbType.Array | NpgsqlDbType.Text, childrenArray);
         p.Value = childrenArray;
 
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task DeleteAsync(Guid agentId, CancellationToken ct = default)
+    public async Task DeleteAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"DELETE FROM {_table} WHERE agent_id = @agent_id";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -92,8 +126,15 @@ DO UPDATE SET
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<bool> ExistsAsync(Guid agentId, CancellationToken ct = default)
+    public async Task<bool> ExistsAsync(string agentId, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
+
         var sql = $"SELECT 1 FROM {_table} WHERE agent_id = @agent_id LIMIT 1";
 
         await using var conn = await _dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);

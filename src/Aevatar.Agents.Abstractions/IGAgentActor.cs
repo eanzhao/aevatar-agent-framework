@@ -9,9 +9,16 @@ namespace Aevatar.Agents.Abstractions;
 public interface IGAgentActor : IEventPublisher
 {
     /// <summary>
-    /// Actor Identifier (same as the associated Agent Id).
+    /// Actor Identifier（等同于关联的 <see cref="IGAgent.Id"/>，**统一格式**）。
+    ///
+    /// 规范：<c>"AgentTypeShortName:RawId"</c>
+    /// 例如：<c>"ChatAgent:12345678-..."</c>
+    ///
+    /// NOTE:
+    /// - 创建时允许传入 RawId（通常是 Guid string），系统会自动补齐前缀
+    /// - 后续所有 Manager/Stream/Hierarchy 操作都应使用该完整格式
     /// </summary>
-    Guid Id { get; }
+    string Id { get; }
 
     /// <summary>
     /// Get the associated Agent instance.
@@ -31,12 +38,12 @@ public interface IGAgentActor : IEventPublisher
     /// Get all child Agent IDs. Hierarchy mutations should be performed via ActorHierarchyCoordinator
     /// or IGAgentActorManager.LinkParentChildAsync to keep parent/child routers in sync.
     /// </summary>
-    Task<IReadOnlyList<Guid>> GetChildrenAsync();
+    Task<IReadOnlyList<string>> GetChildrenAsync();
 
     /// <summary>
     /// Get the parent Agent ID.
     /// </summary>
-    Task<Guid?> GetParentAsync();
+    Task<string?> GetParentAsync();
 
     // ============ Event Publishing and Routing ============
 

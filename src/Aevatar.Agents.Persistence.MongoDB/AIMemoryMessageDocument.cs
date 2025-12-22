@@ -21,7 +21,7 @@ internal sealed class AIMemoryMessageDocument
     public string? Id { get; set; }
 
     [BsonRequired]
-    public Guid AgentId { get; set; }
+    public string AgentId { get; set; } = string.Empty;
 
     public string? SessionId { get; set; }
 

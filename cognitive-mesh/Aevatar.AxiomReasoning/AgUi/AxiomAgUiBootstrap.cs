@@ -69,12 +69,17 @@ public static class AxiomAgUiBootstrap
         var workerCount = ComputeWorkerCount(session);
 
         var stableSessionKey = session.Id;
-        var coordinatorId = DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator");
+        var coordinatorRawId = DeterministicGuid
+            .FromString($"cognitive:{stableSessionKey}:coordinator")
+            .ToString("D");
 
-        var stableWorkerIds = new List<Guid>(capacity: workerCount);
+        var stableWorkerRawIds = new List<string>(capacity: workerCount);
         for (var i = 0; i < workerCount; i++)
         {
-            stableWorkerIds.Add(DeterministicGuid.FromString($"cognitive:{stableSessionKey}:worker:{i}"));
+            stableWorkerRawIds.Add(
+                DeterministicGuid
+                    .FromString($"cognitive:{stableSessionKey}:worker:{i}")
+                    .ToString("D"));
         }
 
         var steps = new Dictionary<string, StepConversation>(StringComparer.Ordinal);
@@ -83,20 +88,20 @@ public static class AxiomAgUiBootstrap
         await TryCollectFromActorAsync(
             actorManager,
             memoryFactory,
-            coordinatorId,
+            coordinatorRawId,
             agentKind: "cognitive_coordinator",
             workerCount,
             steps,
             ct);
 
         // Workers (fan_out)
-        for (var i = 0; i < stableWorkerIds.Count; i++)
+        for (var i = 0; i < stableWorkerRawIds.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
             await TryCollectFromActorAsync(
                 actorManager,
                 memoryFactory,
-                stableWorkerIds[i],
+                stableWorkerRawIds[i],
                 agentKind: "cognitive_worker",
                 workerCount,
                 steps,
@@ -284,21 +289,38 @@ public static class AxiomAgUiBootstrap
     private static async Task TryCollectFromActorAsync(
         IGAgentActorManager actorManager,
         IAevatarAIMemoryFactory? memoryFactory,
-        Guid actorId,
+        string actorRawId,
         string agentKind,
         int workerCount,
         Dictionary<string, StepConversation> steps,
         CancellationToken ct)
     {
-        IGAgentActor? actor = await actorManager.GetActorAsync(actorId);
+        if (string.IsNullOrWhiteSpace(actorRawId))
+        {
+            return;
+        }
+
+        actorRawId = actorRawId.Trim();
+
+        // ActorManager stores actors by Actor.Id.
+        // - Orleans: "AgentTypeShortName:RawId"
+        // - Local/Proto: "RawId"
+        // We try both formats to keep this collector runtime-agnostic.
+        var actorTypeName = agentKind == "cognitive_coordinator"
+            ? typeof(CognitiveCoordinatorGAgent).Name
+            : typeof(CognitiveWorkerGAgent).Name;
+        var orleansStyleId = $"{actorTypeName}:{actorRawId}";
+
+        IGAgentActor? actor = await actorManager.GetActorAsync(orleansStyleId);
+        actor ??= await actorManager.GetActorAsync(actorRawId);
         if (actor == null)
         {
             // Best-effort: re-create actor so it can load persisted state (if StateStore is configured).
             try
             {
                 actor = agentKind == "cognitive_coordinator"
-                    ? await actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(actorId, ct)
-                    : await actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(actorId, ct);
+                    ? await actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(actorRawId, ct)
+                    : await actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(actorRawId, ct);
             }
             catch
             {
@@ -322,7 +344,7 @@ public static class AxiomAgUiBootstrap
         {
             try
             {
-                var memory = memoryFactory.Create(actorId);
+                var memory = memoryFactory.Create(actor.Id);
                 var history = await memory.GetHistoryAsync(limit: 800, cancellationToken: ct);
                 MergeFromMemoryHistory(history, workerCount, steps);
             }

@@ -18,7 +18,7 @@ CREATE SCHEMA IF NOT EXISTS aevatar;
 
 CREATE TABLE IF NOT EXISTS aevatar.agent_states (
   state_type text NOT NULL,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   state_data bytea NOT NULL,
   version bigint NOT NULL DEFAULT 1,
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -28,22 +28,22 @@ CREATE TABLE IF NOT EXISTS aevatar.agent_states (
 CREATE TABLE IF NOT EXISTS aevatar.agent_configs (
   config_type text NOT NULL,
   agent_type text NOT NULL,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   config_data jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (config_type, agent_type, agent_id)
 );
 
 CREATE TABLE IF NOT EXISTS aevatar.agent_event_router_hierarchies (
-  agent_id uuid PRIMARY KEY,
-  parent_id uuid NULL,
-  children_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  agent_id text PRIMARY KEY,
+  parent_id text NULL,
+  children_ids text[] NOT NULL DEFAULT '{}'::text[],
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS aevatar.ai_memory_messages (
   id uuid PRIMARY KEY,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   session_id text NULL,
   role text NOT NULL,
   content text NOT NULL,

@@ -45,7 +45,7 @@ public static class SupabaseSchemaScript
             stmts.Add($@"
 CREATE TABLE IF NOT EXISTS {schema}.{states} (
   state_type text NOT NULL,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   state_data bytea NOT NULL,
   version bigint NOT NULL DEFAULT 1,
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -58,19 +58,19 @@ CREATE TABLE IF NOT EXISTS {schema}.{states} (
 CREATE TABLE IF NOT EXISTS {schema}.{configs} (
   config_type text NOT NULL,
   agent_type text NOT NULL,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   config_data jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (config_type, agent_type, agent_id)
 )");
 
             // -------- EventRouter Hierarchies --------
-            // children_ids 用 uuid[] 存储，读写简单；查询模式主要是按 agent_id / parent_id。
+            // children_ids 用 text[] 存储（对齐 string agentId 语义）；查询模式主要是按 agent_id / parent_id。
             stmts.Add($@"
 CREATE TABLE IF NOT EXISTS {schema}.{routers} (
-  agent_id uuid PRIMARY KEY,
-  parent_id uuid NULL,
-  children_ids uuid[] NOT NULL DEFAULT '{{}}'::uuid[],
+  agent_id text PRIMARY KEY,
+  parent_id text NULL,
+  children_ids text[] NOT NULL DEFAULT '{{}}'::text[],
   updated_at timestamptz NOT NULL DEFAULT now()
 )");
 
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{routers} (
             stmts.Add($@"
 CREATE TABLE IF NOT EXISTS {schema}.{memory} (
   id uuid PRIMARY KEY,
-  agent_id uuid NOT NULL,
+  agent_id text NOT NULL,
   session_id text NULL,
   role text NOT NULL,
   content text NOT NULL,

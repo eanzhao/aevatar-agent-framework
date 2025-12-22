@@ -10,8 +10,11 @@ public interface IMessageStream
 {
     /// <summary>
     /// Stream唯一标识符
+    ///
+    /// 统一格式：<c>"AgentTypeShortName:RawId"</c>
+    /// 例如：<c>"ChatAgent:12345678-..."</c>
     /// </summary>
-    Guid StreamId { get; }
+    string StreamId { get; }
 
     /// <summary>
     /// 发布消息到stream

@@ -25,7 +25,7 @@ namespace Aevatar.Agents.Persistence.MongoDB;
 public sealed class MongoDBAIMemory : IAevatarAIMemory
 {
     private readonly IMongoCollection<AIMemoryMessageDocument> _collection;
-    private readonly Guid _agentId;
+    private readonly string _agentId;
     private readonly string? _sessionId;
 
     // Static constructor ensures BSON serializers are configured once per process
@@ -36,11 +36,16 @@ public sealed class MongoDBAIMemory : IAevatarAIMemory
 
     public MongoDBAIMemory(
         IMongoDatabase database,
-        Guid agentId,
+        string agentId,
         string? sessionId = null,
         string? collectionName = null)
     {
-        _agentId = agentId;
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        _agentId = agentId.Trim();
         _sessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim();
 
         var name = string.IsNullOrWhiteSpace(collectionName) ? "ai_memory_messages" : collectionName.Trim();

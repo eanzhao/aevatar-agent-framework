@@ -152,10 +152,12 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             //  If no session_id/run_id is provided, we keep the old behavior (random Guid).
             // ============================================================
             var stableSessionKey = TryGetStableSessionKey(options);
-            var coordinatorId = !string.IsNullOrWhiteSpace(stableSessionKey)
-                ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator")
-                : Guid.NewGuid();
-            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(coordinatorId, ct);
+            var rawCoordinatorId = !string.IsNullOrWhiteSpace(stableSessionKey)
+                ? DeterministicGuid.FromString($"cognitive:{stableSessionKey}:coordinator").ToString("D")
+                : Guid.NewGuid().ToString("D");
+
+            // NOTE: 返回的 actor.Id 是规范化后的完整 ActorId: "CognitiveCoordinatorGAgent:RawId"
+            var coordinatorActor = await _actorManager.CreateAndRegisterAsync<CognitiveCoordinatorGAgent>(rawCoordinatorId, ct);
             var coordinator = coordinatorActor.GetAgent() as CognitiveCoordinatorGAgent;
             
             if (coordinator == null)
@@ -357,7 +359,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             
             await coordinator.CreateWorkerPoolAsync(workerPoolSize, stableWorkerIds);
             
-            _logger.LogInformation("Created Coordinator {Id} with {Workers} workers", coordinatorId, workerPoolSize);
+            _logger.LogInformation("Created Coordinator {Id} with {Workers} workers", coordinatorActor.Id, workerPoolSize);
             
             // ─── 阶段 3：执行工作流 ───
             progress?.Report(new ReasoningProgress
@@ -445,7 +447,7 @@ public sealed class CognitiveStrategy : IReasoningStrategy
             var workflowResult = await WaitForCompletionAsync(coordinator, progress, timeout, ct);
             
             // ─── 阶段 5：清理 ───
-            await _actorManager.DeactivateAndUnregisterAsync(coordinatorId, ct);
+            await _actorManager.DeactivateAndUnregisterAsync(coordinatorActor.Id, ct);
             
             var duration = DateTime.UtcNow - startTime;
             

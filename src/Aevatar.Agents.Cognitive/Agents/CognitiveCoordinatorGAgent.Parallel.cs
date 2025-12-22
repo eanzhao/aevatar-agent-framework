@@ -183,7 +183,7 @@ public partial class CognitiveCoordinatorGAgent
                 ["index"] = i,
                 // Ensure exactly-one worker executes this task (fan_out uses Down broadcast).
                 // Worker will ignore if not matching its own Id.
-                ["__target_worker"] = targetWorker.ToString("N")
+                ["__target_worker"] = targetWorker
             };
 
             // 创建 Protobuf 请求事件

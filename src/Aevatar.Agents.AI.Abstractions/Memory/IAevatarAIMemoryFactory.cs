@@ -14,10 +14,12 @@ public interface IAevatarAIMemoryFactory
     /// <summary>
     /// Create an AI memory instance bound to the given agent id.
     /// </summary>
-    /// <param name="agentId">Agent id (framework Guid)</param>
+    /// <param name="agentId">
+    /// Agent id (string). Format may vary by runtime (e.g., Orleans may use a composite key).
+    /// </param>
     /// <param name="sessionId">
     /// Optional session identifier. If provided, implementations may scope history/search to that session.
     /// </param>
-    IAevatarAIMemory Create(Guid agentId, string? sessionId = null);
+    IAevatarAIMemory Create(string agentId, string? sessionId = null);
 }
 

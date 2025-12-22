@@ -57,9 +57,6 @@ public partial class CognitiveCoordinatorGAgent
         string? systemPrompt,
         string userPrompt)
     {
-        // Keep State.History bounded before adding new step messages (best-effort).
-        await CompactChatHistoryIfNeededAsync();
-
         // ============================================================
         //  可靠性护栏：
         //  - vote 会并行发起多个 LLM 调用
@@ -84,30 +81,30 @@ public partial class CognitiveCoordinatorGAgent
 
         var strictParse = ResolveBoolParameter(generator.Parameters, "strict_parse", true);
 
-        // NOTE: 不绑定外部 CancellationToken（当前 Coordinator 执行链路未贯通），至少保证不会无限挂死
+        // NOTE:
+        // - 不绑定外部 CancellationToken（当前 Coordinator 执行链路未贯通），至少保证不会无限挂死
+        // - Use AIGAgentBase.ChatStreamAsync/ChatAsync for provider/tool loop/unified behavior.
         var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
         var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
         using var timeoutCts = new CancellationTokenSource(callTimeout);
         var ct = timeoutCts.Token;
 
-        var request = new AevatarLLMRequest
+        // Prepare per-step chat request (system prompt is passed via Context override).
+        var chat = ChatRequest.Create(userPrompt);
+        chat.StageHint = eventStep.Id ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            SystemPrompt = systemPrompt,
-            UserPrompt = userPrompt
-        };
-
-        // Optional: persist step-level transcript to State.History (default off).
-        // NOTE:
-        // - vote 会在同一个 Coordinator 里并行启动多个 LLM 调用
-        // - 我们必须写入 step 元数据，否则并发写入会打乱顺序，UI 无法按 step 归并
-        if (EnableChatHistoryInState)
-        {
-            if (!string.IsNullOrWhiteSpace(systemPrompt))
-            {
-                AppendStepHistoryMessage(AevatarChatRole.System, systemPrompt!, eventStep, tokenUsed: 0);
-            }
-            AppendStepHistoryMessage(AevatarChatRole.User, userPrompt, eventStep, tokenUsed: 0);
+            chat.AddContext("system_prompt", systemPrompt!);
         }
+
+        // Bind step metadata to history writes (async-local, safe for concurrent vote fan-out).
+        using var _ = BeginStepHistory(new StepHistoryContext
+        {
+            StepId = eventStep.Id ?? string.Empty,
+            StepType = eventStep.Type ?? "llm_call",
+            ExecutionId = CustomState.ExecutionId ?? string.Empty,
+            SystemPrompt = systemPrompt
+        });
 
         var output = string.Empty;
         var promptTokens = 0;
@@ -115,15 +112,12 @@ public partial class CognitiveCoordinatorGAgent
 
         try
         {
-            Logger.LogInformation("[LLM] {StepId}: Getting model info...", eventStep.Id);
-            var modelInfo = await LLMProvider.GetModelInfoAsync(ct);
-            var supportsStreaming = modelInfo.SupportsStreaming;
-            Logger.LogInformation("[LLM] {StepId}: supportsStreaming={Streaming}", eventStep.Id, supportsStreaming);
+            var supportsStreaming = await SupportsStreamingAsync(ct);
 
             if (supportsStreaming)
             {
                 var sb = new System.Text.StringBuilder();
-                var tokenIndex = 0;
+                var chunkIndex = 0;
                 var startAt = DateTimeOffset.UtcNow;
 
                 // Streaming events throttling (reduce event storm & threadpool starvation)
@@ -134,8 +128,8 @@ public partial class CognitiveCoordinatorGAgent
                 Logger.LogInformation("[STREAM] Starting streaming for {StepId}, Type={Type}",
                     eventStep.Id, eventStep.Type);
 
-                var stream = LLMProvider.GenerateStreamAsync(request, ct);
-                var enumerator = stream.GetAsyncEnumerator();
+                var stream = ChatStreamAsync(chat, ct);
+                var enumerator = stream.GetAsyncEnumerator(ct);
                 try
                 {
                     while (true)
@@ -178,16 +172,14 @@ public partial class CognitiveCoordinatorGAgent
 
                         if (!await moveNextTask)
                         {
-                            completionTokens = tokenIndex;
                             break;
                         }
 
-                        var token = enumerator.Current;
-                        var content = token.Content ?? string.Empty;
-                        if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                        var delta = enumerator.Current ?? string.Empty;
+                        if (string.IsNullOrEmpty(delta))
                             continue;
 
-                        sb.Append(content);
+                        sb.Append(delta);
                         output = sb.ToString();
 
                         // 防止输出爆炸导致内存/渲染/日志被打穿（这类“卡住”看起来像死循环）
@@ -198,38 +190,29 @@ public partial class CognitiveCoordinatorGAgent
 
                         // 流式事件发送到指定的步骤（每个提案独立显示）
                         var now = DateTimeOffset.UtcNow;
-                        var isFirst = tokenIndex == 0;
+                        var isFirst = chunkIndex == 0;
                         var shouldPublish =
                             isFirst ||
-                            token.IsComplete ||
-                            (tokenIndex % StreamPublishEveryN == 0) ||
+                            (chunkIndex % StreamPublishEveryN == 0) ||
                             (now - lastPublishAt >= streamPublishMinInterval);
 
                         if (shouldPublish)
                         {
                             lastPublishAt = now;
                             EmitStepEvent(eventStep, StepStatus.Running,
-                                $"Streaming... ({tokenIndex} tokens)",
+                                $"Streaming... ({Math.Max(1, output.Length / 4)} tokens)",
                                 progress: 0,
                                 systemPrompt: systemPrompt,
                                 userPrompt: userPrompt,
                                 assistantResponse: output);
                         }
 
-                        tokenIndex++;
+                        chunkIndex++;
 
                         // Safety stop for pathological streams
-                        if (tokenIndex > 20000)
+                        if (chunkIndex > 20000)
                         {
                             return PrimitiveResult.Fail("llm-stream-too-long>20000");
-                        }
-
-                        if (token.IsComplete)
-                        {
-                            completionTokens = tokenIndex;
-                            Logger.LogInformation("[STREAM] Completed {StepId}: {Tokens} tokens",
-                                eventStep.Id, tokenIndex);
-                            break;
                         }
                     }
                 }
@@ -247,18 +230,18 @@ public partial class CognitiveCoordinatorGAgent
                     }
                 }
 
-                // 某些 provider 不会显式发 IsComplete=true（枚举自然结束）
-                if (completionTokens == 0 && !string.IsNullOrEmpty(output))
-                {
-                    completionTokens = Math.Max(1, output.Length / 4);
-                }
+                // Token usage is not available in streaming mode; use a cheap estimate.
+                promptTokens = Math.Max(1, userPrompt.Length / 4);
+                completionTokens = Math.Max(1, output.Length / 4);
             }
             else
             {
-                AI.Abstractions.AevatarLLMResponse response;
                 try
                 {
-                    response = await LLMProvider.GenerateAsync(request, ct).WaitAsync(callTimeout);
+                    var response = await ChatAsync(chat, ct).WaitAsync(callTimeout);
+                    output = response.Content ?? string.Empty;
+                    promptTokens = response.Usage?.PromptTokens ?? Math.Max(1, userPrompt.Length / 4);
+                    completionTokens = response.Usage?.CompletionTokens ?? Math.Max(1, output.Length / 4);
                 }
                 catch (TimeoutException)
                 {
@@ -273,9 +256,6 @@ public partial class CognitiveCoordinatorGAgent
                         LlmCalls = 1
                     };
                 }
-                output = response.Content ?? string.Empty;
-                promptTokens = response.Usage?.PromptTokens ?? 0;
-                completionTokens = response.Usage?.CompletionTokens ?? 0;
             }
 
             lock (_statsLock)
@@ -303,15 +283,6 @@ public partial class CognitiveCoordinatorGAgent
                 }
             }
 
-            if (EnableChatHistoryInState && !string.IsNullOrEmpty(output))
-            {
-                AppendStepHistoryMessage(
-                    AevatarChatRole.Assistant,
-                    output,
-                    eventStep,
-                    tokenUsed: promptTokens + completionTokens);
-            }
-
             // Persist a structured per-step interaction into AIMemory (optional).
             // This is the "long-term" layer; State.History stays as a short-term window.
             await PersistInteractionToMemoryAsync(
@@ -321,9 +292,6 @@ public partial class CognitiveCoordinatorGAgent
                 output,
                 promptTokens,
                 completionTokens);
-
-            // Keep State.History bounded after appending (best-effort).
-            await CompactChatHistoryIfNeededAsync();
 
             return new PrimitiveResult
             {
@@ -371,31 +339,6 @@ public partial class CognitiveCoordinatorGAgent
         }
     }
 
-    private void AppendStepHistoryMessage(
-        AevatarChatRole role,
-        string content,
-        StepDefinition step,
-        int tokenUsed)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return;
-
-        var msg = new AevatarChatMessage
-        {
-            Role = role,
-            Content = content,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenUsed = tokenUsed
-        };
-
-        msg.Metadata["step_id"] = step.Id ?? string.Empty;
-        msg.Metadata["step_type"] = step.Type ?? string.Empty;
-        msg.Metadata["execution_id"] = CustomState.ExecutionId ?? string.Empty;
-        msg.Metadata["agent_kind"] = "cognitive_coordinator";
-
-        AddMessageToHistory(msg);
-    }
-
     private async Task PersistInteractionToMemoryAsync(
         StepDefinition step,
         string? systemPrompt,
@@ -412,7 +355,7 @@ public partial class CognitiveCoordinatorGAgent
             var payload = new
             {
                 kind = "aevatar.cognitive.llm_interaction.v1",
-                agentId = Id.ToString("N"),
+                agentId = Id,
                 agentKind = "cognitive_coordinator",
                 executionId = CustomState.ExecutionId ?? "",
                 stepId = step.Id ?? "",

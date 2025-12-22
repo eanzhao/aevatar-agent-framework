@@ -106,6 +106,9 @@ public abstract partial class AIGAgentBase
         await RegisterToolAsync(
             new AevatarMemorySearchTool(new LoggerAdapter<AevatarMemorySearchTool>(Logger)),
             cancellationToken: cancellationToken);
+
+        // Agent Skills (agentskills.io) - disabled by default via EnableAgentSkills
+        await RegisterAgentSkillsToolsAsync(cancellationToken);
     }
 
     /// <summary>
@@ -230,6 +233,12 @@ public abstract partial class AIGAgentBase
             sb.AppendLine("- If you need details from earlier conversation, call 'search_memory' before answering.");
         }
 
+        if (_registeredToolsCache.Any(t => string.Equals(t.Name, "skills_list", StringComparison.OrdinalIgnoreCase)) &&
+            _registeredToolsCache.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
+        {
+            sb.AppendLine("- If you need a procedural/domain skill, call 'skills_list' then 'skills_load' before acting.");
+        }
+
         return sb.ToString().TrimEnd();
     }
 
@@ -302,6 +311,10 @@ public abstract partial class AIGAgentBase
                 Error = toolResult.ErrorMessage ?? string.Empty,
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             }, ct: cancellationToken);
+
+            // Tool set might have changed (e.g., skills_load imported new tools) - refresh function defs.
+            await RefreshToolCachesAsync(cancellationToken);
+            AttachToolsToRequest(llmRequest);
 
             // Call LLM again with tool result appended
             current = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);

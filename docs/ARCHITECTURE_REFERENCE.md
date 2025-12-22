@@ -141,6 +141,7 @@ Aevatar.Agents.Runtime.Orleans/
 Aevatar.Agents.AI.Core/
 ├── AIGAgentBase.cs                   # AI Agent 基类
 ├── AIGAgentBase.Tools.cs             # 工具/Function Calling 能力（已合并进 AIGAgentBase）
+├── AIGAgentBase.AgentSkills.cs       # Agent Skills（SKILL.md）按需加载 + 可选导入 dotnet-file tools
 ├── AIGAgentBase.TCustomState.cs      # 自定义状态
 ├── AIGAgentBase.TCustomState.TCustomConfig.cs
 ├── AIGAgentFactory.cs                # AI Agent 工厂

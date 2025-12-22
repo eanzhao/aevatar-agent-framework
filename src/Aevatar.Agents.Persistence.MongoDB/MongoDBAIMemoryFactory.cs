@@ -19,7 +19,7 @@ public sealed class MongoDBAIMemoryFactory : IAevatarAIMemoryFactory
         _collectionName = string.IsNullOrWhiteSpace(collectionName) ? null : collectionName.Trim();
     }
 
-    public IAevatarAIMemory Create(Guid agentId, string? sessionId = null)
+    public IAevatarAIMemory Create(string agentId, string? sessionId = null)
     {
         return new MongoDBAIMemory(_database, agentId, sessionId, _collectionName);
     }

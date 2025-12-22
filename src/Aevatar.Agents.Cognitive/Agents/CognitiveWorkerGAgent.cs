@@ -8,6 +8,7 @@ using Aevatar.Agents.Cognitive.Template;
 using Aevatar.Agents.Cognitive.Utilities;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Text;
 using System.Text.Json;
 
 namespace Aevatar.Agents.Cognitive.Agents;
@@ -54,6 +55,142 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
     }
 
     // ============================================================
+    //  Cognitive LLM calls should reuse AIGAgentBase pipeline
+    //
+    //  Goals:
+    //  - Use ChatAsync/ChatStreamAsync instead of calling LLMProvider directly
+    //  - Persist per-step transcript into State.History with stable metadata
+    //  - Keep LLM requests stateless (do NOT replay State.History into prompt)
+    // ============================================================
+
+    private static readonly AsyncLocal<StepHistoryContext?> StepHistory = new();
+
+    private sealed class StepHistoryContext
+    {
+        public string StepId { get; init; } = "";
+        public string StepType { get; init; } = "";
+        public string RequestId { get; init; } = "";
+        public string WorkerId { get; init; } = "";
+        public string? SystemPrompt { get; init; }
+        public bool SystemWritten { get; set; }
+    }
+
+    private readonly struct StepHistoryScope : IDisposable
+    {
+        private readonly StepHistoryContext? _prev;
+
+        public StepHistoryScope(StepHistoryContext ctx)
+        {
+            _prev = StepHistory.Value;
+            StepHistory.Value = ctx;
+        }
+
+        public void Dispose()
+        {
+            StepHistory.Value = _prev;
+        }
+    }
+
+    private static StepHistoryScope BeginStepHistory(StepHistoryContext ctx) => new(ctx);
+
+    protected override Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        // Cognitive DSL is prompt-driven; keep requests clean (no function calling).
+        return Task.CompletedTask;
+    }
+
+    protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
+    {
+        var settings = GetLLMSettings(request);
+        if (request.StopSequences.Count > 0)
+        {
+            settings.StopSequences = new List<string>(request.StopSequences);
+        }
+
+        // IMPORTANT:
+        // - We persist history for UI hydration, but we do NOT replay it back into the next LLM call.
+        // - Cognitive prompts already carry the full state; replaying history only increases tokens and adds noise.
+        var messages = new List<AevatarChatMessage>
+        {
+            new()
+            {
+                Role = AevatarChatRole.User,
+                Content = request.Message
+            }
+        };
+
+        // Optional system prompt override (per-step).
+        var systemPrompt = GetEffectiveSystemPrompt() ?? string.Empty;
+        if (request.Context.TryGetValue("system_prompt", out var overrideSp) &&
+            !string.IsNullOrWhiteSpace(overrideSp))
+        {
+            systemPrompt = overrideSp.Trim();
+        }
+
+        var llmRequest = new AevatarLLMRequest
+        {
+            SystemPrompt = systemPrompt,
+            Messages = messages,
+            Settings = settings
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.StageHint))
+        {
+            llmRequest.Context = new Dictionary<string, object>
+            {
+                ["stage_hint"] = request.StageHint
+            };
+        }
+
+        return llmRequest;
+    }
+
+    protected override void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
+    {
+        var ctx = StepHistory.Value;
+        if (ctx == null)
+        {
+            base.AddMessageToHistory(content, role, name);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        // Ensure per-step system prompt is captured once (before the user message).
+        if (role == AevatarChatRole.User &&
+            !ctx.SystemWritten &&
+            !string.IsNullOrWhiteSpace(ctx.SystemPrompt))
+        {
+            base.AddMessageToHistory(BuildStepHistoryMessage(AevatarChatRole.System, ctx.SystemPrompt!, ctx));
+            ctx.SystemWritten = true;
+        }
+
+        base.AddMessageToHistory(BuildStepHistoryMessage(role, content, ctx));
+    }
+
+    private static AevatarChatMessage BuildStepHistoryMessage(
+        AevatarChatRole role,
+        string content,
+        StepHistoryContext ctx)
+    {
+        var msg = new AevatarChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+
+        msg.Metadata["step_id"] = ctx.StepId;
+        msg.Metadata["step_type"] = ctx.StepType;
+        msg.Metadata["request_id"] = ctx.RequestId;
+        msg.Metadata["agent_kind"] = "cognitive_worker";
+        msg.Metadata["worker_id"] = ctx.WorkerId;
+
+        return msg;
+    }
+
+    // ============================================================
     //  生命周期
     // ============================================================
 
@@ -62,7 +199,7 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         await base.OnActivateAsync(ct);
 
         // 初始化 Worker 状态
-        CustomState.WorkerId = Id.ToString("N")[..8];
+        CustomState.WorkerId = Id.Length > 8 ? Id[..8] : Id;
         CustomState.Status = WorkerStatus.WsIdle;
     }
 
@@ -87,7 +224,7 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         if (request.Variables.TryGetValue("__target_worker", out var targetValue))
         {
             var target = targetValue?.StringValue;
-            var self = Id.ToString("N");
+            var self = Id;
             if (!string.IsNullOrWhiteSpace(target) && !string.Equals(target, self, StringComparison.OrdinalIgnoreCase))
             {
                 return; // ignore tasks not assigned to me
@@ -157,9 +294,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
 
     private async Task<PrimitiveResult> ExecuteLlmCallAsync(ExecuteStepRequestEvent request)
     {
-        // Keep State.History bounded before adding new step messages (best-effort).
-        await CompactChatHistoryIfNeededAsync();
-
         // 从 Protobuf Value 转换参数
         var parameters = ConvertFromProtoMap(request.Parameters);
         var variables = ConvertFromProtoMap(request.Variables);
@@ -187,56 +321,55 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             systemPrompt = _templateEngine.Render(systemPrompt, variables);
         }
 
-        // Optional: persist step-level transcript to State.History (default off).
-        // NOTE:
-        // - We MUST attach step metadata so UI can group messages even when calls interleave.
-        if (EnableChatHistoryInState)
+        // Prepare per-step chat request (system prompt is passed via Context override).
+        var chat = ChatRequest.Create(prompt);
+        if (!string.IsNullOrWhiteSpace(request.RequestId))
         {
-            if (!string.IsNullOrWhiteSpace(systemPrompt))
-            {
-                AppendStepHistoryMessage(AevatarChatRole.System, systemPrompt!, request, tokenUsed: 0);
-            }
-            AppendStepHistoryMessage(AevatarChatRole.User, prompt, request, tokenUsed: 0);
+            chat.RequestId = request.RequestId;
         }
 
-        // 调用 LLM（优先流式）
-        var llmRequest = new AevatarLLMRequest
+        chat.StageHint = request.StepId ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            SystemPrompt = systemPrompt,
-            UserPrompt = prompt
-        };
+            chat.AddContext("system_prompt", systemPrompt!);
+        }
 
-        var modelInfo = await LLMProvider.GetModelInfoAsync();
-        var supportsStreaming = modelInfo.SupportsStreaming;
+        // Bind step metadata to history writes (async-local, safe for concurrent tasks).
+        using var _ = BeginStepHistory(new StepHistoryContext
+        {
+            StepId = request.StepId ?? string.Empty,
+            StepType = request.StepType ?? "llm_call",
+            RequestId = request.RequestId ?? string.Empty,
+            WorkerId = CustomState.WorkerId ?? string.Empty,
+            SystemPrompt = systemPrompt
+        });
 
+        var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
+        var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
+        using var timeoutCts = new CancellationTokenSource(callTimeout);
+        var ct = timeoutCts.Token;
+
+        var finalContent = string.Empty;
         var totalPromptTokens = 0;
         var totalCompletionTokens = 0;
-        var finalContent = string.Empty;
-        var parsedValue = (object?)null;
 
-        if (supportsStreaming)
+        try
         {
-            var sb = new System.Text.StringBuilder();
-            var tokenIndex = 0;
-            // IMPORTANT:
-            // - Provider 的 stream 可能出现两类“假死”：
-            //   1) 无视 CancellationToken（CancelAfter 触发也不返回）
-            //   2) MoveNextAsync 永远不完成（网络 read 卡住）
-            // - 一旦发生，fan_out 会一直等，Pipeline 看起来“前端停了 & 后端也不动”
-            // - 解决：不用 await foreach 盲等；改为 MoveNextAsync + WhenAny(Idle/Total timeout)，并对中间态事件做节流。
-            var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
-            var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
-            var startAt = DateTimeOffset.UtcNow;
-
-            // Streaming events throttling (reduce event storm & threadpool starvation)
-            const int StreamPublishEveryN = 16;
-            var streamPublishMinInterval = TimeSpan.FromMilliseconds(250);
-            var lastPublishAt = DateTimeOffset.MinValue;
-
-            try
+            var supportsStreaming = await SupportsStreamingAsync(ct);
+            if (supportsStreaming)
             {
-                var stream = LLMProvider.GenerateStreamAsync(llmRequest, cancellationToken: default);
-                var enumerator = stream.GetAsyncEnumerator();
+                var sb = new StringBuilder();
+                var chunkIndex = 0;
+                var startAt = DateTimeOffset.UtcNow;
+
+                // Streaming events throttling (reduce event storm & threadpool starvation)
+                const int StreamPublishEveryN = 16;
+                var streamPublishMinInterval = TimeSpan.FromMilliseconds(250);
+                var lastPublishAt = DateTimeOffset.MinValue;
+
+                var stream = ChatStreamAsync(chat, ct);
+                var enumerator = stream.GetAsyncEnumerator(ct);
+
                 try
                 {
                     while (true)
@@ -244,37 +377,33 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                         var elapsed = DateTimeOffset.UtcNow - startAt;
                         var remaining = callTimeout - elapsed;
                         if (remaining <= TimeSpan.Zero)
-                            return new PrimitiveResult { Success = false, Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s" };
+                        {
+                            return new PrimitiveResult { Success = false, Error = $"llm-timeout>{timeoutSeconds}s" };
+                        }
 
-                        // Wait for next token, but don't block forever.
+                        // Wait for next chunk, but don't block forever.
                         var moveNextTask = enumerator.MoveNextAsync().AsTask();
                         var waitTimeout = remaining < idleTimeout ? remaining : idleTimeout;
                         var completed = await Task.WhenAny(moveNextTask, Task.Delay(waitTimeout));
                         if (completed != moveNextTask)
                         {
-                            // If we haven't received anything for idleTimeout, treat as hang.
                             return new PrimitiveResult
                             {
                                 Success = false,
                                 Error = waitTimeout == idleTimeout
-                                    ? $"llm-idle-timeout>{(int)idleTimeout.TotalSeconds}s"
-                                    : $"llm-timeout>{(int)callTimeout.TotalSeconds}s"
+                                    ? $"llm-idle-timeout>{idleTimeoutSeconds}s"
+                                    : $"llm-timeout>{timeoutSeconds}s"
                             };
                         }
 
                         if (!await moveNextTask)
-                        {
-                            // Stream completed without explicit IsComplete token.
-                            totalCompletionTokens = tokenIndex;
                             break;
-                        }
 
-                        var token = enumerator.Current;
-                        var content = token.Content ?? string.Empty;
-                        if (string.IsNullOrEmpty(content) && !token.IsComplete)
+                        var delta = enumerator.Current ?? string.Empty;
+                        if (string.IsNullOrEmpty(delta))
                             continue;
 
-                        sb.Append(content);
+                        sb.Append(delta);
                         finalContent = sb.ToString();
 
                         // Red-flag：长度（尽早停止，避免输出爆炸导致内存/渲染被打穿）
@@ -284,13 +413,11 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                         }
 
                         // Streaming report (Success=false indicates intermediate state)
-                        // Throttle: publish first/last OR every N "tokens" OR time-based heartbeat.
                         var now = DateTimeOffset.UtcNow;
-                        var isFirst = tokenIndex == 0;
+                        var isFirst = chunkIndex == 0;
                         var shouldPublish =
                             isFirst ||
-                            token.IsComplete ||
-                            (tokenIndex % StreamPublishEveryN == 0) ||
+                            (chunkIndex % StreamPublishEveryN == 0) ||
                             (now - lastPublishAt >= streamPublishMinInterval);
 
                         if (shouldPublish)
@@ -314,24 +441,15 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                             }, EventDirection.Up);
                         }
 
-                        tokenIndex++;
-
-                        // Safety stop for pathological streams
-                        if (tokenIndex > 20000)
+                        chunkIndex++;
+                        if (chunkIndex > 20000)
                         {
                             return new PrimitiveResult { Success = false, Error = "llm-stream-too-long>20000" };
-                        }
-
-                        if (token.IsComplete)
-                        {
-                            totalCompletionTokens = tokenIndex;
-                            break;
                         }
                     }
                 }
                 finally
                 {
-                    // Don't allow DisposeAsync to block forever if provider is misbehaving.
                     try
                     {
                         var disposeTask = enumerator.DisposeAsync().AsTask();
@@ -342,35 +460,64 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
                         // ignored
                     }
                 }
+
+                // Token usage is not available in streaming mode; use a cheap estimate.
+                totalPromptTokens = Math.Max(1, prompt.Length / 4);
+                totalCompletionTokens = Math.Max(1, finalContent.Length / 4);
             }
-            catch (OperationCanceledException)
+            else
             {
-                return new PrimitiveResult { Success = false, Error = $"llm-timeout>{(int)callTimeout.TotalSeconds}s" };
+                ChatResponse response;
+                try
+                {
+                    response = await ChatAsync(chat, ct).WaitAsync(callTimeout);
+                }
+                catch (TimeoutException)
+                {
+                    return new PrimitiveResult { Success = false, Error = $"llm-timeout>{timeoutSeconds}s" };
+                }
+
+                finalContent = response.Content ?? string.Empty;
+                totalPromptTokens = response.Usage?.PromptTokens ?? Math.Max(1, prompt.Length / 4);
+                totalCompletionTokens = response.Usage?.CompletionTokens ?? Math.Max(1, finalContent.Length / 4);
             }
         }
-        else
+        catch (OperationCanceledException)
         {
-            AevatarLLMResponse response;
-            try
+            return new PrimitiveResult
             {
-                response = await LLMProvider.GenerateAsync(llmRequest).WaitAsync(TimeSpan.FromSeconds(timeoutSeconds));
-            }
-            catch (TimeoutException)
+                Success = false,
+                Error = $"llm-timeout>{timeoutSeconds}s",
+                SystemPrompt = systemPrompt,
+                UserPrompt = prompt,
+                AssistantResponse = finalContent,
+                TokensUsed = 0,
+                LlmCalls = 1
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[LLM] ✗ Error in {StepId}: {Message}", request.StepId, ex.Message);
+            return new PrimitiveResult
             {
-                return new PrimitiveResult { Success = false, Error = $"llm-timeout>{timeoutSeconds}s" };
-            }
-            finalContent = response.Content ?? string.Empty;
-            totalPromptTokens = response.Usage?.PromptTokens ?? 0;
-            totalCompletionTokens = response.Usage?.CompletionTokens ?? 0;
+                Success = false,
+                Error = $"llm-error:{ex.Message}",
+                SystemPrompt = systemPrompt,
+                UserPrompt = prompt,
+                AssistantResponse = finalContent,
+                TokensUsed = 0,
+                LlmCalls = 1
+            };
         }
 
-        // Red-flag：长度（non-streaming 兜底）
+        // Red-flag：长度（兜底）
         if (finalContent.Length > maxLength)
         {
             return new PrimitiveResult { Success = false, Error = $"redflag-length>{maxLength}" };
         }
 
         // 解析输出（与 Coordinator 语义对齐：text 不解析；非 text 可 strict/loose）
+        object? parsedValue;
         if (string.Equals(outputType, "text", StringComparison.OrdinalIgnoreCase))
         {
             parsedValue = finalContent;
@@ -392,15 +539,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             }
         }
 
-        if (EnableChatHistoryInState && !string.IsNullOrEmpty(finalContent))
-        {
-            AppendStepHistoryMessage(
-                AevatarChatRole.Assistant,
-                finalContent,
-                request,
-                tokenUsed: totalPromptTokens + totalCompletionTokens);
-        }
-
         // Persist a structured per-step interaction into AIMemory (optional).
         // This is the "long-term" layer; State.History stays as a short-term window.
         await PersistInteractionToMemoryAsync(
@@ -410,9 +548,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             finalContent,
             totalPromptTokens,
             totalCompletionTokens);
-
-        // Keep State.History bounded after appending (best-effort).
-        await CompactChatHistoryIfNeededAsync();
 
         return new PrimitiveResult
         {
@@ -426,33 +561,6 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             UserPrompt = prompt,
             AssistantResponse = finalContent
         };
-    }
-
-    private void AppendStepHistoryMessage(
-        AevatarChatRole role,
-        string content,
-        ExecuteStepRequestEvent request,
-        int tokenUsed)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return;
-
-        var msg = new AevatarChatMessage
-        {
-            Role = role,
-            Content = content,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
-            TokenUsed = tokenUsed
-        };
-
-        // Stable metadata for UI + replay-independent hydration.
-        msg.Metadata["step_id"] = request.StepId ?? string.Empty;
-        msg.Metadata["step_type"] = request.StepType ?? string.Empty;
-        msg.Metadata["request_id"] = request.RequestId ?? string.Empty;
-        msg.Metadata["agent_kind"] = "cognitive_worker";
-        msg.Metadata["worker_id"] = CustomState.WorkerId ?? string.Empty;
-
-        AddMessageToHistory(msg);
     }
 
     private async Task PersistInteractionToMemoryAsync(
@@ -471,7 +579,7 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
             var payload = new
             {
                 kind = "aevatar.cognitive.llm_interaction.v1",
-                agentId = Id.ToString("N"),
+                agentId = Id,
                 agentKind = "cognitive_worker",
                 workerId = CustomState.WorkerId ?? "",
                 requestId = request.RequestId ?? "",

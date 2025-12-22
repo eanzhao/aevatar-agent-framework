@@ -20,22 +20,26 @@ public sealed class SupabaseAIMemory : IAevatarAIMemory
     private readonly NpgsqlDataSource _dataSource;
     private readonly SupabasePersistenceOptions _options;
     private readonly string _table;
-    private readonly Guid _agentId;
+    private readonly string _agentId;
     private readonly string? _sessionId;
 
     public SupabaseAIMemory(
         NpgsqlDataSource dataSource,
         IOptions<SupabasePersistenceOptions> options,
-        Guid agentId,
+        string agentId,
         string? sessionId = null)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
 
         SupabaseSchemaManager.EnsureInitialized(_dataSource, _options);
 
         _table = SupabaseSql.Table(_options.Schema, _options.AiMemoryMessagesTable, nameof(_options.AiMemoryMessagesTable));
-        _agentId = agentId;
+        _agentId = agentId.Trim();
         _sessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim();
     }
 

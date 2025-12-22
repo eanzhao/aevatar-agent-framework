@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
+using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Engine;
@@ -64,8 +65,8 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
 
     // Worker 管理（由外部注入）
     private IGAgentActorManager? _actorManager;
-    private readonly List<Guid> _workerIds = [];
-
+    private readonly List<string> _workerIds = [];
+    
     // 语义聚类投票 (可选)
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private float _semanticSimilarityThreshold = 0.85f;
@@ -85,10 +86,14 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
     private Action<WorkflowStepEvent>? _onStepEvent;
     private readonly object _stepEventsLock = new(); // vote 并行生成时可能并发写入
     private readonly object _statsLock = new(); // 多并行任务下累加统计，避免丢失/错乱
-
+    
     // ============================================================
     //  构造函数
     // ============================================================
+
+    public CognitiveCoordinatorGAgent()
+    {
+    }
 
     // ============================================================
     //  History compaction policy (no extra LLM calls)
@@ -106,8 +111,138 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
         return Task.FromResult<string?>(null);
     }
 
-    public CognitiveCoordinatorGAgent()
+    // ============================================================
+    //  Cognitive LLM calls should reuse AIGAgentBase pipeline
+    //
+    //  Goals:
+    //  - Use ChatAsync/ChatStreamAsync instead of calling LLMProvider directly
+    //  - Persist per-step transcript into State.History with stable metadata
+    //  - Keep LLM requests stateless (do NOT replay State.History into prompt)
+    // ============================================================
+
+    private static readonly AsyncLocal<StepHistoryContext?> StepHistory = new();
+
+    private sealed class StepHistoryContext
     {
+        public string StepId { get; init; } = "";
+        public string StepType { get; init; } = "";
+        public string ExecutionId { get; init; } = "";
+        public string? SystemPrompt { get; init; }
+        public bool SystemWritten { get; set; }
+    }
+
+    private readonly struct StepHistoryScope : IDisposable
+    {
+        private readonly StepHistoryContext? _prev;
+
+        public StepHistoryScope(StepHistoryContext ctx)
+        {
+            _prev = StepHistory.Value;
+            StepHistory.Value = ctx;
+        }
+
+        public void Dispose()
+        {
+            StepHistory.Value = _prev;
+        }
+    }
+
+    private static StepHistoryScope BeginStepHistory(StepHistoryContext ctx) => new(ctx);
+
+    protected override Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        // Cognitive DSL is prompt-driven; keep requests clean (no function calling).
+        return Task.CompletedTask;
+    }
+
+    protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
+    {
+        var settings = GetLLMSettings(request);
+        if (request.StopSequences.Count > 0)
+        {
+            settings.StopSequences = new List<string>(request.StopSequences);
+        }
+
+        // IMPORTANT:
+        // - We persist history for UI hydration, but we do NOT replay it back into the next LLM call.
+        // - Cognitive prompts already carry the full state; replaying history only increases tokens and adds noise.
+        var messages = new List<AevatarChatMessage>
+        {
+            new()
+            {
+                Role = AevatarChatRole.User,
+                Content = request.Message
+            }
+        };
+
+        // Optional system prompt override (per-step).
+        var systemPrompt = GetEffectiveSystemPrompt() ?? string.Empty;
+        if (request.Context.TryGetValue("system_prompt", out var overrideSp) &&
+            !string.IsNullOrWhiteSpace(overrideSp))
+        {
+            systemPrompt = overrideSp.Trim();
+        }
+
+        var llmRequest = new AevatarLLMRequest
+        {
+            SystemPrompt = systemPrompt,
+            Messages = messages,
+            Settings = settings
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.StageHint))
+        {
+            llmRequest.Context = new Dictionary<string, object>
+            {
+                ["stage_hint"] = request.StageHint
+            };
+        }
+
+        return llmRequest;
+    }
+
+    protected override void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
+    {
+        var ctx = StepHistory.Value;
+        if (ctx == null)
+        {
+            base.AddMessageToHistory(content, role, name);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+            return;
+
+        // Ensure per-step system prompt is captured once (before the user message).
+        if (role == AevatarChatRole.User &&
+            !ctx.SystemWritten &&
+            !string.IsNullOrWhiteSpace(ctx.SystemPrompt))
+        {
+            base.AddMessageToHistory(BuildStepHistoryMessage(AevatarChatRole.System, ctx.SystemPrompt!, ctx));
+            ctx.SystemWritten = true;
+        }
+
+        base.AddMessageToHistory(BuildStepHistoryMessage(role, content, ctx));
+    }
+
+    private static AevatarChatMessage BuildStepHistoryMessage(
+        AevatarChatRole role,
+        string content,
+        StepHistoryContext ctx)
+    {
+        var msg = new AevatarChatMessage
+        {
+            Role = role,
+            Content = content,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        };
+
+        msg.Metadata["step_id"] = ctx.StepId;
+        msg.Metadata["step_type"] = ctx.StepType;
+        msg.Metadata["execution_id"] = ctx.ExecutionId;
+        msg.Metadata["agent_kind"] = "cognitive_coordinator";
+
+        return msg;
     }
 
     // ============================================================
@@ -228,8 +363,9 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
         for (var i = 0; i < ids.Count; i++)
         {
             // 创建 Worker Actor
-            var workerId = ids[i];
-            var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(workerId);
+            var rawWorkerId = ids[i].ToString("D");
+            var workerActor = await _actorManager.CreateAndRegisterAsync<CognitiveWorkerGAgent>(rawWorkerId);
+            var workerActorId = workerActor.Id; // 规范化后的完整 ActorId: "CognitiveWorkerGAgent:RawId"
 
             if (workerActor.GetAgent() is CognitiveWorkerGAgent worker)
             {
@@ -248,9 +384,9 @@ public partial class CognitiveCoordinatorGAgent : AIGAgentBase<CognitiveCoordina
             }
 
             // 设置父子关系（Worker 订阅 Coordinator 的流）
-            await _actorManager.LinkParentChildAsync(Id, workerId);
+            await _actorManager.LinkParentChildAsync(Id, workerActorId);
 
-            _workerIds.Add(workerId);
+            _workerIds.Add(workerActorId);
         }
 
         CustomState.ActiveWorkers = _workerIds.Count;

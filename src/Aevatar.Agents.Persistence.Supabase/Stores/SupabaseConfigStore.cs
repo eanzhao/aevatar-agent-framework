@@ -34,9 +34,15 @@ public sealed class SupabaseConfigStore<TConfig> : IConfigStore<TConfig>
         _configTypeName = typeof(TConfig).FullName ?? typeof(TConfig).Name;
     }
 
-    public async Task<TConfig?> LoadAsync(Type agentType, Guid agentId, CancellationToken ct = default)
+    public async Task<TConfig?> LoadAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agentType);
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
 
         var agentTypeName = agentType.FullName ?? agentType.Name;
         var sql = $"SELECT config_data FROM {_table} WHERE config_type = @config_type AND agent_type = @agent_type AND agent_id = @agent_id LIMIT 1";
@@ -71,10 +77,16 @@ public sealed class SupabaseConfigStore<TConfig> : IConfigStore<TConfig>
         return SupabaseConfigJson.Deserialize<TConfig>(json);
     }
 
-    public async Task SaveAsync(Type agentType, Guid agentId, TConfig config, CancellationToken ct = default)
+    public async Task SaveAsync(Type agentType, string agentId, TConfig config, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agentType);
         ArgumentNullException.ThrowIfNull(config);
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
 
         var agentTypeName = agentType.FullName ?? agentType.Name;
         var json = SupabaseConfigJson.Serialize(config);
@@ -101,9 +113,15 @@ DO UPDATE SET
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task DeleteAsync(Type agentType, Guid agentId, CancellationToken ct = default)
+    public async Task DeleteAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agentType);
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
 
         var agentTypeName = agentType.FullName ?? agentType.Name;
         var sql = $"DELETE FROM {_table} WHERE config_type = @config_type AND agent_type = @agent_type AND agent_id = @agent_id";
@@ -117,9 +135,15 @@ DO UPDATE SET
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<bool> ExistsAsync(Type agentType, Guid agentId, CancellationToken ct = default)
+    public async Task<bool> ExistsAsync(Type agentType, string agentId, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(agentType);
+        if (string.IsNullOrWhiteSpace(agentId))
+        {
+            throw new ArgumentException("agentId cannot be null/empty.", nameof(agentId));
+        }
+
+        agentId = agentId.Trim();
 
         var agentTypeName = agentType.FullName ?? agentType.Name;
         var sql = $"SELECT 1 FROM {_table} WHERE config_type = @config_type AND agent_type = @agent_type AND agent_id = @agent_id LIMIT 1";
