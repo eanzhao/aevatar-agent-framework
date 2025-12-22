@@ -13,6 +13,8 @@ public sealed class RunInstance
     public required DateTime CreatedAtUtc { get; init; }
 
     public string? SessionId { get; set; }
+    public string? GraphId { get; set; }
+    public string? GraphName { get; set; }
     public string? GraphSource { get; set; }
     public string? Input { get; set; }
 
@@ -22,6 +24,11 @@ public sealed class RunInstance
             SingleReader = false,
             SingleWriter = true
         });
+
+    /// <summary>
+    /// Append-only event log for run history / replay (MVP).
+    /// </summary>
+    public ConcurrentQueue<WorkflowStepEvent> EventHistory { get; } = new();
 
     public ConcurrentQueue<MemoryEntry> MemoryEntries { get; } = new();
 

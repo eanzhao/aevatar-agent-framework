@@ -217,6 +217,42 @@ public class ToolAgent : AIGAgentBase<MyState, MyConfig>
 }
 ```
 
+### DotNet File Skills (.NET 10)
+You can import a single-file C# "skill" as a Tool (executed via `dotnet run --file`):
+
+```csharp
+protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+{
+    await base.RegisterToolsAsync(cancellationToken);
+    await RegisterDotNetFileSkillAsync("skills/calc_tax.cs", cancellationToken);
+}
+```
+
+Skill file template (reads JSON from stdin, prints JSON to stdout):
+
+```csharp
+/*aevatar_tool
+{
+  "name": "calc_tax",
+  "description": "Calculate tax from amount and rate",
+  "parameters": {
+    "required": ["amount", "rate"],
+    "items": {
+      "amount": { "type": "number", "description": "Base amount" },
+      "rate": { "type": "number", "description": "Tax rate (0-1)" }
+    }
+  }
+}
+*/
+
+using System.Text.Json;
+
+var input = await Console.In.ReadToEndAsync();
+var args = JsonSerializer.Deserialize<Dictionary<string, double>>(input)!;
+var tax = args["amount"] * args["rate"];
+Console.WriteLine(JsonSerializer.Serialize(new { tax }));
+```
+
 ---
 
 ## Runtime Architecture

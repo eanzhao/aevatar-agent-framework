@@ -1,4 +1,11 @@
 <Solution>
+  <Folder Name="/aevatar-kit/">
+    <Project Path="aevatar-kit\src\AevatarKit.Api\AevatarKit.Api.csproj" />
+    <Project Path="aevatar-kit\src\AevatarKit.Core\AevatarKit.Core.csproj" />
+    <Project Path="aevatar-kit\src\AevatarKit.Runtime\AevatarKit.Runtime.csproj" />
+    <File Path="aevatar-kit\docs\PLAN.md" />
+    <File Path="aevatar-kit\docs\README.md" />
+  </Folder>
   <Folder Name="/agents/">
     <Project Path="agents\Aevatar.Agents.Chat\Aevatar.Agents.Chat.csproj" />
     <Project Path="agents\Aevatar.Agents.Translation\Aevatar.Agents.Translation.csproj" />
@@ -8,10 +15,10 @@
   </Folder>
   <Folder Name="/apps/">
     <Project Path="apps/Aevatar.AppHost/Aevatar.AppHost.csproj" />
+    <Project Path="apps/AxiomReasoning.AppHost/AxiomReasoning.AppHost.csproj" />
     <Project Path="apps/CognitiveMesh.AppHost/CognitiveMesh.AppHost.csproj" />
     <Project Path="apps/MakerSystem.AppHost/MakerSystem.AppHost.csproj" />
     <Project Path="apps/PaperReview.AppHost/PaperReview.AppHost.csproj" />
-    <Project Path="apps/AxiomReasoning.AppHost/AxiomReasoning.AppHost.csproj" />
   </Folder>
   <Folder Name="/cognitive-mesh/">
     <Project Path="cognitive-mesh/Aevatar.CognitiveMesh.Abstractions/Aevatar.CognitiveMesh.Abstractions.csproj" />
@@ -49,6 +56,7 @@
     <Project Path="examples\Demo.Agents\Demo.Agents.csproj" />
     <Project Path="examples\Demo.Api\Demo.Api.csproj" />
     <Project Path="examples\Demo.AppHost\Demo.AppHost.csproj" />
+    <Project Path="examples\DotNetFileSkillDemo\DotNetFileSkillDemo.csproj" Type="Classic C#" />
     <Project Path="examples\EventSourcingDemo\EventSourcingDemo.csproj" />
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
     <Project Path="examples\MakerSystem\MakerSystem.csproj" />
@@ -60,13 +68,6 @@
   <Folder Name="/plugins/">
     <Project Path="plugins\Aevatar.Agents.Plugins.CQRS\Aevatar.Agents.Plugins.CQRS.csproj" Type="Classic C#" />
     <Project Path="plugins\Aevatar.Agents.Plugins.MassTransit\Aevatar.Agents.Plugins.MassTransit.csproj" Type="Classic C#" />
-  </Folder>
-  <Folder Name="/aevatar-kit/">
-    <Project Path="aevatar-kit\src\AevatarKit.Core\AevatarKit.Core.csproj" />
-    <Project Path="aevatar-kit\src\AevatarKit.Runtime\AevatarKit.Runtime.csproj" />
-    <Project Path="aevatar-kit\src\AevatarKit.Api\AevatarKit.Api.csproj" />
-    <File Path="aevatar-kit\docs\PLAN.md" />
-    <File Path="aevatar-kit\docs\README.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\Aevatar.Agents.Abstractions\Aevatar.Agents.Abstractions.csproj" />

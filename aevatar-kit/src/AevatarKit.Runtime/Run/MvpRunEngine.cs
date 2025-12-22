@@ -1,4 +1,5 @@
 using AevatarKit;
+using AevatarKit.Runtime.Memory;
 using Google.Protobuf.WellKnownTypes;
 
 namespace AevatarKit.Runtime.Run;
@@ -17,6 +18,13 @@ public interface IRunEngine
 
 public sealed class MvpRunEngine : IRunEngine
 {
+    private readonly IMemoryStore _memory;
+
+    public MvpRunEngine(IMemoryStore memory)
+    {
+        _memory = memory ?? throw new ArgumentNullException(nameof(memory));
+    }
+
     public Task StartAsync(RunInstance run, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(run);
@@ -27,7 +35,7 @@ public sealed class MvpRunEngine : IRunEngine
             try
             {
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, run.Cancellation.Token);
-                await ExecuteAsync(run, linkedCts.Token).ConfigureAwait(false);
+                await ExecuteAsync(run, _memory, linkedCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -48,14 +56,14 @@ public sealed class MvpRunEngine : IRunEngine
         return Task.CompletedTask;
     }
 
-    private static async Task ExecuteAsync(RunInstance run, CancellationToken ct)
+    private static async Task ExecuteAsync(RunInstance run, IMemoryStore memory, CancellationToken ct)
     {
         // Step 0: receive input
         await PublishAsync(run, "input", "Input", WorkflowStepStatus.Running, "", "").ConfigureAwait(false);
         await Task.Delay(150, ct).ConfigureAwait(false);
 
         var input = string.IsNullOrWhiteSpace(run.Input) ? "(empty)" : run.Input.Trim();
-        await AppendMemoryAsync(run, role: "user", content: input, ct).ConfigureAwait(false);
+        await AppendMemoryAsync(run, memory, role: "user", content: input, ct).ConfigureAwait(false);
 
         await PublishAsync(run, "input", "Input", WorkflowStepStatus.Completed, "Input received.", "").ConfigureAwait(false);
 
@@ -77,7 +85,7 @@ public sealed class MvpRunEngine : IRunEngine
         }
 
         var finalAnswer = "MVP output: this is where the model/tool results would appear.";
-        await AppendMemoryAsync(run, role: "assistant", content: finalAnswer, ct).ConfigureAwait(false);
+        await AppendMemoryAsync(run, memory, role: "assistant", content: finalAnswer, ct).ConfigureAwait(false);
 
         await PublishAsync(run, "llm_call", "LLM Call", WorkflowStepStatus.Completed, finalAnswer, "").ConfigureAwait(false);
 
@@ -109,13 +117,17 @@ public sealed class MvpRunEngine : IRunEngine
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
         };
 
+        // Run history (append-only)
+        run.EventHistory.Enqueue(evt);
+
         await run.EventChannel.Writer.WriteAsync(evt).ConfigureAwait(false);
     }
 
-    private static Task AppendMemoryAsync(RunInstance run, string role, string content, CancellationToken ct)
+    private static Task AppendMemoryAsync(RunInstance run, IMemoryStore memory, string role, string content, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
+        // 1) Run-scope memory (always)
         var memoryId = $"run:{run.RunId}";
         var scope = new MemoryScope
         {
@@ -135,6 +147,22 @@ public sealed class MvpRunEngine : IRunEngine
         };
 
         run.MemoryEntries.Enqueue(entry);
+        memory.Append(entry);
+
+        // 2) Session-scope memory (shared) - optional for MVP demo
+        if (!string.IsNullOrWhiteSpace(run.SessionId))
+        {
+            var sessionId = run.SessionId.Trim();
+            var sessionEntry = entry.Clone();
+            sessionEntry.MemoryId = $"session:{sessionId}";
+            sessionEntry.Scope = new MemoryScope
+            {
+                Type = MemoryScopeType.Session,
+                ScopeId = sessionId
+            };
+            memory.Append(sessionEntry);
+        }
+
         return Task.CompletedTask;
     }
 }

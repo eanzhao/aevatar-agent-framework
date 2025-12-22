@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
@@ -21,6 +20,11 @@ public class MCPAgent : AIGAgentBase
     public MCPAgent(IConfiguration configuration) : base()
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+
+        // Base prompt; AIGAgentBase will append the available tool list automatically.
+        SystemPrompt =
+            "You are a helpful AI assistant.\n" +
+            "When interacting with MCP servers (filesystem, Context7, etc.), prefer invoking the relevant tool before responding.";
     }
 
     protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
@@ -164,13 +168,5 @@ public class MCPAgent : AIGAgentBase
 
         var tools = await GetRegisteredToolsAsync();
         Logger?.LogInformation("🎉 Tool registration complete! Total tools: {Count}", tools.Count);
-    }
-
-    protected override string BuildToolAwareSystemPrompt(IReadOnlyList<ToolDefinition> tools)
-    {
-        var builder = new StringBuilder(base.BuildToolAwareSystemPrompt(tools));
-        builder.AppendLine();
-        builder.AppendLine("When interacting with MCP servers (filesystem, Context7, etc.), prefer invoking the relevant tool before responding to the user.");
-        return builder.ToString();
     }
 }

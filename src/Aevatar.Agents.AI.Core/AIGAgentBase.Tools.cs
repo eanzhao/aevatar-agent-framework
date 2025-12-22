@@ -5,6 +5,7 @@ using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Aevatar.Agents.AI.WithTool.Tools;
 using Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
+using Aevatar.Agents.AI.WithTool.Tools.CustomTools;
 using Aevatar.Agents.AI.WithTool.Tools.CoreTools;
 using Aevatar.Agents.Abstractions.Attributes;
 using Google.Protobuf;
@@ -105,6 +106,21 @@ public abstract partial class AIGAgentBase
         await RegisterToolAsync(
             new AevatarMemorySearchTool(new LoggerAdapter<AevatarMemorySearchTool>(Logger)),
             cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Import a single-file C# "skill" as a tool via <c>dotnet run --file</c>.
+    /// </summary>
+    public async Task RegisterDotNetFileSkillAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        var tool = await DotNetFileSkillTool.LoadFromFileAsync(
+            filePath,
+            logger: Logger,
+            cancellationToken: cancellationToken);
+
+        await RegisterToolAsync(tool, Logger, cancellationToken);
     }
 
     /// <summary>

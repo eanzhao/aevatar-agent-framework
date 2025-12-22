@@ -10,22 +10,35 @@ aevatar-kit/
     PLAN.md            # 产品与架构计划（SSOT）
     README.md          # 你正在看的这份
   src/
-    AevatarKit.Core/   # Protobuf 契约 + 基础序列化工具
-    AevatarKit.Runtime/# MVP Run Engine（in-memory，模拟 Timeline/Streaming/Memory）
-    AevatarKit.Api/    # ASP.NET Core API + SSE + 静态前端托管
+    AevatarKit.Core/    # Protobuf 契约 + 基础序列化工具
+    AevatarKit.Runtime/ # MVP Runtime（in-memory：Agents/Graphs/MCP/Memory/Runs）
+    AevatarKit.Api/     # ASP.NET Core API + SSE + 静态前端托管
   frontend/
     index.html         # 单页 UI（无构建步骤）
     app.js             # 调用 API + SSE Timeline
-    styles.css         # 现代 UI 皮肤（展示产品形态）
+    styles.css         # Workspace UI 皮肤（对标 mcp-agent-graph 形态）
 ```
 
 ### MVP 已实现的展示能力
 
-- **Graph 输入框**：可粘贴 YAML/JSON（MVP 用字符串占位）
-- **Start Run**：POST `/api/runs` 创建 run
-- **Run Timeline**：SSE `/api/runs/{runId}/events` 实时显示 step 事件（含 streaming chunk）
-- **Run Memory**：GET `/api/runs/{runId}/memory` 展示 run scope 的 memory entries
-- **Skills（占位）**：展示未来把 Graph/Tool/Prompt/MemoryProfile 打包成 Skill 的产品方向
+- **Workspace UI（对标 mcp-agent-graph）**：
+  - 左侧导航：Agent / Workflow / Model / Tools / MCP / Prompt / File / Memory
+  - 顶部工具栏：搜索/刷新/创建（按页面裁剪）
+- **Agent Manager（可用）**：
+  - 分类折叠 + 搜索 + Create Agent（in-memory）
+  - API：`GET /api/agents`、`GET /api/agents/categories`、`POST /api/agents`
+- **Workflow Editor（可用）**：
+  - Graph Library：保存/加载（in-memory）
+  - Run：启动 run + SSE Timeline + Run History（回放）
+  - API：`GET /api/graphs`、`GET /api/graphs/{id}`、`POST /api/graphs`、`PUT /api/graphs/{id}`
+  - API：`POST /api/runs`、`GET /api/runs`、`GET /api/runs/{id}`、`GET /api/runs/{id}/events`
+- **MCP Manager（MVP）**：
+  - server registry 管理（不做真实连接）
+  - API：`GET /api/mcp/servers`、`POST /api/mcp/servers`、`PUT /api/mcp/servers/{id}`
+- **Memory Manager（可用）**：
+  - 资源列表 + 子串搜索（MVP）+ runId 快速跳转
+  - run scope + session scope（用于演示“共享 memory”）
+  - API：`GET /api/memory/resources`、`GET /api/memory/{memoryId}/entries`、`POST /api/memory/search`
 
 ### 运行方式
 
