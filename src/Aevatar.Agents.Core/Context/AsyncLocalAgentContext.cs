@@ -1,91 +1,78 @@
+using System.Collections.Concurrent;
 using Aevatar.Agents.Abstractions.Context;
 
 namespace Aevatar.Agents.Core.Context;
 
 /// <summary>
-/// Default IAgentContext implementation using dictionary storage.
-/// Thread-safe implementation for concurrent access.
+/// Default IAgentContext implementation using ConcurrentDictionary for thread-safe access.
+/// Optimized for high-concurrency scenarios with lock-free read operations.
 /// </summary>
 public class AsyncLocalAgentContext : IAgentContext
 {
-    private readonly Dictionary<string, object?> _data = new();
-    private readonly object _lock = new();
+    private readonly ConcurrentDictionary<string, object?> _data = new();
 
     /// <inheritdoc />
     public T? Get<T>(AgentContextKey<T> key)
     {
-        lock (_lock)
-        {
-            return _data.TryGetValue(key.Name, out var value) && value is T typedValue
-                ? typedValue
-                : key.DefaultValue;
-        }
+        return _data.TryGetValue(key.Name, out var value) && value is T typedValue
+            ? typedValue
+            : key.DefaultValue;
     }
 
     /// <inheritdoc />
     public object? Get(string key)
     {
-        lock (_lock)
-        {
-            return _data.TryGetValue(key, out var value) ? value : null;
-        }
+        return _data.TryGetValue(key, out var value) ? value : null;
     }
 
     /// <inheritdoc />
     public void Set<T>(AgentContextKey<T> key, T value)
     {
-        lock (_lock)
-        {
-            _data[key.Name] = value;
-        }
+        _data[key.Name] = value;
     }
 
     /// <inheritdoc />
     public void Set(string key, object? value)
     {
-        lock (_lock)
-        {
-            _data[key] = value;
-        }
+        _data[key] = value;
     }
 
     /// <inheritdoc />
     public void Remove(string key)
     {
-        lock (_lock)
-        {
-            _data.Remove(key);
-        }
+        _data.TryRemove(key, out _);
     }
 
     /// <inheritdoc />
     public void Clear()
     {
-        lock (_lock)
-        {
-            _data.Clear();
-        }
+        _data.Clear();
     }
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, object?> GetAll()
     {
-        lock (_lock)
-        {
-            return new Dictionary<string, object?>(_data);
-        }
+        // Return snapshot - ConcurrentDictionary enumeration is thread-safe
+        // but we need a point-in-time snapshot for serialization
+        return new Dictionary<string, object?>(_data);
     }
 
     /// <inheritdoc />
     public void Import(IReadOnlyDictionary<string, object?> entries)
     {
-        lock (_lock)
+        foreach (var (key, value) in entries)
         {
-            foreach (var (key, value) in entries)
-            {
-                _data[key] = value;
-            }
+            _data[key] = value;
         }
     }
-}
 
+    /// <summary>
+    /// Gets the current count of items in the context.
+    /// </summary>
+    public int Count => _data.Count;
+
+    /// <summary>
+    /// Checks if the context contains a specific key.
+    /// </summary>
+    public bool ContainsKey(string key) => _data.ContainsKey(key);
+}
