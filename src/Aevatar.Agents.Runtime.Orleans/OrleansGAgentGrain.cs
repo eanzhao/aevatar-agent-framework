@@ -1,6 +1,7 @@
 using Aevatar.Agents;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.CQRS;
+using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Core;
 using Aevatar.Agents.Core.Helpers;
 using Aevatar.Agents.Core.Rpc;
@@ -328,30 +329,19 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     public Task<bool> InitializeAgentAsync(string agentTypeName)
     {
-        // Grain Key format:
-        // - Preferred: "AgentId" (string guid)  ✅ consistent with P2P routing (targetAgentId only)
-        // - Backward compatible: "AgentTypeShortName:AgentId"
+        // ============================================================
+        //  AgentId 统一规范（对齐 docs/AGENT_ID_GUIDE.md）
         //
-        // Always extract AgentId from the Grain key for consistency.
+        //  Orleans GrainKey / StreamKey 统一使用完整 ActorId：
+        //    "AgentTypeShortName:RawId"
+        //
+        //  WHY:
+        //  - 仅使用 RawId 会导致跨类型冲突（同 RawId 不同 AgentType 会复用同一个 Grain）
+        //  - PublisherId / self-handling / StreamKey 必须一致，否则会出现“自发事件无法识别为 self”的隐性 bug
+        // ============================================================
         var grainKey = this.GetPrimaryKeyString();
-        var agentId = ExtractAgentIdFromGrainKey(grainKey).ToString();
-        return InitializeAgentInternalAsync(agentTypeName, agentId, persistState: true);
-    }
-
-    /// <summary>
-    /// Extract Agent ID from Grain Key
-    /// Grain Key format: "AgentTypeShortName:AgentId" or just "AgentId" (for backwards compatibility)
-    /// </summary>
-    private static Guid ExtractAgentIdFromGrainKey(string grainKey)
-    {
-        var colonIndex = grainKey.LastIndexOf(':');
-        if (colonIndex >= 0 && colonIndex < grainKey.Length - 1)
-        {
-            // New format: "AgentType:AgentId"
-            return Guid.Parse(grainKey.Substring(colonIndex + 1));
-        }
-        // Legacy format: just the GUID
-        return Guid.Parse(grainKey);
+        var actorId = NormalizeActorId(agentTypeName, grainKey);
+        return InitializeAgentInternalAsync(agentTypeName, actorId, persistState: true);
     }
 
     private async Task<bool> InitializeAgentInternalAsync(string agentTypeName, string agentId, bool persistState = false)
@@ -365,6 +355,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         {
             _logger.LogInformation("🔧 Initializing Agent in Grain {GrainId}, Type: {AgentType}", 
                 this.GetGrainId(), agentTypeName);
+
+            // Ensure agentId is in normalized ActorId format for consistent self-handling and stream routing.
+            agentId = NormalizeActorId(agentTypeName, agentId);
 
             // Resolve Agent type
             var agentType = ResolveAgentType(agentTypeName);
@@ -408,6 +401,21 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _logger.LogError(ex, "Error initializing Agent in Grain {GrainId}", this.GetGrainId());
             return false;
         }
+    }
+
+    private static string NormalizeActorId(string agentTypeName, string idOrActorId)
+    {
+        if (string.IsNullOrWhiteSpace(idOrActorId))
+            return string.Empty;
+
+        var id = idOrActorId.Trim();
+        if (id.Contains(AgentId.Separator))
+            return id;
+
+        var shortName = AgentId.GetAgentTypeShortName(agentTypeName);
+        return string.IsNullOrWhiteSpace(shortName)
+            ? id
+            : $"{shortName}{AgentId.Separator}{id}";
     }
 
     private System.Type? ResolveAgentType(string agentTypeName)
@@ -665,7 +673,8 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         var grainKey = this.GetPrimaryKeyString();
         try
         {
-            return Task.FromResult(ExtractAgentIdFromGrainKey(grainKey).ToString());
+            // 与 Actor.Id / StreamId 对齐：返回完整 ActorId（"Type:RawId"）
+            return Task.FromResult(NormalizeActorId(_grainState.State.AgentTypeName ?? string.Empty, grainKey));
         }
         catch (Exception ex)
         {
@@ -725,13 +734,13 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     #endregion
 
-    #region Interface Required Methods
+    #region Lifecycle Control
 
-    [Obsolete("Use InitializeAgentAsync instead")]
-    public Task ActivateAsync(string? agentTypeName = null, string? stateTypeName = null)
-        => throw new NotSupportedException("Use InitializeAgentAsync instead");
-
-    public Task DeactivateAsync() => Task.CompletedTask;
+    public Task DeactivateAsync()
+    {
+        _logger.LogInformation("Grain {GrainId} deactivate requested", this.GetGrainId());
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Protobuf RPC method invocation - delegates to shared RpcInvoker

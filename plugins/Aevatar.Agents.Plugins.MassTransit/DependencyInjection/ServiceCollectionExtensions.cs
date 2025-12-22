@@ -152,6 +152,11 @@ public static class ServiceCollectionExtensions
 
         // Create options instance to merge config and annotations
         var options = section.Get<MassTransitStreamOptions>() ?? new MassTransitStreamOptions();
+        // NOTE:
+        // - Configuration binding can still set reference-type properties to null at runtime.
+        // - Keep a local non-null reference to avoid nullable warnings + NREs.
+        var topicMapping = options.TopicMapping ?? new Dictionary<string, string>();
+        options.TopicMapping = topicMapping;
         
         // Collect all topics to subscribe to and produce to
         var allTopics = new HashSet<string>();
@@ -172,12 +177,9 @@ public static class ServiceCollectionExtensions
         }
 
         // Add topics from configured mapping
-        if (options.TopicMapping != null)
+        foreach (var t in topicMapping.Values)
         {
-            foreach (var t in options.TopicMapping.Values)
-            {
-                if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
-            }
+            if (!string.IsNullOrEmpty(t)) allTopics.Add(t);
         }
 
         // 1.1 Scan Assemblies for [StreamTopic]
@@ -202,9 +204,9 @@ public static class ServiceCollectionExtensions
                             // Note: This modifies the local 'options' object used for setup, 
                             // but NOT the IOptions registered in DI. 
                             // We need to ensure MassTransitMessageStream uses the merged mapping.
-                            if (!options.TopicMapping.ContainsKey(category))
+                            if (!topicMapping.ContainsKey(category))
                             {
-                                options.TopicMapping[category] = topic;
+                                topicMapping[category] = topic;
                             }
                             
                             // Add to Subscription (for Consumer)
@@ -212,9 +214,9 @@ public static class ServiceCollectionExtensions
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Console.WriteLine($"WARNING: Failed to scan assembly {assembly.FullName} for agents: {ex.Message}");
+                    // Best-effort scan: ignore reflection errors from unrelated assemblies.
                 }
             }
         }
@@ -223,11 +225,14 @@ public static class ServiceCollectionExtensions
         // Since we modified 'options' locally, we need to replace the IOptions registration or configure it.
         services.PostConfigure<MassTransitStreamOptions>(o => 
         {
-            foreach (var kvp in options.TopicMapping)
+            var targetMapping = o.TopicMapping ?? new Dictionary<string, string>();
+            o.TopicMapping = targetMapping;
+
+            foreach (var kvp in topicMapping)
             {
-                if (!o.TopicMapping.ContainsKey(kvp.Key))
+                if (!targetMapping.ContainsKey(kvp.Key))
                 {
-                    o.TopicMapping[kvp.Key] = kvp.Value;
+                    targetMapping[kvp.Key] = kvp.Value;
                 }
             }
         });

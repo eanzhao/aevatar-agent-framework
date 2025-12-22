@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Aevatar.App.HttpApi.Host.Extensions;
@@ -9,7 +9,6 @@ using Microsoft.Extensions.Hosting;
 using Orleans;
 using Orleans.Configuration;
 using Orleans.Hosting;
-using Orleans.Providers.MongoDB.Configuration;
 using Orleans.Streams.Kafka.Config;
 using Serilog;
 using Serilog.Events;
