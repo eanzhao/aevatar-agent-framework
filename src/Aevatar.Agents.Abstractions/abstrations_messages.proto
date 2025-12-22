@@ -50,6 +50,11 @@ message EventEnvelope {
   // - Unspecified: Pure P2P, only target processes
   // - Down/Up/Both: Target processes then continues propagation in this direction
   EventDirection on_arrival_direction = 15;
+
+  // Context metadata for request-scoped data propagation.
+  // Key-value pairs serialized from IAgentContext.
+  // Only allowlisted keys are propagated for performance and security.
+  map<string, string> context_metadata = 16;
 }
 
 message SubAgentAdded {
