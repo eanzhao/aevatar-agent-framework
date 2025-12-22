@@ -151,6 +151,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         //    causing incorrect response format matching, triggering maker-v2's strict_parse -> redflag-parse-null.
         // ============================================================
         var promptText = ExtractPromptText(request);
+        var stageKey = NormalizeStageHint(TryGetStageHint(request));
         var prompt = (promptText + " " + (request.SystemPrompt ?? "")).ToLowerInvariant();
 
         // ============================================================
@@ -175,6 +176,30 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             ModelName = "mock-model"
         };
 
+        // ============================================================
+        //  Deterministic routing via stage_hint (preferred)
+        //
+        //  WHY:
+        //  - Contains-based routing is inherently brittle:
+        //    system prompt often contains generic words (review/compose/vote),
+        //    and dictionary iteration order can accidentally pick the wrong response.
+        //  - stage_hint is injected by Cognitive agents per step id, so it's the single source of truth.
+        // ============================================================
+        if (stageKey != null)
+        {
+            switch (stageKey)
+            {
+                case "check_atomic":
+                    return Task.FromResult(Build(BuildCheckAtomicJson(promptText)));
+                case "decompose":
+                    return Task.FromResult(Build(_responses["break down the following complex task"]));
+                case "solve_atomic":
+                    return Task.FromResult(Build(_responses["solve"]));
+                case "compose":
+                    return Task.FromResult(Build(_responses["compose"]));
+            }
+        }
+
         // ─────────────────────────────────────────────────────────
         // check_atomic: Requires "terminable recursion" behavior
         // - Top-level paper review: Mark as COMPLEX (triggers decomposition)
@@ -184,53 +209,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         // ─────────────────────────────────────────────────────────
         if (prompt.Contains("\"is_atomic\"") || prompt.Contains("is_atomic"))
         {
-            // Only judge if it's "top-level paper review" based on the TASK TO ANALYZE section.
-            // Note: Subtask workflow_call will put original paper content into CONTEXT (which also contains "please review..."),
-            // if we directly use global Contains, subtasks will always be judged as COMPLEX → infinite recursion until max_depth.
-            static string ExtractTaskToAnalyze(string p)
-            {
-                var start = p.IndexOf("task to analyze:", StringComparison.OrdinalIgnoreCase);
-                if (start < 0) return p;
-                start = p.IndexOf('\n', start);
-                if (start < 0) return p;
-
-                var end = p.IndexOf("context:", start, StringComparison.OrdinalIgnoreCase);
-                if (end < 0)
-                    end = p.IndexOf("response format", start, StringComparison.OrdinalIgnoreCase);
-                if (end < 0) end = p.Length;
-
-                return p.Substring(start, end - start);
-            }
-
-            var taskToAnalyze = ExtractTaskToAnalyze(prompt);
-            var isTopLevelPaperReview = taskToAnalyze.Contains("please review the following paper", StringComparison.OrdinalIgnoreCase);
-
-            var content = isTopLevelPaperReview
-                ? """
-                  {
-                    "is_atomic": false,
-                    "reasoning": "A full paper review requires multiple dimensions of analysis; decompose first."
-                  }
-                  """
-                : """
-                  {
-                    "is_atomic": true,
-                    "reasoning": "This is a focused single-aspect subtask; solve directly."
-                  }
-                  """;
-
-            return Task.FromResult(new AevatarLLMResponse
-            {
-                Content = content,
-                AevatarStopReason = AevatarStopReason.Complete,
-                Usage = new AevatarTokenUsage
-                {
-                    PromptTokens = prompt.Length / 4,
-                    CompletionTokens = content.Length / 4,
-                    TotalTokens = (prompt.Length + content.Length) / 4
-                },
-                ModelName = "mock-model"
-            });
+            return Task.FromResult(Build(BuildCheckAtomicJson(promptText)));
         }
 
         // decompose generator (json_array)
@@ -326,5 +305,76 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         }
 
         return sb.ToString();
+    }
+
+    private static string? TryGetStageHint(AevatarLLMRequest request)
+    {
+        if (request.Context == null)
+            return null;
+
+        if (!request.Context.TryGetValue("stage_hint", out var raw) || raw == null)
+            return null;
+
+        var s = raw.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    }
+
+    private static string? NormalizeStageHint(string? stageHint)
+    {
+        if (string.IsNullOrWhiteSpace(stageHint))
+            return null;
+
+        // vote proposals are emitted as "{stepId}.gen[N]" (see CognitiveCoordinatorGAgent.Vote.cs)
+        var s = stageHint.Trim();
+        var genPos = s.IndexOf(".gen[", StringComparison.OrdinalIgnoreCase);
+        if (genPos > 0)
+        {
+            s = s[..genPos];
+        }
+
+        return s.ToLowerInvariant();
+    }
+
+    private static string BuildCheckAtomicJson(string promptText)
+    {
+        // Only judge if it's "top-level paper review" based on the TASK TO ANALYZE section.
+        // Note: Subtask workflow_call will put original paper content into CONTEXT (which also contains "please review..."),
+        // if we directly use global Contains, subtasks will always be judged as COMPLEX → infinite recursion until max_depth.
+        var taskToAnalyze = ExtractTaskToAnalyzeSection(promptText);
+        var isTopLevelPaperReview = taskToAnalyze.Contains(
+            "please review the following paper",
+            StringComparison.OrdinalIgnoreCase);
+
+        return isTopLevelPaperReview
+            ? """
+              {
+                "is_atomic": false,
+                "reasoning": "A full paper review requires multiple dimensions of analysis; decompose first."
+              }
+              """
+            : """
+              {
+                "is_atomic": true,
+                "reasoning": "This is a focused single-aspect subtask; solve directly."
+              }
+              """;
+    }
+
+    private static string ExtractTaskToAnalyzeSection(string promptText)
+    {
+        if (string.IsNullOrWhiteSpace(promptText))
+            return string.Empty;
+
+        var start = promptText.IndexOf("task to analyze:", StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return promptText;
+        start = promptText.IndexOf('\n', start);
+        if (start < 0) return promptText;
+
+        var end = promptText.IndexOf("context:", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0)
+            end = promptText.IndexOf("response format", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0) end = promptText.Length;
+
+        return promptText.Substring(start, end - start);
     }
 }
