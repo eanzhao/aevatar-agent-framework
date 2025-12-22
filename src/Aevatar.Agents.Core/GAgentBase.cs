@@ -27,11 +27,16 @@ public abstract class GAgentBase : IGAgent
     // ============ Fields ============
 
     /// <summary>
-    /// Agent unique identifier.
-    /// Format varies by runtime:
-    /// - Orleans: "AgentType:Guid" (e.g., "ChatAgent:12345678-...")
-    /// - Local/Proto: "Guid" (e.g., "12345678-...")
-    /// Can be set internally by factories for recovery scenarios.
+    /// Agent unique identifier (**unified format**).
+    ///
+    /// Format: <c>"AgentTypeShortName:RawId"</c>
+    /// Example: <c>"ChatAgent:12345678-..."</c>
+    ///
+    /// NOTE:
+    /// - RawId (usually Guid string) can be passed during creation, Factory will automatically
+    ///   prepend type prefix via <see cref="AgentId.Normalize(System.Type,string)"/>
+    /// - If directly <c>new</c> Agent (bypassing Actor/Factory), this value may only be RawId;
+    ///   once crossing boundaries (Stream/DB/Hierarchy), normalize first
     /// </summary>
     public string Id { get; internal set; } = string.Empty;
 

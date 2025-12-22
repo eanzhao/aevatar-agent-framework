@@ -284,6 +284,8 @@ Or configure roots via env var:
 export AEVATAR_AGENT_SKILLS_DIRS="/abs/path/to/agent_skills;/abs/path/to/more_skills"
 ```
 
+For the full guide (integration + features + safety), see: `docs/AGENT_SKILLS_GUIDE.md`.
+
 ---
 
 ## Runtime Architecture

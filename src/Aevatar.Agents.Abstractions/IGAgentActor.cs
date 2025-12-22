@@ -9,14 +9,14 @@ namespace Aevatar.Agents.Abstractions;
 public interface IGAgentActor : IEventPublisher
 {
     /// <summary>
-    /// Actor Identifier（等同于关联的 <see cref="IGAgent.Id"/>，**统一格式**）。
+    /// Actor Identifier (equivalent to associated <see cref="IGAgent.Id"/>, **unified format**).
     ///
-    /// 规范：<c>"AgentTypeShortName:RawId"</c>
-    /// 例如：<c>"ChatAgent:12345678-..."</c>
+    /// Format: <c>"AgentTypeShortName:RawId"</c>
+    /// Example: <c>"ChatAgent:12345678-..."</c>
     ///
     /// NOTE:
-    /// - 创建时允许传入 RawId（通常是 Guid string），系统会自动补齐前缀
-    /// - 后续所有 Manager/Stream/Hierarchy 操作都应使用该完整格式
+    /// - RawId (usually Guid string) can be passed during creation, system will automatically prepend prefix
+    /// - All subsequent Manager/Stream/Hierarchy operations should use this full format
     /// </summary>
     string Id { get; }
 

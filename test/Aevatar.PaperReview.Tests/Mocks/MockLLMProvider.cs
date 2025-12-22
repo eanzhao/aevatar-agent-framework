@@ -6,12 +6,12 @@ namespace Aevatar.PaperReview.Tests.Mocks;
 
 // ============================================================
 //  MOCK LLM PROVIDER
-//  模拟 LLM 返回，用于测试 Paper Review 流程
+//  Simulates LLM responses for testing Paper Review workflow
 // ============================================================
 
 /// <summary>
-/// Mock LLM Provider - 根据 prompt 内容返回预设的响应。
-/// 支持 MAKER 工作流的各个阶段。
+/// Mock LLM Provider - Returns preset responses based on prompt content.
+/// Supports all stages of the MAKER workflow.
 /// </summary>
 public sealed class MockLLMProvider : IAevatarLLMProvider
 {
@@ -20,17 +20,17 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
     private int _callCount;
 
     /// <summary>
-    /// 所有收到的请求历史。
+    /// History of all received requests.
     /// </summary>
     public IReadOnlyList<AevatarLLMRequest> RequestHistory => _requestHistory;
 
     /// <summary>
-    /// LLM 调用次数。
+    /// Number of LLM calls made.
     /// </summary>
     public int CallCount => _callCount;
 
     /// <summary>
-    /// 添加基于关键字的响应规则。
+    /// Adds a keyword-based response rule.
     /// </summary>
     public MockLLMProvider WithResponse(string promptKeyword, string response)
     {
@@ -39,11 +39,11 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
     }
 
     /// <summary>
-    /// 配置 MAKER 工作流的标准响应。
+    /// Configures standard responses for MAKER workflow.
     /// </summary>
     public MockLLMProvider WithMakerWorkflowResponses()
     {
-        // check_atomic: 判断任务是否原子
+        // check_atomic: Determine if task is atomic
         _responses["atomic"] = """
             {
                 "is_atomic": false,
@@ -52,8 +52,8 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             }
             """;
 
-        // decompose: 分解任务
-        // 注意：真实 prompt 不一定包含 “decompose” 字样，用更稳定的关键短语匹配。
+        // decompose: Break down task
+        // Note: Real prompts may not contain "decompose" keyword, use more stable phrase matching.
         _responses["break down the following complex task"] = """
             [
                 {"id": "tech", "description": "Analyze technical soundness and methodology"},
@@ -62,7 +62,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             ]
             """;
 
-        // solve: 解决原子任务
+        // solve: Solve atomic task
         _responses["solve"] = """
             ## Analysis Result
             
@@ -80,7 +80,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             **Score: 7/10**
             """;
 
-        // compose: 合成结果
+        // compose: Compose results
         _responses["compose"] = """
             # Paper Review Summary
             
@@ -99,7 +99,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             ## Recommendation: Weak Accept
             """;
 
-        // vote: 投票
+        // vote: Voting
         _responses["vote"] = """
             {
                 "selected": 0,
@@ -107,7 +107,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             }
             """;
 
-        // 通用 review 响应
+        // Generic review response
         _responses["review"] = """
             ## Paper Review
             
@@ -141,15 +141,25 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         Interlocked.Increment(ref _callCount);
         _requestHistory.Add(request);
 
-        var prompt = (request.UserPrompt + " " + (request.SystemPrompt ?? "")).ToLowerInvariant();
+        // ============================================================
+        //  IMPORTANT: Extract actual prompt from Messages
+        //
+        //  WHY:
+        //  - AIGAgentBase.BuildLLMRequest() primarily uses request.Messages to carry conversation content,
+        //    request.UserPrompt is often empty (legacy compatibility field for some providers).
+        //  - If we only read UserPrompt, this Mock will only "see" generic words from system prompt (compose/vote/...),
+        //    causing incorrect response format matching, triggering maker-v2's strict_parse -> redflag-parse-null.
+        // ============================================================
+        var promptText = ExtractPromptText(request);
+        var prompt = (promptText + " " + (request.SystemPrompt ?? "")).ToLowerInvariant();
 
         // ============================================================
         //  Structured prompts MUST win over generic keywords
         //
         //  NOTE:
-        //  - Maker-v2 的 generator prompt 会内嵌原始 task（包含 "review" 等泛词）
-        //  - 如果靠 Dictionary 遍历的“偶然顺序”做 Contains 匹配，极易被泛词抢先命中
-        //  - 这里显式做高优先级分流：先匹配结构化输出（json/json_array），再退回关键词表
+        //  - Maker-v2's generator prompt embeds original task (contains generic words like "review")
+        //  - If we rely on Dictionary iteration's "accidental order" for Contains matching, generic words easily match first
+        //  - Explicitly prioritize: match structured output (json/json_array) first, then fall back to keyword table
         // ============================================================
 
         AevatarLLMResponse Build(string content) => new()
@@ -166,17 +176,17 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         };
 
         // ─────────────────────────────────────────────────────────
-        // check_atomic: 需要“可终止递归”的行为
-        // - 顶层论文评审：判定为 COMPLEX（触发分解）
-        // - 子任务（例如“Assess novelty ...”）：判定为 ATOMIC（触发 solve），避免无限递归
+        // check_atomic: Requires "terminable recursion" behavior
+        // - Top-level paper review: Mark as COMPLEX (triggers decomposition)
+        // - Subtasks (e.g., "Assess novelty ..."): Mark as ATOMIC (triggers solve), avoid infinite recursion
         //
-        // 通过检测 check_atomic 专属字段 is_atomic 来区分其它步骤的 prompt。
+        // Distinguish from other step prompts by detecting check_atomic-specific field is_atomic.
         // ─────────────────────────────────────────────────────────
         if (prompt.Contains("\"is_atomic\"") || prompt.Contains("is_atomic"))
         {
-            // 只根据 TASK TO ANALYZE 这段来判断是否是“顶层论文评审”。
-            // 注意：子任务 workflow_call 会把原始论文内容塞进 CONTEXT（其中也包含 “please review...”），
-            // 如果直接全局 Contains，会导致子任务永远被判定为 COMPLEX → 无限递归直到 max_depth。
+            // Only judge if it's "top-level paper review" based on the TASK TO ANALYZE section.
+            // Note: Subtask workflow_call will put original paper content into CONTEXT (which also contains "please review..."),
+            // if we directly use global Contains, subtasks will always be judged as COMPLEX → infinite recursion until max_depth.
             static string ExtractTaskToAnalyze(string p)
             {
                 var start = p.IndexOf("task to analyze:", StringComparison.OrdinalIgnoreCase);
@@ -248,7 +258,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             return Task.FromResult(Build(_responses["vote"]));
         }
 
-        // 根据 prompt 内容匹配响应
+        // Match response based on prompt content
         foreach (var (keyword, response) in _responses)
         {
             if (prompt.Contains(keyword))
@@ -257,7 +267,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
             }
         }
 
-        // 默认响应
+        // Default response
         return Task.FromResult(Build("This is a mock response for testing purposes."));
     }
 
@@ -268,7 +278,7 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
         var response = await GenerateAsync(request, cancellationToken);
         var content = response.Content;
 
-        // 模拟流式输出：每次输出 20 个字符
+        // Simulate streaming output: output 20 characters at a time
         var chunkSize = 20;
         var index = 0;
 
@@ -282,8 +292,39 @@ public sealed class MockLLMProvider : IAevatarLLMProvider
                 IsComplete = i + chunkSize >= content.Length
             };
 
-            // 模拟网络延迟
+            // Simulate network delay
             await Task.Delay(10, cancellationToken);
         }
+    }
+
+    // ============================================================
+    //  Prompt extraction helpers
+    // ============================================================
+
+    private static string ExtractPromptText(AevatarLLMRequest request)
+    {
+        // Messages is the canonical place where AIGAgentBase stores user/assistant messages.
+        if (request.Messages == null || request.Messages.Count == 0)
+            return request.UserPrompt ?? string.Empty;
+
+        var sb = new System.Text.StringBuilder(capacity: 256);
+
+        foreach (var msg in request.Messages)
+        {
+            if (msg == null) continue;
+            if (string.IsNullOrWhiteSpace(msg.Content)) continue;
+
+            sb.Append(msg.Content);
+            sb.Append(' ');
+        }
+
+        // Fallback: some providers may still set UserPrompt explicitly.
+        if (!string.IsNullOrWhiteSpace(request.UserPrompt))
+        {
+            sb.Append(request.UserPrompt);
+            sb.Append(' ');
+        }
+
+        return sb.ToString();
     }
 }

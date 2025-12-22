@@ -1,23 +1,23 @@
 namespace Aevatar.Agents.Abstractions.Helpers;
 
 /// <summary>
-/// AgentId 规范化工具。
+/// AgentId normalization utility.
 ///
-/// 核心约定（强约束）：
-/// - **系统对外唯一标识**使用完整格式：<c>"AgentTypeShortName:RawId"</c>
-/// - 创建时允许传入 RawId（通常是 Guid string），系统会自动组装成完整 ActorId
-/// - 后续所有 Manager/Stream/Hierarchy 操作都应使用完整 ActorId（即 <see cref="IGAgent.Id"/> / <see cref="IGAgentActor.Id"/>）
+/// Core convention (strong constraint):
+/// - **System-wide unique identifier** uses full format: <c>"AgentTypeShortName:RawId"</c>
+/// - RawId (usually Guid string) can be passed during creation, system will automatically assemble into full ActorId
+/// - All subsequent Manager/Stream/Hierarchy operations should use full ActorId (i.e., <see cref="IGAgent.Id"/> / <see cref="IGAgentActor.Id"/>)
 ///
 /// WHY:
-/// - Orleans GrainKey/StreamKey 必须包含类型信息，否则同 RawId 不同类型会发生冲突
-/// - 统一格式后，Local/Proto/Orleans 三个运行时的 ID 行为一致
+/// - Orleans GrainKey/StreamKey must contain type information, otherwise same RawId with different types will conflict
+/// - After unified format, ID behavior is consistent across Local/Proto/Orleans three runtimes
 /// </summary>
 public static class AgentId
 {
     public const char Separator = ':';
 
     /// <summary>
-    /// 从 <see cref="Type"/> 获取 AgentType 的短名（不含命名空间，不含泛型 arity）。
+    /// Get AgentType short name from <see cref="Type"/> (without namespace, without generic arity).
     /// </summary>
     public static string GetAgentTypeShortName(Type agentType)
     {
@@ -29,9 +29,9 @@ public static class AgentId
     }
 
     /// <summary>
-    /// 从程序集限定名/全名中提取 AgentType 的短名。
+    /// Extract AgentType short name from assembly-qualified name/full name.
     ///
-    /// 例如：
+    /// Examples:
     /// - "Aevatar.App.Agents.UserQuotaGAgent, Aevatar.App.Agents" -> "UserQuotaGAgent"
     /// - "Aevatar.App.Agents.UserQuotaGAgent" -> "UserQuotaGAgent"
     /// </summary>
@@ -49,12 +49,12 @@ public static class AgentId
     }
 
     /// <summary>
-    /// 将用户输入的 id（RawId 或 ActorId）规范化为 ActorId（"Type:RawId"）。
+    /// Normalize user input id (RawId or ActorId) to ActorId ("Type:RawId").
     ///
-    /// 规则：
-    /// - 若输入已是 "Type:RawId" 且 Type 匹配，则原样返回
-    /// - 若输入不含分隔符，则视为 RawId，自动补齐前缀
-    /// - 若输入含分隔符但 Type 不匹配，则直接抛异常（避免跨类型误用/双重拼接）
+    /// Rules:
+    /// - If input is already "Type:RawId" and Type matches, return as-is
+    /// - If input contains no separator, treat as RawId, automatically prepend prefix
+    /// - If input contains separator but Type doesn't match, throw exception directly (avoid cross-type misuse/double concatenation)
     /// </summary>
     public static string Normalize(Type agentType, string id)
     {
@@ -97,7 +97,7 @@ public static class AgentId
         => Normalize(typeof(TAgent), id);
 
     /// <summary>
-    /// 尝试拆分 ActorId -> (TypeShortName, RawId)。
+    /// Try to split ActorId -> (TypeShortName, RawId).
     /// </summary>
     public static bool TrySplit(string actorId, out string agentTypeShortName, out string rawId)
     {
@@ -118,7 +118,7 @@ public static class AgentId
     }
 
     /// <summary>
-    /// 从 ActorId 提取 RawId。若输入不是 ActorId，则按 RawId 原样返回（trim 后）。
+    /// Extract RawId from ActorId. If input is not ActorId, return as RawId (trimmed).
     /// </summary>
     public static string ExtractRawId(string idOrActorId)
     {

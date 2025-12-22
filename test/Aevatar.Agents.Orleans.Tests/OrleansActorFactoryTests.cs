@@ -39,7 +39,7 @@ public class OrleansActorFactoryTests : AevatarAgentsTestBase
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IGAgentFactory, AIGAgentFactory>();
-        services.AddGAgentActorFactoryProvider(); // 使用自动发现
+        services.AddGAgentActorFactoryProvider(); // Use auto-discovery
 
         serviceProvider = services.BuildServiceProvider();
         var logger = serviceProvider.GetRequiredService<ILogger<OrleansGAgentActorFactory>>();

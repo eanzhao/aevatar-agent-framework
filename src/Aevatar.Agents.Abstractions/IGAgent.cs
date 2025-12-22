@@ -7,14 +7,14 @@ namespace Aevatar.Agents.Abstractions;
 public interface IGAgent
 {
     /// <summary>
-    /// Agent 的全局唯一标识（**统一格式**）。
+    /// Agent's globally unique identifier (**unified format**).
     ///
-    /// 规范：<c>"AgentTypeShortName:RawId"</c>
-    /// 例如：<c>"ChatAgent:12345678-..."</c>
+    /// Format: <c>"AgentTypeShortName:RawId"</c>
+    /// Example: <c>"ChatAgent:12345678-..."</c>
     ///
-    /// 备注：
-    /// - 创建时可传入 RawId（通常是 Guid string），系统会自动组装为完整格式
-    /// - 后续跨边界/跨运行时操作（Manager/Stream/Hierarchy/DB）应始终使用该完整格式
+    /// Note:
+    /// - RawId (usually Guid string) can be passed during creation, system will automatically assemble into full format
+    /// - All subsequent cross-boundary/cross-runtime operations (Manager/Stream/Hierarchy/DB) should always use this full format
     /// </summary>
     string Id { get; }
 

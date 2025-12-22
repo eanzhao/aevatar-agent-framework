@@ -22,24 +22,24 @@ namespace Aevatar.Agents.Cognitive.Agents;
 
 // ============================================================
 //  Cognitive Coordinator Agent
-//  DSL 工作流协调器 - 真正的分布式并行
+//  DSL Workflow Coordinator - True Distributed Parallelism
 // ============================================================
 
 /// <summary>
-/// Cognitive Coordinator Agent - 工作流协调器
+/// Cognitive Coordinator Agent - Workflow Coordinator
 /// 
-/// 并行模型：
-/// - 简单步骤（单次 LLM）：Coordinator 直接执行
-/// - 并行步骤（fan_out）：通过 Protobuf 事件分发给 Worker Actors
+/// Parallelism model:
+/// - Simple steps (single LLM call): Coordinator executes directly
+/// - Parallel steps (fan_out): Distributed to Worker Actors via Protobuf events
 /// 
-/// 这遵循 MAKER 的设计模式：
+/// This follows MAKER design pattern:
 /// - MakerCoordinatorGAgent → CognitiveCoordinatorGAgent
 /// - MakerWorkerGAgent → CognitiveWorkerGAgent
 /// </summary>
 public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<CognitiveCoordinatorState>
 {
     // ============================================================
-    //  组件
+    //  Components
     // ============================================================
 
     private readonly TemplateEngine _templateEngine = new();
@@ -47,12 +47,12 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private readonly InMemoryWorkflowRegistry _workflowRegistry = new();
 
     // ============================================================
-    //  运行时状态
+    //  Runtime State
     // ============================================================
 
     private readonly Dictionary<string, object> _workflowVariables = new();
 
-    // Fan-out 结果收集
+    // Fan-out result collection
     private readonly ConcurrentDictionary<string, StepCompletedEventProto> _collectedResults = new();
     private readonly ConcurrentDictionary<string, string> _fanOutChildTypes = new();
     private readonly ConcurrentDictionary<string, string> _fanOutUserPrompts = new();
@@ -62,15 +62,15 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private TaskCompletionSource<bool>? _fanOutCompletionSource;
     private StepDefinition? _currentFanOutStep;
 
-    // Worker 管理（由外部注入）
+    // Worker management (injected externally)
     private IGAgentActorManager? _actorManager;
     private readonly List<string> _workerIds = [];
     
-    // 语义聚类投票 (可选)
+    // Semantic clustering voting (optional)
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private float _semanticSimilarityThreshold = 0.85f;
 
-    // Red-Flagging (可选, 可插拔)
+    // Red-Flagging (optional, pluggable)
     private IRedFlagStrategy? _redFlagStrategy;
     private IRedFlagHandler _redFlagHandler = new DefaultRedFlagHandler();
 
@@ -79,15 +79,15 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private RetrieveFactsExecutor? _retrieveFactsExecutor;
     private HpaExecutor? _hpaExecutor;
 
-    // 步骤事件追踪（用于前端可视化）
+    // Step event tracking (for frontend visualization)
     private readonly List<WorkflowStepEvent> _stepEvents = [];
     private readonly ConcurrentDictionary<string, DateTime> _stepStartTimes = new();
     private Action<WorkflowStepEvent>? _onStepEvent;
-    private readonly object _stepEventsLock = new(); // vote 并行生成时可能并发写入
-    private readonly object _statsLock = new(); // 多并行任务下累加统计，避免丢失/错乱
+    private readonly object _stepEventsLock = new(); // May have concurrent writes during vote parallel generation
+    private readonly object _statsLock = new(); // Accumulate statistics under multiple parallel tasks, avoid loss/confusion
     
     // ============================================================
-    //  构造函数
+    //  Constructor
     // ============================================================
 
     public CognitiveCoordinatorGAgent()
@@ -102,7 +102,7 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     // ============================================================
-    //  生命周期
+    //  Lifecycle
     // ============================================================
 
     protected override async Task OnActivateAsync(CancellationToken ct = default)
@@ -110,16 +110,16 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
         await base.OnActivateAsync(ct);
 
         // ============================================================
-        //  递归深度上限（默认值）
+        //  Recursion depth limit (default value)
         //
         //  NOTE:
-        //  - 最终上限应由工作流输入变量 `max_depth` 决定（见 HandleStartWorkflowRequest）。
-        //  - 这里仅提供一个“启动默认值”，避免未配置时无限递归。
+        //  - Final limit should be determined by workflow input variable `max_depth` (see HandleStartWorkflowRequest).
+        //  - This only provides a "startup default value" to avoid infinite recursion when not configured.
         // ============================================================
         CustomState.MaxDepth = 50;
         CustomState.Status = ExecutionStatus.EsPending;
 
-        // 默认开启 Red-Flag 策略，限制最大内容长度 102400
+        // Enable Red-Flag strategy by default, limit max content length to 102400
         _redFlagStrategy ??= new DefaultEnglishRedFlagStrategy(new RedFlagOptions
         {
             MaxContentLength = 102400,
@@ -137,11 +137,11 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     // ============================================================
-    //  公共 API
+    //  Public API
     // ============================================================
 
     /// <summary>
-    /// 设置 Actor Manager（用于创建 Workers）
+    /// Set Actor Manager (for creating Workers)
     /// </summary>
     public void SetActorManager(IGAgentActorManager actorManager)
     {
@@ -149,8 +149,8 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     /// <summary>
-    /// 设置 Embedding Generator（用于语义聚类投票）
-    /// 如果不设置，投票将使用精确哈希匹配
+    /// Set Embedding Generator (for semantic clustering voting)
+    /// If not set, voting will use exact hash matching
     /// </summary>
     public void SetEmbeddingGenerator(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
@@ -161,13 +161,13 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     }
 
     /// <summary>
-    /// 设置 Red-Flag 策略（用于过滤无效 LLM 响应）
-    /// 可插拔设计：
-    /// - null: 禁用 Red-Flag 检测（默认）
-    /// - DefaultEnglishRedFlagStrategy: 英文内容验证
-    /// - ChineseRedFlagStrategy: 中文内容验证
-    /// - CodeAwareRedFlagStrategy: 代码内容验证
-    /// - 自定义实现 IRedFlagStrategy
+    /// Set Red-Flag strategy (for filtering invalid LLM responses)
+    /// Pluggable design:
+    /// - null: Disable Red-Flag detection (default)
+    /// - DefaultEnglishRedFlagStrategy: English content validation
+    /// - ChineseRedFlagStrategy: Chinese content validation
+    /// - CodeAwareRedFlagStrategy: Code content validation
+    /// - Custom implementation of IRedFlagStrategy
     /// </summary>
     public void SetRedFlagStrategy(IRedFlagStrategy? strategy, IRedFlagHandler? handler = null)
     {
