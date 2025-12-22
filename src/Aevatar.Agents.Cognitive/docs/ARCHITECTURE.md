@@ -8,11 +8,13 @@ Aevatar.Agents.Cognitive/
 │   ├── CognitiveCoordinatorGAgent.cs                     # Coordinator: state + lifecycle + step dispatcher
 │   ├── CognitiveCoordinatorGAgent.Workflow.cs            # Workflow start/fail/output build
 │   ├── CognitiveCoordinatorGAgent.Parallel.cs            # fan_out/parallel + worker completion
-│   ├── CognitiveCoordinatorGAgent.Llm.cs                 # Coordinator-side LLM (streaming + guardrails)
+│   ├── CognitiveCoordinatorGAgent.Llm.cs                 # Coordinator-side LLM (via AIGAgentBase chat pipeline)
 │   ├── CognitiveCoordinatorGAgent.Vote.cs                # vote consensus (semantic clustering + red-flag)
 │   ├── CognitiveCoordinatorGAgent.StepEvents.cs          # step events for UI/observability
 │   ├── CognitiveCoordinatorGAgent.Parameters.cs          # output parsing + parameter helpers + red-flag config
 │   └── CognitiveWorkerGAgent.cs                          # Worker: execute llm_call and report results
+│   └── Shared/
+│       └── CognitiveAIGAgentBase.cs                      # Shared: stateless LLM request + step history metadata
 ├── Engine/                      # 工作流引擎
 │   └── WorkflowParser.cs              # YAML 工作流解析
 ├── Execution/                   # 执行器
@@ -60,7 +62,7 @@ Aevatar.Agents.Cognitive/
 
 - `CognitiveCoordinatorGAgent.Workflow.cs`：启动/失败/输出构建/主循环
 - `CognitiveCoordinatorGAgent.Parallel.cs`：`fan_out`/`parallel` + Worker 完成事件聚合
-- `CognitiveCoordinatorGAgent.Llm.cs`：Coordinator 直连 LLM（含 streaming & 超时护栏）
+- `CognitiveCoordinatorGAgent.Llm.cs`：Coordinator LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，含 streaming & 超时护栏）
 - `CognitiveCoordinatorGAgent.Vote.cs`：投票共识（语义聚类 + 红旗）
 - `CognitiveCoordinatorGAgent.StepEvents.cs`：步骤事件（UI/回放）
 - `CognitiveCoordinatorGAgent.Parameters.cs`：输出解析 + 参数/红旗配置解析
@@ -69,8 +71,16 @@ Aevatar.Agents.Cognitive/
 **职责**: 并行任务执行
 
 - 接收 Coordinator 派发的任务
-- 执行 LLM 调用（支持流式）
+- 执行 LLM 调用（复用 `AIGAgentBase.ChatAsync/ChatStreamAsync`，支持流式）
 - 向上报告执行结果
+
+### 2.1 CognitiveAIGAgentBase（Shared）
+**职责**: 统一 Cognitive 系列 AI Agent 的“LLM 请求形态 + 历史落盘策略”
+
+- **复用 AIGAgentBase chat 管线**：避免 Coordinator/Worker 各自手写 `LLMProvider.Generate*`
+- **无状态 prompt**：`BuildLLMRequest` 只发送当前 step 的 user message（不 replay `State.History`）
+- **UI hydration 专用 history**：通过 step-scope metadata（`step_id/step_type/agent_kind/...`）落盘到 `State.History`
+- **禁用隐藏 LLM 总结**：history compaction 不触发 summary LLM call（返回 `null`）
 
 ### 3. ProtoValueConverter
 **职责**: Protobuf 转换

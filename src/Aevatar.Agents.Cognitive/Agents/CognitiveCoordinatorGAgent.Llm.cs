@@ -98,13 +98,10 @@ public partial class CognitiveCoordinatorGAgent
         }
 
         // Bind step metadata to history writes (async-local, safe for concurrent vote fan-out).
-        using var _ = BeginStepHistory(new StepHistoryContext
-        {
-            StepId = eventStep.Id ?? string.Empty,
-            StepType = eventStep.Type ?? "llm_call",
-            ExecutionId = CustomState.ExecutionId ?? string.Empty,
-            SystemPrompt = systemPrompt
-        });
+        using var _ = BeginStepHistory(
+            stepId: eventStep.Id ?? string.Empty,
+            stepType: eventStep.Type ?? "llm_call",
+            systemPrompt: systemPrompt);
 
         var output = string.Empty;
         var promptTokens = 0;

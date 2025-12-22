@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
+    <ProjectReference Include="..\..\src\Aevatar.Agents.AI.WithTool\Aevatar.Agents.AI.WithTool.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
   </ItemGroup>
@@ -22,10 +23,11 @@
   <ItemGroup>
     <Compile Remove="skills\*.cs" />
     <None Include="skills\*.cs" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
     <None Include="agent_skills/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="docs/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="appsettings.secrets.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

@@ -2,6 +2,7 @@ using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Abstractions.Helpers;
 using Aevatar.Agents.Cognitive.Messages;
 using Aevatar.Agents.Cognitive.Primitives;
 using Aevatar.Agents.Cognitive.Template;
@@ -29,7 +30,7 @@ namespace Aevatar.Agents.Cognitive.Agents;
 /// 
 /// 这是真正的 Actor 并行，不是进程内伪并发
 /// </summary>
-public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
+public class CognitiveWorkerGAgent : CognitiveAIGAgentBase<CognitiveWorkerState>
 {
     private readonly TemplateEngine _templateEngine = new();
     private readonly OutputParserFactory _parserFactory = new();
@@ -38,156 +39,11 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
     {
     }
 
-    // ============================================================
-    //  History compaction policy (no extra LLM calls)
-    //
-    //  WHY:
-    //  - AIGAgentBase's default compaction can call LLM to summarize history.
-    //  - Cognitive workflows already have strict budgets; hidden LLM calls are unacceptable.
-    //  - For UI hydration, we rely on State.History (short-term) + AIMemory (long-term).
-    // ============================================================
-    protected override Task<string?> UpdateHistorySummaryAsync(
-        string? existingSummary,
-        IReadOnlyList<AevatarChatMessage> newlyArchivedMessages,
-        CancellationToken cancellationToken)
+    protected override string AgentKind => "cognitive_worker";
+
+    protected override void AppendAgentHistoryMetadata(Dictionary<string, string> metadata)
     {
-        return Task.FromResult<string?>(null);
-    }
-
-    // ============================================================
-    //  Cognitive LLM calls should reuse AIGAgentBase pipeline
-    //
-    //  Goals:
-    //  - Use ChatAsync/ChatStreamAsync instead of calling LLMProvider directly
-    //  - Persist per-step transcript into State.History with stable metadata
-    //  - Keep LLM requests stateless (do NOT replay State.History into prompt)
-    // ============================================================
-
-    private static readonly AsyncLocal<StepHistoryContext?> StepHistory = new();
-
-    private sealed class StepHistoryContext
-    {
-        public string StepId { get; init; } = "";
-        public string StepType { get; init; } = "";
-        public string RequestId { get; init; } = "";
-        public string WorkerId { get; init; } = "";
-        public string? SystemPrompt { get; init; }
-        public bool SystemWritten { get; set; }
-    }
-
-    private readonly struct StepHistoryScope : IDisposable
-    {
-        private readonly StepHistoryContext? _prev;
-
-        public StepHistoryScope(StepHistoryContext ctx)
-        {
-            _prev = StepHistory.Value;
-            StepHistory.Value = ctx;
-        }
-
-        public void Dispose()
-        {
-            StepHistory.Value = _prev;
-        }
-    }
-
-    private static StepHistoryScope BeginStepHistory(StepHistoryContext ctx) => new(ctx);
-
-    protected override Task RegisterToolsAsync(CancellationToken cancellationToken = default)
-    {
-        // Cognitive DSL is prompt-driven; keep requests clean (no function calling).
-        return Task.CompletedTask;
-    }
-
-    protected override AevatarLLMRequest BuildLLMRequest(ChatRequest request)
-    {
-        var settings = GetLLMSettings(request);
-        if (request.StopSequences.Count > 0)
-        {
-            settings.StopSequences = new List<string>(request.StopSequences);
-        }
-
-        // IMPORTANT:
-        // - We persist history for UI hydration, but we do NOT replay it back into the next LLM call.
-        // - Cognitive prompts already carry the full state; replaying history only increases tokens and adds noise.
-        var messages = new List<AevatarChatMessage>
-        {
-            new()
-            {
-                Role = AevatarChatRole.User,
-                Content = request.Message
-            }
-        };
-
-        // Optional system prompt override (per-step).
-        var systemPrompt = GetEffectiveSystemPrompt() ?? string.Empty;
-        if (request.Context.TryGetValue("system_prompt", out var overrideSp) &&
-            !string.IsNullOrWhiteSpace(overrideSp))
-        {
-            systemPrompt = overrideSp.Trim();
-        }
-
-        var llmRequest = new AevatarLLMRequest
-        {
-            SystemPrompt = systemPrompt,
-            Messages = messages,
-            Settings = settings
-        };
-
-        if (!string.IsNullOrWhiteSpace(request.StageHint))
-        {
-            llmRequest.Context = new Dictionary<string, object>
-            {
-                ["stage_hint"] = request.StageHint
-            };
-        }
-
-        return llmRequest;
-    }
-
-    protected override void AddMessageToHistory(string content, AevatarChatRole role, string? name = null)
-    {
-        var ctx = StepHistory.Value;
-        if (ctx == null)
-        {
-            base.AddMessageToHistory(content, role, name);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(content))
-            return;
-
-        // Ensure per-step system prompt is captured once (before the user message).
-        if (role == AevatarChatRole.User &&
-            !ctx.SystemWritten &&
-            !string.IsNullOrWhiteSpace(ctx.SystemPrompt))
-        {
-            base.AddMessageToHistory(BuildStepHistoryMessage(AevatarChatRole.System, ctx.SystemPrompt!, ctx));
-            ctx.SystemWritten = true;
-        }
-
-        base.AddMessageToHistory(BuildStepHistoryMessage(role, content, ctx));
-    }
-
-    private static AevatarChatMessage BuildStepHistoryMessage(
-        AevatarChatRole role,
-        string content,
-        StepHistoryContext ctx)
-    {
-        var msg = new AevatarChatMessage
-        {
-            Role = role,
-            Content = content,
-            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
-        };
-
-        msg.Metadata["step_id"] = ctx.StepId;
-        msg.Metadata["step_type"] = ctx.StepType;
-        msg.Metadata["request_id"] = ctx.RequestId;
-        msg.Metadata["agent_kind"] = "cognitive_worker";
-        msg.Metadata["worker_id"] = ctx.WorkerId;
-
-        return msg;
+        metadata["worker_id"] = CustomState.WorkerId ?? string.Empty;
     }
 
     // ============================================================
@@ -199,7 +55,9 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         await base.OnActivateAsync(ct);
 
         // 初始化 Worker 状态
-        CustomState.WorkerId = Id.Length > 8 ? Id[..8] : Id;
+        var rawId = AgentId.ExtractRawId(Id);
+        var compact = rawId.Replace("-", "", StringComparison.Ordinal);
+        CustomState.WorkerId = compact.Length > 8 ? compact[..8] : compact;
         CustomState.Status = WorkerStatus.WsIdle;
     }
 
@@ -335,14 +193,11 @@ public class CognitiveWorkerGAgent : AIGAgentBase<CognitiveWorkerState>
         }
 
         // Bind step metadata to history writes (async-local, safe for concurrent tasks).
-        using var _ = BeginStepHistory(new StepHistoryContext
-        {
-            StepId = request.StepId ?? string.Empty,
-            StepType = request.StepType ?? "llm_call",
-            RequestId = request.RequestId ?? string.Empty,
-            WorkerId = CustomState.WorkerId ?? string.Empty,
-            SystemPrompt = systemPrompt
-        });
+        using var _ = BeginStepHistory(
+            stepId: request.StepId ?? string.Empty,
+            stepType: request.StepType ?? "llm_call",
+            systemPrompt: systemPrompt,
+            requestId: request.RequestId);
 
         var callTimeout = TimeSpan.FromSeconds(timeoutSeconds);
         var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);

@@ -135,6 +135,99 @@ public class AIGAgentWithToolBaseTests
         _agent.PublicState.History[3].Content.ShouldBe("It is 12:00");
     }
 
+    [Fact]
+    public async Task ChatAsync_WithSkillsAllowlist_ShouldDenyToolsOutsideAllowlist()
+    {
+        // Arrange
+        var request = new ChatRequest { Message = "Use skill", RequestId = "req-skills" };
+
+        // Tool definitions (simulate skill tool + two normal tools)
+        _mockToolManager
+            .Setup(m => m.GenerateFunctionDefinitionsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<AevatarFunctionDefinition>
+            {
+                new() { Name = "skills_load", Description = "load skill" },
+                new() { Name = "AllowedTool", Description = "allowed tool" },
+                new() { Name = "DeniedTool", Description = "denied tool" }
+            });
+
+        _mockToolManager
+            .Setup(m => m.GetAvailableToolsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ToolDefinition>
+            {
+                new() { Name = "skills_load" },
+                new() { Name = "AllowedTool" },
+                new() { Name = "DeniedTool" }
+            });
+
+        // skills_load returns allowlist -> only AllowedTool is permitted afterwards
+        _mockToolManager
+            .Setup(m => m.ExecuteToolAsync(
+                "skills_load",
+                It.IsAny<Dictionary<string, object>>(),
+                It.IsAny<ToolExecutionContext>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ToolExecutionResult
+            {
+                IsSuccess = true,
+                Content = """{"success":true,"name":"demo-skill","allowedTools":["AllowedTool"]}"""
+            });
+
+        var functionNamesPerCall = new List<IReadOnlyList<string>>();
+        var callIndex = 0;
+
+        _mockLLMProvider
+            .Setup(p => p.GenerateAsync(It.IsAny<AevatarLLMRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((AevatarLLMRequest req, CancellationToken _) =>
+            {
+                functionNamesPerCall.Add(req.Functions?.Select(f => f.Name).ToList() ?? new List<string>());
+                callIndex++;
+
+                return callIndex switch
+                {
+                    // First response: model calls skills_load
+                    1 => new AevatarLLMResponse
+                    {
+                        AevatarFunctionCall = new AevatarFunctionCall { Name = "skills_load", Arguments = """{"name":"demo-skill"}""" }
+                    },
+                    // Second response: hallucinated tool call outside allowlist (should be denied by framework)
+                    2 => new AevatarLLMResponse
+                    {
+                        AevatarFunctionCall = new AevatarFunctionCall { Name = "DeniedTool", Arguments = "{}" }
+                    },
+                    // Third response: final answer
+                    _ => new AevatarLLMResponse { Content = "done" }
+                };
+            });
+
+        _agent.EnableChatHistoryInState = false; // irrelevant for this test
+        await _agent.InitializeAsync("test-provider");
+
+        // Act
+        var response = await _agent.ChatAsync(request);
+
+        // Assert
+        response.Content.ShouldBe("done");
+
+        // skills_load executed once; DeniedTool must NOT execute
+        _mockToolManager.Verify(m => m.ExecuteToolAsync(
+            "skills_load",
+            It.IsAny<Dictionary<string, object>>(),
+            It.IsAny<ToolExecutionContext>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+
+        _mockToolManager.Verify(m => m.ExecuteToolAsync(
+            "DeniedTool",
+            It.IsAny<Dictionary<string, object>>(),
+            It.IsAny<ToolExecutionContext>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+
+        // After skills_load, the next LLM call should only see AllowedTool (hard allowlist)
+        functionNamesPerCall.Count.ShouldBeGreaterThanOrEqualTo(2);
+        functionNamesPerCall[0].ShouldContain("DeniedTool"); // before allowlist
+        functionNamesPerCall[1].ShouldBe(new[] { "AllowedTool" });
+    }
+
     // Test Agent Implementation
     public class TestAgent : AIGAgentBase
     {

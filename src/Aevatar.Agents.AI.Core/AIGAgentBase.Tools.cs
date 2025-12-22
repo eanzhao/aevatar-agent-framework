@@ -18,6 +18,9 @@ namespace Aevatar.Agents.AI.Core;
 // ReSharper disable InconsistentNaming
 public abstract partial class AIGAgentBase
 {
+    private const string ToolAllowlistContextKey = "aevatar.allowed_tools";
+    private const string ToolAllowlistSourceSkillContextKey = "aevatar.allowed_tools.source_skill";
+
     // ============================================================
     //  Tool system (merged from AIGAgentWithToolBase)
     // ============================================================
@@ -244,10 +247,20 @@ public abstract partial class AIGAgentBase
 
     private void AttachToolsToRequest(AevatarLLMRequest llmRequest)
     {
-        if (_functionDefinitionsCache.Count > 0)
+        if (_functionDefinitionsCache.Count == 0)
+            return;
+
+        // Optional: apply a runtime allowlist (e.g. from Agent Skills front matter `allowed-tools`).
+        // This keeps the model from seeing / calling tools outside the allowed set.
+        if (TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
         {
-            llmRequest.Functions = _functionDefinitionsCache.ToList();
+            llmRequest.Functions = _functionDefinitionsCache
+                .Where(d => allowlist.Contains(d.Name))
+                .ToList();
+            return;
         }
+
+        llmRequest.Functions = _functionDefinitionsCache.ToList();
     }
 
     private async Task<(AevatarLLMResponse FinalResponse, ToolCallInfo? ToolCall)> ExecuteToolCallLoopAsync(
@@ -275,7 +288,15 @@ public abstract partial class AIGAgentBase
 
             var args = ParseToolArguments(functionCall.Arguments);
             var executionContext = BuildToolExecutionContext(request.RequestId, cancellationToken);
-            var toolResult = await ExecuteToolAsync(functionCall.Name, args, executionContext, cancellationToken);
+
+            // Hard guard: if a tool allowlist is active, deny executing tools outside it.
+            // This is used by Agent Skills `allowed-tools` to constrain what the model can do.
+            var toolResult = await ExecuteAllowedToolAsync(
+                functionCall.Name,
+                args,
+                executionContext,
+                llmRequest,
+                cancellationToken);
 
             lastToolCall = new ToolCallInfo
             {
@@ -312,6 +333,9 @@ public abstract partial class AIGAgentBase
                 Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
             }, ct: cancellationToken);
 
+            // If skills_load was executed, it may update the tool allowlist dynamically.
+            TryApplyToolAllowlistFromSkillsLoadResult(llmRequest, functionCall.Name, toolResult.Content);
+
             // Tool set might have changed (e.g., skills_load imported new tools) - refresh function defs.
             await RefreshToolCachesAsync(cancellationToken);
             AttachToolsToRequest(llmRequest);
@@ -327,6 +351,136 @@ public abstract partial class AIGAgentBase
         }
 
         return (current, lastToolCall);
+    }
+
+    private async Task<ToolExecutionResult> ExecuteAllowedToolAsync(
+        string toolName,
+        Dictionary<string, object> args,
+        ToolExecutionContext executionContext,
+        AevatarLLMRequest llmRequest,
+        CancellationToken cancellationToken)
+    {
+        if (TryGetToolAllowlist(llmRequest, out var allowlist) &&
+            allowlist.Count > 0 &&
+            !allowlist.Contains(toolName))
+        {
+            // Deny execution (return a tool result the model can read)
+            var content = JsonSerializer.Serialize(new
+            {
+                success = false,
+                error = "Tool is not allowed by current allowlist.",
+                tool = toolName,
+                allowedTools = allowlist.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray()
+            });
+
+            return new ToolExecutionResult
+            {
+                ToolName = toolName,
+                IsSuccess = false,
+                ErrorMessage = $"Tool '{toolName}' is not allowed by current allowlist.",
+                Content = content,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            };
+        }
+
+        return await ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
+    }
+
+    private static bool TryGetToolAllowlist(AevatarLLMRequest llmRequest, out HashSet<string> allowlist)
+    {
+        allowlist = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (llmRequest.Context == null)
+            return false;
+
+        if (!llmRequest.Context.TryGetValue(ToolAllowlistContextKey, out var v) || v == null)
+            return false;
+
+        switch (v)
+        {
+            case HashSet<string> s:
+                allowlist = s;
+                return true;
+            case string[] arr:
+                allowlist = new HashSet<string>(arr.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
+                return true;
+            case List<string> list:
+                allowlist = new HashSet<string>(list.Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
+                return true;
+            case string single when !string.IsNullOrWhiteSpace(single):
+                allowlist = new HashSet<string>([single.Trim()], StringComparer.OrdinalIgnoreCase);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void TryApplyToolAllowlistFromSkillsLoadResult(
+        AevatarLLMRequest llmRequest,
+        string toolName,
+        string? toolResultJson)
+    {
+        if (!string.Equals(toolName, "skills_load", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (string.IsNullOrWhiteSpace(toolResultJson))
+        {
+            // No payload -> clear allowlist (best-effort).
+            llmRequest.Context?.Remove(ToolAllowlistContextKey);
+            llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(toolResultJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("success", out var ok) && ok.ValueKind == JsonValueKind.False)
+            {
+                // failed load -> do not change allowlist
+                return;
+            }
+
+            if (!root.TryGetProperty("allowedTools", out var allowedEl) || allowedEl.ValueKind != JsonValueKind.Array)
+            {
+                // No allowlist -> clear
+                llmRequest.Context?.Remove(ToolAllowlistContextKey);
+                llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
+                return;
+            }
+
+            var list = new List<string>();
+            foreach (var el in allowedEl.EnumerateArray())
+            {
+                var s = el.GetString();
+                if (!string.IsNullOrWhiteSpace(s))
+                    list.Add(s.Trim());
+            }
+
+            if (list.Count == 0)
+            {
+                llmRequest.Context?.Remove(ToolAllowlistContextKey);
+                llmRequest.Context?.Remove(ToolAllowlistSourceSkillContextKey);
+                return;
+            }
+
+            llmRequest.Context ??= new Dictionary<string, object>();
+            llmRequest.Context[ToolAllowlistContextKey] = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+
+            if (root.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+            {
+                var skillName = nameEl.GetString();
+                if (!string.IsNullOrWhiteSpace(skillName))
+                {
+                    llmRequest.Context[ToolAllowlistSourceSkillContextKey] = skillName!;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Failed to parse skills_load result for tool allowlist (best-effort).");
+        }
     }
 
     private static Dictionary<string, object> ParseToolArguments(string argumentsJson)

@@ -102,6 +102,7 @@ public static class Program
 
         // 2) Scripted prompts (LLM should call tools)
         logger.LogInformation("\n▶ Scripted LLM prompts ...");
+        await RunChatAsync(logger, agent, "请先调用 skills_list，然后 skills_load 加载 time-helper skill，再按 skill 的步骤回答：现在几点？");
         await RunChatAsync(logger, agent, "现在几点？请调用 get_time 工具获取真实时间。");
         await RunChatAsync(logger, agent, "请用 system_info 工具给我一个系统信息摘要（os/framework/pid）。");
         await RunChatAsync(logger, agent, "请调用 get_env 工具读取环境变量 SHELL。");
@@ -191,6 +192,10 @@ internal sealed class FileSkillAgent : AIGAgentBase
 {
     public FileSkillAgent()
     {
+        // Agent Skills
+        EnableAgentSkills = true;
+        AddAgentSkillsRoot(Path.Combine(AppContext.BaseDirectory, "agent_skills"));
+
         // Base prompt; AIGAgentBase will append tool list automatically.
         SystemPrompt =
             "You are a helpful AI assistant.\n" +

@@ -261,6 +261,10 @@ In Aevatar, `AIGAgentBase` can expose Agent Skills to LLM via built-in tools:
 - `skills_list`: list available skills under configured roots
 - `skills_load`: load a skill's `SKILL.md` content and (optionally) auto-import dotnet-file tools found in that skill folder
 
+If `SKILL.md` front matter contains `allowed-tools`, Aevatar will treat it as a **hard allowlist**:
+- The model will only see / be able to execute tools in that list for the remainder of the current tool-call loop.
+- If `allowed-tools` is omitted or empty, no restriction is applied.
+
 Enable it in your agent:
 
 ```csharp
