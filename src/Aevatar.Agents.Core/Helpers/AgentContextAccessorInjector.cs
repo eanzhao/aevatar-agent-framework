@@ -1,20 +1,18 @@
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Core.Context;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Agents.Core.Helpers;
 
 /// <summary>
 /// Helper class to inject IAgentContextAccessor into GAgentBase and AgentContextPropagator into GAgentActorBase.
-/// Uses reflection to access internal fields.
 /// </summary>
 public static class AgentContextAccessorInjector
 {
     /// <summary>
     /// Inject context accessor into a GAgentBase instance.
     /// </summary>
-    /// <param name="agent">The agent instance</param>
-    /// <param name="contextAccessor">The context accessor to inject</param>
     public static void InjectContextAccessor(IGAgent agent, IAgentContextAccessor contextAccessor)
     {
         if (agent is GAgentBase gAgentBase)
@@ -25,25 +23,42 @@ public static class AgentContextAccessorInjector
 
     /// <summary>
     /// Inject context propagator into a GAgentActorBase instance.
+    /// Uses propagator from DI if available, otherwise creates one with default options.
     /// </summary>
-    /// <param name="actor">The actor instance</param>
-    /// <param name="contextAccessor">The context accessor to use for propagation</param>
-    public static void InjectContextPropagator(GAgentActorBase actor, IAgentContextAccessor contextAccessor)
+    public static void InjectContextPropagator(
+        GAgentActorBase actor,
+        IServiceProvider serviceProvider)
     {
-        actor.ContextPropagator = new AgentContextPropagator(contextAccessor);
+        // Try to get propagator from DI (with configured options)
+        var propagator = serviceProvider.GetService<AgentContextPropagator>();
+        if (propagator != null)
+        {
+            actor.ContextPropagator = propagator;
+            return;
+        }
+
+        // Fallback: create with default options if accessor is available
+        var accessor = serviceProvider.GetService<IAgentContextAccessor>();
+        if (accessor != null)
+        {
+            actor.ContextPropagator = new AgentContextPropagator(accessor);
+        }
     }
 
     /// <summary>
-    /// Inject context accessor into agent and propagator into actor.
-    /// Convenience method to set up both at once.
+    /// Inject context accessor and propagator from service provider.
     /// </summary>
-    /// <param name="agent">The agent instance</param>
-    /// <param name="actor">The actor instance</param>
-    /// <param name="contextAccessor">The context accessor to inject</param>
-    public static void InjectContext(IGAgent agent, GAgentActorBase actor, IAgentContextAccessor contextAccessor)
+    public static void InjectContext(
+        IGAgent agent,
+        GAgentActorBase actor,
+        IServiceProvider serviceProvider)
     {
-        InjectContextAccessor(agent, contextAccessor);
-        InjectContextPropagator(actor, contextAccessor);
+        var accessor = serviceProvider.GetService<IAgentContextAccessor>();
+        if (accessor != null)
+        {
+            InjectContextAccessor(agent, accessor);
+        }
+        InjectContextPropagator(actor, serviceProvider);
     }
 }
 

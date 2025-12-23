@@ -85,14 +85,18 @@ public abstract class GAgentActorFactoryBase : IGAgentActorFactory
         EventRouterFactoryInjector.InjectEventRouterFactory(actor, _serviceProvider);
         StateProjectorInjector.InjectStateProjector(agent, _serviceProvider);
 
-        // Inject context accessor if available
-        var contextAccessor = _serviceProvider.GetService<IAgentContextAccessor>();
-        if (contextAccessor != null)
+        // Inject context accessor and propagator
+        if (actor is Core.GAgentActorBase actorBase)
         {
-            AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
-            if (actor is Core.GAgentActorBase actorBase)
+            AgentContextAccessorInjector.InjectContext(agent, actorBase, _serviceProvider);
+        }
+        else
+        {
+            // For non-GAgentActorBase actors, only inject accessor
+            var contextAccessor = _serviceProvider.GetService<IAgentContextAccessor>();
+            if (contextAccessor != null)
             {
-                AgentContextAccessorInjector.InjectContextPropagator(actorBase, contextAccessor);
+                AgentContextAccessorInjector.InjectContextAccessor(agent, contextAccessor);
             }
         }
 
