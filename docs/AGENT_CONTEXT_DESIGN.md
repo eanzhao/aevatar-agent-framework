@@ -26,7 +26,7 @@ Runtime-agnostic request context mechanism for passing contextual data (language
 │                 Aevatar.Agents.Core                          │
 │   - AsyncLocalAgentContext (ConcurrentDictionary)            │
 │   - AgentContextPropagator (inject/extract)                  │
-│   - AgentContextSerializer (type-prefixed encoding)          │
+│   - AgentContextSerializer (protobuf ContextValue)           │
 │   - AgentContextScope (scoped restore)                       │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -144,12 +144,12 @@ services.AddAevatarAgentSystem(builder =>
 
 ```csharp
 public async Task<string> PublishEventAsync<TEvent>(TEvent evt, ...)
-{
-    var envelope = CreateEnvelope(evt, direction);
-    
-    // Inject current context into envelope
+    {
+        var envelope = CreateEnvelope(evt, direction);
+        
+        // Inject current context into envelope
     ContextPropagator?.InjectContext(envelope);
-    
+
     await PublishToStream(envelope);
 }
 ```
@@ -170,17 +170,38 @@ protected virtual async Task HandleEventCoreAsync(EventEnvelope envelope, ...)
 
 ### Serialization Format
 
-Type-prefixed string encoding in `EventEnvelope.ContextMetadata`:
+Uses protobuf `ContextValue` oneof for type-safe, extensible serialization:
 
-| Type | Format | Example |
-|------|--------|---------|
-| string | `s:value` | `s:hello` |
-| bool | `b:True/False` | `b:True` |
-| int | `i:123` | `i:42` |
-| long | `l:123` | `l:9223372036854775807` |
-| double | `d:3.14` | `d:3.14159` |
-| DateTime | `dt:ISO8601` | `dt:2024-12-23T10:30:00Z` |
-| Guid | `g:guid` | `g:550e8400-e29b-41d4-a716-446655440000` |
+```protobuf
+message ContextValue {
+  oneof value {
+    string string_value = 1;
+    bool bool_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    string datetime_iso = 5;  // ISO8601 format
+    string guid_string = 6;   // Standard GUID format
+    // Extensible: add new types without breaking compatibility
+  }
+}
+
+message EventEnvelope {
+  // ...
+  map<string, ContextValue> context_metadata = 16;
+}
+```
+
+**Supported Types:**
+
+| CLR Type | Protobuf Field | Notes |
+|----------|----------------|-------|
+| string | `string_value` | Direct mapping |
+| bool | `bool_value` | Direct mapping |
+| int/long | `int_value` | int64 |
+| float/double | `double_value` | double |
+| DateTime | `datetime_iso` | ISO8601 string |
+| Guid | `guid_string` | "D" format |
+| Others | `string_value` | ToString() fallback |
 
 ## Migration from Orleans RequestContext
 
@@ -199,9 +220,11 @@ var value = context.Get(AgentContextKeys.IsCN);
 - ✅ **Runtime Agnostic** - Works across Local, Orleans, ProtoActor
 - ✅ **Type Safe** - `AgentContextKey<T>` with compile-time checking
 - ✅ **Auto Propagation** - Context flows through `EventEnvelope.ContextMetadata`
+- ✅ **Extensible** - Protobuf oneof allows adding types without breaking compatibility
+- ✅ **Cross-Language** - Standard protobuf serialization (Java/Go/Python compatible)
 - ✅ **Configurable** - Allow/Deny lists, size limits
 - ✅ **Scoped** - `AgentContextScope` prevents context leakage
-- ✅ **High Performance** - `ConcurrentDictionary`, `Span<char>` parsing
+- ✅ **High Performance** - `ConcurrentDictionary`, native protobuf serialization
 
 ---
 

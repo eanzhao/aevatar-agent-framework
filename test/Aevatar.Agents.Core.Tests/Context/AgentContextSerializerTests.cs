@@ -1,3 +1,4 @@
+using Aevatar.Agents;
 using Aevatar.Agents.Abstractions.Context;
 using Aevatar.Agents.Core.Context;
 using Shouldly;
@@ -5,7 +6,7 @@ using Shouldly;
 namespace Aevatar.Agents.Core.Tests.Context;
 
 /// <summary>
-/// Unit tests for AgentContextSerializer
+/// Unit tests for AgentContextSerializer using ContextValue protobuf type.
 /// </summary>
 public class AgentContextSerializerTests
 {
@@ -21,7 +22,7 @@ public class AgentContextSerializerTests
 
         // Assert
         serialized.ShouldContainKey("UserId");
-        serialized["UserId"].ShouldBe("s:user123");
+        serialized["UserId"].StringValue.ShouldBe("user123");
     }
 
     [Fact(DisplayName = "Should serialize bool values")]
@@ -36,7 +37,7 @@ public class AgentContextSerializerTests
 
         // Assert
         serialized.ShouldContainKey("IsCN");
-        serialized["IsCN"].ShouldBe("b:True");
+        serialized["IsCN"].BoolValue.ShouldBe(true);
     }
 
     [Fact(DisplayName = "Should serialize int values")]
@@ -44,17 +45,44 @@ public class AgentContextSerializerTests
     {
         // Arrange
         var context = new AsyncLocalAgentContext();
-        context.Set("Count", 42); // Not in allowlist, so use a custom context
-
-        // Create context with allowlisted key
-        var context2 = new AsyncLocalAgentContext();
-        context2.Set("RequestTime", DateTime.UtcNow);
+        context.Set("Count", 42);
 
         // Act
-        var serialized = AgentContextSerializer.Serialize(context2);
+        var serialized = AgentContextSerializer.Serialize(context);
 
-        // Assert - RequestTime is allowlisted
-        serialized.ShouldContainKey("RequestTime");
+        // Assert
+        serialized.ShouldContainKey("Count");
+        serialized["Count"].IntValue.ShouldBe(42);
+    }
+
+    [Fact(DisplayName = "Should serialize long values")]
+    public void Should_Serialize_Long_Values()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("BigNumber", 9223372036854775807L);
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context);
+
+        // Assert
+        serialized.ShouldContainKey("BigNumber");
+        serialized["BigNumber"].IntValue.ShouldBe(9223372036854775807L);
+    }
+
+    [Fact(DisplayName = "Should serialize double values")]
+    public void Should_Serialize_Double_Values()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("Price", 3.14159);
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context);
+
+        // Assert
+        serialized.ShouldContainKey("Price");
+        serialized["Price"].DoubleValue.ShouldBe(3.14159);
     }
 
     [Fact(DisplayName = "Should serialize DateTime values")]
@@ -70,71 +98,32 @@ public class AgentContextSerializerTests
 
         // Assert
         serialized.ShouldContainKey("RequestTime");
-        serialized["RequestTime"].ShouldStartWith("dt:");
+        serialized["RequestTime"].DatetimeIso.ShouldNotBeEmpty();
     }
 
-    [Fact(DisplayName = "Should only serialize allowlisted keys when configured")]
-    public void Should_Only_Serialize_Allowlisted_Keys_When_Configured()
+    [Fact(DisplayName = "Should serialize Guid values")]
+    public void Should_Serialize_Guid_Values()
     {
         // Arrange
         var context = new AsyncLocalAgentContext();
-        context.Set("NotAllowedKey", "value");
-        context.Set(AgentContextKeys.UserId, "user123");
-
-        // Use options with allowlist
-        var options = new AgentContextPropagationOptions()
-            .Allow("UserId");
+        var testGuid = Guid.NewGuid();
+        context.Set("RequestId", testGuid);
 
         // Act
-        var serialized = AgentContextSerializer.Serialize(context, options);
-
-        // Assert
-        serialized.ShouldNotContainKey("NotAllowedKey");
-        serialized.ShouldContainKey("UserId");
-    }
-
-    [Fact(DisplayName = "Should serialize all keys by default (no allowlist)")]
-    public void Should_Serialize_All_Keys_By_Default()
-    {
-        // Arrange
-        var context = new AsyncLocalAgentContext();
-        context.Set("CustomKey", "custom-value");
-        context.Set(AgentContextKeys.UserId, "user123");
-
-        // Act - default options (no allowlist)
         var serialized = AgentContextSerializer.Serialize(context);
 
         // Assert
-        serialized.ShouldContainKey("CustomKey");
-        serialized.ShouldContainKey("UserId");
-    }
-
-    [Fact(DisplayName = "Should respect denied keys")]
-    public void Should_Respect_Denied_Keys()
-    {
-        // Arrange
-        var context = new AsyncLocalAgentContext();
-        context.Set("SensitiveKey", "secret");
-        context.Set(AgentContextKeys.UserId, "user123");
-
-        var options = new AgentContextPropagationOptions()
-            .Deny("SensitiveKey");
-
-        // Act
-        var serialized = AgentContextSerializer.Serialize(context, options);
-
-        // Assert
-        serialized.ShouldNotContainKey("SensitiveKey");
-        serialized.ShouldContainKey("UserId");
+        serialized.ShouldContainKey("RequestId");
+        serialized["RequestId"].GuidString.ShouldBe(testGuid.ToString("D"));
     }
 
     [Fact(DisplayName = "Should deserialize string values")]
     public void Should_Deserialize_String_Values()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["UserId"] = "s:user123"
+            ["UserId"] = new ContextValue { StringValue = "user123" }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -149,9 +138,9 @@ public class AgentContextSerializerTests
     public void Should_Deserialize_Bool_Values()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["IsCN"] = "b:True"
+            ["IsCN"] = new ContextValue { BoolValue = true }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -162,30 +151,13 @@ public class AgentContextSerializerTests
         context.Get("IsCN").ShouldBe(true);
     }
 
-    [Fact(DisplayName = "Should deserialize false bool values")]
-    public void Should_Deserialize_False_Bool_Values()
-    {
-        // Arrange
-        var metadata = new Dictionary<string, string>
-        {
-            ["IsCN"] = "b:False"
-        };
-        var context = new AsyncLocalAgentContext();
-
-        // Act
-        AgentContextSerializer.Deserialize(metadata, context);
-
-        // Assert
-        context.Get("IsCN").ShouldBe(false);
-    }
-
     [Fact(DisplayName = "Should deserialize int values")]
     public void Should_Deserialize_Int_Values()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["Language"] = "i:42"
+            ["Count"] = new ContextValue { IntValue = 42 }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -193,33 +165,16 @@ public class AgentContextSerializerTests
         AgentContextSerializer.Deserialize(metadata, context);
 
         // Assert
-        context.Get("Language").ShouldBe(42);
-    }
-
-    [Fact(DisplayName = "Should deserialize long values")]
-    public void Should_Deserialize_Long_Values()
-    {
-        // Arrange
-        var metadata = new Dictionary<string, string>
-        {
-            ["UserId"] = "l:9223372036854775807"
-        };
-        var context = new AsyncLocalAgentContext();
-
-        // Act
-        AgentContextSerializer.Deserialize(metadata, context);
-
-        // Assert
-        context.Get("UserId").ShouldBe(long.MaxValue);
+        context.Get("Count").ShouldBe(42L); // IntValue is int64
     }
 
     [Fact(DisplayName = "Should deserialize double values")]
     public void Should_Deserialize_Double_Values()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["Language"] = "d:3.14159"
+            ["Price"] = new ContextValue { DoubleValue = 3.14159 }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -227,7 +182,7 @@ public class AgentContextSerializerTests
         AgentContextSerializer.Deserialize(metadata, context);
 
         // Assert
-        ((double)context.Get("Language")!).ShouldBe(3.14159, 0.00001);
+        ((double)context.Get("Price")!).ShouldBe(3.14159, 0.00001);
     }
 
     [Fact(DisplayName = "Should deserialize Guid values")]
@@ -235,9 +190,9 @@ public class AgentContextSerializerTests
     {
         // Arrange
         var testGuid = Guid.NewGuid();
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["CorrelationId"] = $"g:{testGuid:D}"
+            ["RequestId"] = new ContextValue { GuidString = testGuid.ToString("D") }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -245,7 +200,7 @@ public class AgentContextSerializerTests
         AgentContextSerializer.Deserialize(metadata, context);
 
         // Assert
-        context.Get("CorrelationId").ShouldBe(testGuid);
+        context.Get("RequestId").ShouldBe(testGuid);
     }
 
     [Fact(DisplayName = "Should deserialize DateTime values")]
@@ -253,9 +208,9 @@ public class AgentContextSerializerTests
     {
         // Arrange
         var testDate = new DateTime(2024, 12, 22, 10, 30, 0, DateTimeKind.Utc);
-        var metadata = new Dictionary<string, string>
+        var metadata = new Dictionary<string, ContextValue>
         {
-            ["RequestTime"] = $"dt:{testDate:O}"
+            ["RequestTime"] = new ContextValue { DatetimeIso = testDate.ToString("O") }
         };
         var context = new AsyncLocalAgentContext();
 
@@ -272,12 +227,16 @@ public class AgentContextSerializerTests
         // Arrange
         var originalContext = new AsyncLocalAgentContext();
         var testDate = DateTime.UtcNow;
+        var testGuid = Guid.NewGuid();
         
         originalContext.Set(AgentContextKeys.CorrelationId, "corr-123");
         originalContext.Set(AgentContextKeys.UserId, "user456");
         originalContext.Set(AgentContextKeys.Language, "zh");
         originalContext.Set(AgentContextKeys.IsCN, true);
         originalContext.Set(AgentContextKeys.RequestTime, testDate);
+        originalContext.Set("RequestId", testGuid);
+        originalContext.Set("Count", 42);
+        originalContext.Set("Price", 99.99);
 
         // Act - Serialize then deserialize
         var serialized = AgentContextSerializer.Serialize(originalContext);
@@ -289,10 +248,9 @@ public class AgentContextSerializerTests
         restoredContext.Get(AgentContextKeys.UserId).ShouldBe("user456");
         restoredContext.Get(AgentContextKeys.Language).ShouldBe("zh");
         restoredContext.Get(AgentContextKeys.IsCN).ShouldBe(true);
-        // DateTime comparison with tolerance for serialization
-        var restoredDate = restoredContext.Get("RequestTime");
-        restoredDate.ShouldBeOfType<DateTime>();
-        ((DateTime)restoredDate!).ToString("O").ShouldBe(testDate.ToString("O"));
+        restoredContext.Get("RequestId").ShouldBe(testGuid);
+        restoredContext.Get("Count").ShouldBe(42L);
+        ((double)restoredContext.Get("Price")!).ShouldBe(99.99, 0.001);
     }
 
     [Fact(DisplayName = "Should respect MaxKeys limit")]
@@ -332,7 +290,7 @@ public class AgentContextSerializerTests
     public void Should_Handle_Empty_Metadata()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>();
+        var metadata = new Dictionary<string, ContextValue>();
         var context = new AsyncLocalAgentContext();
 
         // Act
@@ -342,57 +300,88 @@ public class AgentContextSerializerTests
         context.Count.ShouldBe(0);
     }
 
-    [Fact(DisplayName = "Should handle malformed serialized values gracefully")]
-    public void Should_Handle_Malformed_Values_Gracefully()
+    [Fact(DisplayName = "Should serialize all keys by default (no allowlist)")]
+    public void Should_Serialize_All_Keys_By_Default()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
-        {
-            ["Language"] = "malformed-no-prefix",
-            ["UserId"] = "s:valid-user" // Valid string prefix
-        };
         var context = new AsyncLocalAgentContext();
+        context.Set("CustomKey", "custom-value");
+        context.Set(AgentContextKeys.UserId, "user123");
 
-        // Act
-        AgentContextSerializer.Deserialize(metadata, context);
+        // Act - default options (no allowlist)
+        var serialized = AgentContextSerializer.Serialize(context);
 
-        // Assert - Should not throw, returns original string for malformed
-        context.Get("Language").ShouldBe("malformed-no-prefix");
-        context.Get("UserId").ShouldBe("valid-user");
+        // Assert
+        serialized.ShouldContainKey("CustomKey");
+        serialized.ShouldContainKey("UserId");
     }
 
-    [Fact(DisplayName = "Should handle empty string value (s:)")]
-    public void Should_Handle_Empty_String_Value()
+    [Fact(DisplayName = "Should only serialize allowlisted keys when configured")]
+    public void Should_Only_Serialize_Allowlisted_Keys_When_Configured()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
-        {
-            ["UserId"] = "s:" // Empty string serialized form
-        };
         var context = new AsyncLocalAgentContext();
+        context.Set("NotAllowedKey", "value");
+        context.Set(AgentContextKeys.UserId, "user123");
+
+        // Use options with allowlist
+        var options = new AgentContextPropagationOptions()
+            .Allow("UserId");
 
         // Act
-        AgentContextSerializer.Deserialize(metadata, context);
+        var serialized = AgentContextSerializer.Serialize(context, options);
 
-        // Assert - "s:" is the valid serialization of empty string
-        context.Get("UserId").ShouldBe("");
+        // Assert
+        serialized.ShouldNotContainKey("NotAllowedKey");
+        serialized.ShouldContainKey("UserId");
     }
 
-    [Fact(DisplayName = "Should handle single character value")]
-    public void Should_Handle_Single_Character_Value()
+    [Fact(DisplayName = "Should respect denied keys")]
+    public void Should_Respect_Denied_Keys()
     {
         // Arrange
-        var metadata = new Dictionary<string, string>
-        {
-            ["UserId"] = "s:X" // Single char after prefix
-        };
         var context = new AsyncLocalAgentContext();
+        context.Set("SensitiveKey", "secret");
+        context.Set(AgentContextKeys.UserId, "user123");
+
+        var options = new AgentContextPropagationOptions()
+            .Deny("SensitiveKey");
 
         // Act
-        AgentContextSerializer.Deserialize(metadata, context);
+        var serialized = AgentContextSerializer.Serialize(context, options);
 
-        // Assert - Should correctly extract single char
-        context.Get("UserId").ShouldBe("X");
+        // Assert
+        serialized.ShouldNotContainKey("SensitiveKey");
+        serialized.ShouldContainKey("UserId");
+    }
+
+    [Fact(DisplayName = "Should handle float values (converted to double)")]
+    public void Should_Handle_Float_Values()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("FloatValue", 3.14f);
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context);
+
+        // Assert
+        serialized.ShouldContainKey("FloatValue");
+        serialized["FloatValue"].DoubleValue.ShouldBe(3.14, 0.01);
+    }
+
+    [Fact(DisplayName = "Should convert unsupported types to string")]
+    public void Should_Convert_Unsupported_Types_To_String()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("CustomObject", new { Name = "Test" });
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context);
+
+        // Assert
+        serialized.ShouldContainKey("CustomObject");
+        serialized["CustomObject"].ValueCase.ShouldBe(ContextValue.ValueOneofCase.StringValue);
     }
 }
-

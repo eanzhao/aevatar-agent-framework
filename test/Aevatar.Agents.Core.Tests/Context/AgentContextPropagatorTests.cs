@@ -10,51 +10,47 @@ namespace Aevatar.Agents.Core.Tests.Context;
 /// </summary>
 public class AgentContextPropagatorTests
 {
-    [Fact(DisplayName = "InjectContext should add context to envelope")]
-    public void InjectContext_Should_Add_Context_To_Envelope()
+    [Fact(DisplayName = "InjectContext should add context metadata to envelope")]
+    public void InjectContext_Should_Add_Context_Metadata_To_Envelope()
     {
         // Arrange
         var accessor = new AsyncLocalAgentContextAccessor();
         var context = new AsyncLocalAgentContext();
         context.Set(AgentContextKeys.UserId, "user123");
-        context.Set(AgentContextKeys.Language, "zh");
+        context.Set(AgentContextKeys.Language, "en");
         accessor.Context = context;
 
         var propagator = new AgentContextPropagator(accessor);
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString()
-        };
+        var envelope = new EventEnvelope();
 
         // Act
         propagator.InjectContext(envelope);
 
         // Assert
-        envelope.ContextMetadata.ShouldNotBeEmpty();
         envelope.ContextMetadata.ShouldContainKey("UserId");
         envelope.ContextMetadata.ShouldContainKey("Language");
+        envelope.ContextMetadata["UserId"].StringValue.ShouldBe("user123");
+        envelope.ContextMetadata["Language"].StringValue.ShouldBe("en");
     }
 
-    [Fact(DisplayName = "InjectContext should not fail when no context")]
-    public void InjectContext_Should_Not_Fail_When_No_Context()
+    [Fact(DisplayName = "InjectContext should do nothing when context is null")]
+    public void InjectContext_Should_Do_Nothing_When_Context_Is_Null()
     {
         // Arrange
         var accessor = new AsyncLocalAgentContextAccessor();
-        accessor.Context = null;
-
+        // Don't set any context
         var propagator = new AgentContextPropagator(accessor);
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString()
-        };
+        var envelope = new EventEnvelope();
 
-        // Act & Assert - Should not throw
-        Should.NotThrow(() => propagator.InjectContext(envelope));
+        // Act
+        propagator.InjectContext(envelope);
+
+        // Assert
         envelope.ContextMetadata.ShouldBeEmpty();
     }
 
-    [Fact(DisplayName = "ExtractContext should return context from envelope")]
-    public void ExtractContext_Should_Return_Context_From_Envelope()
+    [Fact(DisplayName = "ExtractContext should create context from envelope metadata")]
+    public void ExtractContext_Should_Create_Context_From_Envelope_Metadata()
     {
         // Arrange
         var accessor = new AsyncLocalAgentContextAccessor();
@@ -64,9 +60,9 @@ public class AgentContextPropagatorTests
         {
             Id = Guid.NewGuid().ToString()
         };
-        envelope.ContextMetadata["UserId"] = "s:user123";
-        envelope.ContextMetadata["Language"] = "s:en";
-        envelope.ContextMetadata["IsCN"] = "b:True";
+        envelope.ContextMetadata["UserId"] = new ContextValue { StringValue = "user123" };
+        envelope.ContextMetadata["Language"] = new ContextValue { StringValue = "en" };
+        envelope.ContextMetadata["IsCN"] = new ContextValue { BoolValue = true };
 
         // Act
         var extractedContext = propagator.ExtractContext(envelope);
@@ -106,7 +102,7 @@ public class AgentContextPropagatorTests
         var propagator = new AgentContextPropagator(accessor);
         
         var envelope = new EventEnvelope();
-        envelope.ContextMetadata["UserId"] = "s:user123";
+        envelope.ContextMetadata["UserId"] = new ContextValue { StringValue = "user123" };
 
         // Act
         propagator.ApplyContext(envelope);
@@ -119,33 +115,32 @@ public class AgentContextPropagatorTests
     [Fact(DisplayName = "Round trip should preserve context")]
     public void Round_Trip_Should_Preserve_Context()
     {
-        // Arrange
-        var senderAccessor = new AsyncLocalAgentContextAccessor();
-        var senderContext = new AsyncLocalAgentContext();
-        senderContext.Set(AgentContextKeys.CorrelationId, "corr-abc");
-        senderContext.Set(AgentContextKeys.UserId, "user789");
-        senderContext.Set(AgentContextKeys.IsCN, false);
-        senderAccessor.Context = senderContext;
+        // Arrange - Set up source context
+        var sourceAccessor = new AsyncLocalAgentContextAccessor();
+        var sourceContext = new AsyncLocalAgentContext();
+        sourceContext.Set(AgentContextKeys.CorrelationId, "corr-123");
+        sourceContext.Set(AgentContextKeys.UserId, "user456");
+        sourceContext.Set(AgentContextKeys.IsCN, true);
+        sourceAccessor.Context = sourceContext;
 
-        var senderPropagator = new AgentContextPropagator(senderAccessor);
+        var sourcePropagator = new AgentContextPropagator(sourceAccessor);
 
-        // Simulate sending - inject into envelope
-        var envelope = new EventEnvelope
-        {
-            Id = Guid.NewGuid().ToString()
-        };
-        senderPropagator.InjectContext(envelope);
+        // Create envelope and inject
+        var envelope = new EventEnvelope();
+        sourcePropagator.InjectContext(envelope);
 
-        // Simulate receiving - extract from envelope
-        var receiverAccessor = new AsyncLocalAgentContextAccessor();
-        var receiverPropagator = new AgentContextPropagator(receiverAccessor);
-        var receivedContext = receiverPropagator.ExtractContext(envelope);
+        // Arrange - Set up destination
+        var destAccessor = new AsyncLocalAgentContextAccessor();
+        var destPropagator = new AgentContextPropagator(destAccessor);
+
+        // Act - Extract at destination
+        var extractedContext = destPropagator.ExtractContext(envelope);
 
         // Assert
-        receivedContext.ShouldNotBeNull();
-        receivedContext!.Get(AgentContextKeys.CorrelationId).ShouldBe("corr-abc");
-        receivedContext.Get(AgentContextKeys.UserId).ShouldBe("user789");
-        receivedContext.Get(AgentContextKeys.IsCN).ShouldBe(false);
+        extractedContext.ShouldNotBeNull();
+        extractedContext!.Get(AgentContextKeys.CorrelationId).ShouldBe("corr-123");
+        extractedContext.Get(AgentContextKeys.UserId).ShouldBe("user456");
+        extractedContext.Get(AgentContextKeys.IsCN).ShouldBe(true);
     }
 
     [Fact(DisplayName = "Should propagate all keys by default")]

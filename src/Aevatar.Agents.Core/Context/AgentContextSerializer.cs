@@ -1,35 +1,30 @@
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using Aevatar.Agents.Abstractions.Context;
 
 namespace Aevatar.Agents.Core.Context;
 
 /// <summary>
 /// Serializes/deserializes agent context to/from EventEnvelope metadata.
-/// Uses type-prefixed string encoding for common types.
-/// Optimized for minimal allocations on hot paths.
+/// Uses protobuf ContextValue oneof for type-safe, extensible serialization.
 /// </summary>
+/// <remarks>
+/// Supported types:
+/// - string, bool, int, long, double, DateTime, Guid
+/// 
+/// Unsupported types will be converted to string via ToString().
+/// </remarks>
 public static class AgentContextSerializer
 {
-    // Type prefixes for serialization (2 chars including colon)
-    private const char StringPrefix = 's';
-    private const char BoolPrefix = 'b';
-    private const char IntPrefix = 'i';
-    private const char LongPrefix = 'l';
-    private const char DoublePrefix = 'd';
-    private const char GuidPrefix = 'g';
-    private const string DateTimePrefix = "dt";
-
     /// <summary>
-    /// Serialize context to string dictionary for EventEnvelope.
+    /// Serialize context to ContextValue dictionary for EventEnvelope.
     /// Uses options to filter keys and enforce limits.
     /// </summary>
-    public static IDictionary<string, string> Serialize(
+    public static IDictionary<string, ContextValue> Serialize(
         IAgentContext context,
         AgentContextPropagationOptions? options = null)
     {
         options ??= AgentContextPropagationOptions.Default;
-        var result = new Dictionary<string, string>();
+        var result = new Dictionary<string, ContextValue>();
         var totalBytes = 0;
 
         foreach (var (key, value) in context.GetAll())
@@ -45,14 +40,14 @@ public static class AgentContextSerializer
             if (result.Count >= options.MaxKeys)
                 break;
 
-            var serialized = SerializeValue(value);
+            var contextValue = ToContextValue(value);
 
-            // Check size limit
-            var entrySize = key.Length + serialized.Length;
+            // Estimate size for limit check
+            var entrySize = key.Length + EstimateSize(contextValue);
             if (totalBytes + entrySize > options.MaxTotalBytes)
                 break;
 
-            result[key] = serialized;
+            result[key] = contextValue;
             totalBytes += entrySize;
         }
 
@@ -64,117 +59,113 @@ public static class AgentContextSerializer
     /// Uses options to filter keys.
     /// </summary>
     public static void Deserialize(
-        IDictionary<string, string> metadata,
+        IDictionary<string, ContextValue> metadata,
         IAgentContext context,
         AgentContextPropagationOptions? options = null)
     {
         options ??= AgentContextPropagationOptions.Default;
 
-        foreach (var (key, value) in metadata)
+        foreach (var (key, contextValue) in metadata)
         {
             // Check if key should be accepted
             if (!options.ShouldPropagate(key))
                 continue;
 
-            context.Set(key, DeserializeValue(value));
+            var value = FromContextValue(contextValue);
+            if (value != null)
+            {
+                context.Set(key, value);
+            }
         }
     }
 
     /// <summary>
-    /// Serialize a single value to string with type prefix.
-    /// Optimized to use string.Concat for reduced allocations.
+    /// Convert a CLR value to protobuf ContextValue.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static string SerializeValue(object value)
+    public static ContextValue ToContextValue(object value)
     {
-        return value switch
+        var contextValue = new ContextValue();
+
+        switch (value)
         {
-            string s => string.Concat(StringPrefix, ":", s),
-            bool b => string.Concat(BoolPrefix, ":", b ? "True" : "False"),
-            int i => string.Concat(IntPrefix, ":", i.ToString(CultureInfo.InvariantCulture)),
-            long l => string.Concat(LongPrefix, ":", l.ToString(CultureInfo.InvariantCulture)),
-            double dbl => string.Concat(DoublePrefix, ":", dbl.ToString(CultureInfo.InvariantCulture)),
-            DateTime dt => string.Concat(DateTimePrefix, ":", dt.ToString("O", CultureInfo.InvariantCulture)),
-            Guid g => string.Concat(GuidPrefix, ":", g.ToString("D")),
-            _ => string.Concat(StringPrefix, ":", value.ToString() ?? string.Empty)
-        };
+            case string s:
+                contextValue.StringValue = s;
+                break;
+            case bool b:
+                contextValue.BoolValue = b;
+                break;
+            case int i:
+                contextValue.IntValue = i;
+                break;
+            case long l:
+                contextValue.IntValue = l;
+                break;
+            case double d:
+                contextValue.DoubleValue = d;
+                break;
+            case float f:
+                contextValue.DoubleValue = f;
+                break;
+            case DateTime dt:
+                contextValue.DatetimeIso = dt.ToString("O", CultureInfo.InvariantCulture);
+                break;
+            case DateTimeOffset dto:
+                contextValue.DatetimeIso = dto.ToString("O", CultureInfo.InvariantCulture);
+                break;
+            case Guid g:
+                contextValue.GuidString = g.ToString("D");
+                break;
+            default:
+                // Fallback: convert to string
+                contextValue.StringValue = value.ToString() ?? string.Empty;
+                break;
+        }
+
+        return contextValue;
     }
 
     /// <summary>
-    /// Deserialize a single value from string with type prefix.
-    /// Optimized with span-based parsing for reduced allocations.
+    /// Convert protobuf ContextValue back to CLR value.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object? DeserializeValue(string serialized)
+    public static object? FromContextValue(ContextValue contextValue)
     {
-        // Null or empty string - return as-is
-        if (string.IsNullOrEmpty(serialized))
-            return serialized;
-
-        // Minimum valid format is "X:" (length >= 2)
-        if (serialized.Length < 2)
-            return serialized;
-
-        var firstChar = serialized[0];
-        
-        // Handle datetime prefix "dt:" first (before checking single-char prefix format)
-        if (firstChar == 'd' && serialized.Length >= 3 && serialized[1] == 't' && serialized[2] == ':')
+        return contextValue.ValueCase switch
         {
-            var dtValue = serialized.AsSpan(3);
-            return DateTime.TryParse(dtValue, CultureInfo.InvariantCulture, 
-                DateTimeStyles.RoundtripKind, out var dt) ? dt : serialized;
-        }
-
-        // Single-char prefix format: "X:value" (second char must be ':')
-        if (serialized[1] != ':')
-            return serialized;
-
-        // Value starts at index 2 (may be empty for "s:")
-        var valueSpan = serialized.AsSpan(2);
-
-        return firstChar switch
-        {
-            StringPrefix => serialized[2..], // Returns "" for "s:", "hello" for "s:hello"
-            BoolPrefix => ParseBool(valueSpan, serialized),
-            IntPrefix => ParseInt(valueSpan, serialized),
-            LongPrefix => ParseLong(valueSpan, serialized),
-            DoublePrefix => ParseDouble(valueSpan, serialized),
-            GuidPrefix => ParseGuid(valueSpan, serialized),
-            _ => serialized
+            ContextValue.ValueOneofCase.StringValue => contextValue.StringValue,
+            ContextValue.ValueOneofCase.BoolValue => contextValue.BoolValue,
+            ContextValue.ValueOneofCase.IntValue => contextValue.IntValue,
+            ContextValue.ValueOneofCase.DoubleValue => contextValue.DoubleValue,
+            ContextValue.ValueOneofCase.DatetimeIso => ParseDateTime(contextValue.DatetimeIso),
+            ContextValue.ValueOneofCase.GuidString => ParseGuid(contextValue.GuidString),
+            ContextValue.ValueOneofCase.None => null,
+            _ => null
         };
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object ParseBool(ReadOnlySpan<char> value, string fallback)
+    private static object ParseDateTime(string iso)
     {
-        // bool.TryParse supports Span<char> without allocations
-        return bool.TryParse(value, out var result) ? result : fallback;
+        return DateTime.TryParse(iso, CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind, out var dt)
+            ? dt
+            : iso;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object ParseInt(ReadOnlySpan<char> value, string fallback)
+    private static object ParseGuid(string guidString)
     {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) 
-            ? i : fallback;
+        return Guid.TryParse(guidString, out var g) ? g : guidString;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object ParseLong(ReadOnlySpan<char> value, string fallback)
+    private static int EstimateSize(ContextValue value)
     {
-        return long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) 
-            ? l : fallback;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object ParseDouble(ReadOnlySpan<char> value, string fallback)
-    {
-        return double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, 
-            CultureInfo.InvariantCulture, out var d) ? d : fallback;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static object ParseGuid(ReadOnlySpan<char> value, string fallback)
-    {
-        return Guid.TryParse(value, out var g) ? g : fallback;
+        return value.ValueCase switch
+        {
+            ContextValue.ValueOneofCase.StringValue => value.StringValue?.Length ?? 0,
+            ContextValue.ValueOneofCase.BoolValue => 1,
+            ContextValue.ValueOneofCase.IntValue => 8,
+            ContextValue.ValueOneofCase.DoubleValue => 8,
+            ContextValue.ValueOneofCase.DatetimeIso => value.DatetimeIso?.Length ?? 0,
+            ContextValue.ValueOneofCase.GuidString => 36,
+            _ => 0
+        };
     }
 }
