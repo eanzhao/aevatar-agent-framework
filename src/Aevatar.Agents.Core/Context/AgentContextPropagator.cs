@@ -9,26 +9,36 @@ namespace Aevatar.Agents.Core.Context;
 public class AgentContextPropagator
 {
     private readonly IAgentContextAccessor _contextAccessor;
+    private readonly AgentContextPropagationOptions _options;
 
     /// <summary>
-    /// Creates a new context propagator.
+    /// Creates a new context propagator with default options.
     /// </summary>
-    /// <param name="contextAccessor">Context accessor for reading current context</param>
     public AgentContextPropagator(IAgentContextAccessor contextAccessor)
+        : this(contextAccessor, AgentContextPropagationOptions.Default)
+    {
+    }
+
+    /// <summary>
+    /// Creates a new context propagator with custom options.
+    /// </summary>
+    public AgentContextPropagator(
+        IAgentContextAccessor contextAccessor,
+        AgentContextPropagationOptions options)
     {
         _contextAccessor = contextAccessor ?? throw new ArgumentNullException(nameof(contextAccessor));
+        _options = options ?? AgentContextPropagationOptions.Default;
     }
 
     /// <summary>
     /// Inject current context into EventEnvelope before publishing.
     /// </summary>
-    /// <param name="envelope">The EventEnvelope to inject context into</param>
     public void InjectContext(EventEnvelope envelope)
     {
         var context = _contextAccessor.Context;
         if (context == null) return;
 
-        var metadata = AgentContextSerializer.Serialize(context);
+        var metadata = AgentContextSerializer.Serialize(context, _options);
         foreach (var (key, value) in metadata)
         {
             envelope.ContextMetadata[key] = value;
@@ -39,15 +49,13 @@ public class AgentContextPropagator
     /// Extract context from EventEnvelope and return a new context instance.
     /// Does not modify the current ambient context - use AgentContextScope for that.
     /// </summary>
-    /// <param name="envelope">The EventEnvelope to extract context from</param>
-    /// <returns>New context instance with extracted values, or null if no context metadata</returns>
     public IAgentContext? ExtractContext(EventEnvelope envelope)
     {
         if (envelope.ContextMetadata.Count == 0)
             return null;
 
         var context = new AsyncLocalAgentContext();
-        AgentContextSerializer.Deserialize(envelope.ContextMetadata, context);
+        AgentContextSerializer.Deserialize(envelope.ContextMetadata, context, _options);
         return context;
     }
 
@@ -55,13 +63,12 @@ public class AgentContextPropagator
     /// Extract context from EventEnvelope and apply to current ambient context.
     /// Warning: This modifies the current ambient context. Use AgentContextScope for safe scoped access.
     /// </summary>
-    /// <param name="envelope">The EventEnvelope to extract context from</param>
     public void ApplyContext(EventEnvelope envelope)
     {
         if (envelope.ContextMetadata.Count == 0) return;
 
         var context = _contextAccessor.Context ?? new AsyncLocalAgentContext();
-        AgentContextSerializer.Deserialize(envelope.ContextMetadata, context);
+        AgentContextSerializer.Deserialize(envelope.ContextMetadata, context, _options);
         _contextAccessor.Context = context;
     }
 }

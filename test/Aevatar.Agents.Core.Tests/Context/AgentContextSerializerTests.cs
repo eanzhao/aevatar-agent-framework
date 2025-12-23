@@ -73,19 +73,58 @@ public class AgentContextSerializerTests
         serialized["RequestTime"].ShouldStartWith("dt:");
     }
 
-    [Fact(DisplayName = "Should only serialize allowlisted keys")]
-    public void Should_Only_Serialize_Allowlisted_Keys()
+    [Fact(DisplayName = "Should only serialize allowlisted keys when configured")]
+    public void Should_Only_Serialize_Allowlisted_Keys_When_Configured()
     {
         // Arrange
         var context = new AsyncLocalAgentContext();
         context.Set("NotAllowedKey", "value");
         context.Set(AgentContextKeys.UserId, "user123");
 
+        // Use options with allowlist
+        var options = new AgentContextPropagationOptions()
+            .Allow("UserId");
+
         // Act
-        var serialized = AgentContextSerializer.Serialize(context);
+        var serialized = AgentContextSerializer.Serialize(context, options);
 
         // Assert
         serialized.ShouldNotContainKey("NotAllowedKey");
+        serialized.ShouldContainKey("UserId");
+    }
+
+    [Fact(DisplayName = "Should serialize all keys by default (no allowlist)")]
+    public void Should_Serialize_All_Keys_By_Default()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("CustomKey", "custom-value");
+        context.Set(AgentContextKeys.UserId, "user123");
+
+        // Act - default options (no allowlist)
+        var serialized = AgentContextSerializer.Serialize(context);
+
+        // Assert
+        serialized.ShouldContainKey("CustomKey");
+        serialized.ShouldContainKey("UserId");
+    }
+
+    [Fact(DisplayName = "Should respect denied keys")]
+    public void Should_Respect_Denied_Keys()
+    {
+        // Arrange
+        var context = new AsyncLocalAgentContext();
+        context.Set("SensitiveKey", "secret");
+        context.Set(AgentContextKeys.UserId, "user123");
+
+        var options = new AgentContextPropagationOptions()
+            .Deny("SensitiveKey");
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context, options);
+
+        // Assert
+        serialized.ShouldNotContainKey("SensitiveKey");
         serialized.ShouldContainKey("UserId");
     }
 
@@ -261,18 +300,19 @@ public class AgentContextSerializerTests
     {
         // Arrange
         var context = new AsyncLocalAgentContext();
+        var options = new AgentContextPropagationOptions { MaxKeys = 3 };
         
-        // Add more keys than MaxKeys (but they need to be allowlisted)
-        foreach (var key in AgentContextKeys.AllowedPropagationKeys)
+        // Add more keys than MaxKeys
+        for (var i = 0; i < 10; i++)
         {
-            context.Set(key, "value");
+            context.Set($"Key{i}", $"value{i}");
         }
 
         // Act
-        var serialized = AgentContextSerializer.Serialize(context);
+        var serialized = AgentContextSerializer.Serialize(context, options);
 
         // Assert
-        serialized.Count.ShouldBeLessThanOrEqualTo(AgentContextSerializer.MaxKeys);
+        serialized.Count.ShouldBeLessThanOrEqualTo(options.MaxKeys);
     }
 
     [Fact(DisplayName = "Should handle empty context")]
@@ -321,21 +361,21 @@ public class AgentContextSerializerTests
         context.Get("UserId").ShouldBe("valid-user");
     }
 
-    [Fact(DisplayName = "Should handle edge case - prefix only returns original")]
-    public void Should_Handle_Edge_Case_Prefix_Only_Returns_Original()
+    [Fact(DisplayName = "Should handle empty string value (s:)")]
+    public void Should_Handle_Empty_String_Value()
     {
         // Arrange
         var metadata = new Dictionary<string, string>
         {
-            ["UserId"] = "s:" // Only prefix, no value - treated as malformed
+            ["UserId"] = "s:" // Empty string serialized form
         };
         var context = new AsyncLocalAgentContext();
 
         // Act
         AgentContextSerializer.Deserialize(metadata, context);
 
-        // Assert - Too short to be valid, returns original string
-        context.Get("UserId").ShouldBe("s:");
+        // Assert - "s:" is the valid serialization of empty string
+        context.Get("UserId").ShouldBe("");
     }
 
     [Fact(DisplayName = "Should handle single character value")]

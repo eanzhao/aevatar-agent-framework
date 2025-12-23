@@ -21,43 +21,35 @@ public static class AgentContextSerializer
     private const string DateTimePrefix = "dt";
 
     /// <summary>
-    /// Maximum number of keys allowed in context metadata.
-    /// </summary>
-    public const int MaxKeys = 16;
-
-    /// <summary>
-    /// Maximum total serialized bytes allowed.
-    /// </summary>
-    public const int MaxTotalBytes = 4096;
-
-    /// <summary>
     /// Serialize context to string dictionary for EventEnvelope.
-    /// Only allowlisted keys are serialized.
+    /// Uses options to filter keys and enforce limits.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static IDictionary<string, string> Serialize(IAgentContext context)
+    public static IDictionary<string, string> Serialize(
+        IAgentContext context,
+        AgentContextPropagationOptions? options = null)
     {
-        var result = new Dictionary<string, string>(AgentContextKeys.AllowedPropagationKeys.Count);
+        options ??= AgentContextPropagationOptions.Default;
+        var result = new Dictionary<string, string>();
         var totalBytes = 0;
 
         foreach (var (key, value) in context.GetAll())
         {
-            // Only serialize allowlisted keys - HashSet.Contains is O(1)
-            if (!AgentContextKeys.AllowedPropagationKeys.Contains(key))
+            // Check if key should be propagated
+            if (!options.ShouldPropagate(key))
                 continue;
 
             if (value == null)
                 continue;
 
             // Check key limit
-            if (result.Count >= MaxKeys)
+            if (result.Count >= options.MaxKeys)
                 break;
 
             var serialized = SerializeValue(value);
 
             // Check size limit
             var entrySize = key.Length + serialized.Length;
-            if (totalBytes + entrySize > MaxTotalBytes)
+            if (totalBytes + entrySize > options.MaxTotalBytes)
                 break;
 
             result[key] = serialized;
@@ -69,16 +61,19 @@ public static class AgentContextSerializer
 
     /// <summary>
     /// Deserialize context from EventEnvelope metadata.
+    /// Uses options to filter keys.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Deserialize(
         IDictionary<string, string> metadata,
-        IAgentContext context)
+        IAgentContext context,
+        AgentContextPropagationOptions? options = null)
     {
+        options ??= AgentContextPropagationOptions.Default;
+
         foreach (var (key, value) in metadata)
         {
-            // Only deserialize allowlisted keys
-            if (!AgentContextKeys.AllowedPropagationKeys.Contains(key))
+            // Check if key should be accepted
+            if (!options.ShouldPropagate(key))
                 continue;
 
             context.Set(key, DeserializeValue(value));
@@ -112,29 +107,34 @@ public static class AgentContextSerializer
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static object? DeserializeValue(string serialized)
     {
-        if (string.IsNullOrEmpty(serialized) || serialized.Length < 2)
+        // Null or empty string - return as-is
+        if (string.IsNullOrEmpty(serialized))
             return serialized;
 
-        // Fast path: check first character for single-char prefixes
+        // Minimum valid format is "X:" (length >= 2)
+        if (serialized.Length < 2)
+            return serialized;
+
         var firstChar = serialized[0];
         
-        // Handle datetime prefix (2 chars)
-        if (firstChar == 'd' && serialized.Length > 3 && serialized[1] == 't' && serialized[2] == ':')
+        // Handle datetime prefix "dt:" first (before checking single-char prefix format)
+        if (firstChar == 'd' && serialized.Length >= 3 && serialized[1] == 't' && serialized[2] == ':')
         {
             var dtValue = serialized.AsSpan(3);
             return DateTime.TryParse(dtValue, CultureInfo.InvariantCulture, 
                 DateTimeStyles.RoundtripKind, out var dt) ? dt : serialized;
         }
 
-        // Single char prefix requires at least "X:Y"
-        if (serialized.Length < 3 || serialized[1] != ':')
+        // Single-char prefix format: "X:value" (second char must be ':')
+        if (serialized[1] != ':')
             return serialized;
 
+        // Value starts at index 2 (may be empty for "s:")
         var valueSpan = serialized.AsSpan(2);
 
         return firstChar switch
         {
-            StringPrefix => serialized[2..], // Return substring for string type
+            StringPrefix => serialized[2..], // Returns "" for "s:", "hello" for "s:hello"
             BoolPrefix => ParseBool(valueSpan, serialized),
             IntPrefix => ParseInt(valueSpan, serialized),
             LongPrefix => ParseLong(valueSpan, serialized),
@@ -147,22 +147,8 @@ public static class AgentContextSerializer
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static object ParseBool(ReadOnlySpan<char> value, string fallback)
     {
-        if (value.Length == 4 && 
-            (value[0] == 'T' || value[0] == 't') &&
-            (value[1] == 'r' || value[1] == 'R') &&
-            (value[2] == 'u' || value[2] == 'U') &&
-            (value[3] == 'e' || value[3] == 'E'))
-            return true;
-        
-        if (value.Length == 5 &&
-            (value[0] == 'F' || value[0] == 'f') &&
-            (value[1] == 'a' || value[1] == 'A') &&
-            (value[2] == 'l' || value[2] == 'L') &&
-            (value[3] == 's' || value[3] == 'S') &&
-            (value[4] == 'e' || value[4] == 'E'))
-            return false;
-        
-        return fallback;
+        // bool.TryParse supports Span<char> without allocations
+        return bool.TryParse(value, out var result) ? result : fallback;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

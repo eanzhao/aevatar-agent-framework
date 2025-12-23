@@ -95,8 +95,8 @@ public class OrleansAgentContextBridge : IAgentContext
             }
         }
 
-        // Also check well-known keys from AgentContextKeys.AllowedPropagationKeys
-        foreach (var key in AgentContextKeys.AllowedPropagationKeys)
+        // Also check well-known keys for Orleans enumeration support
+        foreach (var key in AgentContextKeys.WellKnownKeyNames)
         {
             if (!result.ContainsKey(key))
             {

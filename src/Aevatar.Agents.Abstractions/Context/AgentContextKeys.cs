@@ -1,7 +1,8 @@
 namespace Aevatar.Agents.Abstractions.Context;
 
 /// <summary>
-/// Well-known agent context keys used across the framework.
+/// Well-known agent context keys provided by the framework.
+/// These are commonly used keys - business can define additional keys as needed.
 /// </summary>
 public static class AgentContextKeys
 {
@@ -50,10 +51,10 @@ public static class AgentContextKeys
         new("TenantId");
 
     /// <summary>
-    /// Allowlist of keys that should be propagated through EventEnvelope.
-    /// Only these keys will be serialized for performance and security.
+    /// Names of well-known keys provided by the framework.
+    /// Used for Orleans RequestContext enumeration (not a propagation filter).
     /// </summary>
-    public static readonly HashSet<string> AllowedPropagationKeys = new()
+    public static readonly IReadOnlyList<string> WellKnownKeyNames = new[]
     {
         "CorrelationId",
         "UserId",

@@ -148,14 +148,14 @@ public class AgentContextPropagatorTests
         receivedContext.Get(AgentContextKeys.IsCN).ShouldBe(false);
     }
 
-    [Fact(DisplayName = "Should only propagate allowlisted keys")]
-    public void Should_Only_Propagate_Allowlisted_Keys()
+    [Fact(DisplayName = "Should propagate all keys by default")]
+    public void Should_Propagate_All_Keys_By_Default()
     {
         // Arrange
         var accessor = new AsyncLocalAgentContextAccessor();
         var context = new AsyncLocalAgentContext();
         context.Set(AgentContextKeys.UserId, "user123");
-        context.Set("CustomKey", "custom-value"); // Not in allowlist
+        context.Set("CustomKey", "custom-value");
         accessor.Context = context;
 
         var propagator = new AgentContextPropagator(accessor);
@@ -164,8 +164,52 @@ public class AgentContextPropagatorTests
         // Act
         propagator.InjectContext(envelope);
 
+        // Assert - All keys propagated by default
+        envelope.ContextMetadata.ShouldContainKey("UserId");
+        envelope.ContextMetadata.ShouldContainKey("CustomKey");
+    }
+
+    [Fact(DisplayName = "Should only propagate allowlisted keys when configured")]
+    public void Should_Only_Propagate_Allowlisted_Keys_When_Configured()
+    {
+        // Arrange
+        var accessor = new AsyncLocalAgentContextAccessor();
+        var context = new AsyncLocalAgentContext();
+        context.Set(AgentContextKeys.UserId, "user123");
+        context.Set("CustomKey", "custom-value"); // Not in allowlist
+        accessor.Context = context;
+
+        var options = new AgentContextPropagationOptions().Allow("UserId");
+        var propagator = new AgentContextPropagator(accessor, options);
+        var envelope = new EventEnvelope();
+
+        // Act
+        propagator.InjectContext(envelope);
+
         // Assert
         envelope.ContextMetadata.ShouldContainKey("UserId");
         envelope.ContextMetadata.ShouldNotContainKey("CustomKey");
+    }
+
+    [Fact(DisplayName = "Should respect denied keys")]
+    public void Should_Respect_Denied_Keys_In_Propagator()
+    {
+        // Arrange
+        var accessor = new AsyncLocalAgentContextAccessor();
+        var context = new AsyncLocalAgentContext();
+        context.Set(AgentContextKeys.UserId, "user123");
+        context.Set("SensitiveKey", "secret");
+        accessor.Context = context;
+
+        var options = new AgentContextPropagationOptions().Deny("SensitiveKey");
+        var propagator = new AgentContextPropagator(accessor, options);
+        var envelope = new EventEnvelope();
+
+        // Act
+        propagator.InjectContext(envelope);
+
+        // Assert
+        envelope.ContextMetadata.ShouldContainKey("UserId");
+        envelope.ContextMetadata.ShouldNotContainKey("SensitiveKey");
     }
 }
