@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions.Context;
+using Aevatar.Agents.Core.Context;
 using Orleans.Runtime;
 
 namespace Aevatar.Agents.Runtime.Orleans.Context;
@@ -9,15 +10,19 @@ namespace Aevatar.Agents.Runtime.Orleans.Context;
 /// </summary>
 public class OrleansAgentContextBridge : IAgentContext
 {
-    // Track keys that have been set through this bridge for GetAll() enumeration
-    private readonly HashSet<string> _trackedKeys = new();
-    private readonly object _lock = new();
-
     /// <inheritdoc />
     public T? Get<T>(AgentContextKey<T> key)
     {
         var value = RequestContext.Get(key.Name);
-        return value is T typedValue ? typedValue : key.DefaultValue;
+        if (value is null)
+            return key.DefaultValue;
+
+        if (value is T typedValue)
+            return typedValue;
+
+        return AgentContextValueConverter.TryConvert(value, out T converted)
+            ? converted
+            : key.DefaultValue;
     }
 
     /// <inheritdoc />
@@ -32,7 +37,6 @@ public class OrleansAgentContextBridge : IAgentContext
         if (value != null)
         {
             RequestContext.Set(key.Name, value);
-            TrackKey(key.Name);
         }
         else
         {
@@ -46,7 +50,6 @@ public class OrleansAgentContextBridge : IAgentContext
         if (value != null)
         {
             RequestContext.Set(key, value);
-            TrackKey(key);
         }
         else
         {
@@ -57,58 +60,24 @@ public class OrleansAgentContextBridge : IAgentContext
     /// <inheritdoc />
     public void Remove(string key)
     {
-        // Orleans RequestContext doesn't have a remove method,
-        // use an empty string marker to indicate removal
-        RequestContext.Set(key, string.Empty);
-        UntrackKey(key);
+        RequestContext.Remove(key);
     }
 
     /// <inheritdoc />
     public void Clear()
     {
-        lock (_lock)
-        {
-            foreach (var key in _trackedKeys)
-            {
-                RequestContext.Set(key, string.Empty);
-            }
-            _trackedKeys.Clear();
-        }
+        RequestContext.Clear();
     }
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, object?> GetAll()
     {
-        // Orleans RequestContext doesn't expose enumeration,
-        // so we return values for tracked keys only
+        // Orleans 9.x 支持枚举 Entries/Keys
         var result = new Dictionary<string, object?>();
-        
-        lock (_lock)
+        foreach (var (key, value) in RequestContext.Entries)
         {
-            foreach (var key in _trackedKeys)
-            {
-                var value = RequestContext.Get(key);
-                if (value != null)
-                {
-                    result[key] = value;
-                }
-            }
+            result[key] = value;
         }
-
-        // Also check well-known keys for Orleans enumeration support
-        foreach (var key in AgentContextKeys.WellKnownKeyNames)
-        {
-            if (!result.ContainsKey(key))
-            {
-                var value = RequestContext.Get(key);
-                if (value != null)
-                {
-                    result[key] = value;
-                    TrackKey(key);
-                }
-            }
-        }
-
         return result;
     }
 
@@ -118,22 +87,6 @@ public class OrleansAgentContextBridge : IAgentContext
         foreach (var (key, value) in entries)
         {
             Set(key, value);
-        }
-    }
-
-    private void TrackKey(string key)
-    {
-        lock (_lock)
-        {
-            _trackedKeys.Add(key);
-        }
-    }
-
-    private void UntrackKey(string key)
-    {
-        lock (_lock)
-        {
-            _trackedKeys.Remove(key);
         }
     }
 }

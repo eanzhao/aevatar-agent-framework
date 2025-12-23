@@ -149,5 +149,43 @@ public class AgentContextScopeTests
         // Assert
         accessor.Context.ShouldBe(originalContext);
     }
+
+    [Fact(DisplayName = "Scope should restore previous values for ambient accessor")]
+    public void Scope_Should_Restore_Previous_Values_For_Ambient_Accessor()
+    {
+        // Arrange - accessor does NOT store context by reference (Orleans-like bridge semantics)
+        var accessor = new AmbientAccessor();
+        accessor.Context!.Set("Key", "PreviousValue");
+
+        var newContext = new AsyncLocalAgentContext();
+        newContext.Set("Key", "NewValue");
+
+        // Act
+        using (new AgentContextScope(accessor, newContext))
+        {
+            accessor.Context!.Get("Key").ShouldBe("NewValue");
+        }
+
+        // Assert - restored by snapshot
+        accessor.Context!.Get("Key").ShouldBe("PreviousValue");
+    }
+
+    private sealed class AmbientAccessor : IAgentContextAccessor
+    {
+        private readonly AsyncLocalAgentContext _ambient = new();
+
+        public IAgentContext? Context
+        {
+            get => _ambient;
+            set
+            {
+                _ambient.Clear();
+                if (value != null)
+                {
+                    _ambient.Import(value.GetAll());
+                }
+            }
+        }
+    }
 }
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Aevatar.Agents.Abstractions.Context;
 
 namespace Aevatar.Agents.Core.Context;
@@ -42,13 +43,18 @@ public static class AgentContextSerializer
 
             var contextValue = ToContextValue(value);
 
-            // Estimate size for limit check
-            var entrySize = key.Length + EstimateSize(contextValue);
-            if (totalBytes + entrySize > options.MaxTotalBytes)
-                break;
+            // ============================================================
+            //  Size limit (bytes)
+            //
+            //  - MaxTotalBytes 是“字节”而不是“字符数”
+            //  - 单个 entry 超限：跳过该 entry，而不是 break 影响后续小 entry
+            // ============================================================
+            var entrySizeBytes = Encoding.UTF8.GetByteCount(key) + contextValue.CalculateSize();
+            if (totalBytes + entrySizeBytes > options.MaxTotalBytes)
+                continue;
 
             result[key] = contextValue;
-            totalBytes += entrySize;
+            totalBytes += entrySizeBytes;
         }
 
         return result;
@@ -155,17 +161,5 @@ public static class AgentContextSerializer
         return Guid.TryParse(guidString, out var g) ? g : guidString;
     }
 
-    private static int EstimateSize(ContextValue value)
-    {
-        return value.ValueCase switch
-        {
-            ContextValue.ValueOneofCase.StringValue => value.StringValue?.Length ?? 0,
-            ContextValue.ValueOneofCase.BoolValue => 1,
-            ContextValue.ValueOneofCase.IntValue => 8,
-            ContextValue.ValueOneofCase.DoubleValue => 8,
-            ContextValue.ValueOneofCase.DatetimeIso => value.DatetimeIso?.Length ?? 0,
-            ContextValue.ValueOneofCase.GuidString => 36,
-            _ => 0
-        };
-    }
+    // NOTE: 字节大小用 protobuf CalculateSize() 精确计算，不再手工估算。
 }

@@ -20,6 +20,8 @@ public readonly struct AgentContextScope : IDisposable
 {
     private readonly IAgentContextAccessor? _accessor;
     private readonly IAgentContext? _previous;
+    private readonly IReadOnlyDictionary<string, object?>? _previousSnapshot;
+    private readonly bool _restoreByReference;
     private readonly bool _hasScope;
 
     /// <summary>
@@ -31,7 +33,9 @@ public readonly struct AgentContextScope : IDisposable
     {
         _accessor = accessor ?? throw new ArgumentNullException(nameof(accessor));
         _previous = accessor.Context;
+        _previousSnapshot = _previous?.GetAll();
         _accessor.Context = newContext;
+        _restoreByReference = ReferenceEquals(_accessor.Context, newContext);
         _hasScope = true;
     }
 
@@ -42,6 +46,8 @@ public readonly struct AgentContextScope : IDisposable
     {
         _accessor = null;
         _previous = null;
+        _previousSnapshot = null;
+        _restoreByReference = false;
         _hasScope = hasScope;
     }
 
@@ -56,7 +62,31 @@ public readonly struct AgentContextScope : IDisposable
     {
         if (_hasScope && _accessor != null)
         {
-            _accessor.Context = _previous;
+            // ============================================================
+            //  Restore semantics
+            //
+            //  - AsyncLocal accessor: restore previous context instance by reference
+            //  - Orleans accessor(bridge): accessor.Context won't equal newContext, must restore by snapshot
+            // ============================================================
+            if (_restoreByReference)
+            {
+                _accessor.Context = _previous;
+                return;
+            }
+
+            if (_previous == null)
+            {
+                _accessor.Context = null;
+                return;
+            }
+
+            // Snapshot restore: apply previous entries as a whole
+            var snapshotContext = new AsyncLocalAgentContext();
+            if (_previousSnapshot != null)
+            {
+                snapshotContext.Import(_previousSnapshot);
+            }
+            _accessor.Context = snapshotContext;
         }
     }
 }

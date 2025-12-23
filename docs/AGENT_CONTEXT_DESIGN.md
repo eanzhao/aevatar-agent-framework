@@ -54,7 +54,8 @@ AgentContextKeys.IsCN           // AgentContextKey<bool>, default: false
 public static class MyContextKeys
 {
     public static readonly AgentContextKey<string> OrderId = new("OrderId");
-    public static readonly AgentContextKey<decimal> Amount = new("Amount");
+    // NOTE: 金额类数据建议用最小货币单位(long)跨边界传播，避免 decimal/浮点跨语言语义差异
+    public static readonly AgentContextKey<long> AmountCents = new("AmountCents");
 }
 ```
 
@@ -198,10 +199,13 @@ message EventEnvelope {
 | string | `string_value` | Direct mapping |
 | bool | `bool_value` | Direct mapping |
 | int/long | `int_value` | int64 |
-| float/double | `double_value` | double |
+| float/double | `double_value` | float 会退化为 double |
 | DateTime | `datetime_iso` | ISO8601 string |
 | Guid | `guid_string` | "D" format |
 | Others | `string_value` | ToString() fallback |
+
+> 说明：`ContextValue` 使用 `int64/double` 承载数值，反序列化后可能出现类型退化（例如 `int -> long`、`float -> double`）。
+> 框架在 `Get<T>` 时会做 best-effort 转换，但如果你追求“零歧义”，跨边界请优先使用 `long/double/string`。
 
 ## Migration from Orleans RequestContext
 
@@ -228,4 +232,4 @@ var value = context.Get(AgentContextKeys.IsCN);
 
 ---
 
-*Last updated: 2024-12 | .NET 10 | Aevatar Agent Framework*
+*Last updated: 2025-12 | .NET 10 | Aevatar Agent Framework*

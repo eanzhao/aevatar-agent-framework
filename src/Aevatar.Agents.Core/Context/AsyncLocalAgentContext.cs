@@ -14,8 +14,15 @@ public class AsyncLocalAgentContext : IAgentContext
     /// <inheritdoc />
     public T? Get<T>(AgentContextKey<T> key)
     {
-        return _data.TryGetValue(key.Name, out var value) && value is T typedValue
-            ? typedValue
+        if (!_data.TryGetValue(key.Name, out var value) || value is null)
+            return key.DefaultValue;
+
+        if (value is T typedValue)
+            return typedValue;
+
+        // 兼容跨边界后的类型退化 (int->long, float->double, etc.)
+        return AgentContextValueConverter.TryConvert(value, out T converted)
+            ? converted
             : key.DefaultValue;
     }
 

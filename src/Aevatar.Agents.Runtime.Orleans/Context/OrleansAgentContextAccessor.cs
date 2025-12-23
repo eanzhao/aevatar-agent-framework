@@ -17,18 +17,19 @@ public class OrleansAgentContextAccessor : IAgentContextAccessor
         get => GetOrCreateBridge();
         set
         {
-            // When setting context, sync values to Orleans RequestContext
-            if (value != null)
+            // NOTE:
+            // - 这里的语义必须是“替换”(replace)而不是“合并”(merge)，否则 scope 恢复会残留旧 key。
+            // - value == null 代表清空当前上下文。
+            var bridge = GetOrCreateBridge();
+
+            if (value == null)
             {
-                var bridge = GetOrCreateBridge();
-                foreach (var (key, val) in value.GetAll())
-                {
-                    if (val != null)
-                    {
-                        bridge.Set(key, val);
-                    }
-                }
+                bridge.Clear();
+                return;
             }
+
+            bridge.Clear();
+            bridge.Import(value.GetAll());
         }
     }
 

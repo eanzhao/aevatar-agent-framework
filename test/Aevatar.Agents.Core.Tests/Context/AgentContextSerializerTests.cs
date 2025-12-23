@@ -384,4 +384,73 @@ public class AgentContextSerializerTests
         serialized.ShouldContainKey("CustomObject");
         serialized["CustomObject"].ValueCase.ShouldBe(ContextValue.ValueOneofCase.StringValue);
     }
+
+    [Fact(DisplayName = "Typed keys should round-trip with numeric conversions")]
+    public void Typed_Keys_Should_Round_Trip_With_Numeric_Conversions()
+    {
+        // Arrange
+        var countKey = new AgentContextKey<int>("Count", -1);
+        var floatKey = new AgentContextKey<float>("FloatValue", -1f);
+
+        var originalContext = new AsyncLocalAgentContext();
+        originalContext.Set(countKey, 42);
+        originalContext.Set(floatKey, 3.14f);
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(originalContext);
+        var restoredContext = new AsyncLocalAgentContext();
+        AgentContextSerializer.Deserialize(serialized, restoredContext);
+
+        // Assert
+        restoredContext.Get(countKey).ShouldBe(42);
+        restoredContext.Get(floatKey).ShouldBe(3.14f, 0.01f);
+    }
+
+    [Fact(DisplayName = "MaxTotalBytes should skip oversized entry and continue")]
+    public void MaxTotalBytes_Should_Skip_Oversized_Entry_And_Continue()
+    {
+        // Arrange - deterministic ordering: big first, small second
+        var context = new OrderedContext()
+            .Add("Big", new string('x', 10_000))
+            .Add("Small", "ok");
+
+        var options = new AgentContextPropagationOptions
+        {
+            MaxKeys = 32,
+            MaxTotalBytes = 128
+        };
+
+        // Act
+        var serialized = AgentContextSerializer.Serialize(context, options);
+
+        // Assert
+        serialized.ShouldNotContainKey("Big");
+        serialized.ShouldContainKey("Small");
+    }
+
+    private sealed class OrderedContext : IAgentContext
+    {
+        private readonly List<KeyValuePair<string, object?>> _entries = new();
+
+        public OrderedContext Add(string key, object? value)
+        {
+            _entries.Add(new KeyValuePair<string, object?>(key, value));
+            return this;
+        }
+
+        public T? Get<T>(AgentContextKey<T> key) => throw new NotSupportedException();
+        public object? Get(string key) => throw new NotSupportedException();
+        public void Set<T>(AgentContextKey<T> key, T value) => throw new NotSupportedException();
+        public void Set(string key, object? value) => throw new NotSupportedException();
+        public void Remove(string key) => throw new NotSupportedException();
+        public void Clear() => throw new NotSupportedException();
+
+        public IReadOnlyDictionary<string, object?> GetAll()
+        {
+            // Keep insertion order (Dictionary preserves insertion order in modern .NET)
+            return _entries.ToDictionary(x => x.Key, x => x.Value);
+        }
+
+        public void Import(IReadOnlyDictionary<string, object?> entries) => throw new NotSupportedException();
+    }
 }
