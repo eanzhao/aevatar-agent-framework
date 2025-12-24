@@ -50,7 +50,6 @@ public class CustomerSupportAgent : AevatarAIAgentBase<CustomerSupportState>
 services.AddSingleton<IAevatarLLMProvider, SemanticKernelProvider>();
 services.AddSingleton<IAevatarPromptManager, FilePromptManager>();
 services.AddSingleton<IAevatarToolManager, AevatarToolManager>();
-services.AddSingleton<IAevatarMemory, InMemoryAIMemory>();
 ```
 
 ### 3. Initialize and Run
@@ -74,7 +73,6 @@ await agent.InitializeAIAsync(
 - **`IAevatarLLMProvider`**: Abstraction for LLM backends
 - **`IAevatarPromptManager`**: Template and prompt management
 - **`IAevatarToolManager`**: Tool/function management
-- **`IAevatarMemory`**: Multi-tier memory system
 
 ### Processing Modes
 
@@ -106,23 +104,6 @@ var sqlTool = new AevatarTool
 };
 
 await toolManager.RegisterToolAsync(sqlTool);
-```
-
-### Memory Management
-
-```csharp
-// Store long-term memory
-await memory.StoreMemoryAsync(new AevatarMemoryItem
-{
-    Content = "Customer prefers email communication",
-    Tags = new[] { "customer", "preferences" },
-    Importance = 0.8
-});
-
-// Recall relevant memories
-var memories = await memory.RecallAsync(
-    "How does the customer prefer to be contacted?",
-    new AevatarRecallOptions { TopK = 3, Threshold = 0.7 });
 ```
 
 ### Prompt Templates

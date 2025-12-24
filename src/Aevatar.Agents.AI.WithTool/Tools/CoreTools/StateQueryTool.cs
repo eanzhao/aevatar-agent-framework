@@ -8,8 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Tools.CoreTools;
 
 /// <summary>
-/// 状态查询工具实现
-/// 用于查询Agent状态信息
+/// State query tool implementation
+/// Used to query Agent state information
 /// </summary>
 public class StateQueryTool : AevatarToolBase
 {
@@ -64,7 +64,7 @@ public class StateQueryTool : AevatarToolBase
         ILogger? logger,
         CancellationToken cancellationToken)
     {
-        // 验证参数
+        // Validate parameters
         var validation = ValidateParameters(ToNullableParameters(parameters));
         if (!validation.IsValid)
         {
@@ -121,15 +121,15 @@ public class StateQueryTool : AevatarToolBase
     }
     
     /// <summary>
-    /// 验证路径格式
+    /// Validate path format
     /// </summary>
     public static bool IsValidJsonPath(string? path)
     {
         if (string.IsNullOrEmpty(path))
             return true;
         
-        // 简单的路径格式验证
-        // 支持: $, $.field, $.field[0], $.nested.field
+        // Simple path format validation
+        // Supports: $, $.field, $.field[0], $.nested.field
         return path.StartsWith("$") || 
                path.StartsWith(".") || 
                !path.Contains(" ");

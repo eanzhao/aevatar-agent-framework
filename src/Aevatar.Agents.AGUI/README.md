@@ -5,7 +5,7 @@ AG-UI (Agent UI) 事件模型与“消息快照”工具。
 ## 包含内容
 
 - **`AgUiEvents.cs`**：AG-UI 事件类型（RUN/STEP/TEXT/STATE/MESSAGES/CUSTOM）
-- **`AgUiBootstrap.cs`**：从多个 Actor 的 `AevatarAIAgentState.History`（可选 AIMemory）收集 **assistant 完整消息快照**
+- **`AgUiBootstrap.cs`**：从多个 Actor 的 `AevatarAIAgentState.History` 收集 **assistant 完整消息快照**
 
 ## API
 
@@ -29,7 +29,6 @@ public static class AgUiBootstrap
 {
     public static Task<IReadOnlyList<AgUiMessage>> CollectAssistantMessagesAsync(
         IGAgentActorManager actorManager,
-        IAevatarAIMemoryFactory? memoryFactory,
         IReadOnlyList<AgUiActor> actors,
         AgUiMessageSnapshotOptions options,
         CancellationToken ct = default);
@@ -52,7 +51,6 @@ var actors = new List<AgUiActor>
 
 var messages = await AgUiBootstrap.CollectAssistantMessagesAsync(
     actorManager,
-    memoryFactory,
     actors,
     new AgUiMessageSnapshotOptions
     {

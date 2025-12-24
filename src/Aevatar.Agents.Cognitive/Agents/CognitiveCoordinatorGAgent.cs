@@ -230,7 +230,6 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
                 worker.EnableChatHistoryCompaction = EnableChatHistoryCompaction;
                 worker.ChatHistoryMaxMessages = ChatHistoryMaxMessages;
                 worker.ChatHistorySummaryMaxChars = ChatHistorySummaryMaxChars;
-                worker.ArchiveCompactedHistoryToAIMemory = ArchiveCompactedHistoryToAIMemory;
 
                 // Initialize Worker's LLM Provider (otherwise Worker.LLMProvider will throw exception)
                 if (!string.IsNullOrWhiteSpace(providerName))

@@ -139,7 +139,6 @@ public abstract class AevatarToolBase : IAevatarTool
             Categories = baseContext.Categories,
             GetStateCallback = baseContext.GetStateCallback,
             PublishEventCallback = baseContext.PublishEventCallback,
-            Memory = baseContext.Memory,
             GetSessionIdCallback = baseContext.GetSessionIdCallback,
             Logger = baseContext.Logger ?? logger,
             Metadata = baseContext.Metadata != null
@@ -152,9 +151,6 @@ public abstract class AevatarToolBase : IAevatarTool
 
         if (!string.IsNullOrWhiteSpace(executionContext.AgentId))
             merged.AgentId = executionContext.AgentId;
-
-        if (executionContext.Memory != null)
-            merged.Memory = executionContext.Memory;
 
         if (executionContext.PublishEventCallback != null)
             merged.PublishEventCallback = executionContext.PublishEventCallback;

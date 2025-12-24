@@ -5,7 +5,6 @@
 - **StateStore**：`SupabaseStateStore<TState>`（Protobuf -> `bytea`）
 - **ConfigStore**：`SupabaseConfigStore<TConfig>`（`jsonb`）
 - **EventRouterStore**：`SupabaseEventRouterStore`（parent/children）
-- **AI Memory**：`SupabaseAIMemoryFactory` / `SupabaseAIMemory`（对话历史 + FTS 搜索）
 
 ### 目录结构
 
@@ -13,7 +12,6 @@
 src/Aevatar.Agents.Persistence.Supabase/
 ├── DependencyInjection/                 # DI 扩展（AddAevatarSupabase + 注册 store）
 ├── Internal/                            # SQL 安全拼接/校验工具
-├── Memory/                              # AI Memory（append-only）
 ├── Options/                             # SupabasePersistenceOptions
 ├── Setup/                               # 自动建表/建索引/权限收紧/RLS
 ├── Stores/                              # StateStore/ConfigStore/EventRouterStore
@@ -46,9 +44,6 @@ services.AddAevatarAgentSystem(options =>
     options.ConfigStoreType = typeof(SupabaseConfigStore<>);
     options.EventRouterStoreType = typeof(SupabaseEventRouterStore);
 });
-
-// 3) 可选：AI Memory
-services.AddSupabaseAIMemory();
 ```
 
 ### 手工部署（SQL 审计友好）

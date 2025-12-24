@@ -52,12 +52,6 @@ public class DefaultToolExecutor : IToolExecutor
             // 发布工具执行事件
             await PublishToolExecutedEventAsync(result, validatedContext, cancellationToken);
             
-            // 记录到内存（如果配置了）
-            if (validatedContext is { RecordToMemory: true, Memory: not null })
-            {
-                await RecordExecutionToMemoryAsync(result, validatedContext, cancellationToken);
-            }
-            
             return result;
         }
         catch (Exception ex)
@@ -168,38 +162,5 @@ public class DefaultToolExecutor : IToolExecutor
         await context.PublishEventCallback(toolEvent);
         
         _logger?.LogDebug("Published tool executed event for {ToolName}", result.ToolName);
-    }
-    
-    /// <summary>
-    /// 记录执行到记忆
-    /// </summary>
-    protected virtual async Task RecordExecutionToMemoryAsync(
-        ToolExecutionResult result,
-        ToolExecutionContext context,
-        CancellationToken cancellationToken)
-    {
-        if (context.Memory == null)
-        {
-            return;
-        }
-        
-        try
-        {
-            var memoryContent = $"Tool '{result.ToolName}' executed " +
-                              $"{(result.IsSuccess ? "successfully" : "with error")}. " +
-                              $"Result: {result.Content ?? result.ErrorMessage ?? "N/A"}";
-            
-            // 使用简化的记忆接口 - 添加为对话记录
-            await context.Memory.AddMessageAsync(
-                "system",
-                memoryContent,
-                cancellationToken);
-            
-            _logger?.LogDebug("Recorded tool execution to memory for {ToolName}", result.ToolName);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to record tool execution to memory");
-        }
     }
 }

@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Tools.CustomTools;
 
 /// <summary>
-/// HTTP请求工具实现示例
-/// 展示如何使用 IAevatarTool 接口创建自定义工具
+/// HTTP request tool implementation example
+/// Demonstrates how to create custom tools using IAevatarTool interface
 /// </summary>
 public class HttpRequestTool : AevatarToolBase
 {
@@ -35,16 +35,16 @@ public class HttpRequestTool : AevatarToolBase
     protected override bool RequiresInternalAccess() => false;
     
     /// <inheritdoc />
-    protected override bool RequiresConfirmation() => true; // 外部请求需要确认
+    protected override bool RequiresConfirmation() => true; // External requests require confirmation
     
     /// <inheritdoc />
     protected override TimeSpan? GetTimeout() => TimeSpan.FromSeconds(30);
     
     /// <inheritdoc />
-    protected override int? GetRateLimit() => 100; // 每分钟最多100次请求
+    protected override int? GetRateLimit() => 100; // Maximum 100 requests per minute
     
     /// <summary>
-    /// 构造函数
+    /// Constructor
     /// </summary>
     public HttpRequestTool(HttpClient? httpClient = null)
     {
@@ -111,7 +111,7 @@ public class HttpRequestTool : AevatarToolBase
         ILogger? logger,
         CancellationToken cancellationToken)
     {
-        // 验证参数
+        // Validate parameters
         var validation = ValidateParameters(ToNullableParameters(parameters));
         if (!validation.IsValid)
         {
@@ -133,10 +133,10 @@ public class HttpRequestTool : AevatarToolBase
             
             logger?.LogInformation("Making HTTP {Method} request to {Url}", method, url);
             
-            // 创建请求
+            // Create request
             using var request = new HttpRequestMessage(new HttpMethod(method), url);
             
-            // 添加headers
+            // Add headers
             if (headers != null)
             {
                 foreach (var header in headers)
@@ -145,28 +145,28 @@ public class HttpRequestTool : AevatarToolBase
                 }
             }
             
-            // 添加body
+            // Add body
             if (!string.IsNullOrEmpty(body) && method != "GET" && method != "HEAD")
             {
                 request.Content = new StringContent(body, System.Text.Encoding.UTF8, contentType);
             }
             
-            // 设置timeout
+            // Set timeout
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
             
-            // 发送请求
+            // Send request
             var response = await _httpClient.SendAsync(request, 
                 followRedirects ? HttpCompletionOption.ResponseContentRead : HttpCompletionOption.ResponseHeadersRead, 
                 cts.Token);
             
-            // 读取响应
+            // Read response
             var responseBody = await response.Content.ReadAsStringAsync(cts.Token);
             var responseHeaders = response.Headers.ToDictionary(
                 h => h.Key, 
                 h => string.Join(", ", h.Value));
             
-            // 尝试解析JSON响应
+            // Try to parse JSON response
             object? parsedBody = responseBody;
             if (response.Content.Headers.ContentType?.MediaType?.Contains("json") == true)
             {
@@ -176,7 +176,7 @@ public class HttpRequestTool : AevatarToolBase
                 }
                 catch
                 {
-                    // 保持为字符串
+                    // Keep as string
                 }
             }
             
@@ -225,7 +225,7 @@ public class HttpRequestTool : AevatarToolBase
     {
         var result = base.ValidateParameters(parameters);
         
-        // 验证URL
+        // Validate URL
         if (parameters.TryGetValue("url", out var url))
         {
             var urlStr = url?.ToString();
@@ -241,7 +241,7 @@ public class HttpRequestTool : AevatarToolBase
             }
         }
         
-        // 验证timeout
+        // Validate timeout
         if (parameters.TryGetValue("timeout", out var timeout))
         {
             var timeoutInt = Convert.ToInt32(timeout);
@@ -268,7 +268,7 @@ public class HttpRequestTool : AevatarToolBase
                 kvp => kvp.Value?.ToString() ?? "");
         }
         
-        // 尝试从JSON解析
+        // Try to parse from JSON
         try
         {
             var json = JsonSerializer.Serialize(headers);
@@ -283,7 +283,7 @@ public class HttpRequestTool : AevatarToolBase
     private static TimeSpan ParseTimeout(object? value)
     {
         var seconds = Convert.ToInt32(value ?? 30);
-        // 限制在 5-120 秒
+        // Limit to 5-120 seconds
         seconds = Math.Max(5, Math.Min(120, seconds));
         return TimeSpan.FromSeconds(seconds);
     }

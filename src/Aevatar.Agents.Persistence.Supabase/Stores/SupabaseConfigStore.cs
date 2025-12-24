@@ -10,11 +10,11 @@ using NpgsqlTypes;
 namespace Aevatar.Agents.Persistence.Supabase.Stores;
 
 /// <summary>
-/// Supabase(Postgres) ConfigStore 实现：
-/// - 以 jsonb 存储配置对象
-/// - 用 (config_type, agent_type, agent_id) 做主键，实现隔离与幂等 upsert
+/// Supabase(Postgres) ConfigStore implementation:
+/// - Stores configuration objects as jsonb
+/// - Uses (config_type, agent_type, agent_id) as primary key to achieve isolation and idempotent upsert
 /// </summary>
-/// <typeparam name="TConfig">配置类型</typeparam>
+/// <typeparam name="TConfig">Configuration type</typeparam>
 public sealed class SupabaseConfigStore<TConfig> : IConfigStore<TConfig>
     where TConfig : class, new()
 {
@@ -60,7 +60,7 @@ public sealed class SupabaseConfigStore<TConfig> : IConfigStore<TConfig>
             return null;
         }
 
-        // Npgsql 对 jsonb 常见返回：string / JsonDocument / JsonElement。
+        // Common Npgsql jsonb return types: string / JsonDocument / JsonElement.
         var json = result switch
         {
             string s => s,

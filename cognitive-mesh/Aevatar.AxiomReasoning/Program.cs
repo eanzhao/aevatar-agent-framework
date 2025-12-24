@@ -101,11 +101,10 @@ builder.Services.AddCognitiveAgents();
 builder.Services.AddSingleton<Aevatar.CognitiveMesh.Strategies.CognitiveStrategy>();
 
 // ─────────────────────────────────────────────────────────────
-//  Optional: MongoDB persistence (StateStore + AIMemory)
+//  Optional: MongoDB persistence (StateStore)
 //
 //  WHY:
 //  - State.History must survive process restart to support truly stateless frontend.
-//  - AIMemory provides a long-term append-only log for full conversation recovery.
 // ─────────────────────────────────────────────────────────────
 var mongoConn =
     builder.Configuration["MongoDB:ConnectionString"] ??
@@ -121,7 +120,6 @@ if (!string.IsNullOrWhiteSpace(mongoConn))
 {
     builder.Services.AddAevatarMongoDB(mongoConn!, mongoDb);
     builder.Services.AddMongoDBStateStore<AevatarAIAgentState>();
-    builder.Services.AddMongoDBAIMemory();
 }
 
 // ─────────────────────────────────────────────────────────────

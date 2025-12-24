@@ -20,35 +20,35 @@ using Orleans.Streams;
 namespace Aevatar.Agents.Runtime.Orleans;
 
 /// <summary>
-/// Orleans Grain 状态存储模型
-/// 包含 Agent 元数据（不含业务状态），由 Orleans GrainStorage 自动持久化
+/// Orleans Grain state storage model
+/// Contains Agent metadata (excluding business state), automatically persisted by Orleans GrainStorage
 /// 
-/// Note: 业务状态（Snapshot）现在由 IStateStore&lt;TState&gt; 处理，
-/// 存储在按类型分表的 MongoDB 集合中（agent_states_{StateType}）
+/// Note: Business state (Snapshot) is now handled by IStateStore&lt;TState&gt;,
+/// stored in MongoDB collections partitioned by type (agent_states_{StateType})
 /// </summary>
 [GenerateSerializer]
 public class OrleansAgentState
 {
     /// <summary>
-    /// Agent 类型名（程序集限定名）
+    /// Agent type name (assembly-qualified name)
     /// </summary>
     [Id(0)]
     public string? AgentTypeName { get; set; }
 
     /// <summary>
-    /// Agent 的唯一标识
+    /// Agent's unique identifier
     /// </summary>
     [Id(1)]
     public string AgentId { get; set; } = string.Empty;
 
     /// <summary>
-    /// 父节点 ID
+    /// Parent node ID
     /// </summary>
     [Id(2)]
     public string? ParentId { get; set; }
 
     /// <summary>
-    /// 子节点 ID 列表
+    /// Child node ID list
     /// </summary>
     [Id(3)]
     public List<string> Children { get; set; } = new();
@@ -63,28 +63,28 @@ public class OrleansAgentState
 }
 
 /// <summary>
-/// Orleans GAgent Grain - Agent 业务逻辑在 Silo 内执行
+/// Orleans GAgent Grain - Agent business logic executes within Silo
 /// 
-/// 职责:
-/// 1. 在 Silo 内创建和持有 Agent 实例
-/// 2. 在 Silo 内执行 Agent 业务逻辑 (HandleEventAsync)
-/// 3. 存储层级关系 (Parent/Children)
-/// 4. 管理 Orleans Streams 订阅
+/// Responsibilities:
+/// 1. Create and hold Agent instances within Silo
+/// 2. Execute Agent business logic within Silo (HandleEventAsync)
+/// 3. Store hierarchy relationships (Parent/Children)
+/// 4. Manage Orleans Streams subscriptions
 /// </summary>
 public class OrleansGAgentGrain : Grain, IGAgentGrain
 {
-    // Grain 持久化状态
+    // Grain persistent state
     private readonly IPersistentState<OrleansAgentState> _grainState;
 
-    // Agent 实例 - 在 Silo 内创建和执行
+    // Agent instance - created and executed within Silo
     private IGAgent? _agent;
     private bool _isInitialized;
 
-    // Unified Message Stream (可以是 Orleans Stream 或 MassTransit Stream)
+    // Unified Message Stream (can be Orleans Stream or MassTransit Stream)
     private IMessageStream? _myStream;
     private IMessageStreamSubscription? _streamSubscription;
 
-    // Stream Factory - 统一管理 Stream 创建逻辑
+    // Stream Factory - unified management of Stream creation logic
     private OrleansStreamFactory? _streamFactory;
 
     // Logger
@@ -106,12 +106,12 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
         _logger.LogInformation("🚀 Activating OrleansGAgentGrain {GrainId}", this.GetGrainId());
 
-        // Initialize Stream Factory - 统一管理 Orleans/MassTransit Stream 选择逻辑
-        // Factory 会从 DI 获取 IMessageStreamProvider (MassTransit) 和配置
+        // Initialize Stream Factory - unified management of Orleans/MassTransit Stream selection logic
+        // Factory will get IMessageStreamProvider (MassTransit) and configuration from DI
         _streamFactory = ServiceProvider.GetService<OrleansStreamFactory>()
             ?? ActivatorUtilities.CreateInstance<OrleansStreamFactory>(ServiceProvider);
 
-        // Initialize Stream (根据配置选择 Orleans Stream 或 MassTransit)
+        // Initialize Stream (select Orleans Stream or MassTransit based on configuration)
         await InitializeStreamAsync();
 
         // Restore Agent if previously initialized
@@ -160,8 +160,8 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     }
 
     /// <summary>
-    /// Initialize Stream - 根据配置选择 Orleans Stream 或 MassTransit Stream
-    /// 与 LocalGAgentActor 保持一致的配置驱动模式
+    /// Initialize Stream - select Orleans Stream or MassTransit Stream based on configuration
+    /// Maintains consistent configuration-driven pattern with LocalGAgentActor
     /// 
     /// StreamId format: Full GrainKey (AgentTypeShortName:AgentId)
     /// This ensures consistency with Client Actor stream addressing.
@@ -179,7 +179,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             // Use full GrainKey as StreamId for consistency with Client Actor
             var grainKey = this.GetPrimaryKeyString();
 
-            // 使用 Factory 统一创建 Stream (自动选择 Orleans/MassTransit)
+            // Use Factory to create Stream uniformly (automatically selects Orleans/MassTransit)
             // Use full GrainKey (AgentType:AgentId) as streamId
             _myStream = await _streamFactory.CreateStreamAsync(
                 grainKey,  // Full GrainKey format: AgentTypeShortName:AgentId
@@ -212,11 +212,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// <summary>
     /// Send event to target Agent via Stream (non-blocking, async)
     /// 
-    /// 优势（相比 RPC）：
-    /// 1. 非阻塞：发送后立即返回，不等待目标处理
-    /// 2. 顺序保证：Kafka 分区内消息顺序有保证
-    /// 3. 解耦：发送者和接收者完全解耦
-    /// 4. 弹性：接收者不可用时消息在队列中缓存
+    /// Advantages (compared to RPC):
+    /// 1. Non-blocking: Returns immediately after sending, doesn't wait for target processing
+    /// 2. Order guarantee: Message order is guaranteed within Kafka partitions
+    /// 3. Decoupling: Sender and receiver are completely decoupled
+    /// 4. Resilience: Messages are cached in queue when receiver is unavailable
     /// </summary>
     private async Task SendEventToStreamAsync(string targetAgentId, EventEnvelope envelope, CancellationToken ct)
     {
@@ -242,7 +242,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
     /// <summary>
     /// Get target Agent's stream
-    /// 使用 Factory 统一创建（自动选择 MassTransit 或 Orleans Stream）
+    /// Use Factory to create uniformly (automatically selects MassTransit or Orleans Stream)
     /// </summary>
     private IMessageStream? GetTargetStream(string targetAgentId)
     {
@@ -263,7 +263,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 agentCategory = targetAgentId.Substring(0, colonIndex);
             }
             
-            // 使用 Factory 创建目标 Agent 的 Stream (同步获取，因为 Factory.CreateStreamAsync 本质上是同步的)
+            // Use Factory to create target Agent's Stream (synchronous get, because Factory.CreateStreamAsync is essentially synchronous)
             return _streamFactory.CreateStreamAsync(targetAgentId, agentCategory, this.GetStreamProvider).GetAwaiter().GetResult();
         }
         catch (Exception ex)
@@ -276,7 +276,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// <summary>
     /// Propagate event to Parent/Children based on Direction via Stream (non-blocking)
     /// 
-    /// 所有传播都通过 Stream 完成，不使用 RPC，避免阻塞
+    /// All propagation is done through Stream, no RPC used, avoiding blocking
     /// </summary>
     private async Task PropagateEventAsync(EventEnvelope envelope, CancellationToken ct)
     {
@@ -289,7 +289,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
                 await SendToParentViaStreamAsync(envelope, ct);
                 break;
             case EventDirection.Both:
-                // 并行发送，不等待
+                // Send in parallel, don't wait
                 var downTask = SendToChildrenViaStreamAsync(envelope, ct);
                 var upTask = SendToParentViaStreamAsync(envelope, ct);
                 await Task.WhenAll(downTask, upTask);
@@ -331,14 +331,14 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     public Task<bool> InitializeAgentAsync(string agentTypeName)
     {
         // ============================================================
-        //  AgentId 统一规范（对齐 docs/AGENT_ID_GUIDE.md）
+        //  AgentId unified specification (aligned with docs/AGENT_ID_GUIDE.md)
         //
-        //  Orleans GrainKey / StreamKey 统一使用完整 ActorId：
+        //  Orleans GrainKey / StreamKey uniformly use full ActorId:
         //    "AgentTypeShortName:RawId"
         //
         //  WHY:
-        //  - 仅使用 RawId 会导致跨类型冲突（同 RawId 不同 AgentType 会复用同一个 Grain）
-        //  - PublisherId / self-handling / StreamKey 必须一致，否则会出现“自发事件无法识别为 self”的隐性 bug
+        //  - Using only RawId causes cross-type conflicts (same RawId with different AgentType would reuse the same Grain)
+        //  - PublisherId / self-handling / StreamKey must be consistent, otherwise there will be hidden bugs like "self-published events cannot be recognized as self"
         // ============================================================
         var grainKey = this.GetPrimaryKeyString();
         var actorId = NormalizeActorId(agentTypeName, grainKey);
@@ -533,7 +533,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         }
 
         // Inject EventPublisher (Grain acts as the publisher)
-        // 支持广播传播和点对点发送 (全部通过 Stream，非阻塞)
+        // Supports broadcast propagation and point-to-point sending (all through Stream, non-blocking)
         AgentEventPublisherInjector.InjectEventPublisher(agent, new GrainEventPublisher(this, _myStream, _streamFactory, _logger));
 
         // Inject ActorFactory (for Agents that need to create child Agents)
@@ -590,11 +590,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// <summary>
     /// Handle event - Execute business logic in Silo and route based on Direction
     /// 
-    /// 事件流处理流程:
-    /// 1. Agent 处理事件 (唯一调用点)
-    /// 2. 根据 Direction 传播到 Parent/Children (通过 Stream，非阻塞)
-    ///    - 有子节点才发 Down
-    ///    - 有父节点才发 Up
+    /// Event flow processing:
+    /// 1. Agent processes event (single call point)
+    /// 2. Propagate to Parent/Children based on Direction (via Stream, non-blocking)
+    ///    - Send Down only if there are child nodes
+    ///    - Send Up only if there is a parent node
     /// </summary>
     public async Task HandleEventAsync(byte[] envelopeBytes)
     {
@@ -616,11 +616,11 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _logger.LogInformation("🔥 Grain {GrainId} handling event {EventId} with Direction {Direction}", 
                 this.GetGrainId(), envelope.Id, envelope.Direction);
 
-            // ✅ Step 1: Execute business logic in Silo (唯一调用点)
+            // ✅ Step 1: Execute business logic in Silo (single call point)
             await _agent.HandleEventAsync(envelope, CancellationToken.None);
             
-            // ✅ Step 2: Direction-based propagation via Stream (非阻塞)
-            // 只有当有订阅者（Parent/Children）时才传播
+            // ✅ Step 2: Direction-based propagation via Stream (non-blocking)
+            // Propagate only when there are subscribers (Parent/Children)
             await PropagateEventAsync(envelope, CancellationToken.None);
         }
         catch (Exception ex)
@@ -633,9 +633,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
     /// <summary>
     /// Stream callback - Handle events from Stream (MassTransit/Orleans Stream)
     /// 
-    /// 用于接收来自 Stream 的事件：
-    /// 1. 外部系统的事件输入 (如 MassTransit Kafka)
-    /// 2. 其他 Agent 通过 Stream 发送的事件
+    /// Used to receive events from Stream:
+    /// 1. Event input from external systems (e.g., MassTransit Kafka)
+    /// 2. Events sent by other Agents via Stream
     /// </summary>
     private async Task OnStreamEventReceivedAsync(EventEnvelope envelope)
     {
@@ -647,7 +647,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 
         try
         {
-            // 跳过自己发布的事件 (避免重复处理)
+            // Skip self-published events (avoid duplicate processing)
             var grainKey = this.GetPrimaryKeyString();
             if (envelope.PublisherId == grainKey)
             {
@@ -659,10 +659,10 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
             _logger.LogDebug("Grain {GrainId} processing external event {EventId} from stream", 
                 this.GetGrainId(), envelope.Id);
 
-            // 外部事件：执行业务逻辑并传播
+            // External event: execute business logic and propagate
             await _agent.HandleEventAsync(envelope, CancellationToken.None);
             
-            // 如果有 Direction，继续传播
+            // If there is Direction, continue propagation
             await PropagateEventAsync(envelope, CancellationToken.None);
         }
         catch (Exception ex)
@@ -680,7 +680,7 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
         var grainKey = this.GetPrimaryKeyString();
         try
         {
-            // 与 Actor.Id / StreamId 对齐：返回完整 ActorId（"Type:RawId"）
+            // Align with Actor.Id / StreamId: return full ActorId ("Type:RawId")
             return Task.FromResult(NormalizeActorId(_grainState.State.AgentTypeName ?? string.Empty, grainKey));
         }
         catch (Exception ex)
@@ -766,9 +766,9 @@ public class OrleansGAgentGrain : Grain, IGAgentGrain
 /// <summary>
 /// IEventPublisher implementation for Grain
 /// 
-/// 支持两种发送方式 (全部通过 Stream，非阻塞):
-/// 1. 广播传播: PublishEventAsync(event, Direction) - 基于层级关系
-/// 2. 点对点:   SendToAsync(targetId, event) - 直接发给指定 Agent
+/// Supports two sending methods (all through Stream, non-blocking):
+/// 1. Broadcast propagation: PublishEventAsync(event, Direction) - based on hierarchy relationships
+/// 2. Point-to-point: SendToAsync(targetId, event) - directly to specified Agent
 /// </summary>
 internal class GrainEventPublisher : IEventPublisher
 {
@@ -828,7 +828,7 @@ internal class GrainEventPublisher : IEventPublisher
     }
 
     /// <summary>
-    /// 点对点发送 - 直接发送到指定 Agent 的 Stream (非阻塞)
+    /// Point-to-point send - directly send to specified Agent's Stream (non-blocking)
     /// </summary>
     public async Task<string> SendToAsync<TEvent>(
         string targetAgentId,

@@ -39,7 +39,7 @@ async function refreshInfo() {
   try {
     const info = await fetchJson("/api/info");
     if (info.isReady) {
-      setBadge(true, `ready · ${info.memoryStore} · ${info.llmDefaultProvider} · ${info.agentId.slice(0, 10)}…`);
+      setBadge(true, `ready · ${info.llmDefaultProvider} · ${info.agentId.slice(0, 10)}…`);
     } else {
       setBadge(false, `not ready · ${info.lastError || "initializing..."}`);
     }
@@ -66,9 +66,9 @@ async function refreshState() {
   el("stateBox").textContent = pretty(short);
 }
 
-async function loadLongterm() {
-  const data = await fetchJson("/api/longterm/history?limit=200");
-  el("longtermBox").textContent = pretty(data);
+async function refreshCqrs() {
+  const data = await fetchJson("/api/cqrs/state");
+  el("cqrsBox").textContent = pretty(data);
 }
 
 async function searchMemory() {
@@ -114,8 +114,26 @@ async function sendChat() {
 
     // Auto refresh memory panels after each message
     await refreshState();
+    await refreshCqrs();
   } catch (e) {
     appendMsg("meta", `error: ${e.message}`);
+  }
+}
+
+async function seedDemo() {
+  const text = `seed-keyword: aevatar-cqrs · ts=${new Date().toISOString()}`;
+  appendMsg("meta", `seeding: ${text}`);
+
+  try {
+    await fetchJson("/api/seed", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+
+    await refreshState();
+    await refreshCqrs();
+  } catch (e) {
+    appendMsg("meta", `seed error: ${e.message}`);
   }
 }
 
@@ -125,7 +143,7 @@ async function resetAgent() {
     el("chatLog").innerHTML = "";
     el("stateBox").textContent = "";
     el("summaryBox").textContent = "";
-    el("longtermBox").textContent = "";
+    el("cqrsBox").textContent = "";
     el("searchBox").textContent = "";
     await refreshInfo();
   } catch (e) {
@@ -139,12 +157,14 @@ function wire() {
     if (e.key === "Enter") sendChat();
   });
 
+  el("seedBtn").addEventListener("click", seedDemo);
+
   el("refreshStateBtn").addEventListener("click", async () => {
     try { await refreshState(); } catch (e) { appendMsg("meta", `state error: ${e.message}`); }
   });
 
-  el("loadLongtermBtn").addEventListener("click", async () => {
-    try { await loadLongterm(); } catch (e) { appendMsg("meta", `longterm error: ${e.message}`); }
+  el("refreshCqrsBtn").addEventListener("click", async () => {
+    try { await refreshCqrs(); } catch (e) { appendMsg("meta", `cqrs error: ${e.message}`); }
   });
 
   el("searchBtn").addEventListener("click", async () => {
@@ -163,6 +183,7 @@ async function boot() {
   await refreshInfo();
   try {
     await refreshState();
+    await refreshCqrs();
   } catch {
     // ignore at startup
   }

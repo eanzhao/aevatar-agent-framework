@@ -9,9 +9,9 @@ using NpgsqlTypes;
 namespace Aevatar.Agents.Persistence.Supabase.Stores;
 
 /// <summary>
-/// Supabase(Postgres) EventRouter hierarchy store：
-/// - parent_id：text?
-/// - children_ids：text[]
+/// Supabase(Postgres) EventRouter hierarchy store:
+/// - parent_id: text?
+/// - children_ids: text[]
 /// </summary>
 public sealed class SupabaseEventRouterStore : IEventRouterStore
 {

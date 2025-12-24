@@ -113,7 +113,7 @@ public abstract partial class AIGAgentBase
         // Core: event publishing (requires PublishEventCallback)
         await RegisterToolAsync(new EventPublisherTool(), cancellationToken: cancellationToken);
 
-        // Built-in: memory search (uses State snapshot + optional AIMemory)
+        // Built-in: memory search (uses CQRS read-model + State snapshot)
         await RegisterToolAsync(
             new AevatarMemorySearchTool(
                 new LoggerAdapter<AevatarMemorySearchTool>(Logger),
@@ -166,7 +166,6 @@ public abstract partial class AIGAgentBase
             AgentType = GetType().FullName ?? GetType().Name,
             GetStateCallback = () => GetState(),
             PublishEventCallback = msg => PublishAsync(msg, ct: CancellationToken.None),
-            Memory = AIMemory,
             GetSessionIdCallback = () => Id.ToString(),
             Logger = Logger
         };
@@ -178,7 +177,6 @@ public abstract partial class AIGAgentBase
         {
             AgentId = Id.ToString(),
             ToolManager = ToolManager,
-            Memory = AIMemory,
             PublishEventCallback = msg => PublishAsync(msg, ct: cancellationToken),
             Logger = Logger,
             GetSessionId = () => sessionId

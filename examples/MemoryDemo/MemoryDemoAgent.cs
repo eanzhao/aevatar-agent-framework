@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Aevatar.Agents.AI;
-using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 
@@ -10,7 +9,6 @@ namespace MemoryDemo;
 /// Memory demo agent:
 /// - State.History replay (EnableChatHistoryInState)
 /// - Compaction (sliding window + history_summary)
-/// - Optional long-term memory via IAevatarAIMemory (DI-injected)
 /// - Tool-based recall via built-in 'search_memory'
 /// </summary>
 public sealed class MemoryDemoAgent : AIGAgentBase
@@ -22,7 +20,6 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         EnableChatHistoryCompaction = true;
         ChatHistoryMaxMessages = 8;
         ChatHistorySummaryMaxChars = 1200;
-        ArchiveCompactedHistoryToAIMemory = true;
 
         SystemPrompt =
             """
@@ -36,11 +33,51 @@ public sealed class MemoryDemoAgent : AIGAgentBase
     }
 
     public override Task<string> GetDescriptionAsync() =>
-        Task.FromResult("MemoryDemoAgent (History + Compaction + Long-term Memory + search_memory)");
+        Task.FromResult("MemoryDemoAgent (History + Compaction + CQRS + search_memory)");
 
-    public bool HasLongTermMemory => AIMemory != null;
+    // ============================================================
+    //  Demo-only: force CQRS projection after each chat
+    //
+    //  WHY:
+    //  - In real systems, CQRS projection happens after state persistence (OnStateChangedAsync).
+    //  - This demo keeps EventStore optional; we still want to show projected read-model.
+    // ============================================================
+    public override async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
+    {
+        var resp = await base.ChatAsync(request, cancellationToken);
 
-    public string LongTermMemoryType => AIMemory?.GetType().Name ?? "none";
+        // Best-effort projection: do not break chat if CQRS isn't configured.
+        await ProjectStateAsync(GetState(), cancellationToken);
+
+        return resp;
+    }
+
+    // ============================================================
+    //  Demo-only: seed memory without calling LLM
+    //
+    //  WHY:
+    //  - Helps validate search_memory + CQRS pipeline even without external LLM connectivity.
+    // ============================================================
+    public async Task SeedAsync(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        // Put something into short-term history (Layer 1)
+        AddMessageToHistory(text.Trim(), AevatarChatRole.User);
+        AddMessageToHistory("(seeded) ok, I remember it.", AevatarChatRole.Assistant);
+
+        // Put something into rolling summary (Layer 2) for easier searching
+        var summary = GetHistorySummary() ?? string.Empty;
+        var next = string.IsNullOrWhiteSpace(summary)
+            ? $"[seed] {text}".Trim()
+            : (summary + "\n" + $"[seed] {text}").Trim();
+
+        GetState().Context["history_summary"] = next;
+
+        // Project to CQRS read-model (demo)
+        await ProjectStateAsync(GetState(), ct);
+    }
 
     public string? GetHistorySummary()
     {
@@ -67,58 +104,12 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         {
             AgentId = Id.ToString(),
             ToolManager = ToolManager,
-            Memory = AIMemory,
             PublishEventCallback = msg => PublishAsync(msg, ct: ct),
             Logger = Logger,
             GetSessionId = () => Id.ToString()
         };
 
         return await ToolManager.ExecuteToolAsync("search_memory", parameters, execCtx, ct);
-    }
-
-    public async Task<IReadOnlyList<AevatarConversationEntry>> GetLongTermHistoryAsync(
-        int limit = 200,
-        CancellationToken ct = default)
-    {
-        if (AIMemory == null)
-            return Array.Empty<AevatarConversationEntry>();
-
-        return await AIMemory.GetHistoryAsync(limit: limit, cancellationToken: ct);
-    }
-
-    public async Task<IReadOnlyList<string>> SearchLongTermAsync(
-        string query,
-        int topK = 5,
-        CancellationToken ct = default)
-    {
-        if (AIMemory == null)
-            return Array.Empty<string>();
-
-        return await AIMemory.SearchAsync(query, topK: topK, cancellationToken: ct);
-    }
-
-    public async Task<string?> TryPeekLongTermTailAsync(int maxChars = 1200, CancellationToken ct = default)
-    {
-        var history = await GetLongTermHistoryAsync(limit: 20, ct);
-        if (history.Count == 0) return null;
-
-        var items = history
-            .Select(x => $"[{x.Role}] {(x.Content ?? string.Empty).Replace("\r", "").Trim()}")
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
-
-        var joined = string.Join("\n", items);
-        if (maxChars > 0 && joined.Length > maxChars)
-        {
-            joined = joined[^maxChars..];
-        }
-
-        // Keep output stable for UI rendering.
-        return JsonSerializer.Serialize(new
-        {
-            count = history.Count,
-            tail = joined
-        });
     }
 }
 

@@ -11,7 +11,7 @@
     <header class="header">
       <div>
         <h1>Aevatar Memory Demo</h1>
-        <div class="sub">State.History · Compaction(history_summary) · IAevatarAIMemory · search_memory</div>
+        <div class="sub">State.History · Compaction(history_summary) · CQRS(read-model) · search_memory</div>
       </div>
       <div class="status">
         <div id="statusBadge" class="badge">loading...</div>
@@ -23,11 +23,12 @@
       <div class="panel-title">Chat</div>
       <div id="chatLog" class="chat-log"></div>
       <div class="row">
-        <input id="chatInput" class="input" placeholder="输入一句话，聊到超过 8 条会触发 compaction..." />
+        <input id="chatInput" class="input" placeholder="Type a message, chatting more than 8 messages will trigger compaction..." />
         <button id="sendBtn" class="btn">Send</button>
+        <button id="seedBtn" class="btn btn-secondary">Seed</button>
       </div>
       <div class="hint">
-        Tip：先告诉它一个“关键词/事实”，然后连续聊 10 轮，把它挤出 history，再用 Search Memory 搜回来。
+        Tip: First tell it a "keyword/fact", then chat 10 rounds consecutively to push it out of history, then use Search Memory to retrieve it.
       </div>
     </section>
 
@@ -46,11 +47,11 @@
       </div>
 
       <div class="panel">
-        <div class="panel-title">Long-term (IAevatarAIMemory)</div>
+        <div class="panel-title">CQRS Read Model (projected state)</div>
         <div class="row row-tight">
-          <button id="loadLongtermBtn" class="btn btn-secondary">Load History</button>
+          <button id="refreshCqrsBtn" class="btn btn-secondary">Refresh</button>
         </div>
-        <pre id="longtermBox" class="pre"></pre>
+        <pre id="cqrsBox" class="pre"></pre>
       </div>
 
       <div class="panel">

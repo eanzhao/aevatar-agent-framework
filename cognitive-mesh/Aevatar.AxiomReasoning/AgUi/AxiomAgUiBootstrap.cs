@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Helpers;
-using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AGUI;
 using Aevatar.Agents.Cognitive.Agents;
 using Aevatar.AxiomReasoning.Models;
@@ -21,7 +20,6 @@ namespace Aevatar.AxiomReasoning.AgUi;
 //  NOTE:
 //  - Source of truth for UI hydration:
 //    - Short-term: AIGAgentBase.State.History (bounded window; persisted via StateStore if configured)
-//    - Long-term: IAevatarAIMemory (optional; MongoDB-backed in this repo)
 //  - We do NOT rely on transcript.jsonl as a primary source (it's a debug artifact).
 // ============================================================
 
@@ -36,7 +34,6 @@ public static class AxiomAgUiBootstrap
     public static async Task<AgUiBootstrapMessages> BuildMessagesSnapshotAsync(
         AxiomSession session,
         IGAgentActorManager actorManager,
-        IAevatarAIMemoryFactory? memoryFactory,
         int maxAssistantMessages,
         CancellationToken ct)
     {
@@ -60,7 +57,6 @@ public static class AxiomAgUiBootstrap
         var actors = BuildCognitiveActors(session.Id, workerCount);
         var agentMessages = await AgUiBootstrap.CollectAssistantMessagesAsync(
             actorManager,
-            memoryFactory,
             actors,
             new AgUiMessageSnapshotOptions
             {

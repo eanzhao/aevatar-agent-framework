@@ -1,5 +1,3 @@
-using Aevatar.Agents.AI.Abstractions;
-using Aevatar.Agents.Persistence.Supabase.Memory;
 using Aevatar.Agents.Persistence.Supabase.Options;
 using Aevatar.Agents.Persistence.Supabase.Stores;
 using Google.Protobuf;
@@ -117,15 +115,6 @@ public static class SupabaseServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// 注册 Supabase-backed AI Memory factory。
-    /// </summary>
-    public static IServiceCollection AddSupabaseAIMemory(this IServiceCollection services)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-        services.AddSingleton<IAevatarAIMemoryFactory, SupabaseAIMemoryFactory>();
-        return services;
-    }
 }
 
 

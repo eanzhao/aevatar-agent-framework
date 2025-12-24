@@ -55,7 +55,7 @@ Aevatar.AxiomReasoning/
 
 - **threadId/runId**：默认都使用 `sessionId`
 - **连接时序（/agui/events）**：服务端优先发“快照”，不依赖 EventHub replay（避免断线重连时 token/progress 爆发）
-  - `MESSAGES_SNAPSHOT`：user input + **Coordinator/Workers 的 `State.History`（短期窗口）** + **`IAevatarAIMemory`（可选，长期日志）**
+  - `MESSAGES_SNAPSHOT`：user input + **Coordinator/Workers 的 `State.History`（短期窗口）**
     - 前提：CognitiveStrategy 使用 `session_id` 派生 **确定性 AgentId**（Coordinator + worker-0..N-1），因此服务端可以稳定定位到同一批 Actor
     - 同时发送 `CUSTOM(name="aevatar.axiom.message_meta")`，把 system/user prompts 绑定到每条 messageId（Workers 卡片刷新后能补齐提示词）
   - `CUSTOM(name="aevatar.axiom.status_snapshot")`：当前 status/phase/progress/tokens/llm 统计
@@ -155,7 +155,7 @@ Aevatar.AxiomReasoning/
 当你希望“**刷新/断线重连/甚至服务重启后**仍能恢复 Workers 卡片历史”，需要把“对话历史”从内存升级为可恢复的存储层：
 
 - **StateStore（短期窗口）**：持久化 `AevatarAIAgentState.History`（含 step 元数据）
-- **AIMemory（长期日志）**：持久化每次 `llm_call` 的结构化 interaction（system/user/assistant + stepId）
+- **LLM Transcript（长期日志）**：`output/{sessionId}/llm/transcript.jsonl`（机器可读，可用于复盘/回放）
 
 ### 启用方式
 

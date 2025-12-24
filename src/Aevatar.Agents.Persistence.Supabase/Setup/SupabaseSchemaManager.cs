@@ -6,11 +6,11 @@ using Npgsql;
 namespace Aevatar.Agents.Persistence.Supabase.Setup;
 
 /// <summary>
-/// 运行时自动初始化（建表/建索引/权限收紧/RLS）。
+/// Runtime auto-initialization (create tables/indexes/tighten permissions/RLS).
 ///
-/// 约束：
-/// - 需要数据库用户具备对应 DDL 权限；否则会抛异常。
-/// - 初始化是幂等的（IF NOT EXISTS + DO block），且每个 DataSource/Schema 只执行一次。
+/// Constraints:
+/// - Database user must have corresponding DDL permissions; otherwise will throw exception.
+/// - Initialization is idempotent (IF NOT EXISTS + DO block), and executes only once per DataSource/Schema.
 /// </summary>
 internal static class SupabaseSchemaManager
 {
@@ -21,7 +21,7 @@ internal static class SupabaseSchemaManager
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(options);
 
-        // 如果全部开关都关了，直接跳过。
+        // If all switches are off, skip directly.
         if (!options.AutoCreateSchema &&
             !options.AutoCreateTables &&
             !options.AutoCreateIndexes &&
@@ -44,7 +44,7 @@ internal static class SupabaseSchemaManager
         }
         catch
         {
-            // 初始化失败允许重试（避免一次失败把进程永远锁死在“已初始化”状态）。
+            // Initialization failure allows retry (avoid locking process forever in "initialized" state after one failure).
             Initialized.TryRemove(key, out _);
             throw;
         }
@@ -62,8 +62,8 @@ internal static class SupabaseSchemaManager
 
     private static string BuildKey(NpgsqlDataSource dataSource, SupabasePersistenceOptions options)
     {
-        // 用 DataSource 的 identity hash + schema/table 配置构造 key。
-        // 目的：同一进程内避免重复 DDL，且允许多数据源并存。
+        // Construct key using DataSource's identity hash + schema/table configuration.
+        // Purpose: Avoid duplicate DDL within same process, and allow multiple data sources to coexist.
         var dsKey = RuntimeHelpers.GetHashCode(dataSource);
 
         return string.Join(
@@ -73,8 +73,6 @@ internal static class SupabaseSchemaManager
             options.AgentStatesTable,
             options.AgentConfigsTable,
             options.EventRouterHierarchiesTable,
-            options.AiMemoryMessagesTable,
-            options.FullTextSearchConfig,
             options.AutoCreateSchema.ToString(),
             options.AutoCreateTables.ToString(),
             options.AutoCreateIndexes.ToString(),

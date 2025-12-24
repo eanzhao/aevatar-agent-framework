@@ -41,11 +41,6 @@ public class ToolContext
     public Func<IMessage, Task>? PublishEventCallback { get; set; }
     
     /// <summary>
-    /// 记忆管理器
-    /// </summary>
-    public IAevatarAIMemory? Memory { get; set; }
-    
-    /// <summary>
     /// 获取会话ID的回调
     /// </summary>
     public Func<string>? GetSessionIdCallback { get; set; }

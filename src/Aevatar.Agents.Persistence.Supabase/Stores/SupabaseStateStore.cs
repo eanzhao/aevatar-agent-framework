@@ -9,12 +9,12 @@ using Npgsql;
 namespace Aevatar.Agents.Persistence.Supabase.Stores;
 
 /// <summary>
-/// Supabase(Postgres) StateStore 实现：
-/// - 使用 Protobuf bytea 存储（与 MongoDB 版本一致）
-/// - 通过 (state_type, agent_id) 唯一键实现幂等 upsert
-/// - version 字段用于 EventSourcing Snapshot 版本标记（框架当前语义）
+/// Supabase(Postgres) StateStore implementation:
+/// - Uses Protobuf bytea storage (consistent with MongoDB version)
+/// - Implements idempotent upsert via (state_type, agent_id) unique key
+/// - version field used for EventSourcing Snapshot version marking (current framework semantics)
 /// </summary>
-/// <typeparam name="TState">必须是 Protobuf IMessage</typeparam>
+/// <typeparam name="TState">Must be Protobuf IMessage</typeparam>
 public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
     where TState : class, IMessage<TState>, new()
 {
@@ -28,7 +28,7 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
 
-        // 自动初始化（幂等）
+        // Auto-initialize (idempotent)
         SupabaseSchemaManager.EnsureInitialized(_dataSource, _options);
 
         _table = SupabaseSql.Table(_options.Schema, _options.AgentStatesTable, nameof(_options.AgentStatesTable));
@@ -75,8 +75,8 @@ public sealed class SupabaseStateStore<TState> : IVersionedStateStore<TState>
 
     public Task SaveAsync(string agentId, TState state, long expectedVersion, CancellationToken ct = default)
         // NOTE:
-        // - Abstractions 里参数名叫 expectedVersion，但框架当前实际语义是“snapshot version”。
-        // - MongoDB 版本也直接写入该值。
+        // - Parameter name in Abstractions is expectedVersion, but current framework semantics is "snapshot version".
+        // - MongoDB version also directly writes this value.
         => SaveInternalAsync(agentId, state, expectedVersion, ct);
 
     public async Task<long> GetCurrentVersionAsync(string agentId, CancellationToken ct = default)
@@ -179,7 +179,7 @@ DO UPDATE SET
 }
 
 /// <summary>
-/// Supabase StateStore factory（用于手工 DI/高级场景）。
+/// Supabase StateStore factory (for manual DI/advanced scenarios).
 /// </summary>
 public static class SupabaseStateStoreFactory
 {

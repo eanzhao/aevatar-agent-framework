@@ -472,7 +472,7 @@ public sealed class AxiomReasoningService
             // Deterministic agent ids (Coordinator/Workers) for reconnect + persistence.
             // NOTE:
             // - CognitiveStrategy will use this to derive stable Guid keys.
-            // - With a persistent StateStore/AIMemory, we can re-create actors after restart and still hydrate UI.
+            // - With a persistent StateStore, we can re-create actors after restart and still hydrate UI.
             ["session_id"] = session.Id,
             ["enable_chat_history"] = "true",
 
@@ -616,11 +616,9 @@ public sealed class AxiomReasoningService
 
         // AG-UI reconnect semantics:
         // - Prefer deterministic snapshots over replaying a burst of token/progress events.
-        var memoryFactory = _serviceProvider.GetService<IAevatarAIMemoryFactory>();
         var bootstrap = await AxiomAgUiBootstrap.BuildMessagesSnapshotAsync(
             session,
             _actorManager,
-            memoryFactory,
             maxAssistantMessages: 60,
             ct: ct);
 

@@ -69,16 +69,6 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
     public bool EnableChatHistoryInState { get; set; }
 
     /// <summary>
-    /// Optional AI memory instance (typically long-term store).
-    /// Injected by runtime (e.g. MongoDB-backed memory).
-    ///
-    /// NOTE:
-    /// - This is NOT part of agent state; it's an external dependency.
-    /// - Implementations should isolate by agent id (factory-created per agent).
-    /// </summary>
-    protected IAevatarAIMemory? AIMemory { get; set; }
-
-    /// <summary>
     /// Layer 1 + 2 (default: false):
     /// - Layer 1: Keep a sliding window of recent messages in <see cref="AevatarAIAgentState.History"/>.
     /// - Layer 2: Archive removed messages into a rolling summary stored in <see cref="AevatarAIAgentState.Context"/>
@@ -101,16 +91,6 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
     /// Default: 4000 characters.
     /// </summary>
     public int ChatHistorySummaryMaxChars { get; set; } = 4000;
-
-    /// <summary>
-    /// When compaction is enabled, also archive removed messages into <see cref="AIMemory"/> if available.
-    /// Default: true.
-    ///
-    /// WHY:
-    /// - Layer 1 keeps a small window; Layer 2 keeps a compact summary.
-    /// - This switch keeps the raw removed content retrievable via memory tools (Layer 3).
-    /// </summary>
-    public bool ArchiveCompactedHistoryToAIMemory { get; set; } = true;
 
     [field: AllowNull, MaybeNull]
     protected ConversationHistoryManager ConversationHistory =>
@@ -205,12 +185,6 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
                 return;
             }
 
-            // Layer 3 (optional): persist removed raw messages into external memory store for later retrieval.
-            if (ArchiveCompactedHistoryToAIMemory && AIMemory != null)
-            {
-                await ArchiveRemovedMessagesToMemoryAsync(removed, cancellationToken);
-            }
-
             var updatedSummary = await UpdateHistorySummaryAsync(existingSummary, removed, cancellationToken);
             if (string.IsNullOrWhiteSpace(updatedSummary))
             {
@@ -230,55 +204,6 @@ public abstract partial class AIGAgentBase : GAgentBase<AevatarAIAgentState, Aev
         finally
         {
             _historyCompactionSemaphore.Release();
-        }
-    }
-
-    private async Task ArchiveRemovedMessagesToMemoryAsync(
-        IReadOnlyList<AevatarChatMessage> removed,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Chunk archived transcript to avoid huge single writes.
-            const int ChunkMaxChars = 8000;
-            var sb = new System.Text.StringBuilder();
-
-            foreach (var m in removed)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var role = m.Role.ToString().ToLowerInvariant();
-                var content = (m.Content ?? string.Empty).Replace("\r", "").Trim();
-                if (string.IsNullOrWhiteSpace(content)) continue;
-
-                sb.Append(role);
-                sb.Append(": ");
-                sb.AppendLine(content);
-
-                if (sb.Length >= ChunkMaxChars)
-                {
-                    var chunk = sb.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(chunk))
-                    {
-                        await AIMemory!.AddMessageAsync("system", $"ARCHIVED_CONVERSATION\n{chunk}", cancellationToken);
-                    }
-                    sb.Clear();
-                }
-            }
-
-            var tail = sb.ToString().Trim();
-            if (!string.IsNullOrWhiteSpace(tail))
-            {
-                await AIMemory!.AddMessageAsync("system", $"ARCHIVED_CONVERSATION\n{tail}", cancellationToken);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to archive compacted history into external memory (best-effort).");
         }
     }
 

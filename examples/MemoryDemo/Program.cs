@@ -4,6 +4,8 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
+using Aevatar.Agents.Abstractions.CQRS;
+using Aevatar.Agents.Core.CQRS;
 using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
@@ -15,8 +17,8 @@ using Microsoft.Extensions.Options;
 //  Demo focus:
 //  - State.History (short-term window) replay
 //  - Compaction: sliding window + State.Context["history_summary"]
-//  - Long-term memory: IAevatarAIMemory (InMemory by default; optional Mongo/Supabase)
-//  - Tool recall: built-in tool `search_memory`
+//  - CQRS read-model: in-memory projection (OnStateChanged → projector → index)
+//  - Tool recall: built-in tool `search_memory` (CQRS + state snapshot)
 // ============================================================
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,36 +37,15 @@ builder.Logging.AddConsole();
 builder.Services.AddAevatarLocalRuntime();
 builder.Services.AddMEAI();
 
-// Long-term memory (default: in-proc, runnable out-of-the-box)
-builder.Services.AddSingleton<IAevatarAIMemoryFactory, InMemoryAIMemoryFactory>();
-
-// Optional DB-backed IAevatarAIMemory (overrides InMemory if configured)
-var memoryStoreKind = "InMemory";
-var mongoConn = builder.Configuration.GetConnectionString("MongoDB");
-var supabaseConn = builder.Configuration.GetConnectionString("SupabasePostgres");
-
-if (!string.IsNullOrWhiteSpace(mongoConn))
-{
-    builder.Services.AddAevatarMongoDB(
-        connectionString: mongoConn!,
-        databaseName: builder.Configuration["MongoDB:Database"] ?? "aevatar");
-    builder.Services.AddMongoDBAIMemory();
-    memoryStoreKind = "MongoDB";
-}
-else if (!string.IsNullOrWhiteSpace(supabaseConn))
-{
-    builder.Services.AddAevatarSupabase(
-        connectionString: supabaseConn!,
-        configure: o =>
-        {
-            // Keep default schema/table names unless you want to override in code.
-            // o.Schema = "aevatar";
-        });
-    builder.Services.AddSupabaseAIMemory();
-    memoryStoreKind = "Supabase";
-}
-
-builder.Services.AddSingleton(new MemoryDemoRuntimeOptions { MemoryStoreKind = memoryStoreKind });
+// ============================================================
+//  CQRS (Demo): in-memory projection + query
+//
+//  - This simulates: OnStateChangedAsync → IStateProjector → IStateIndexService
+//  - So built-in tool `search_memory` can query projected state via IStateQueryService
+// ============================================================
+builder.Services.AddSingleton<IStateIndexService, InMemoryStateIndexService>();
+builder.Services.AddSingleton<IStateProjector, InMemoryStateProjector>();
+builder.Services.AddSingleton<IStateQueryService, StateQueryService>();
 builder.Services.AddSingleton<MemoryDemoRuntime>();
 
 var app = builder.Build();
@@ -78,7 +59,6 @@ app.UseStaticFiles();
 
 app.MapGet("/api/info", async (
     MemoryDemoRuntime runtime,
-    MemoryDemoRuntimeOptions options,
     IOptions<LLMProvidersConfig> llm,
     CancellationToken ct) =>
 {
@@ -89,9 +69,6 @@ app.MapGet("/api/info", async (
         isReady = status.IsReady,
         lastError = status.LastError,
         llmDefaultProvider = llm.Value.Default,
-        memoryStore = options.MemoryStoreKind,
-        hasLongTermMemory = status.HasLongTermMemory,
-        longTermMemoryType = status.LongTermMemoryType,
         settings = new
         {
             enableHistory = status.EnableChatHistoryInState,
@@ -150,6 +127,19 @@ app.MapPost("/api/chat", async (
     });
 });
 
+app.MapPost("/api/seed", async (
+    SeedInDto input,
+    MemoryDemoRuntime runtime,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(input.Text))
+        return Results.BadRequest(new { error = "text is required" });
+
+    var (agent, agentId) = await runtime.GetAgentAsync(ct);
+    await agent.SeedAsync(input.Text, ct);
+    return Results.Json(new { agentId, ok = true });
+});
+
 app.MapGet("/api/state", async (MemoryDemoRuntime runtime, CancellationToken ct) =>
 {
     var (agent, agentId) = await runtime.GetAgentAsync(ct);
@@ -172,6 +162,24 @@ app.MapGet("/api/state", async (MemoryDemoRuntime runtime, CancellationToken ct)
         historyCount = state.History?.Count ?? 0,
         summary = summary ?? "",
         messages
+    });
+});
+
+app.MapGet("/api/cqrs/state", async (
+    MemoryDemoRuntime runtime,
+    IStateQueryService stateQuery,
+    CancellationToken ct) =>
+{
+    var (agent, _) = await runtime.GetAgentAsync(ct);
+    var agentType = agent.GetType().FullName ?? agent.GetType().Name;
+    var doc = await stateQuery.GetByIdAsync(agentType, agent.Id, ct);
+
+    return Results.Json(new
+    {
+        agentId = agent.Id,
+        agentType,
+        found = doc != null,
+        doc
     });
 });
 
@@ -205,45 +213,6 @@ app.MapPost("/api/search_memory", async (
     return Results.Text(result.Content ?? "{}", "application/json");
 });
 
-app.MapGet("/api/longterm/history", async (
-    int? limit,
-    MemoryDemoRuntime runtime,
-    CancellationToken ct) =>
-{
-    var (agent, agentId) = await runtime.GetAgentAsync(ct);
-    var items = await agent.GetLongTermHistoryAsync(limit ?? 200, ct);
-    return Results.Json(new
-    {
-        agentId,
-        count = items.Count,
-        items = items.Select(x => new
-        {
-            role = x.Role,
-            content = x.Content,
-            timestamp = x.Timestamp?.ToDateTime().ToString("O") ?? ""
-        })
-    });
-});
-
-app.MapGet("/api/longterm/search", async (
-    string query,
-    int? topK,
-    MemoryDemoRuntime runtime,
-    CancellationToken ct) =>
-{
-    if (string.IsNullOrWhiteSpace(query))
-        return Results.BadRequest(new { error = "query is required" });
-
-    var (agent, agentId) = await runtime.GetAgentAsync(ct);
-    var hits = await agent.SearchLongTermAsync(query.Trim(), topK ?? 5, ct);
-    return Results.Json(new
-    {
-        agentId,
-        count = hits.Count,
-        hits
-    });
-});
-
 app.MapPost("/api/reset", async (MemoryDemoRuntime runtime, CancellationToken ct) =>
 {
     var status = await runtime.ResetAsync(ct);
@@ -268,18 +237,13 @@ public sealed record SearchMemoryInDto(string Query)
     public string? MemoryType { get; init; }
 }
 
-public sealed class MemoryDemoRuntimeOptions
-{
-    public string MemoryStoreKind { get; init; } = "InMemory";
-}
+public sealed record SeedInDto(string Text);
 
 public sealed class MemoryDemoStatus
 {
     public required string AgentId { get; init; }
     public required bool IsReady { get; init; }
     public string? LastError { get; init; }
-    public bool HasLongTermMemory { get; init; }
-    public string LongTermMemoryType { get; init; } = "none";
     public bool EnableChatHistoryInState { get; init; }
     public bool EnableChatHistoryCompaction { get; init; }
     public int ChatHistoryMaxMessages { get; init; }
@@ -327,8 +291,6 @@ public sealed class MemoryDemoRuntime
             AgentId = _agentId,
             IsReady = _isReady,
             LastError = _lastError,
-            HasLongTermMemory = _agent?.HasLongTermMemory ?? false,
-            LongTermMemoryType = _agent?.LongTermMemoryType ?? "none",
             EnableChatHistoryInState = _agent?.EnableChatHistoryInState ?? false,
             EnableChatHistoryCompaction = _agent?.EnableChatHistoryCompaction ?? false,
             ChatHistoryMaxMessages = _agent?.ChatHistoryMaxMessages ?? 0,
@@ -386,8 +348,7 @@ public sealed class MemoryDemoRuntime
                 },
                 ct);
 
-            _logger.LogInformation("[MemoryDemo] Ready. Long-term memory: {Has} ({Type})",
-                _agent.HasLongTermMemory, _agent.LongTermMemoryType);
+            _logger.LogInformation("[MemoryDemo] Ready.");
 
             _isReady = true;
         }

@@ -13,7 +13,7 @@
     <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Runtime.Local\Aevatar.Agents.Runtime.Local.csproj" />
 
-    <!-- Optional: enable DB-backed IAevatarAIMemory by configuration -->
+    <!-- Optional: persistence libraries (MongoDB/Supabase) -->
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.MongoDB\Aevatar.Agents.Persistence.MongoDB.csproj" />
     <ProjectReference Include="..\..\src\Aevatar.Agents.Persistence.Supabase\Aevatar.Agents.Persistence.Supabase.csproj" />
   </ItemGroup>

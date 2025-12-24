@@ -20,11 +20,6 @@ public class ToolExecutionContext
     public IAevatarToolManager ToolManager { get; set; } = null!;
     
     /// <summary>
-    /// 记忆管理器（可选）
-    /// </summary>
-    public IAevatarAIMemory? Memory { get; set; }
-    
-    /// <summary>
     /// 事件发布回调
     /// </summary>
     public Func<IMessage, Task>? PublishEventCallback { get; set; }
@@ -33,11 +28,6 @@ public class ToolExecutionContext
     /// 获取会话ID的函数
     /// </summary>
     public Func<string> GetSessionId { get; set; } = () => Guid.NewGuid().ToString();
-    
-    /// <summary>
-    /// 是否记录执行到记忆
-    /// </summary>
-    public bool RecordToMemory { get; set; } = true;
     
     /// <summary>
     /// 日志记录器

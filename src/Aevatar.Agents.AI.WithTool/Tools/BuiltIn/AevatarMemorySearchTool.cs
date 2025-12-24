@@ -15,9 +15,9 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
 
 /// <summary>
-/// 内存搜索工具 - 内置AI工具（简化实现）
+/// Memory search tool - built-in AI tool (simplified implementation)
 /// <para/>
-/// 在Agent的内存中搜索相关信息，包括工作记忆、对话历史和长期记忆
+/// Search for relevant information in Agent's memory, including working memory, conversation history, and long-term memory
 /// </summary>
 [AevatarTool(
     Name = "search_memory",
@@ -69,10 +69,10 @@ public class AevatarMemorySearchTool : AevatarToolBase
                 ["memoryType"] = new ToolParameter
                 {
                     Type = "string",
-                    Description = "Type of memory to search (all, working, conversation, longterm)",
+                    Description = "Type of memory to search (all, working, conversation)",
                     Required = false,
                     DefaultValue = "all",
-                    Enum = new[] { "all", "working", "conversation", "longterm" }
+                    Enum = new[] { "all", "working", "conversation" }
                 }
             }
         };
@@ -96,8 +96,8 @@ public class AevatarMemorySearchTool : AevatarToolBase
                 throw new ArgumentException("Search query is required");
             }
 
-            // 解析最大结果数
-            var maxResults = 10; // 默认值
+            // Parse maximum results count
+            var maxResults = 10; // Default value
             if (maxResultsObj != null)
             {
                 if (!int.TryParse(maxResultsObj.ToString(), out maxResults) || maxResults <= 0)
@@ -107,8 +107,8 @@ public class AevatarMemorySearchTool : AevatarToolBase
                 }
             }
 
-            // 验证内存类型
-            var validMemoryTypes = new[] { "all", "working", "conversation", "longterm" };
+            // Validate memory type
+            var validMemoryTypes = new[] { "all", "working", "conversation" };
             if (!validMemoryTypes.Contains(memoryType.ToLower()))
             {
                 _logger.LogWarning("Invalid memory type: {MemoryType}, defaulting to 'all'", memoryType);
@@ -119,8 +119,8 @@ public class AevatarMemorySearchTool : AevatarToolBase
             //  Real memory search (best-effort)
             //
             //  Priority:
-            //  1) State snapshot (ToolContext.GetStateCallback): current history window + rolling summary
-            //  2) External memory store (ToolContext.Memory): long-term / RAG memory (if wired)
+            //  1) CQRS read-model (IStateQueryService): projected state snapshot (preferred when wired)
+            //  2) State snapshot (ToolContext.GetStateCallback): current history window + rolling summary
             //
             //  NOTE:
             //  - If Memory is not wired yet, the tool still provides value by searching State.History + summary.
@@ -172,7 +172,6 @@ public class AevatarMemorySearchTool : AevatarToolBase
 
         var type = memoryType.ToLowerInvariant();
         var includeConversation = type is "all" or "conversation";
-        var includeLongTerm = type is "all" or "longterm";
         var includeWorking = type is "all" or "working";
 
         // 0) Projected state read-model (CQRS) - preferred when available
@@ -284,34 +283,6 @@ public class AevatarMemorySearchTool : AevatarToolBase
             }
         }
 
-        // 2) Long-term memory (optional) via IAevatarAIMemory
-        if (includeLongTerm && context.Memory != null)
-        {
-            try
-            {
-                var hits = await context.Memory.SearchAsync(query, topK: maxResults, cancellationToken: cancellationToken);
-                foreach (var hit in hits)
-                {
-                    if (string.IsNullOrWhiteSpace(hit)) continue;
-                    allResults.Add(new MemoryItem
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Type = "longterm",
-                        Content = hit,
-                        Timestamp = DateTime.UtcNow,
-                        Metadata = new Dictionary<string, object>
-                        {
-                            ["source"] = "IAevatarAIMemory.SearchAsync"
-                        }
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Long-term memory search failed (best-effort)");
-            }
-        }
-
         // Deduplicate + cap results (stable order: keep earlier matches first)
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var final = new List<MemoryItem>(Math.Min(maxResults, allResults.Count));
@@ -353,7 +324,7 @@ public class AevatarMemorySearchTool : AevatarToolBase
 }
 
 /// <summary>
-/// 内存项
+/// Memory item
 /// </summary>
 public class MemoryItem
 {

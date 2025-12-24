@@ -30,8 +30,6 @@ public sealed class SupabasePersistenceOptions
 
     public string EventRouterHierarchiesTable { get; set; } = "agent_event_router_hierarchies";
 
-    public string AiMemoryMessagesTable { get; set; } = "ai_memory_messages";
-
     // ==============================
     // 自动初始化
     // ==============================
@@ -84,16 +82,6 @@ public sealed class SupabasePersistenceOptions
     /// 仅当 EnableRowLevelSecurity=true 时生效。
     /// </summary>
     public bool CreateServiceRolePolicies { get; set; } = false;
-
-    // ==============================
-    // AI Memory
-    // ==============================
-
-    /// <summary>
-    /// Postgres Full-Text Search 配置（regconfig）。
-    /// 常用：simple / english / chinese(需自定义)。
-    /// </summary>
-    public string FullTextSearchConfig { get; set; } = "simple";
 }
 
 

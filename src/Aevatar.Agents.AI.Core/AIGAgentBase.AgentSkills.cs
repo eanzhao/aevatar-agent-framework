@@ -289,7 +289,6 @@ public abstract partial class AIGAgentBase
             {
                 AgentId = executionContext.AgentId,
                 AgentType = agentType,
-                Memory = executionContext.Memory,
                 PublishEventCallback = executionContext.PublishEventCallback,
                 GetSessionIdCallback = executionContext.GetSessionId != null
                     ? () => executionContext.GetSessionId()

@@ -24,11 +24,6 @@ public class AevatarAIStrategyDependencies
     public IAevatarToolManager ToolManager { get; init; } = null!;
     
     /// <summary>
-    /// 记忆管理器
-    /// </summary>
-    public IAevatarAIMemory Memory { get; init; } = null!;
-    
-    /// <summary>
     /// AI配置
     /// </summary>
     public AevatarAIAgentConfiguration Configuration { get; init; } = null!;

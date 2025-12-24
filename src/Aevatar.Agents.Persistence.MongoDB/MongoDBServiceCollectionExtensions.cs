@@ -1,5 +1,4 @@
 using System;
-using Aevatar.Agents.AI.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
@@ -160,22 +159,5 @@ public static class MongoDBServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>
-    /// Add MongoDB-backed AI memory factory (<see cref="IAevatarAIMemoryFactory"/>).
-    /// Requires <see cref="AddAevatarMongoDB(Microsoft.Extensions.DependencyInjection.IServiceCollection,string,string)"/>
-    /// to be called first.
-    /// </summary>
-    public static IServiceCollection AddMongoDBAIMemory(
-        this IServiceCollection services,
-        string? collectionName = null)
-    {
-        services.AddSingleton<IAevatarAIMemoryFactory>(sp =>
-        {
-            var database = sp.GetRequiredService<IMongoDatabase>();
-            return new MongoDBAIMemoryFactory(database, collectionName);
-        });
-
-        return services;
-    }
 }
 

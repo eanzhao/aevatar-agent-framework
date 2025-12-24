@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Tools.CoreTools;
 
 /// <summary>
-/// 事件发布工具实现
-/// 用于发布事件到Agent流
+/// Event publishing tool implementation
+/// Used to publish events to Agent stream
 /// </summary>
 public class EventPublisherTool : AevatarToolBase
 {
@@ -73,7 +73,7 @@ public class EventPublisherTool : AevatarToolBase
         ILogger? logger,
         CancellationToken cancellationToken = default)
     {
-        // 验证参数
+        // Validate parameters
         var validation = ValidateParameters(ToNullableParameters(parameters));
         if (!validation.IsValid)
         {
@@ -128,7 +128,7 @@ public class EventPublisherTool : AevatarToolBase
     }
 
     /// <summary>
-    /// 创建事件消息
+    /// Create event message
     /// </summary>
     private static IMessage? CreateEventMessage(
         string eventId,
@@ -139,16 +139,16 @@ public class EventPublisherTool : AevatarToolBase
     {
         try
         {
-            // 如果 payload 已经是 IMessage 类型，直接返回
+            // If payload is already IMessage type, return directly
             if (payload is IMessage message)
             {
                 return message;
             }
 
-            // 序列化 payload
+            // Serialize payload
             var jsonPayload = SerializePayload(payload);
 
-            // 创建事件信封
+            // Create event envelope
             return new EventEnvelope
             {
                 Id = eventId,
@@ -169,7 +169,7 @@ public class EventPublisherTool : AevatarToolBase
     }
 
     /// <summary>
-    /// 序列化事件载荷
+    /// Serialize event payload
     /// </summary>
     private static string SerializePayload(object payload)
     {

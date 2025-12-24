@@ -6,7 +6,6 @@
 --   - agent_states
 --   - agent_configs
 --   - agent_event_router_hierarchies
---   - ai_memory_messages
 -- - LockDownPublicAccess: true
 -- - EnableRowLevelSecurity: false
 
@@ -41,15 +40,6 @@ CREATE TABLE IF NOT EXISTS aevatar.agent_event_router_hierarchies (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS aevatar.ai_memory_messages (
-  id uuid PRIMARY KEY,
-  agent_id text NOT NULL,
-  session_id text NULL,
-  role text NOT NULL,
-  content text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
 -- ==============================
 -- Indexes
 -- ==============================
@@ -62,14 +52,6 @@ CREATE INDEX IF NOT EXISTS idx_agent_configs_updated_at ON aevatar.agent_configs
 CREATE INDEX IF NOT EXISTS idx_agent_event_router_hierarchies_parent_id ON aevatar.agent_event_router_hierarchies (parent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_event_router_hierarchies_updated_at ON aevatar.agent_event_router_hierarchies (updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_ai_memory_messages_agent_created_at ON aevatar.ai_memory_messages (agent_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ai_memory_messages_agent_session_created_at ON aevatar.ai_memory_messages (agent_id, session_id, created_at DESC);
-
--- Full-Text Search index (config: simple)
-CREATE INDEX IF NOT EXISTS idx_ai_memory_messages_content_fts
-  ON aevatar.ai_memory_messages
-  USING gin (to_tsvector('simple', content));
-
 -- ==============================
 -- Permissions (Lock down)
 -- ==============================
@@ -78,7 +60,6 @@ REVOKE ALL ON SCHEMA aevatar FROM PUBLIC;
 REVOKE ALL ON TABLE aevatar.agent_states FROM PUBLIC;
 REVOKE ALL ON TABLE aevatar.agent_configs FROM PUBLIC;
 REVOKE ALL ON TABLE aevatar.agent_event_router_hierarchies FROM PUBLIC;
-REVOKE ALL ON TABLE aevatar.ai_memory_messages FROM PUBLIC;
 
 DO $$
 BEGIN
@@ -87,7 +68,6 @@ BEGIN
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_states FROM anon';
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_configs FROM anon';
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_event_router_hierarchies FROM anon';
-    EXECUTE 'REVOKE ALL ON TABLE aevatar.ai_memory_messages FROM anon';
   END IF;
 END
 $$;
@@ -99,7 +79,6 @@ BEGIN
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_states FROM authenticated';
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_configs FROM authenticated';
     EXECUTE 'REVOKE ALL ON TABLE aevatar.agent_event_router_hierarchies FROM authenticated';
-    EXECUTE 'REVOKE ALL ON TABLE aevatar.ai_memory_messages FROM authenticated';
   END IF;
 END
 $$;

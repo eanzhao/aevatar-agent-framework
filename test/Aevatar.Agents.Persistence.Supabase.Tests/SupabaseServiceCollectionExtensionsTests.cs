@@ -86,15 +86,12 @@ public class SupabaseServiceCollectionExtensionsTests
         services.AddSupabaseStateStore<TestState>();
         services.AddSupabaseConfigStore<TestConfig>();
         services.AddSupabaseEventRouterStore();
-        services.AddSupabaseAIMemory();
 
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseStateStore<TestState>)
                                              && d.Lifetime == ServiceLifetime.Singleton);
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseConfigStore<TestConfig>)
                                              && d.Lifetime == ServiceLifetime.Singleton);
         services.Should().ContainSingle(d => d.ServiceType == typeof(SupabaseEventRouterStore)
-                                             && d.Lifetime == ServiceLifetime.Singleton);
-        services.Should().ContainSingle(d => d.ServiceType == typeof(IAevatarAIMemoryFactory)
                                              && d.Lifetime == ServiceLifetime.Singleton);
     }
 
@@ -107,8 +104,7 @@ public class SupabaseServiceCollectionExtensionsTests
             .AddAevatarSupabase("Host=localhost;Username=postgres;Password=postgres;Database=postgres")
             .AddSupabaseStateStore<TestState>()
             .AddSupabaseConfigStore<TestConfig>()
-            .AddSupabaseEventRouterStore()
-            .AddSupabaseAIMemory();
+            .AddSupabaseEventRouterStore();
 
         result.Should().BeSameAs(services);
     }
@@ -122,7 +118,6 @@ public class SupabaseServiceCollectionExtensionsTests
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_states");
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_configs");
         sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.agent_event_router_hierarchies");
-        sql.Should().Contain("CREATE TABLE IF NOT EXISTS aevatar.ai_memory_messages");
     }
 
     [Fact]

@@ -61,7 +61,7 @@
     <Project Path="examples\LlmTornadoDemo\LlmTornadoDemo.csproj" />
     <Project Path="examples\MakerSystem\MakerSystem.csproj" />
     <Project Path="examples\MCPToolDemo\MCPToolDemo.csproj" />
-    <Project Path="examples\MemoryDemo\MemoryDemo.csproj" Type="Classic C#" />
+    <Project Path="examples\MemoryDemo\MemoryDemo.csproj" />
     <Project Path="examples\MongoDBEventStoreDemo\MongoDBEventStoreDemo.csproj" />
     <Project Path="examples\SimpleDemo\SimpleDemo.csproj" />
     <Project Path="examples\SkillsMCPUnifiedDemo\SkillsMCPUnifiedDemo.csproj" Type="C#" />
