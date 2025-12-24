@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
@@ -29,10 +30,14 @@ namespace Aevatar.Agents.AI.WithTool.Tools.BuiltIn;
 public class AevatarMemorySearchTool : AevatarToolBase
 {
     private readonly ILogger<AevatarMemorySearchTool> _logger;
+    private readonly IStateQueryService? _stateQueryService;
 
-    public AevatarMemorySearchTool(ILogger<AevatarMemorySearchTool> logger)
+    public AevatarMemorySearchTool(
+        ILogger<AevatarMemorySearchTool> logger,
+        IStateQueryService? stateQueryService = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _stateQueryService = stateQueryService;
     }
 
     public override string Name => "search_memory";
@@ -170,6 +175,56 @@ public class AevatarMemorySearchTool : AevatarToolBase
         var includeLongTerm = type is "all" or "longterm";
         var includeWorking = type is "all" or "working";
 
+        // 0) Projected state read-model (CQRS) - preferred when available
+        // WHY:
+        // - The CQRS index is built from OnStateChangedAsync projections.
+        // - Tools can query it without binding to in-memory state structure.
+        if ((includeConversation || includeWorking) &&
+            _stateQueryService != null &&
+            !string.IsNullOrWhiteSpace(context.AgentType) &&
+            !string.IsNullOrWhiteSpace(context.AgentId))
+        {
+            try
+            {
+                var stateDoc = await _stateQueryService.GetByIdAsync(
+                    context.AgentType,
+                    context.AgentId,
+                    cancellationToken);
+
+                if (stateDoc?.Data != null)
+                {
+                    foreach (var (field, value) in stateDoc.Data)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (allResults.Count >= maxResults) break;
+
+                        if (value is not string s) continue;
+                        if (string.IsNullOrWhiteSpace(s)) continue;
+                        if (!s.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        allResults.Add(new MemoryItem
+                        {
+                            Id = $"cqrs:{field}",
+                            Type = "cqrs_state",
+                            Content = $"{field}: {BuildSnippet(s, query)}",
+                            Timestamp = DateTime.UtcNow,
+                            Metadata = new Dictionary<string, object>
+                            {
+                                ["source"] = "cqrs.IStateQueryService.GetByIdAsync",
+                                ["agentType"] = context.AgentType,
+                                ["agentId"] = context.AgentId,
+                                ["field"] = field
+                            }
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "CQRS-based memory search failed (best-effort)");
+            }
+        }
+
         // 1) Conversation/working memory from agent State snapshot
         if (includeConversation || includeWorking)
         {
@@ -269,6 +324,31 @@ public class AevatarMemorySearchTool : AevatarToolBase
         }
 
         return final;
+    }
+
+    private static string BuildSnippet(string content, string query, int maxChars = 400)
+    {
+        if (string.IsNullOrEmpty(content) || maxChars <= 0)
+            return string.Empty;
+
+        if (content.Length <= maxChars)
+            return content;
+
+        var idx = content.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            return content[..maxChars] + "...";
+        }
+
+        var half = maxChars / 2;
+        var start = Math.Max(0, idx - half);
+        var len = Math.Min(maxChars, content.Length - start);
+        var snippet = content.Substring(start, len);
+
+        if (start > 0) snippet = "..." + snippet;
+        if (start + len < content.Length) snippet += "...";
+
+        return snippet;
     }
 }
 

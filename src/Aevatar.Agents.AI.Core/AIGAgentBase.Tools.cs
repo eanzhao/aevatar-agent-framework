@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
@@ -20,6 +21,13 @@ public abstract partial class AIGAgentBase
 {
     private const string ToolAllowlistContextKey = "aevatar.allowed_tools";
     private const string ToolAllowlistSourceSkillContextKey = "aevatar.allowed_tools.source_skill";
+
+    /// <summary>
+    /// Optional CQRS query facade (injected by runtime).
+    /// <para/>
+    /// Used by tools (e.g. <c>search_memory</c>) to query projected state read-model (e.g. Elasticsearch).
+    /// </summary>
+    protected IStateQueryService? CqrsStateQueryService { get; set; }
 
     // ============================================================
     //  Tool system (merged from AIGAgentWithToolBase)
@@ -107,7 +115,9 @@ public abstract partial class AIGAgentBase
 
         // Built-in: memory search (uses State snapshot + optional AIMemory)
         await RegisterToolAsync(
-            new AevatarMemorySearchTool(new LoggerAdapter<AevatarMemorySearchTool>(Logger)),
+            new AevatarMemorySearchTool(
+                new LoggerAdapter<AevatarMemorySearchTool>(Logger),
+                CqrsStateQueryService),
             cancellationToken: cancellationToken);
 
         // Agent Skills (agentskills.io) - disabled by default via EnableAgentSkills
@@ -153,7 +163,7 @@ public abstract partial class AIGAgentBase
         return new ToolContext
         {
             AgentId = Id.ToString(),
-            AgentType = GetType().Name,
+            AgentType = GetType().FullName ?? GetType().Name,
             GetStateCallback = () => GetState(),
             PublishEventCallback = msg => PublishAsync(msg, ct: CancellationToken.None),
             Memory = AIMemory,
