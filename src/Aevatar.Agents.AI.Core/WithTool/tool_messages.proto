@@ -44,6 +44,17 @@ message AevatarToolExecutedEvent {
   int64 execution_time_ms = 7;
 }
 
+// Tool published event (generic JSON payload)
+// WHY:
+// - Tool calling parameters are JSON; we still need a Protobuf message to cross runtime boundaries.
+// - This keeps "publish_event" tool useful without requiring dynamic Protobuf type construction.
+message AevatarToolPublishedEvent {
+  string event_type = 1;
+  string payload_json = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string agent_id = 4;
+}
+
 // AI Tool result
 message AevatarAIToolResult {
   bool success = 1;

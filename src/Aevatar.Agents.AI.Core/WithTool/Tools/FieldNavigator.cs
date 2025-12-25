@@ -5,13 +5,13 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Tools;
 
 /// <summary>
-/// 字段导航器
-/// 提供反射和 JSON Path 导航功能
+/// Field navigator
+/// Provides reflection and JSON Path navigation functionality
 /// </summary>
 public static class FieldNavigator
 {
     /// <summary>
-    /// 通过反射获取字段值，支持 JSON Path
+    /// Get field value via reflection, supports JSON Path
     /// </summary>
     public static object? GetFieldValue(
         object obj,
@@ -29,7 +29,7 @@ public static class FieldNavigator
             object? fieldValue = null;
             var type = obj.GetType();
 
-            // 尝试获取属性
+            // Try to get property
             var property = type.GetProperty(fieldName);
             if (property != null)
             {
@@ -37,20 +37,20 @@ public static class FieldNavigator
             }
             else
             {
-                // 尝试获取字段
+                // Try to get field
                 var field = type.GetField(fieldName);
                 if (field != null)
                 {
                     fieldValue = field.GetValue(obj);
                 }
-                // 如果是字典类型
+                // If dictionary type
                 else if (obj is IDictionary<string, object> dict)
                 {
                     dict.TryGetValue(fieldName, out fieldValue);
                 }
             }
 
-            // 如果找到了字段值并且有 JSON Path，使用 JSON Path 导航
+            // If field value found and has JSON Path, use JSON Path navigation
             if (fieldValue != null && !string.IsNullOrEmpty(path))
             {
                 return NavigateJsonPath(fieldValue, path, logger);
@@ -72,7 +72,7 @@ public static class FieldNavigator
     }
 
     /// <summary>
-    /// 使用 JSON Path 导航对象
+    /// Navigate object using JSON Path
     /// </summary>
     public static object? NavigateJsonPath(
         object obj,
@@ -81,7 +81,7 @@ public static class FieldNavigator
     {
         try
         {
-            // 将对象转换为 JSON
+            // Convert object to JSON
             var json = JsonSerializer.Serialize(obj);
             var jsonNode = JsonNode.Parse(json);
 
@@ -90,7 +90,7 @@ public static class FieldNavigator
                 return null;
             }
 
-            // 简化的 JSON Path 支持
+            // Simplified JSON Path support
             var result = NavigateJsonNode(jsonNode, path);
 
             if (result == null)
@@ -99,7 +99,7 @@ public static class FieldNavigator
                 return null;
             }
 
-            // 根据结果类型返回适当的值
+            // Return appropriate value based on result type
             return ConvertJsonNodeToObject(result);
         }
         catch (JsonException ex)
@@ -115,11 +115,11 @@ public static class FieldNavigator
     }
 
     /// <summary>
-    /// 导航 JsonNode
+    /// Navigate JsonNode
     /// </summary>
     private static JsonNode? NavigateJsonNode(JsonNode node, string path)
     {
-        // 移除前缀的 $ 或 $.
+        // Remove prefix $ or $.
         if (path.StartsWith("$."))
         {
             path = path.Substring(2);
@@ -129,7 +129,7 @@ public static class FieldNavigator
             path = path.Substring(1);
         }
 
-        // 如果路径为空，返回当前节点
+        // If path is empty, return current node
         if (string.IsNullOrEmpty(path))
         {
             return node;
@@ -145,7 +145,7 @@ public static class FieldNavigator
                 return null;
             }
 
-            // 处理数组索引
+            // Handle array index
             if (segment.StartsWith("[") && segment.EndsWith("]"))
             {
                 if (currentNode is JsonArray array)
@@ -165,7 +165,7 @@ public static class FieldNavigator
                     return null;
                 }
             }
-            // 处理对象属性
+            // Handle object property
             else
             {
                 if (currentNode is JsonObject obj && obj.TryGetPropertyValue(segment, out var value))
@@ -183,7 +183,7 @@ public static class FieldNavigator
     }
 
     /// <summary>
-    /// 解析路径段
+    /// Parse path segments
     /// </summary>
     private static List<string> ParsePathSegments(string path)
     {
@@ -239,7 +239,7 @@ public static class FieldNavigator
     }
 
     /// <summary>
-    /// 将 JsonNode 转换为对象
+    /// Convert JsonNode to object
     /// </summary>
     private static object? ConvertJsonNodeToObject(JsonNode node)
     {

@@ -11,7 +11,8 @@ This project integrates the **official MCP C# SDK** (`ModelContextProtocol.Core`
 ### 1. Install Package
 
 ```bash
-dotnet add reference Aevatar.Agents.AI.WithTool.MCP
+# MCP tool integration is included in Aevatar.Agents.AI.Core
+dotnet add package Aevatar.Agents.AI.Core --version 1.0.0-alpha
 ```
 
 ### 2. Register MCP Tools
@@ -260,7 +261,7 @@ await ToolManager.RegisterMCPServerAsync("github", client);
 ## Dependencies
 
 - **ModelContextProtocol.Core** (v0.4.0-preview.3): Official MCP SDK
-- **Aevatar.Agents.AI.WithTool**: Core tool system
+- **Aevatar.Agents.AI.Core**: Provides the tool system + MCP integration (namespace remains `Aevatar.Agents.AI.WithTool.*`)
 
 ## References
 

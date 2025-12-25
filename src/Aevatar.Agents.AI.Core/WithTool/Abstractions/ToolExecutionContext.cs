@@ -1,11 +1,12 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
 
 /// <summary>
-/// 工具执行上下文
+/// Tool execution context
 /// </summary>
 public class ToolExecutionContext
 {
@@ -15,27 +16,32 @@ public class ToolExecutionContext
     public string AgentId { get; set; } = string.Empty;
     
     /// <summary>
-    /// 工具管理器
+    /// Tool manager
     /// </summary>
     public IAevatarToolManager ToolManager { get; set; } = null!;
     
     /// <summary>
-    /// 事件发布回调
+    /// Event publish callback
     /// </summary>
     public Func<IMessage, Task>? PublishEventCallback { get; set; }
+
+    /// <summary>
+    /// Event publish callback with explicit propagation direction.
+    /// </summary>
+    public Func<IMessage, EventDirection, CancellationToken, Task<string>>? PublishEventWithDirectionCallback { get; set; }
     
     /// <summary>
-    /// 获取会话ID的函数
+    /// Function to get session ID
     /// </summary>
     public Func<string> GetSessionId { get; set; } = () => Guid.NewGuid().ToString();
     
     /// <summary>
-    /// 日志记录器
+    /// Logger
     /// </summary>
     public ILogger? Logger { get; set; }
     
     /// <summary>
-    /// 额外的上下文数据
+    /// Additional context data
     /// </summary>
     public Dictionary<string, object> Metadata { get; set; } = new();
 }

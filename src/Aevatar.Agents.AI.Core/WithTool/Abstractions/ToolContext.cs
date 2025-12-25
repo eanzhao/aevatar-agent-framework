@@ -1,12 +1,13 @@
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
 
 /// <summary>
-/// 工具上下文
-/// 包含创建和执行工具所需的所有依赖
+/// Tool context
+/// Contains all dependencies needed for creating and executing tools
 /// </summary>
 public class ToolContext
 {
@@ -16,42 +17,49 @@ public class ToolContext
     public string AgentId { get; set; } = string.Empty;
     
     /// <summary>
-    /// Agent 类型名称
+    /// Agent type name
     /// </summary>
     public string AgentType { get; set; } = string.Empty;
     
     /// <summary>
-    /// 是否包含核心工具
+    /// Whether to include core tools
     /// </summary>
     public bool IncludeCoreTools { get; set; } = true;
     
     /// <summary>
-    /// 工具类别过滤器（如果为空则包含所有类别）
+    /// Tool category filter (if empty, includes all categories)
     /// </summary>
     public IList<ToolCategory>? Categories { get; set; }
     
     /// <summary>
-    /// 获取Agent状态的回调
+    /// Callback to get Agent state
     /// </summary>
     public Func<IMessage>? GetStateCallback { get; set; }
     
     /// <summary>
-    /// 发布事件的回调
+    /// Callback to publish events
     /// </summary>
     public Func<IMessage, Task>? PublishEventCallback { get; set; }
+
+    /// <summary>
+    /// Callback to publish events with explicit propagation direction.
+    /// <para/>
+    /// Preferred over <see cref="PublishEventCallback"/> when available.
+    /// </summary>
+    public Func<IMessage, EventDirection, CancellationToken, Task<string>>? PublishEventWithDirectionCallback { get; set; }
     
     /// <summary>
-    /// 获取会话ID的回调
+    /// Callback to get session ID
     /// </summary>
     public Func<string>? GetSessionIdCallback { get; set; }
     
     /// <summary>
-    /// 日志记录器
+    /// Logger
     /// </summary>
     public ILogger? Logger { get; set; }
     
     /// <summary>
-    /// 额外的配置数据
+    /// Additional configuration data
     /// </summary>
     public Dictionary<string, object> Metadata { get; set; } = new();
 }

@@ -1,3 +1,7 @@
+using System;
+using System.Collections;
+using System.Globalization;
+using System.Text.Json;
 using Aevatar.Agents.AI.Abstractions;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging;
@@ -5,58 +9,58 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
 
 /// <summary>
-/// AI工具接口
-/// 定义了实现工具的标准契约
+/// AI tool interface
+/// Defines the standard contract for implementing tools
 /// </summary>
 public interface IAevatarTool
 {
     /// <summary>
-    /// 工具名称（唯一标识）
+    /// Tool name (unique identifier)
     /// </summary>
     string Name { get; }
     
     /// <summary>
-    /// 工具描述
+    /// Tool description
     /// </summary>
     string Description { get; }
     
     /// <summary>
-    /// 工具类别
+    /// Tool category
     /// </summary>
     ToolCategory Category { get; }
     
     /// <summary>
-    /// 工具版本
+    /// Tool version
     /// </summary>
     string Version { get; }
     
     /// <summary>
-    /// 工具标签
+    /// Tool tags
     /// </summary>
     IList<string> Tags { get; }
     
     /// <summary>
-    /// 创建工具定义
+    /// Create tool definition
     /// </summary>
-    /// <param name="context">工具上下文</param>
-    /// <param name="logger">日志记录器</param>
-    /// <returns>配置好的工具定义</returns>
+    /// <param name="context">Tool context</param>
+    /// <param name="logger">Logger</param>
+    /// <returns>Configured tool definition</returns>
     ToolDefinition CreateToolDefinition(ToolContext context, ILogger? logger = null);
     
     /// <summary>
-    /// 创建参数定义
+    /// Create parameter definition
     /// </summary>
-    /// <returns>工具参数定义</returns>
+    /// <returns>Tool parameter definition</returns>
     ToolParameters CreateParameters();
     
     /// <summary>
-    /// 执行工具逻辑
+    /// Execute tool logic
     /// </summary>
-    /// <param name="parameters">执行参数</param>
-    /// <param name="context">工具上下文</param>
-    /// <param name="logger">日志记录器</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>执行结果</returns>
+    /// <param name="parameters">Execution parameters</param>
+    /// <param name="context">Tool context</param>
+    /// <param name="logger">Logger</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Execution result</returns>
     Task<IMessage> ExecuteAsync(
         Dictionary<string, object> parameters,
         ToolContext context,
@@ -64,16 +68,16 @@ public interface IAevatarTool
         CancellationToken cancellationToken = default);
     
     /// <summary>
-    /// 验证参数
+    /// Validate parameters
     /// </summary>
-    /// <param name="parameters">要验证的参数</param>
-    /// <returns>验证结果</returns>
+    /// <param name="parameters">Parameters to validate</param>
+    /// <returns>Validation result</returns>
     ToolParameterValidationResult ValidateParameters(Dictionary<string, object?> parameters);
 }
 
 /// <summary>
-/// 工具基类
-/// 提供 IAevatarTool 的默认实现
+/// Tool base class
+/// Provides default implementation of IAevatarTool
 /// </summary>
 public abstract class AevatarToolBase : IAevatarTool
 {
@@ -139,6 +143,7 @@ public abstract class AevatarToolBase : IAevatarTool
             Categories = baseContext.Categories,
             GetStateCallback = baseContext.GetStateCallback,
             PublishEventCallback = baseContext.PublishEventCallback,
+            PublishEventWithDirectionCallback = baseContext.PublishEventWithDirectionCallback,
             GetSessionIdCallback = baseContext.GetSessionIdCallback,
             Logger = baseContext.Logger ?? logger,
             Metadata = baseContext.Metadata != null
@@ -154,6 +159,9 @@ public abstract class AevatarToolBase : IAevatarTool
 
         if (executionContext.PublishEventCallback != null)
             merged.PublishEventCallback = executionContext.PublishEventCallback;
+
+        if (executionContext.PublishEventWithDirectionCallback != null)
+            merged.PublishEventWithDirectionCallback = executionContext.PublishEventWithDirectionCallback;
 
         if (executionContext.GetSessionId != null)
             merged.GetSessionIdCallback = () => executionContext.GetSessionId();
@@ -187,7 +195,7 @@ public abstract class AevatarToolBase : IAevatarTool
         var result = new ToolParameterValidationResult { IsValid = true };
         var paramDefinitions = CreateParameters();
         
-        // 验证必需参数
+        // Validate required parameters
         foreach (var requiredParam in paramDefinitions.Required)
         {
             if (!parameters.ContainsKey(requiredParam) || parameters[requiredParam] == null)
@@ -197,12 +205,12 @@ public abstract class AevatarToolBase : IAevatarTool
             }
         }
         
-        // 验证参数类型和枚举值
+        // Validate parameter types and enum values
         foreach (var param in parameters)
         {
             if (paramDefinitions.Items.TryGetValue(param.Key, out var paramDef))
             {
-                // 验证枚举值
+                // Validate enum values
                 if (paramDef.Enum != null && paramDef.Enum.Count > 0)
                 {
                     var value = param.Value?.ToString();
@@ -213,7 +221,7 @@ public abstract class AevatarToolBase : IAevatarTool
                     }
                 }
                 
-                // 验证类型（简化版本）
+                // Validate type (simplified version)
                 if (!ValidateType(param.Value, paramDef.Type))
                 {
                     result.IsValid = false;
@@ -243,73 +251,151 @@ public abstract class AevatarToolBase : IAevatarTool
     }
 
     /// <summary>
-    /// 是否需要内部访问权限
+    /// Whether internal access permission is required
     /// </summary>
     protected virtual bool RequiresInternalAccess() => false;
     
     /// <summary>
-    /// 是否可以被覆盖
+    /// Whether can be overridden
     /// </summary>
     protected virtual bool CanBeOverridden() => true;
     
     /// <summary>
-    /// 是否需要确认
+    /// Whether confirmation is required
     /// </summary>
     protected virtual bool RequiresConfirmation() => false;
     
     /// <summary>
-    /// 是否是危险操作
+    /// Whether is a dangerous operation
     /// </summary>
     protected virtual bool IsDangerous() => false;
     
     /// <summary>
-    /// 获取速率限制
+    /// Get rate limit
     /// </summary>
     protected virtual int? GetRateLimit() => null;
     
     /// <summary>
-    /// 获取超时时间
+    /// Get timeout duration
     /// </summary>
     protected virtual TimeSpan? GetTimeout() => null;
     
     /// <summary>
-    /// 验证参数类型
+    /// Validate parameter type
     /// </summary>
-    private bool ValidateType(object? value, string? expectedType)
+    private static bool ValidateType(object? value, string? expectedType)
     {
         if (value == null || string.IsNullOrEmpty(expectedType))
             return true;
-        
-        return expectedType.ToLower() switch
+
+        var type = expectedType.Trim().ToLowerInvariant();
+        return type switch
         {
-            "string" => value is string,
-            "integer" or "int" => value is int or long or short or byte,
-            "number" or "float" or "double" => value is float or double or decimal or int or long,
-            "boolean" or "bool" => value is bool,
-            "object" => value is IDictionary<string, object> or object,
-            "array" => value is IEnumerable<object>,
+            "string" => value is string || value is JsonElement { ValueKind: JsonValueKind.String },
+            "integer" or "int" or "int32" => IsInteger(value),
+            "number" or "float" or "double" or "decimal" => IsNumber(value),
+            "boolean" or "bool" => IsBoolean(value),
+            "object" => IsObject(value),
+            "array" => IsArray(value),
             _ => true
         };
+    }
+
+    private static bool IsBoolean(object value)
+    {
+        return value switch
+        {
+            bool => true,
+            JsonElement { ValueKind: JsonValueKind.True or JsonValueKind.False } => true,
+            string s => bool.TryParse(s, out _),
+            _ => false
+        };
+    }
+
+    private static bool IsNumber(object value)
+    {
+        return value switch
+        {
+            byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => true,
+            JsonElement { ValueKind: JsonValueKind.Number } => true,
+            string s => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _),
+            _ => false
+        };
+    }
+
+    private static bool IsInteger(object value)
+    {
+        return value switch
+        {
+            byte or sbyte or short or ushort or int or uint or long or ulong => true,
+            float f => IsWholeNumber(f),
+            double d => IsWholeNumber(d),
+            decimal m => m == decimal.Truncate(m),
+            JsonElement je when je.ValueKind == JsonValueKind.Number =>
+                je.TryGetInt64(out _) || (je.TryGetDouble(out var d) && IsWholeNumber(d)),
+            string s => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
+            _ => false
+        };
+    }
+
+    private static bool IsObject(object value)
+    {
+        return value switch
+        {
+            IDictionary => true,
+            IMessage => true,
+            JsonElement { ValueKind: JsonValueKind.Object } => true,
+            _ => false
+        };
+    }
+
+    private static bool IsArray(object value)
+    {
+        return value switch
+        {
+            JsonElement { ValueKind: JsonValueKind.Array } => true,
+            string => false,
+            IDictionary => false,
+            IMessage => false,
+            IEnumerable => true,
+            _ => false
+        };
+    }
+
+    private static bool IsWholeNumber(double d)
+    {
+        if (double.IsNaN(d) || double.IsInfinity(d))
+            return false;
+
+        return Math.Abs(d % 1) < 1e-12;
+    }
+
+    private static bool IsWholeNumber(float f)
+    {
+        if (float.IsNaN(f) || float.IsInfinity(f))
+            return false;
+
+        return Math.Abs(f % 1) < 1e-6f;
     }
 }
 
 /// <summary>
-/// 参数验证结果
+/// Parameter validation result
 /// </summary>
 public class ToolParameterValidationResult
 {
     /// <summary>
-    /// 是否有效
+    /// Whether valid
     /// </summary>
     public bool IsValid { get; set; }
 
     /// <summary>
-    /// 错误列表
+    /// Error list
     /// </summary>
     public List<string> Errors { get; set; } = new();
 
     /// <summary>
-    /// 警告列表
+    /// Warning list
     /// </summary>
     public List<string> Warnings { get; set; } = new();
 }

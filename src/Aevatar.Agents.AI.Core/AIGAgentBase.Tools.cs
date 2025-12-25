@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Aevatar.Agents.Abstractions.CQRS;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
@@ -165,7 +166,8 @@ public abstract partial class AIGAgentBase
             AgentId = Id.ToString(),
             AgentType = GetType().FullName ?? GetType().Name,
             GetStateCallback = () => GetState(),
-            PublishEventCallback = msg => PublishAsync(msg, ct: CancellationToken.None),
+            PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, CancellationToken.None),
+            PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
             GetSessionIdCallback = () => Id.ToString(),
             Logger = Logger
         };
@@ -177,10 +179,17 @@ public abstract partial class AIGAgentBase
         {
             AgentId = Id.ToString(),
             ToolManager = ToolManager,
-            PublishEventCallback = msg => PublishAsync(msg, ct: cancellationToken),
+            PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, cancellationToken),
+            PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
             Logger = Logger,
             GetSessionId = () => sessionId
         };
+    }
+
+    private Task<string> PublishToolEventAsync(IMessage message, EventDirection direction, CancellationToken ct)
+    {
+        // Use dynamic to preserve the runtime message type for metrics/logging (instead of "IMessage").
+        return PublishAsync((dynamic)message, direction, ct);
     }
 
     private async Task RefreshToolCachesAsync(CancellationToken cancellationToken = default)
@@ -508,10 +517,13 @@ public abstract partial class AIGAgentBase
                 result[key] = el.ValueKind switch
                 {
                     JsonValueKind.String => el.GetString() ?? string.Empty,
-                    JsonValueKind.Number => el.GetDouble(),
+                    // Keep numeric type stable:
+                    // - Prefer int/long for integral numbers (tools often use Convert.ToInt32/ToInt64)
+                    // - Fall back to double for non-integral numbers
+                    JsonValueKind.Number => TryCoerceNumber(el, out var number) ? number : el,
                     JsonValueKind.True => true,
                     JsonValueKind.False => false,
-                    JsonValueKind.Null => null!,
+                    JsonValueKind.Null or JsonValueKind.Undefined => null!,
                     _ => el
                 };
             }
@@ -523,6 +535,41 @@ public abstract partial class AIGAgentBase
             // Backward-compatible fallback: empty args.
             return new Dictionary<string, object>();
         }
+    }
+
+    private static bool TryCoerceNumber(JsonElement el, out object value)
+    {
+        // ============================================================
+        //  JSON number normalization
+        //
+        //  WHY:
+        //  - LLM function-calling args are JSON; numbers come as "number" without int/float distinction.
+        //  - Many tools expect integers (e.g., delay, count); keeping them as int/long avoids fragile casts.
+        // ============================================================
+        value = 0;
+
+        if (el.ValueKind != JsonValueKind.Number)
+            return false;
+
+        if (el.TryGetInt32(out var i32))
+        {
+            value = i32;
+            return true;
+        }
+
+        if (el.TryGetInt64(out var i64))
+        {
+            value = i64;
+            return true;
+        }
+
+        if (el.TryGetDouble(out var d))
+        {
+            value = d;
+            return true;
+        }
+
+        return false;
     }
 
     private static AevatarChatMessage CreateToolCallMessage(AevatarFunctionCall functionCall)

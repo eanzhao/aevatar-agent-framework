@@ -125,7 +125,7 @@ public class ProtoActorGAgentActorManager : IGAgentActorManager
     }
 
     #endregion
-    #region 新增接口实现
+    #region New Interface Implementation
 
     public async Task<IReadOnlyList<IGAgentActor>> CreateBatchAsync<TAgent>(
         IEnumerable<string> ids,

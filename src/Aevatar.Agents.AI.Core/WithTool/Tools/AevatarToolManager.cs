@@ -1,7 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Messages;
 using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Tools;
@@ -61,37 +65,46 @@ public class AevatarToolManager : IAevatarToolManager
         ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
         ArgumentNullException.ThrowIfNull(parameters);
 
+        var stopwatch = Stopwatch.StartNew();
+        var toolCallId = Guid.NewGuid().ToString("N");
+
         if (!_tools.TryGetValue(toolName, out var tool))
         {
             _logger.LogError("Tool '{ToolName}' not found", toolName);
-            return new ToolExecutionResult
-            {
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' not found",
-                ToolName = toolName
-            };
+            var result = BuildFailureResult(
+                toolCallId,
+                toolName,
+                errorMessage: $"Tool '{toolName}' not found",
+                stopwatch);
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
+            return result;
         }
 
         if (!tool.IsEnabled)
         {
             _logger.LogWarning("Tool '{ToolName}' is disabled", toolName);
-            return new ToolExecutionResult
-            {
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' is disabled",
-                ToolName = toolName
-            };
+            var result = BuildFailureResult(
+                toolCallId,
+                toolName,
+                errorMessage: $"Tool '{toolName}' is disabled",
+                stopwatch);
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
+            return result;
         }
 
         if (tool.ExecuteAsync == null)
         {
             _logger.LogError("Tool '{ToolName}' has no execution function", toolName);
-            return new ToolExecutionResult
-            {
-                IsSuccess = false,
-                ErrorMessage = $"Tool '{toolName}' has no execution function",
-                ToolName = toolName
-            };
+            var result = BuildFailureResult(
+                toolCallId,
+                toolName,
+                errorMessage: $"Tool '{toolName}' has no execution function",
+                stopwatch);
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
+            return result;
         }
 
         _logger.LogDebug("Executing tool: {ToolName} for agent: {AgentId}", toolName, context?.AgentId ?? "unknown");
@@ -103,22 +116,104 @@ public class AevatarToolManager : IAevatarToolManager
 
             _logger.LogDebug("Tool executed successfully: {ToolName}", toolName);
 
-            return new ToolExecutionResult
+            stopwatch.Stop();
+
+            var execResult = new ToolExecutionResult
             {
+                ToolCallId = toolCallId,
                 IsSuccess = true,
                 Content = JsonFormatter.Default.Format(result),
-                ToolName = toolName
+                ToolName = toolName,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                Duration = Duration.FromTimeSpan(stopwatch.Elapsed)
             };
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, execResult, context, cancellationToken);
+            return execResult;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Tool execution cancelled: {ToolName}", toolName);
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Tool execution failed: {ToolName}", toolName);
-            return new ToolExecutionResult
+            var result = BuildFailureResult(
+                toolCallId,
+                toolName,
+                errorMessage: $"Tool execution failed: {ex.Message}",
+                stopwatch,
+                content: ex.Message);
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
+            return result;
+        }
+    }
+
+    private static ToolExecutionResult BuildFailureResult(
+        string toolCallId,
+        string toolName,
+        string errorMessage,
+        Stopwatch stopwatch,
+        string? content = null)
+    {
+        stopwatch.Stop();
+        return new ToolExecutionResult
+        {
+            ToolCallId = toolCallId,
+            ToolName = toolName,
+            IsSuccess = false,
+            ErrorMessage = errorMessage,
+            Content = content ?? errorMessage,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+            Duration = Duration.FromTimeSpan(stopwatch.Elapsed)
+        };
+    }
+
+    private async Task TryPublishToolExecutedEventAsync(
+        string toolName,
+        Dictionary<string, object> parameters,
+        ToolExecutionResult result,
+        ToolExecutionContext? context,
+        CancellationToken cancellationToken)
+    {
+        if (context == null)
+            return;
+
+        if (context.PublishEventWithDirectionCallback == null && context.PublishEventCallback == null)
+            return;
+
+        try
+        {
+            var evt = new AevatarToolExecutedEvent
             {
-                IsSuccess = false,
-                ErrorMessage = $"Tool execution failed: {ex.Message}",
-                ToolName = toolName
+                ToolName = toolName,
+                Result = result.Content ?? string.Empty,
+                Success = result.IsSuccess,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+                AgentId = context.AgentId,
+                ExecutionTimeMs = (long)result.Duration.ToTimeSpan().TotalMilliseconds
             };
+
+            foreach (var (k, v) in parameters)
+            {
+                evt.Parameters[k] = v?.ToString() ?? string.Empty;
+            }
+
+            if (context.PublishEventWithDirectionCallback != null)
+            {
+                await context.PublishEventWithDirectionCallback(evt, EventDirection.Down, cancellationToken);
+            }
+            else
+            {
+                await context.PublishEventCallback!(evt);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort only: do not fail the tool execution due to telemetry/eventing.
+            _logger.LogDebug(ex, "Failed to publish AevatarToolExecutedEvent (best-effort).");
         }
     }
 

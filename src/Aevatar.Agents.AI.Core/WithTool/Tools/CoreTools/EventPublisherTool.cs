@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.WithTool.Abstractions;
+using Aevatar.Agents.AI.WithTool.Messages;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -34,6 +35,12 @@ public class EventPublisherTool : AevatarToolBase
 
     /// <inheritdoc />
     protected override bool CanBeOverridden() => false;
+
+    /// <inheritdoc />
+    protected override bool IsDangerous() => true;
+
+    /// <inheritdoc />
+    protected override bool RequiresConfirmation() => true;
 
     /// <inheritdoc />
     public override ToolParameters CreateParameters()
@@ -82,7 +89,7 @@ public class EventPublisherTool : AevatarToolBase
             return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(errorResult));
         }
 
-        if (context.PublishEventCallback == null)
+        if (context.PublishEventWithDirectionCallback == null && context.PublishEventCallback == null)
         {
             logger?.LogWarning("PublishEventCallback not provided, cannot publish event");
             var errorResult = new { success = false, error = "Event publishing not available" };
@@ -93,28 +100,49 @@ public class EventPublisherTool : AevatarToolBase
         {
             var eventType = parameters["event_type"]?.ToString();
             var payload = parameters["payload"];
-            var direction = parameters.GetValueOrDefault("direction", "both")?.ToString();
+            var directionStr = parameters.GetValueOrDefault("direction", "both")?.ToString();
+            var direction = ParseDirection(directionStr);
 
             logger?.LogInformation("Publishing event {EventType} with direction {Direction}",
                 eventType, direction);
 
-            // Create event message
-            var eventId = Guid.NewGuid().ToString();
-            var eventMessage = CreateEventMessage(eventId, eventType, payload, context.AgentId, logger);
-
-            // Publish the event
-            if (eventMessage != null)
+            if (string.IsNullOrWhiteSpace(eventType))
             {
-                await context.PublishEventCallback(eventMessage);
+                var errorResult = new { success = false, error = "Parameter 'event_type' is required." };
+                return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(errorResult));
+            }
+
+            // Tool calls are JSON-first; publish a Protobuf message that carries the JSON payload.
+            var payloadJson = SerializePayload(payload);
+            var toolEvent = new AevatarToolPublishedEvent
+            {
+                EventType = eventType,
+                PayloadJson = payloadJson,
+                AgentId = context.AgentId,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            };
+
+            string? publishedEventId = null;
+            var usedDirectionalCallback = false;
+
+            if (context.PublishEventWithDirectionCallback != null)
+            {
+                usedDirectionalCallback = true;
+                publishedEventId = await context.PublishEventWithDirectionCallback(toolEvent, direction, cancellationToken);
+            }
+            else
+            {
+                await context.PublishEventCallback!(toolEvent);
             }
 
             var result = new
             {
                 success = true,
-                eventId = eventId,
                 eventType = eventType,
-                direction = direction,
-                published = eventMessage != null
+                direction = directionStr ?? "both",
+                published = true,
+                eventId = publishedEventId,
+                usedDirectionalCallback
             };
             
             return JsonParser.Default.Parse<Struct>(JsonSerializer.Serialize(result));
@@ -128,44 +156,17 @@ public class EventPublisherTool : AevatarToolBase
     }
 
     /// <summary>
-    /// Create event message
+    /// Parse direction string to <see cref="EventDirection"/>.
     /// </summary>
-    private static IMessage? CreateEventMessage(
-        string eventId,
-        string? eventType,
-        object payload,
-        string publisherId,
-        ILogger? logger)
+    private static EventDirection ParseDirection(string? value)
     {
-        try
+        return value?.Trim().ToLowerInvariant() switch
         {
-            // If payload is already IMessage type, return directly
-            if (payload is IMessage message)
-            {
-                return message;
-            }
-
-            // Serialize payload
-            var jsonPayload = SerializePayload(payload);
-
-            // Create event envelope
-            return new EventEnvelope
-            {
-                Id = eventId,
-                Message = eventType ?? "GenericEvent",
-                Payload = Any.Pack(new StringValue { Value = jsonPayload }),
-                Timestamp = Aevatar.Agents.Abstractions.Helpers.TimestampHelper.GetUtcNow(),
-                Version = 1,
-                PublisherId = publisherId,
-                CorrelationId = Guid.NewGuid().ToString(),
-                Direction = EventDirection.Both
-            };
-        }
-        catch (Exception ex)
-        {
-            logger?.LogError(ex, "Failed to create event message");
-            return null;
-        }
+            "up" => EventDirection.Up,
+            "down" => EventDirection.Down,
+            "both" => EventDirection.Both,
+            _ => EventDirection.Both
+        };
     }
 
     /// <summary>

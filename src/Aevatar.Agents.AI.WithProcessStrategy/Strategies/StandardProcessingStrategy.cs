@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.AI.WithProcessStrategy.Messages;
-using Aevatar.Agents.AI.WithTool.Messages;
+using Aevatar.Agents.AI.WithTool.Abstractions;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
@@ -161,36 +163,22 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
                     response.AevatarFunctionCall.Name);
 
                 // Parse arguments from JSON string to dictionary
-                var parameters = System.Text.Json.JsonSerializer
-                                     .Deserialize<System.Collections.Generic.Dictionary<string, object>>(
-                                         response.AevatarFunctionCall.Arguments) ??
-                                 new System.Collections.Generic.Dictionary<string, object>();
+                var parameters = ParseToolArguments(response.AevatarFunctionCall.Arguments, dependencies.Logger);
 
                 // Execute the tool
+                var toolContext = new ToolExecutionContext
+                {
+                    AgentId = dependencies.AgentId,
+                    ToolManager = dependencies.ToolManager,
+                    PublishEventCallback = dependencies.PublishEventCallback,
+                    Logger = dependencies.Logger
+                };
+
                 var toolResult = await dependencies.ToolManager.ExecuteToolAsync(
                     response.AevatarFunctionCall.Name,
                     parameters,
-                    null,
+                    toolContext,
                     cancellationToken);
-
-                // Publish tool executed event if callback is available
-                if (dependencies.PublishEventCallback != null && toolResult.IsSuccess)
-                {
-                    var toolEvent = new AevatarToolExecutedEvent
-                    {
-                        ToolName = response.AevatarFunctionCall.Name,
-                        Result = toolResult.Content ?? "No result",
-                        Success = toolResult.IsSuccess
-                    };
-
-                    // Add parameters to the event
-                    foreach (var param in parameters)
-                    {
-                        toolEvent.Parameters[param.Key] = param.Value?.ToString() ?? string.Empty;
-                    }
-
-                    await dependencies.PublishEventCallback(toolEvent);
-                }
 
                 // Append tool result to the response
                 var finalResponse =
@@ -223,5 +211,66 @@ public class StandardProcessingStrategy : IAevatarAIProcessingStrategy
             "tool" or "function" => AevatarChatRole.Tool,
             _ => AevatarChatRole.User
         };
+    }
+
+    private static Dictionary<string, object> ParseToolArguments(string argumentsJson, ILogger? logger)
+    {
+        if (string.IsNullOrWhiteSpace(argumentsJson))
+            return new Dictionary<string, object>(StringComparer.Ordinal);
+
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argumentsJson);
+            if (dict == null || dict.Count == 0)
+                return new Dictionary<string, object>(StringComparer.Ordinal);
+
+            var result = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var (key, el) in dict)
+            {
+                result[key] = el.ValueKind switch
+                {
+                    JsonValueKind.String => el.GetString() ?? string.Empty,
+                    JsonValueKind.Number => TryCoerceNumber(el, out var number) ? number : el,
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    JsonValueKind.Null or JsonValueKind.Undefined => null!,
+                    _ => el
+                };
+            }
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            logger?.LogDebug(ex, "Failed to parse tool arguments JSON (best-effort).");
+            return new Dictionary<string, object>(StringComparer.Ordinal);
+        }
+    }
+
+    private static bool TryCoerceNumber(JsonElement el, out object value)
+    {
+        value = 0;
+        if (el.ValueKind != JsonValueKind.Number)
+            return false;
+
+        if (el.TryGetInt32(out var i32))
+        {
+            value = i32;
+            return true;
+        }
+
+        if (el.TryGetInt64(out var i64))
+        {
+            value = i64;
+            return true;
+        }
+
+        if (el.TryGetDouble(out var d))
+        {
+            value = d;
+            return true;
+        }
+
+        return false;
     }
 }
