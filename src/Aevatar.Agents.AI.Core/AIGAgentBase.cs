@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
@@ -10,7 +11,9 @@ using Aevatar.Agents.AI.Abstractions.Providers;
 using Aevatar.Agents.AI.Core.Embeddings;
 using Aevatar.Agents.AI.Core.Messages;
 using Aevatar.Agents.Core;
+using Aevatar.Agents.Core.Observability;
 using Aevatar.Agents.Core.StateProtection;
+using Aevatar.Agents.Core.Telemetry;
 using Google.Protobuf;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -690,6 +693,16 @@ Open questions:
             throw new InvalidOperationException(
                 "AI Agent must be initialized before use. Call InitializeAsync() first.");
 
+        var provider = _activeProviderConfig?.ProviderType ?? "unknown";
+        var model = Config.Model ?? "default";
+        var stopwatch = Stopwatch.StartNew();
+
+        // Start LLM Telemetry
+        using var activity = LLMTelemetry.StartLLMCall(Id, provider, model, isStreaming: false);
+        using var logScope = LoggingScope.CreateLLMCallScope(Logger, Id, provider, model);
+
+        AgentLogMessages.LLMCallStarting(Logger, Id, provider, model);
+
         try
         {
             // Keep history bounded before building request (prevents token blow-up).
@@ -726,6 +739,8 @@ Open questions:
                 toolCall = lastToolCall;
             }
 
+            stopwatch.Stop();
+
             // Build chat response
             var response = new ChatResponse
             {
@@ -754,15 +769,30 @@ Open questions:
             await CompactChatHistoryIfNeededAsync(cancellationToken);
 
             // Add token usage if available
+            var promptTokens = 0;
+            var completionTokens = 0;
             if (llmResponse.Usage != null)
             {
+                promptTokens = llmResponse.Usage.PromptTokens;
+                completionTokens = llmResponse.Usage.CompletionTokens;
+
                 response.Usage = new AevatarTokenUsage
                 {
-                    PromptTokens = llmResponse.Usage.PromptTokens,
-                    CompletionTokens = llmResponse.Usage.CompletionTokens,
+                    PromptTokens = promptTokens,
+                    CompletionTokens = completionTokens,
                     TotalTokens = llmResponse.Usage.TotalTokens
                 };
             }
+
+            // Record LLM Telemetry
+            LLMTelemetry.RecordLLMCallCompleted(
+                activity, provider, model, stopwatch.ElapsedMilliseconds,
+                promptTokens, completionTokens,
+                promptChars: request.Message.Length,
+                responseChars: response.Content.Length);
+
+            AgentLogMessages.LLMCallCompleted(Logger, Id, promptTokens, completionTokens,
+                stopwatch.ElapsedMilliseconds);
 
             // Publish chat response event
             await PublishAsync(new ChatResponseEvent
@@ -794,7 +824,13 @@ Open questions:
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error processing chat request {RequestId}", request.RequestId);
+            stopwatch.Stop();
+            var errorType = ex.GetType().Name;
+
+            LLMTelemetry.RecordLLMCallFailed(activity, provider, model, errorType, ex.Message,
+                stopwatch.ElapsedMilliseconds);
+            AgentLogMessages.LLMCallFailed(Logger, Id, errorType, ex.Message, ex);
+
             throw;
         }
     }
