@@ -1,9 +1,15 @@
 using Aevatar.Agents.Abstractions;
+using Aevatar.Agents.AI.Abstractions.Configuration;
+using Aevatar.Agents.Core.Hierarchy;
 using Aevatar.Trade.Agents.Analysts;
+using Aevatar.Trade.Agents.Audit;
+using Aevatar.Trade.Agents.AiWars;
 using Aevatar.Trade.Agents.Coordinator;
 using Aevatar.Trade.Agents.Data;
 using Aevatar.Trade.Agents.Execution;
 using Aevatar.Trade.Agents.RiskControl;
+using Aevatar.Trade.Infrastructure.AiWars;
+using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Aevatar.Trade.Infrastructure.WeexApi;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,17 +17,23 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Trade;
 
 /// <summary>
-/// 交易系统入口
-/// 负责创建和编排所有 Agent
+/// Trading system entry point
+/// Responsible for creating and orchestrating all agents
 /// </summary>
 public class TradingSystem : IAsyncDisposable
 {
     private readonly IGAgentActorFactory _actorFactory;
     private readonly IWeexApiClient _apiClient;
+    private readonly IWeexAiWarsLogClient _aiWarsClient;
     private readonly WeexWebSocketClient _wsClient;
     private readonly TradingConfig _tradingConfig;
-    private readonly AnalysisConfig _analysisConfig;
+    private readonly AnalysisWeightConfig _analysisConfig;
     private readonly RiskControlConfig _riskConfig;
+    private readonly TradeAuditConfig _auditConfig;
+    private readonly AiWarsLogUploadConfig _aiWarsConfig;
+    private readonly DecisionEngineConfig _decisionEngineConfig;
+    private readonly CognitiveMeshDecisionEngine _cognitiveMeshDecisionEngine;
+    private readonly LLMProvidersConfig _llmProvidersConfig;
     private readonly ILogger<TradingSystem> _logger;
 
     // Agent Actors
@@ -31,56 +43,98 @@ public class TradingSystem : IAsyncDisposable
     private IGAgentActor? _coordinatorActor;
     private IGAgentActor? _riskManagerActor;
     private IGAgentActor? _executorActor;
+    private IGAgentActor? _auditActor;
+    private IGAgentActor? _aiWarsUploaderActor;
 
     public TradingSystem(
         IGAgentActorFactory actorFactory,
         IWeexApiClient apiClient,
+        IWeexAiWarsLogClient aiWarsClient,
         WeexWebSocketClient wsClient,
         IOptions<TradingConfig> tradingConfig,
-        IOptions<AnalysisConfig> analysisConfig,
+        IOptions<AnalysisWeightConfig> analysisConfig,
         IOptions<RiskControlConfig> riskConfig,
+        IOptions<TradeAuditConfig> auditConfig,
+        IOptions<AiWarsLogUploadConfig> aiWarsConfig,
+        IOptions<DecisionEngineConfig> decisionEngineConfig,
+        CognitiveMeshDecisionEngine cognitiveMeshDecisionEngine,
+        IOptions<LLMProvidersConfig> llmProvidersConfig,
         ILogger<TradingSystem> logger)
     {
         _actorFactory = actorFactory;
         _apiClient = apiClient;
+        _aiWarsClient = aiWarsClient;
         _wsClient = wsClient;
         _tradingConfig = tradingConfig.Value;
         _analysisConfig = analysisConfig.Value;
         _riskConfig = riskConfig.Value;
+        _auditConfig = auditConfig.Value;
+        _aiWarsConfig = aiWarsConfig.Value;
+        _decisionEngineConfig = decisionEngineConfig.Value;
+        _cognitiveMeshDecisionEngine = cognitiveMeshDecisionEngine;
+        _llmProvidersConfig = llmProvidersConfig.Value;
         _logger = logger;
     }
 
     /// <summary>
-    /// 初始化交易系统
+    /// Initialize the trading system
     /// </summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("Initializing Trading System...");
 
-        // ============ 创建 Agent Actors ============
+        var providerName = string.IsNullOrWhiteSpace(_llmProvidersConfig.Default)
+            ? "openai-gpt4"
+            : _llmProvidersConfig.Default;
 
-        // 1. 数据采集器
-        _dataCollectorActor = await _actorFactory.CreateAsync<DataCollectorAgent>();
-        var dataCollector = (DataCollectorAgent)_dataCollectorActor.Agent;
+        // ============ Create Agent Actors ============
+
+        // 1. Data collector
+        _dataCollectorActor = await _actorFactory.CreateGAgentActorAsync<DataCollectorAgent>(Guid.NewGuid().ToString(), ct);
+        var dataCollector = (DataCollectorAgent)_dataCollectorActor.GetAgent();
         dataCollector.ApiClient = _apiClient;
         dataCollector.WebSocketClient = _wsClient;
 
-        // 2. 分析师
-        _sentimentActor = await _actorFactory.CreateAsync<MarketSentimentAgent>();
-        _technicalActor = await _actorFactory.CreateAsync<TechnicalAnalystAgent>();
+        // 2. Analysts
+        _sentimentActor = await _actorFactory.CreateGAgentActorAsync<MarketSentimentAgent>(Guid.NewGuid().ToString(), ct);
+        var sentiment = (MarketSentimentAgent)_sentimentActor.GetAgent();
+        sentiment.AllowDangerousTools = false; // safe default
+        await sentiment.InitializeAsync(providerName, cancellationToken: ct);
+        
+        _technicalActor = await _actorFactory.CreateGAgentActorAsync<TechnicalAnalystAgent>(Guid.NewGuid().ToString(), ct);
+        var technical = (TechnicalAnalystAgent)_technicalActor.GetAgent();
+        technical.AllowDangerousTools = false; // safe default
+        await technical.InitializeAsync(providerName, cancellationToken: ct);
 
-        // 3. 协调者
-        _coordinatorActor = await _actorFactory.CreateAsync<TradingCoordinatorAgent>();
-        var coordinator = (TradingCoordinatorAgent)_coordinatorActor.Agent;
+        // 3. Coordinator
+        _coordinatorActor = await _actorFactory.CreateGAgentActorAsync<TradingCoordinatorAgent>(Guid.NewGuid().ToString(), ct);
+        var coordinator = (TradingCoordinatorAgent)_coordinatorActor.GetAgent();
+        coordinator.AllowDangerousTools = false; // coordinator should not directly trade
+        await coordinator.InitializeAsync(providerName, cancellationToken: ct);
         coordinator.Configure(
             _tradingConfig.MinConfidenceToTrade,
             _analysisConfig.SentimentWeight,
             _analysisConfig.TechnicalWeight,
-            _analysisConfig.NewsWeight);
+            _analysisConfig.NewsWeight,
+            _tradingConfig.ExecutionMode);
+        
+        if (string.Equals(_decisionEngineConfig.Mode, "CognitiveMesh", StringComparison.OrdinalIgnoreCase))
+        {
+            coordinator.DecisionEngine = _cognitiveMeshDecisionEngine;
+            _logger.LogInformation("Coordinator decision engine: CognitiveMesh");
+        }
+        else
+        {
+            coordinator.DecisionEngine = null; // Fallback to direct LLM
+            _logger.LogInformation("Coordinator decision engine: Direct");
+        }
 
-        // 4. 风控经理
-        _riskManagerActor = await _actorFactory.CreateAsync<RiskManagerAgent>();
-        var riskManager = (RiskManagerAgent)_riskManagerActor.Agent;
+        // 4. Risk manager
+        _riskManagerActor = await _actorFactory.CreateGAgentActorAsync<RiskManagerAgent>(Guid.NewGuid().ToString(), ct);
+        var riskManager = (RiskManagerAgent)_riskManagerActor.GetAgent();
+        // Allow dangerous tools (order placement/cancel) only in Live mode.
+        riskManager.AllowDangerousTools = _tradingConfig.ExecutionMode == TradeExecutionMode.Live;
+        await riskManager.InitializeAsync(providerName, cancellationToken: ct);
         riskManager.Configure(
             _tradingConfig.MaxPositionPct,
             _tradingConfig.MaxTotalPositionPct,
@@ -89,64 +143,82 @@ public class TradingSystem : IAsyncDisposable
             _riskConfig.MaxConsecutiveLosses,
             _riskConfig.CooldownMinutes);
 
-        // 5. 执行器
-        _executorActor = await _actorFactory.CreateAsync<ExecutorAgent>();
-        var executor = (ExecutorAgent)_executorActor.Agent;
+        // 5. Executor
+        _executorActor = await _actorFactory.CreateGAgentActorAsync<ExecutorAgent>(Guid.NewGuid().ToString(), ct);
+        var executor = (ExecutorAgent)_executorActor.GetAgent();
+        executor.Configure(_tradingConfig.ExecutionMode);
         executor.ApiClient = _apiClient;
+        
+        // 6. Trade audit (optional)
+        if (_auditConfig.Enabled)
+        {
+            _auditActor = await _actorFactory.CreateGAgentActorAsync<TradeAuditAgent>(Guid.NewGuid().ToString(), ct);
+            var audit = (TradeAuditAgent)_auditActor.GetAgent();
+            audit.Configure(_auditConfig);
+        }
+        
+        // 7. AI Wars uploader (optional)
+        if (_auditActor != null && (_aiWarsConfig.Enabled || _auditConfig.RequestAiwarsUpload))
+        {
+            _aiWarsUploaderActor = await _actorFactory.CreateGAgentActorAsync<AiWarsLogUploaderAgent>(Guid.NewGuid().ToString(), ct);
+            var uploader = (AiWarsLogUploaderAgent)_aiWarsUploaderActor.GetAgent();
+            uploader.Client = _aiWarsClient;
+        }
 
-        // ============ 建立层级关系 ============
+        // ============ Establish Hierarchy ============
         // 
-        // DataCollector (数据源)
+        // DataCollector (Data Source)
         //      │
-        //      ├── SentimentAgent (分析师)
-        //      ├── TechnicalAgent (分析师)
+        //      ├── SentimentAgent (Analyst)
+        //      ├── TechnicalAgent (Analyst)
         //      │
-        //      └── Coordinator (决策者)
+        //      └── Coordinator (Decision Maker)
         //              │
-        //              └── RiskManager (风控)
+        //              └── RiskManager (Risk Control)
         //                      │
-        //                      └── Executor (执行)
+        //                      └── Executor (Execution)
 
-        // 分析师订阅数据采集器
-        await _sentimentActor.SetParentAsync(_dataCollectorActor.Id);
-        await _dataCollectorActor.AddChildAsync(_sentimentActor.Id);
-
-        await _technicalActor.SetParentAsync(_dataCollectorActor.Id);
-        await _dataCollectorActor.AddChildAsync(_technicalActor.Id);
-
-        // 协调者订阅分析师 (通过数据采集器的广播)
-        await _coordinatorActor.SetParentAsync(_dataCollectorActor.Id);
-        await _dataCollectorActor.AddChildAsync(_coordinatorActor.Id);
-
-        // 风控订阅协调者
-        await _riskManagerActor.SetParentAsync(_coordinatorActor.Id);
-        await _coordinatorActor.AddChildAsync(_riskManagerActor.Id);
-
-        // 执行器订阅风控
-        await _executorActor.SetParentAsync(_riskManagerActor.Id);
-        await _riskManagerActor.AddChildAsync(_executorActor.Id);
+        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _sentimentActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _technicalActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_dataCollectorActor, _coordinatorActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _riskManagerActor, _logger, ct);
+        await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _executorActor, _logger, ct);
+        
+        // Attach audit agent to key nodes (decision/risk/execution) for event capture
+        if (_auditActor != null)
+        {
+            await ActorHierarchyCoordinator.LinkAsync(_coordinatorActor, _auditActor, _logger, ct);
+            await ActorHierarchyCoordinator.LinkAsync(_riskManagerActor, _auditActor, _logger, ct);
+            await ActorHierarchyCoordinator.LinkAsync(_executorActor, _auditActor, _logger, ct);
+        }
+        
+        // Audit -> Uploader (audit publishes AiWarsLogUploadRequestedEvent downward)
+        if (_auditActor != null && _aiWarsUploaderActor != null)
+        {
+            await ActorHierarchyCoordinator.LinkAsync(_auditActor, _aiWarsUploaderActor, _logger, ct);
+        }
 
         _logger.LogInformation("Trading System initialized with Agent hierarchy");
     }
 
     /// <summary>
-    /// 启动交易系统
+    /// Start the trading system
     /// </summary>
     public async Task StartAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("Starting Trading System for {Symbol}...", _tradingConfig.Symbol);
 
-        // 同步账户信息
+        // Sync account information
         await SyncAccountInfoAsync();
 
-        // 启动数据采集
-        var dataCollector = (DataCollectorAgent)_dataCollectorActor!.Agent;
+        // Start data collection
+        var dataCollector = (DataCollectorAgent)_dataCollectorActor!.GetAgent();
         await dataCollector.StartCollectingAsync(
             new[] { _tradingConfig.Symbol },
             _tradingConfig.Interval,
             ct);
 
-        // 拉取历史K线数据（用于技术分析初始化）
+        // Fetch historical kline data (for technical analysis initialization)
         await dataCollector.FetchHistoricalKlinesAsync(
             _tradingConfig.Symbol,
             _tradingConfig.Interval,
@@ -157,20 +229,20 @@ public class TradingSystem : IAsyncDisposable
     }
 
     /// <summary>
-    /// 停止交易系统
+    /// Stop the trading system
     /// </summary>
     public async Task StopAsync(string reason = "Manual stop")
     {
         _logger.LogInformation("Stopping Trading System: {Reason}", reason);
 
-        var dataCollector = (DataCollectorAgent)_dataCollectorActor!.Agent;
+        var dataCollector = (DataCollectorAgent)_dataCollectorActor!.GetAgent();
         await dataCollector.StopCollectingAsync(reason);
 
         _logger.LogInformation("Trading System stopped");
     }
 
     /// <summary>
-    /// 同步账户信息
+    /// Sync account information
     /// </summary>
     public async Task SyncAccountInfoAsync()
     {
@@ -181,11 +253,11 @@ public class TradingSystem : IAsyncDisposable
             
             if (usdtBalance != null)
             {
-                var riskManager = (RiskManagerAgent)_riskManagerActor!.Agent;
+                var riskManager = (RiskManagerAgent)_riskManagerActor!.GetAgent();
                 riskManager.UpdateAccountInfo(
                     totalEquity: (double)usdtBalance.Balance,
                     availableBalance: (double)usdtBalance.Available,
-                    currentPositionValue: 0, // 简化处理
+                    currentPositionValue: 0, // Simplified handling
                     unrealizedPnl: 0);
 
                 _logger.LogInformation(
@@ -200,18 +272,20 @@ public class TradingSystem : IAsyncDisposable
     }
 
     /// <summary>
-    /// 获取系统状态
+    /// Get system status
     /// </summary>
     public async Task<TradingSystemStatus> GetStatusAsync()
     {
         return new TradingSystemStatus
         {
-            DataCollector = await _dataCollectorActor!.Agent.GetDescriptionAsync(),
-            SentimentAnalyst = await _sentimentActor!.Agent.GetDescriptionAsync(),
-            TechnicalAnalyst = await _technicalActor!.Agent.GetDescriptionAsync(),
-            Coordinator = await _coordinatorActor!.Agent.GetDescriptionAsync(),
-            RiskManager = await _riskManagerActor!.Agent.GetDescriptionAsync(),
-            Executor = await _executorActor!.Agent.GetDescriptionAsync()
+            DataCollector = await _dataCollectorActor!.GetDescriptionAsync(),
+            SentimentAnalyst = await _sentimentActor!.GetDescriptionAsync(),
+            TechnicalAnalyst = await _technicalActor!.GetDescriptionAsync(),
+            Coordinator = await _coordinatorActor!.GetDescriptionAsync(),
+            RiskManager = await _riskManagerActor!.GetDescriptionAsync(),
+            Executor = await _executorActor!.GetDescriptionAsync(),
+            TradeAudit = _auditActor != null ? await _auditActor.GetDescriptionAsync() : "TradeAudit: disabled",
+            AiWarsUploader = _aiWarsUploaderActor != null ? await _aiWarsUploaderActor.GetDescriptionAsync() : "AiWarsUploader: disabled"
         };
     }
 
@@ -223,7 +297,7 @@ public class TradingSystem : IAsyncDisposable
 }
 
 /// <summary>
-/// 系统状态
+/// System status
 /// </summary>
 public record TradingSystemStatus
 {
@@ -233,4 +307,6 @@ public record TradingSystemStatus
     public required string Coordinator { get; init; }
     public required string RiskManager { get; init; }
     public required string Executor { get; init; }
+    public required string TradeAudit { get; init; }
+    public required string AiWarsUploader { get; init; }
 }

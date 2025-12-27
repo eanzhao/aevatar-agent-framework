@@ -1,16 +1,18 @@
 using Aevatar.Trade.Infrastructure.WeexApi;
+using Aevatar.Trade.Infrastructure.AiWars;
+using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Aevatar.Trade;
 
 /// <summary>
-/// 服务注册扩展
+/// Service registration extensions
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// 添加 WEEX 交易系统服务
+    /// Add WEEX trading system services
     /// </summary>
     public static IServiceCollection AddWeexTradingServices(
         this IServiceCollection services,
@@ -20,8 +22,11 @@ public static class ServiceCollectionExtensions
         
         services.Configure<WeexApiConfig>(configuration.GetSection("Weex"));
         services.Configure<TradingConfig>(configuration.GetSection("Trading"));
-        services.Configure<AnalysisConfig>(configuration.GetSection("Analysis"));
+        services.Configure<AnalysisWeightConfig>(configuration.GetSection("Analysis"));
         services.Configure<RiskControlConfig>(configuration.GetSection("RiskControl"));
+        services.Configure<TradeAuditConfig>(configuration.GetSection("TradeAudit"));
+        services.Configure<AiWarsLogUploadConfig>(configuration.GetSection("AiWars"));
+        services.Configure<DecisionEngineConfig>(configuration.GetSection("DecisionEngine"));
 
         // ============ WEEX API ============
         
@@ -32,45 +37,20 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.Add("Accept", "application/json");
         });
 
+        services.AddHttpClient<IWeexAiWarsLogClient, WeexAiWarsLogClient>((sp, client) =>
+        {
+            var cfg = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiWarsLogUploadConfig>>().Value;
+            if (!string.IsNullOrWhiteSpace(cfg.BaseUrl))
+            {
+                client.BaseAddress = new Uri(cfg.BaseUrl);
+            }
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+        });
+
+        services.AddHttpClient<CognitiveMeshDecisionEngine>();
+
         services.AddSingleton<WeexWebSocketClient>();
 
         return services;
     }
-}
-
-// ============ Configuration Classes ============
-
-/// <summary>
-/// 交易配置
-/// </summary>
-public class TradingConfig
-{
-    public string Symbol { get; set; } = "BTCUSDT_SPBL";
-    public string Interval { get; set; } = "15m";
-    public double MaxPositionPct { get; set; } = 10;
-    public double MaxTotalPositionPct { get; set; } = 30;
-    public double MaxLossPerTrade { get; set; } = 2;
-    public double MaxDailyLoss { get; set; } = 5;
-    public int MinConfidenceToTrade { get; set; } = 60;
-}
-
-/// <summary>
-/// 分析权重配置
-/// </summary>
-public class AnalysisConfig
-{
-    public double SentimentWeight { get; set; } = 0.3;
-    public double TechnicalWeight { get; set; } = 0.4;
-    public double NewsWeight { get; set; } = 0.3;
-}
-
-/// <summary>
-/// 风控配置
-/// </summary>
-public class RiskControlConfig
-{
-    public int MaxConsecutiveLosses { get; set; } = 3;
-    public int CooldownMinutes { get; set; } = 60;
-    public double StopLossPct { get; set; } = 2;
-    public double TakeProfitPct { get; set; } = 4;
 }

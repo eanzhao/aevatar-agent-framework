@@ -9,8 +9,8 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Trade.Infrastructure.WeexApi;
 
 /// <summary>
-/// WEEX API 客户端实现
-/// 官方文档: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
+/// WEEX API client implementation
+/// Official documentation: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
 /// </summary>
 public class WeexApiClient : IWeexApiClient
 {
@@ -258,10 +258,24 @@ public class WeexApiClient : IWeexApiClient
             AddAuthHeaders(request, HttpMethod.Get, path, null);
 
         var response = await _httpClient.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        var raw = await response.Content.ReadAsStringAsync(ct);
 
-        return await response.Content.ReadFromJsonAsync<T>(_jsonOptions, ct)
-            ?? throw new WeexApiException($"Failed to deserialize response from {path}");
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new WeexApiException(
+                $"WEEX API HTTP {(int)response.StatusCode} {response.ReasonPhrase} (GET {path}): {raw}",
+                errorCode: $"HTTP_{(int)response.StatusCode}");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(raw, _jsonOptions)
+                   ?? throw new WeexApiException($"Failed to deserialize response from {path}: {raw}");
+        }
+        catch (JsonException ex)
+        {
+            throw new WeexApiException($"Failed to deserialize response from {path}: {raw}", errorCode: "DESERIALIZE_ERROR", innerException: ex);
+        }
     }
 
     private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct)
@@ -275,10 +289,17 @@ public class WeexApiClient : IWeexApiClient
         AddAuthHeaders(request, HttpMethod.Post, path, jsonBody);
 
         var response = await _httpClient.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
+        var raw = await response.Content.ReadAsStringAsync(ct);
 
-        return await response.Content.ReadFromJsonAsync<T>(_jsonOptions, ct)
-            ?? throw new WeexApiException($"Failed to deserialize response from {path}");
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new WeexApiException(
+                $"WEEX API HTTP {(int)response.StatusCode} {response.ReasonPhrase} (POST {path}): {raw}",
+                errorCode: $"HTTP_{(int)response.StatusCode}");
+        }
+
+        return JsonSerializer.Deserialize<T>(raw, _jsonOptions)
+            ?? throw new WeexApiException($"Failed to deserialize response from {path}: {raw}");
     }
 
     private void AddAuthHeaders(HttpRequestMessage request, HttpMethod method, string path, string? body)
@@ -393,7 +414,7 @@ public class WeexApiClient : IWeexApiClient
 }
 
 /// <summary>
-/// WEEX API 配置
+/// WEEX API configuration
 /// </summary>
 public class WeexApiConfig
 {
@@ -404,13 +425,13 @@ public class WeexApiConfig
 }
 
 /// <summary>
-/// WEEX API 异常
+/// WEEX API exception
 /// </summary>
 public class WeexApiException : Exception
 {
     public string? ErrorCode { get; }
 
-    public WeexApiException(string message, string? errorCode = null) : base(message)
+    public WeexApiException(string message, string? errorCode = null, Exception? innerException = null) : base(message, innerException)
     {
         ErrorCode = errorCode;
     }

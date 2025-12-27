@@ -159,9 +159,23 @@ public static class LoggingScope
         string direction,
         int targetCount)
     {
+        // Backward-compatible overload (legacy guid-only id).
+        return CreateEventRoutingScope(logger, agentId.ToString(), eventId, direction, targetCount);
+    }
+    
+    /// <summary>
+    /// Create event routing scope (unified ActorId: "Type:RawId").
+    /// </summary>
+    public static IDisposable CreateEventRoutingScope(
+        ILogger logger,
+        string agentId,
+        string eventId,
+        string direction,
+        int targetCount)
+    {
         return logger.BeginScope(new Dictionary<string, object>
         {
-            ["AgentId"] = agentId.ToString(),
+            ["AgentId"] = agentId,
             ["EventId"] = eventId,
             ["Direction"] = direction,
             ["TargetCount"] = targetCount,
@@ -179,7 +193,7 @@ public static class LoggingScope
     /// </summary>
     public static IDisposable CreateLLMCallScope(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         string provider,
         string model,
         bool isStreaming = false)
@@ -351,21 +365,21 @@ public static class LoggingScope
     /// </summary>
     public static IDisposable CreateHierarchyScope(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         string operation,
-        Guid? targetId = null)
+        string? targetId = null)
     {
         var scopeData = new Dictionary<string, object>
         {
-            ["AgentId"] = agentId.ToString(),
+            ["AgentId"] = agentId,
             ["HierarchyOperation"] = operation,
             ["Operation"] = "Hierarchy",
             ["Phase"] = "Structure"
         };
 
-        if (targetId.HasValue)
+        if (targetId != null)
         {
-            scopeData["TargetId"] = targetId.Value.ToString();
+            scopeData["TargetId"] = targetId;
         }
 
         return logger.BeginScope(scopeData) ?? NoOpDisposable.Instance;
@@ -578,7 +592,7 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] routing event {EventId} to {TargetCount} targets")]
     public static partial void EventRouting(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         string eventId,
         int targetCount);
 
@@ -592,7 +606,7 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] calling LLM {Provider}/{Model}")]
     public static partial void LLMCallStarting(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         string provider,
         string model);
 
@@ -602,7 +616,7 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] LLM call completed: {PromptTokens}+{CompletionTokens} tokens in {DurationMs}ms")]
     public static partial void LLMCallCompleted(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         int promptTokens,
         int completionTokens,
         double durationMs);
@@ -613,7 +627,7 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] LLM call failed: {ErrorType} - {ErrorMessage}")]
     public static partial void LLMCallFailed(
         ILogger logger,
-        Guid agentId,
+        string agentId,
         string errorType,
         string errorMessage,
         Exception? exception = null);
@@ -745,8 +759,8 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] setting parent to [{ParentId}]")]
     public static partial void SettingParent(
         ILogger logger,
-        Guid agentId,
-        Guid parentId);
+        string agentId,
+        string parentId);
 
     [LoggerMessage(
         EventId = 5001,
@@ -754,8 +768,8 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] adding child [{ChildId}]")]
     public static partial void AddingChild(
         ILogger logger,
-        Guid agentId,
-        Guid childId);
+        string agentId,
+        string childId);
 
     [LoggerMessage(
         EventId = 5002,
@@ -763,7 +777,7 @@ public static partial class AgentLogMessages
         Message = "Agent [{AgentId}] hierarchy loaded: parent={ParentId}, children={ChildCount}")]
     public static partial void HierarchyLoaded(
         ILogger logger,
-        Guid agentId,
-        Guid? parentId,
+        string agentId,
+        string? parentId,
         int childCount);
 }

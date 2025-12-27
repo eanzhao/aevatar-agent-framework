@@ -5,12 +5,12 @@ using OpenTelemetry.Trace;
 namespace Aevatar.Trade.Api.Extensions;
 
 /// <summary>
-/// 可观测性扩展
+/// Observability extensions
 /// </summary>
 public static class ObservabilityExtensions
 {
     /// <summary>
-    /// 添加 Aevatar 可观测性
+    /// Add Aevatar observability
     /// </summary>
     public static IHostApplicationBuilder AddAevatarObservability(this IHostApplicationBuilder builder)
     {
@@ -38,7 +38,7 @@ public static class ObservabilityExtensions
     }
 
     /// <summary>
-    /// 使用 Prometheus Metrics 端点
+    /// Use Prometheus Metrics endpoint
     /// </summary>
     public static WebApplication UsePrometheusMetrics(this WebApplication app)
     {

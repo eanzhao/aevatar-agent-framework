@@ -2,14 +2,36 @@ using Aevatar.Agents.Core.Extensions;
 using Aevatar.Trade;
 using Aevatar.Trade.Api;
 using Aevatar.Trade.Api.Extensions;
+using Aevatar.Trade.Infrastructure.WeexApi;
 using Orleans.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ============ Secrets ============
+// Load local secrets file (gitignored) for quick hackathon setup.
+// NOTE: Environment variables can still be used, but this file enables "drop-in" setup on a new machine.
+builder.Configuration.AddJsonFile("appsettings.secrets.json", optional: true, reloadOnChange: true);
 
 // ============ Aspire + Observability ============
 
 builder.AddServiceDefaults();
 builder.AddAevatarObservability();
+
+// ============ Export WEEX credentials to env (for dotnet file skills) ============
+// DotNetFileSkillTool executes a separate process (dotnet run --file) which reads WEEX_* from env.
+// We bridge configuration -> env here so users only need to set appsettings.secrets.json.
+var weexEnv = builder.Configuration.GetSection("Weex").Get<WeexApiConfig>();
+if (weexEnv != null)
+{
+    if (!string.IsNullOrWhiteSpace(weexEnv.BaseUrl))
+        Environment.SetEnvironmentVariable("WEEX_BASE_URL", weexEnv.BaseUrl);
+    if (!string.IsNullOrWhiteSpace(weexEnv.ApiKey))
+        Environment.SetEnvironmentVariable("WEEX_API_KEY", weexEnv.ApiKey);
+    if (!string.IsNullOrWhiteSpace(weexEnv.ApiSecret))
+        Environment.SetEnvironmentVariable("WEEX_API_SECRET", weexEnv.ApiSecret);
+    if (!string.IsNullOrWhiteSpace(weexEnv.Passphrase))
+        Environment.SetEnvironmentVariable("WEEX_PASSPHRASE", weexEnv.Passphrase);
+}
 
 // ============ Runtime Configuration ============
 
@@ -17,7 +39,7 @@ var runtimeOptions = builder.Configuration
     .GetSection(AgentRuntimeOptions.SectionName)
     .Get<AgentRuntimeOptions>() ?? new AgentRuntimeOptions();
 
-// Orleans 配置
+// Orleans configuration
 if (runtimeOptions.RuntimeType == AgentRuntimeType.Orleans)
 {
     builder.Host.UseOrleans((context, siloBuilder) =>
@@ -41,7 +63,7 @@ if (runtimeOptions.RuntimeType == AgentRuntimeType.Orleans)
 
         siloBuilder.AddMemoryGrainStorage("AgentStore");
 
-        Console.WriteLine($"🌐 Orleans Silo 配置完成");
+        Console.WriteLine($"🌐 Orleans Silo configuration completed");
         Console.WriteLine($"   ClusterId: {orleansOptions.ClusterId}");
         Console.WriteLine($"   ServiceId: {orleansOptions.ServiceId}");
     });
@@ -51,27 +73,22 @@ if (runtimeOptions.RuntimeType == AgentRuntimeType.Orleans)
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new()
-    {
-        Title = "WEEX AI Trading API",
-        Version = "v1",
-        Description = "基于多智能体协作的 AI 交易系统"
-    });
-});
+// NOTE:
+// - Avoid depending on Microsoft.OpenApi.Models.OpenApiInfo explicitly here to keep the sample lightweight.
+// - Default swagger doc is good enough for early integration/debugging.
+builder.Services.AddSwaggerGen();
 
-// Agent 运行时
+// Agent runtime
 builder.Services.AddAgentRuntime(builder.Configuration);
 builder.Services.AddGAgentActorFactoryProvider();
 
-// WEEX 交易服务
+// WEEX trading services
 builder.Services.AddWeexTradingServices(builder.Configuration);
 
-// LLM Provider (使用 MEAI)
+// LLM Provider (using MEAI)
 builder.Services.AddMEAILLMProvider(builder.Configuration);
 
-// 交易系统
+// Trading system
 builder.Services.AddSingleton<TradingSystem>();
 
 // ============ Build & Configure ============
@@ -109,12 +126,12 @@ Console.WriteLine("║    📈 Metrics:  https://localhost:7100/metrics         
 Console.WriteLine("║    💓 Health:   https://localhost:7100/health                 ║");
 Console.WriteLine("║                                                               ║");
 Console.WriteLine("║  Agents:                                                      ║");
-Console.WriteLine("║    🔌 DataCollector    - 数据采集                             ║");
-Console.WriteLine("║    😱 SentimentAgent   - 情绪分析 (AI)                        ║");
-Console.WriteLine("║    📊 TechnicalAgent   - 技术分析 (AI)                        ║");
-Console.WriteLine("║    🎯 Coordinator      - 决策协调 (AI)                        ║");
-Console.WriteLine("║    🛡️ RiskManager      - 风控管理 (AI)                        ║");
-Console.WriteLine("║    ⚡ Executor         - 交易执行                             ║");
+Console.WriteLine("║    🔌 DataCollector    - Data Collection                      ║");
+Console.WriteLine("║    😱 SentimentAgent   - Sentiment Analysis (AI)             ║");
+Console.WriteLine("║    📊 TechnicalAgent   - Technical Analysis (AI)            ║");
+Console.WriteLine("║    🎯 Coordinator      - Decision Coordination (AI)          ║");
+Console.WriteLine("║    🛡️ RiskManager      - Risk Management (AI)                 ║");
+Console.WriteLine("║    ⚡ Executor         - Trade Execution                     ║");
 Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝");
 Console.WriteLine();
 

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Aevatar.Trade.Api.Controllers;
 
 /// <summary>
-/// 交易系统控制器
+/// Trading system controller
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -21,7 +21,7 @@ public class TradingController : ControllerBase
     }
 
     /// <summary>
-    /// 初始化交易系统
+    /// Initialize trading system
     /// </summary>
     [HttpPost("initialize")]
     public async Task<IActionResult> Initialize(CancellationToken ct)
@@ -39,7 +39,7 @@ public class TradingController : ControllerBase
     }
 
     /// <summary>
-    /// 启动交易
+    /// Start trading
     /// </summary>
     [HttpPost("start")]
     public async Task<IActionResult> Start(CancellationToken ct)
@@ -57,7 +57,7 @@ public class TradingController : ControllerBase
     }
 
     /// <summary>
-    /// 停止交易
+    /// Stop trading
     /// </summary>
     [HttpPost("stop")]
     public async Task<IActionResult> Stop([FromQuery] string reason = "API request")
@@ -75,7 +75,7 @@ public class TradingController : ControllerBase
     }
 
     /// <summary>
-    /// 获取系统状态
+    /// Get system status
     /// </summary>
     [HttpGet("status")]
     public async Task<IActionResult> GetStatus()
@@ -93,7 +93,7 @@ public class TradingController : ControllerBase
     }
 
     /// <summary>
-    /// 同步账户信息
+    /// Sync account information
     /// </summary>
     [HttpPost("sync-account")]
     public async Task<IActionResult> SyncAccount()
@@ -112,7 +112,7 @@ public class TradingController : ControllerBase
 }
 
 /// <summary>
-/// Agent 状态控制器
+/// Agent status controller
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -126,7 +126,7 @@ public class AgentsController : ControllerBase
     }
 
     /// <summary>
-    /// 获取所有 Agent 状态
+    /// Get all agent statuses
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAllAgents()

@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -6,58 +7,58 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Trade.Agents.Analysts;
 
 /// <summary>
-/// 市场情绪分析 Agent
-/// 职责：分析市场情绪指标，判断市场整体氛围
+/// Market sentiment analysis agent
+/// Responsibilities: Analyze market sentiment indicators and judge overall market atmosphere
 /// </summary>
 public class MarketSentimentAgent : AIGAgentBase
 {
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
-        你是一位资深的加密货币市场情绪分析师，拥有丰富的市场心理学和行为金融学知识。
+        You are a senior cryptocurrency market sentiment analyst with extensive knowledge of market psychology and behavioral finance.
 
-        你的任务是根据以下市场数据判断当前市场情绪：
+        Your task is to judge current market sentiment based on the following market data:
 
-        【分析维度】
-        1. 恐慌贪婪指数 (0-100)
-           - 0-25: 极度恐慌 → 可能是买入机会
-           - 25-45: 恐慌
-           - 45-55: 中性
-           - 55-75: 贪婪
-           - 75-100: 极度贪婪 → 可能是卖出信号
+        【Analysis Dimensions】
+        1. Fear & Greed Index (0-100)
+           - 0-25: Extreme fear → Possible buying opportunity
+           - 25-45: Fear
+           - 45-55: Neutral
+           - 55-75: Greed
+           - 75-100: Extreme greed → Possible sell signal
 
-        2. 多空比 (Long/Short Ratio)
-           - < 0.8: 空头占优，市场偏空
-           - 0.8-1.2: 多空均衡
-           - > 1.2: 多头占优，市场偏多
-           - 极端值可能预示反转
+        2. Long/Short Ratio
+           - < 0.8: Bears dominate, market bearish
+           - 0.8-1.2: Long/short balanced
+           - > 1.2: Bulls dominate, market bullish
+           - Extreme values may indicate reversal
 
-        3. 资金费率 (Funding Rate)
-           - 正值: 多头支付空头，做多情绪高涨
-           - 负值: 空头支付多头，做空情绪高涨
-           - 极端正值 (>0.1%): 可能过热
-           - 极端负值 (<-0.05%): 可能超卖
+        3. Funding Rate
+           - Positive: Longs pay shorts, bullish sentiment high
+           - Negative: Shorts pay longs, bearish sentiment high
+           - Extreme positive (>0.1%): Possibly overheated
+           - Extreme negative (<-0.05%): Possibly oversold
 
-        4. 持仓量变化
-           - 上升 + 价格上升: 多头积极建仓
-           - 上升 + 价格下降: 空头积极建仓
-           - 下降: 头寸平仓，趋势可能减弱
+        4. Open Interest Changes
+           - Rising + Price rising: Bulls actively building positions
+           - Rising + Price falling: Bears actively building positions
+           - Falling: Positions closing, trend may weaken
 
-        【输出格式】
-        请严格按以下 JSON 格式输出：
+        【Output Format】
+        Please strictly output in the following JSON format:
         {
-            "sentiment_score": <-100到+100的整数>,
+            "sentiment_score": <integer from -100 to +100>,
             "sentiment_trend": "<UP|DOWN|SIDEWAYS>",
             "signal": "<BULLISH|BEARISH|NEUTRAL>",
-            "confidence": <1-100的整数>,
-            "key_observations": ["观察1", "观察2", "观察3"],
-            "summary": "<一句话总结当前情绪状态>"
+            "confidence": <integer from 1-100>,
+            "key_observations": ["Observation 1", "Observation 2", "Observation 3"],
+            "summary": "<One-sentence summary of current sentiment state>"
         }
 
-        【注意事项】
-        - 极端情绪往往预示反转
-        - 关注情绪与价格的背离
-        - 多个指标共振时信号更可靠
+        【Notes】
+        - Extreme sentiment often indicates reversal
+        - Pay attention to divergence between sentiment and price
+        - Signals are more reliable when multiple indicators resonate
         """;
 
     // ============ State ============
@@ -66,7 +67,7 @@ public class MarketSentimentAgent : AIGAgentBase
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         _sentimentState.AgentId = Id.ToString();
@@ -83,12 +84,12 @@ public class MarketSentimentAgent : AIGAgentBase
     // ============ Event Handlers ============
 
     /// <summary>
-    /// 处理行情数据，定期触发情绪分析
+    /// Handle market data and periodically trigger sentiment analysis
     /// </summary>
     [EventHandler]
     public async Task HandleMarketTick(MarketTickEvent evt)
     {
-        // 每 N 个 tick 分析一次，避免过于频繁
+        // Analyze every N ticks to avoid being too frequent
         if (_sentimentState.AnalysisCount % 10 != 0 && _sentimentState.AnalysisCount > 0)
         {
             return;
@@ -100,7 +101,7 @@ public class MarketSentimentAgent : AIGAgentBase
     // ============ Analysis Methods ============
 
     /// <summary>
-    /// 执行情绪分析
+    /// Execute sentiment analysis
     /// </summary>
     public async Task AnalyzeSentimentAsync(
         string symbol,
@@ -115,20 +116,20 @@ public class MarketSentimentAgent : AIGAgentBase
 
         try
         {
-            var response = await CompleteAsync(prompt);
-            var analysis = ParseAnalysisResponse(response, symbol);
+            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            var analysis = ParseAnalysisResponse(chat.Content ?? string.Empty, symbol);
 
-            // 更新状态
+            // Update state
             _sentimentState.CurrentSentiment = analysis.SentimentScore;
             _sentimentState.AnalysisCount++;
             _sentimentState.LastAnalysis = Timestamp.FromDateTime(DateTime.UtcNow);
 
-            // 保留历史记录
+            // Keep historical records
             if (_sentimentState.SentimentHistory.Count >= 100)
                 _sentimentState.SentimentHistory.RemoveAt(0);
             _sentimentState.SentimentHistory.Add(analysis.SentimentScore);
 
-            // 发布分析结果
+            // Publish analysis results
             await PublishAsync(analysis);
 
             Logger.LogInformation(
@@ -152,30 +153,30 @@ public class MarketSentimentAgent : AIGAgentBase
         double? openInterest)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"请分析 {symbol} 的市场情绪：");
+        sb.AppendLine($"Please analyze the market sentiment for {symbol}:");
         sb.AppendLine();
 
         if (tick != null)
         {
-            sb.AppendLine("【当前行情】");
-            sb.AppendLine($"- 价格: {tick.Price:F2}");
-            sb.AppendLine($"- 24h涨跌: {tick.Change24H:F2}%");
-            sb.AppendLine($"- 24h成交量: {tick.Volume24H:F0}");
+            sb.AppendLine("【Current Market Data】");
+            sb.AppendLine($"- Price: {tick.Price:F2}");
+            sb.AppendLine($"- 24h Change: {tick.Change24H:F2}%");
+            sb.AppendLine($"- 24h Volume: {tick.Volume24H:F0}");
             sb.AppendLine();
         }
 
-        sb.AppendLine("【情绪指标】");
-        sb.AppendLine($"- 恐慌贪婪指数: {fearGreedIndex ?? 50}");
-        sb.AppendLine($"- 多空比: {longShortRatio ?? 1.0:F2}");
-        sb.AppendLine($"- 资金费率: {(fundingRate ?? 0) * 100:F4}%");
-        sb.AppendLine($"- 持仓量: {openInterest ?? 0:F0}");
+        sb.AppendLine("【Sentiment Indicators】");
+        sb.AppendLine($"- Fear & Greed Index: {fearGreedIndex ?? 50}");
+        sb.AppendLine($"- Long/Short Ratio: {longShortRatio ?? 1.0:F2}");
+        sb.AppendLine($"- Funding Rate: {(fundingRate ?? 0) * 100:F4}%");
+        sb.AppendLine($"- Open Interest: {openInterest ?? 0:F0}");
 
         return sb.ToString();
     }
 
     private MarketSentimentAnalysisEvent ParseAnalysisResponse(string response, string symbol)
     {
-        // 尝试解析 JSON 响应
+        // Try to parse JSON response
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(response);
@@ -197,7 +198,7 @@ public class MarketSentimentAgent : AIGAgentBase
         }
         catch
         {
-            // 如果解析失败，返回默认值
+            // If parsing fails, return default values
             return new MarketSentimentAnalysisEvent
             {
                 Symbol = symbol,

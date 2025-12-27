@@ -10,344 +10,473 @@ import "google/protobuf/timestamp.proto";
 
 // ============ Market Data Events ============
 
-// 实时行情更新事件
+// Real-time market data update event
 message MarketTickEvent {
-    string symbol = 1;                      // 交易对 (e.g., "BTCUSDT_SPBL")
-    double price = 2;                       // 当前价格
-    double bid = 3;                         // 买一价
-    double ask = 4;                         // 卖一价
-    double volume_24h = 5;                  // 24小时成交量
-    double change_24h = 6;                  // 24小时涨跌幅
-    double high_24h = 7;                    // 24小时最高
-    double low_24h = 8;                     // 24小时最低
+    string symbol = 1;                      // Trading pair (e.g., "BTCUSDT_SPBL")
+    double price = 2;                       // Current price
+    double bid = 3;                         // Best bid price
+    double ask = 4;                         // Best ask price
+    double volume_24h = 5;                  // 24-hour volume
+    double change_24h = 6;                  // 24-hour price change percentage
+    double high_24h = 7;                    // 24-hour high
+    double low_24h = 8;                     // 24-hour low
     google.protobuf.Timestamp timestamp = 9;
 }
 
-// K线数据更新事件
+// Kline data update event
 message KlineUpdateEvent {
-    string symbol = 1;                      // 交易对
-    string interval = 2;                    // 时间周期 (1m, 5m, 15m, 1h, 4h, 1d)
-    double open = 3;                        // 开盘价
-    double high = 4;                        // 最高价
-    double low = 5;                         // 最低价
-    double close = 6;                       // 收盘价
-    double volume = 7;                      // 成交量
+    string symbol = 1;                      // Trading pair
+    string interval = 2;                    // Time interval (1m, 5m, 15m, 1h, 4h, 1d)
+    double open = 3;                        // Open price
+    double high = 4;                        // High price
+    double low = 5;                         // Low price
+    double close = 6;                       // Close price
+    double volume = 7;                      // Volume
     google.protobuf.Timestamp open_time = 8;
     google.protobuf.Timestamp close_time = 9;
 }
 
-// 新闻数据事件
+// News data event
 message NewsDataEvent {
-    string id = 1;                          // 新闻ID
-    string headline = 2;                    // 标题
-    string content = 3;                     // 内容摘要
-    string source = 4;                      // 来源
-    repeated string tags = 5;               // 标签
+    string id = 1;                          // News ID
+    string headline = 2;                    // Headline
+    string content = 3;                     // Content summary
+    string source = 4;                      // Source
+    repeated string tags = 5;               // Tags
     google.protobuf.Timestamp publish_time = 6;
 }
 
-// 社交媒体数据事件
+// Social media data event
 message SocialDataEvent {
-    string platform = 1;                    // 平台 (twitter, reddit, telegram)
-    string content = 2;                     // 内容
-    string author = 3;                      // 作者
-    int32 engagement = 4;                   // 互动数
-    string sentiment_hint = 5;              // 初步情绪判断
+    string platform = 1;                    // Platform (twitter, reddit, telegram)
+    string content = 2;                     // Content
+    string author = 3;                      // Author
+    int32 engagement = 4;                   // Engagement count
+    string sentiment_hint = 5;              // Preliminary sentiment judgment
     google.protobuf.Timestamp timestamp = 6;
 }
 
 // ============ Analysis Events ============
 
-// 市场情绪分析结果
+// Market sentiment analysis result
 message MarketSentimentAnalysisEvent {
     string symbol = 1;
-    int32 sentiment_score = 2;              // -100 (极度恐慌) 到 +100 (极度贪婪)
+    int32 sentiment_score = 2;              // -100 (extreme fear) to +100 (extreme greed)
     string sentiment_trend = 3;             // UP, DOWN, SIDEWAYS
-    double fear_greed_index = 4;            // 恐慌贪婪指数 0-100
-    double long_short_ratio = 5;            // 多空比
-    double funding_rate = 6;                // 资金费率
-    double open_interest = 7;               // 持仓量
-    string analysis_summary = 8;            // AI 分析总结
-    int32 confidence = 9;                   // 置信度 1-100
+    double fear_greed_index = 4;            // Fear & Greed Index 0-100
+    double long_short_ratio = 5;            // Long/Short Ratio
+    double funding_rate = 6;                // Funding Rate
+    double open_interest = 7;               // Open Interest
+    string analysis_summary = 8;            // AI analysis summary
+    int32 confidence = 9;                   // Confidence 1-100
     google.protobuf.Timestamp timestamp = 10;
 }
 
-// 技术分析结果
+// Technical analysis result
 message TechnicalAnalysisEvent {
     string symbol = 1;
     string trend_direction = 2;             // BULLISH, BEARISH, SIDEWAYS
     int32 trend_strength = 3;               // 1-10
-    double support_level = 4;               // 支撑位
-    double resistance_level = 5;            // 阻力位
+    double support_level = 4;               // Support level
+    double resistance_level = 5;            // Resistance level
     
-    // 技术指标
+    // Technical indicators
     double rsi = 6;                         // RSI (14)
     double macd = 7;                        // MACD
     double macd_signal = 8;                 // MACD Signal
     double macd_histogram = 9;              // MACD Histogram
     double ma_20 = 10;                      // MA20
     double ma_60 = 11;                      // MA60
-    double bollinger_upper = 12;            // 布林上轨
-    double bollinger_lower = 13;            // 布林下轨
+    double bollinger_upper = 12;            // Bollinger Upper Band
+    double bollinger_lower = 13;            // Bollinger Lower Band
     double atr = 14;                        // ATR
     
     string signal = 15;                     // BUY, SELL, HOLD
-    string pattern_detected = 16;           // 检测到的形态
-    string analysis_summary = 17;           // AI 分析总结
-    int32 confidence = 18;                  // 置信度 1-100
+    string pattern_detected = 16;           // Detected pattern
+    string analysis_summary = 17;           // AI analysis summary
+    int32 confidence = 18;                  // Confidence 1-100
     google.protobuf.Timestamp timestamp = 19;
 }
 
-// 新闻影响分析结果
+// News impact analysis result
 message NewsImpactAnalysisEvent {
-    string news_id = 1;                     // 关联的新闻ID
-    string headline = 2;                    // 新闻标题
+    string news_id = 1;                     // Associated news ID
+    string headline = 2;                    // News headline
     string impact_type = 3;                 // POSITIVE, NEGATIVE, NEUTRAL
     string impact_level = 4;                // HIGH, MEDIUM, LOW
     string impact_duration = 5;             // SHORT, MEDIUM, LONG
-    repeated string affected_symbols = 6;   // 受影响的交易对
-    double relevance_score = 7;             // 相关性评分 0-100
-    string analysis_summary = 8;            // AI 分析总结
-    int32 confidence = 9;                   // 置信度 1-100
+    repeated string affected_symbols = 6;   // Affected trading pairs
+    double relevance_score = 7;             // Relevance score 0-100
+    string analysis_summary = 8;            // AI analysis summary
+    int32 confidence = 9;                   // Confidence 1-100
     google.protobuf.Timestamp timestamp = 10;
 }
 
 // ============ Decision Events ============
 
-// 交易决策事件 (Coordinator -> RiskManager)
+// Trading decision event (Coordinator -> RiskManager)
 message TradingDecisionEvent {
-    string decision_id = 1;                 // 决策ID
-    string symbol = 2;                      // 交易对
+    string decision_id = 1;                 // Decision ID
+    string symbol = 2;                      // Trading pair
     string direction = 3;                   // BUY, SELL, HOLD
-    int32 confidence = 4;                   // 置信度 1-100
-    double suggested_position_pct = 5;      // 建议仓位百分比
-    double suggested_price = 6;             // 建议价格 (0=市价)
+    int32 confidence = 4;                   // Confidence 1-100
+    double suggested_position_pct = 5;      // Suggested position percentage
+    double suggested_price = 6;             // Suggested price (0=market price)
     
-    // 决策依据
-    string sentiment_summary = 7;           // 情绪分析摘要
-    string technical_summary = 8;           // 技术分析摘要
-    string news_summary = 9;                // 新闻分析摘要
-    string reasoning = 10;                  // 综合推理过程
+    // Decision basis
+    string sentiment_summary = 7;           // Sentiment analysis summary
+    string technical_summary = 8;           // Technical analysis summary
+    string news_summary = 9;                // News analysis summary
+    string reasoning = 10;                  // Comprehensive reasoning process
     
     google.protobuf.Timestamp timestamp = 11;
 }
 
-// 交易批准事件 (RiskManager -> Executor)
+// Decision cycle started event (for audit / trace)
+message DecisionCycleStartedEvent {
+    string cycle_id = 1;                    // Decision cycle id
+    string symbol = 2;                      // Trading pair
+    string trigger = 3;                     // Trigger reason (e.g., "TICK", "KLINE", "TIMER")
+    string coordinator_id = 4;              // Coordinator actor id (Type:RawId)
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Decision cycle completed event (for audit / trace)
+message DecisionCycleCompletedEvent {
+    string cycle_id = 1;
+    string decision_id = 2;
+    string symbol = 3;
+    string direction = 4;                   // BUY, SELL, HOLD
+    int32 confidence = 5;                   // 1-100
+    bool executed = 6;                      // Whether this decision went to execution stage
+    string execution_mode = 7;              // "DryRun" / "Live"
+    google.protobuf.Timestamp timestamp = 8;
+}
+
+// Trade approval event (RiskManager -> Executor)
 message ApprovedTradeEvent {
-    string decision_id = 1;                 // 关联的决策ID
-    string symbol = 2;                      // 交易对
+    string decision_id = 1;                 // Associated decision ID
+    string symbol = 2;                      // Trading pair
     string side = 3;                        // buy, sell
     string order_type = 4;                  // limit, market
-    double quantity = 5;                    // 数量
-    double price = 6;                       // 价格 (限价单)
-    double stop_loss = 7;                   // 止损价
-    double take_profit = 8;                 // 止盈价
+    double quantity = 5;                    // Quantity
+    double price = 6;                       // Price (for limit orders)
+    double stop_loss = 7;                   // Stop loss price
+    double take_profit = 8;                 // Take profit price
     
-    // 风控信息
+    // Risk control information
     string risk_assessment = 9;             // LOW, MEDIUM, HIGH
-    double position_size_adjusted = 10;     // 风控调整后仓位
-    string risk_notes = 11;                 // 风控备注
+    double position_size_adjusted = 10;     // Risk-adjusted position size
+    string risk_notes = 11;                 // Risk control notes
     
     google.protobuf.Timestamp timestamp = 12;
 }
 
-// 交易拒绝事件
+// Trade rejection event
 message TradeRejectedEvent {
-    string decision_id = 1;                 // 关联的决策ID
+    string decision_id = 1;                 // Associated decision ID
     string symbol = 2;
-    string original_direction = 3;          // 原始方向
-    string rejection_reason = 4;            // 拒绝原因
-    string risk_level = 5;                  // 风险等级
-    repeated string violated_rules = 6;     // 违反的风控规则
+    string original_direction = 3;          // Original direction
+    string rejection_reason = 4;            // Rejection reason
+    string risk_level = 5;                  // Risk level
+    repeated string violated_rules = 6;     // Violated risk control rules
     google.protobuf.Timestamp timestamp = 7;
 }
 
 // ============ Execution Events ============
 
-// 订单执行成功事件
+// Order execution success event
 message OrderExecutedEvent {
-    string order_id = 1;                    // WEEX 订单ID
-    string client_order_id = 2;             // 客户端订单ID
-    string decision_id = 3;                 // 关联的决策ID
+    string order_id = 1;                    // WEEX order ID
+    string client_order_id = 2;             // Client order ID
+    string decision_id = 3;                 // Associated decision ID
     string symbol = 4;
     string side = 5;                        // buy, sell
-    double quantity = 6;                    // 成交数量
-    double filled_price = 7;                // 成交价格
-    double fee = 8;                         // 手续费
+    double quantity = 6;                    // Filled quantity
+    double filled_price = 7;                // Filled price
+    double fee = 8;                         // Fee
     string status = 9;                      // FILLED, PARTIAL_FILLED
     google.protobuf.Timestamp timestamp = 10;
 }
 
-// 订单执行失败事件
+// DryRun simulated order event (does not trigger real exchange operations)
+message OrderSimulatedEvent {
+    string simulated_order_id = 1;          // Simulated order ID (locally generated)
+    string client_order_id = 2;             // Client order ID (for traceability)
+    string decision_id = 3;                 // Associated decision ID
+    string symbol = 4;
+    string side = 5;                        // buy, sell
+    string order_type = 6;                  // limit, market
+    double quantity = 7;                    // Intended order quantity
+    double price = 8;                       // Intended order price (can be 0 for market orders)
+    double stop_loss = 9;                   // Intended stop loss price (can be 0)
+    double take_profit = 10;                // Intended take profit price (can be 0)
+    string reason = 11;                     // Simulation reason (e.g., "DRY_RUN" / "KILL_SWITCH")
+    google.protobuf.Timestamp timestamp = 12;
+}
+
+// AI Wars log upload requested event (audit -> uploader)
+message AiWarsLogUploadRequestedEvent {
+    string request_id = 1;                 // Upload request id
+    string cycle_id = 2;                   // Associated decision cycle id
+    string artifact_path = 3;              // Local file path (JSONL/trace bundle)
+    string content_type = 4;               // e.g., "application/jsonl"
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+message AiWarsLogUploadSucceededEvent {
+    string request_id = 1;
+    string cycle_id = 2;
+    string remote_id = 3;                  // Remote log id (if provided by WEEX)
+    google.protobuf.Timestamp timestamp = 4;
+}
+
+message AiWarsLogUploadFailedEvent {
+    string request_id = 1;
+    string cycle_id = 2;
+    string error_code = 3;
+    string error_message = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Order execution failure event
 message OrderFailedEvent {
-    string client_order_id = 1;             // 客户端订单ID
-    string decision_id = 2;                 // 关联的决策ID
+    string client_order_id = 1;             // Client order ID
+    string decision_id = 2;                 // Associated decision ID
     string symbol = 3;
     string side = 4;
-    string error_code = 5;                  // 错误码
-    string error_message = 6;               // 错误信息
+    string error_code = 5;                  // Error code
+    string error_message = 6;               // Error message
     google.protobuf.Timestamp timestamp = 7;
 }
 
-// 订单取消事件
+// Order cancellation event
 message OrderCancelledEvent {
     string order_id = 1;
     string client_order_id = 2;
     string symbol = 3;
-    string reason = 4;                      // 取消原因
+    string reason = 4;                      // Cancellation reason
     google.protobuf.Timestamp timestamp = 5;
 }
 
 // ============ System Events ============
 
-// 系统启动事件
+// System started event
 message SystemStartedEvent {
     string system_id = 1;
-    repeated string active_symbols = 2;     // 激活的交易对
+    repeated string active_symbols = 2;     // Active trading pairs
     google.protobuf.Timestamp timestamp = 3;
 }
 
-// 系统停止事件
+// System stopped event
 message SystemStoppedEvent {
     string system_id = 1;
-    string reason = 2;                      // 停止原因
+    string reason = 2;                      // Stop reason
     google.protobuf.Timestamp timestamp = 3;
 }
 
-// 风控熔断事件
+// Risk control circuit breaker event
 message CircuitBreakerTriggeredEvent {
     string trigger_type = 1;                // DAILY_LOSS, CONSECUTIVE_LOSS, VOLATILITY
     string description = 2;
-    int32 cooldown_minutes = 3;             // 冷却时间
+    int32 cooldown_minutes = 3;             // Cooldown time
     google.protobuf.Timestamp timestamp = 4;
 }
 
 // ============ Agent States ============
 
-// 数据采集器状态
+// Data collector state
 message DataCollectorState {
     string agent_id = 1;
-    repeated string subscribed_symbols = 2; // 已订阅的交易对
-    map<string, double> latest_prices = 3;  // 最新价格缓存
-    int32 ticks_received = 4;               // 收到的tick数
-    bool is_connected = 5;                  // WebSocket连接状态
+    repeated string subscribed_symbols = 2; // Subscribed trading pairs
+    map<string, double> latest_prices = 3;  // Latest price cache
+    int32 ticks_received = 4;               // Number of ticks received
+    bool is_connected = 5;                  // WebSocket connection status
     google.protobuf.Timestamp last_tick_time = 6;
 }
 
-// 市场情绪分析师状态
+// Market sentiment analyst state
 message SentimentAnalystState {
     string agent_id = 1;
-    int32 current_sentiment = 2;            // 当前情绪值
-    repeated int32 sentiment_history = 3;   // 历史情绪值 (最近N个)
-    int32 analysis_count = 4;               // 分析次数
+    int32 current_sentiment = 2;            // Current sentiment value
+    repeated int32 sentiment_history = 3;   // Historical sentiment values (last N)
+    int32 analysis_count = 4;               // Analysis count
     google.protobuf.Timestamp last_analysis = 5;
 }
 
-// 技术分析师状态
+// Technical analyst state
 message TechnicalAnalystState {
     string agent_id = 1;
-    string current_trend = 2;               // 当前趋势
-    int32 trend_strength = 3;               // 趋势强度
+    string current_trend = 2;               // Current trend
+    int32 trend_strength = 3;               // Trend strength
     double last_rsi = 4;
     double last_macd = 5;
     int32 analysis_count = 6;
     google.protobuf.Timestamp last_analysis = 7;
 }
 
-// 新闻分析师状态
+// News analyst state
 message NewsAnalystState {
     string agent_id = 1;
-    repeated string recent_headlines = 2;   // 最近处理的新闻标题
-    string overall_sentiment = 3;           // 整体新闻情绪
-    int32 news_processed = 4;               // 处理的新闻数
+    repeated string recent_headlines = 2;   // Recently processed news headlines
+    string overall_sentiment = 3;           // Overall news sentiment
+    int32 news_processed = 4;               // Number of news processed
     google.protobuf.Timestamp last_analysis = 5;
 }
 
-// 交易协调者状态
+// Trading coordinator state
 message CoordinatorState {
     string agent_id = 1;
     
-    // 最新分析结果
+    // Latest analysis results
     MarketSentimentAnalysisEvent latest_sentiment = 2;
     TechnicalAnalysisEvent latest_technical = 3;
     NewsImpactAnalysisEvent latest_news = 4;
     
-    // 决策统计
-    string last_decision = 5;               // 最近决策方向
-    int32 decisions_made = 6;               // 决策次数
-    int32 decisions_approved = 7;           // 被批准次数
-    int32 decisions_rejected = 8;           // 被拒绝次数
+    // Decision statistics
+    string last_decision = 5;               // Latest decision direction
+    int32 decisions_made = 6;               // Number of decisions made
+    int32 decisions_approved = 7;           // Number of approvals
+    int32 decisions_rejected = 8;           // Number of rejections
     
     google.protobuf.Timestamp last_decision_time = 9;
 }
 
-// 风控经理状态
+// Risk manager state
 message RiskManagerState {
     string agent_id = 1;
     
-    // 账户风险
-    double total_equity = 2;                // 总权益
-    double available_balance = 3;           // 可用余额
-    double current_position_value = 4;      // 当前持仓价值
-    double position_ratio = 5;              // 仓位比例
+    // Account risk
+    double total_equity = 2;                // Total equity
+    double available_balance = 3;           // Available balance
+    double current_position_value = 4;      // Current position value
+    double position_ratio = 5;              // Position ratio
     
-    // 盈亏统计
-    double daily_pnl = 6;                   // 今日盈亏
-    double daily_pnl_pct = 7;               // 今日盈亏百分比
-    double realized_pnl = 8;                // 已实现盈亏
-    double unrealized_pnl = 9;              // 未实现盈亏
+    // P&L statistics
+    double daily_pnl = 6;                   // Daily P&L
+    double daily_pnl_pct = 7;               // Daily P&L percentage
+    double realized_pnl = 8;                // Realized P&L
+    double unrealized_pnl = 9;              // Unrealized P&L
     
-    // 风控状态
-    int32 consecutive_losses = 10;          // 连续亏损次数
-    int32 consecutive_wins = 11;            // 连续盈利次数
-    bool is_trading_allowed = 12;           // 是否允许交易
-    string circuit_breaker_status = 13;     // 熔断状态
+    // Risk control status
+    int32 consecutive_losses = 10;          // Consecutive losses count
+    int32 consecutive_wins = 11;            // Consecutive wins count
+    bool is_trading_allowed = 12;           // Whether trading is allowed
+    string circuit_breaker_status = 13;     // Circuit breaker status
     
-    // 统计
-    int32 trades_approved = 14;             // 批准的交易数
-    int32 trades_rejected = 15;             // 拒绝的交易数
+    // Statistics
+    int32 trades_approved = 14;             // Number of approved trades
+    int32 trades_rejected = 15;             // Number of rejected trades
     
     google.protobuf.Timestamp last_update = 16;
 }
 
-// 执行器状态
+// Executor state
 message ExecutorState {
     string agent_id = 1;
     
-    // 订单统计
-    int32 orders_placed = 2;                // 下单数
-    int32 orders_filled = 3;                // 成交数
-    int32 orders_failed = 4;                // 失败数
-    int32 orders_cancelled = 5;             // 取消数
+    // Order statistics
+    int32 orders_placed = 2;                // Number of orders placed
+    int32 orders_filled = 3;                // Number of orders filled
+    int32 orders_failed = 4;                // Number of failed orders
+    int32 orders_cancelled = 5;             // Number of cancelled orders
     
-    // 活跃订单
-    repeated string active_order_ids = 6;   // 活跃订单ID
+    // Active orders
+    repeated string active_order_ids = 6;   // Active order IDs
     
-    // 持仓
+    // Positions
     map<string, double> positions = 7;      // symbol -> quantity
     
-    // 总盈亏
-    double total_realized_pnl = 8;          // 总已实现盈亏
-    double total_fees = 9;                  // 总手续费
+    // Total P&L
+    double total_realized_pnl = 8;          // Total realized P&L
+    double total_fees = 9;                  // Total fees
     
     google.protobuf.Timestamp last_execution = 10;
+
+    // Execution modes like DryRun / Live (for observability and auditing)
+    string execution_mode = 11;
+    int32 orders_simulated = 12;            // Number of simulated orders (DryRun)
+}
+
+// Trade audit agent state
+message TradeAuditState {
+    string agent_id = 1;                   // Actor id (Type:RawId)
+    string audit_run_id = 2;               // Current audit run id
+    string output_dir = 3;                 // Output directory
+    string current_file = 4;               // Current JSONL file name
+    int32 events_logged = 5;               // Logged event count
+    google.protobuf.Timestamp last_event_time = 6;
+}
+
+// AI Wars log uploader agent state
+message AiWarsUploaderState {
+    string agent_id = 1;
+    int32 uploads_attempted = 2;
+    int32 uploads_succeeded = 3;
+    int32 uploads_failed = 4;
+    string last_error = 5;
+    google.protobuf.Timestamp last_upload_time = 6;
 }
 
 // ============ Configuration Messages ============
 
-// 交易配置
-message TradingConfig {
-    string symbol = 1;                      // 交易对
-    string interval = 2;                    // 分析周期
-    double max_position_pct = 3;            // 最大仓位比例
-    double max_loss_per_trade = 4;          // 单笔最大亏损
-    double max_daily_loss = 5;              // 日最大亏损
-    int32 min_confidence_to_trade = 6;      // 最小交易置信度
+// Trade execution mode
+enum TradeExecutionMode {
+    TRADE_EXECUTION_MODE_UNSPECIFIED = 0;
+    DRY_RUN = 1;
+    LIVE = 2;
 }
 
-// 分析权重配置
+// Trading configuration
+message TradingConfig {
+    string symbol = 1;                      // Trading pair
+    string interval = 2;                    // Analysis interval
+    double max_position_pct = 3;            // Maximum position percentage
+    double max_loss_per_trade = 4;          // Maximum loss per trade
+    double max_daily_loss = 5;              // Maximum daily loss
+    int32 min_confidence_to_trade = 6;      // Minimum confidence to trade
+    double max_total_position_pct = 7;      // Maximum total position percentage
+    TradeExecutionMode execution_mode = 8;  // Execution mode (DryRun/Live)
+}
+
+// Analysis weight configuration
 message AnalysisWeightConfig {
-    double sentiment_weight = 1;            // 情绪分析权重
-    double technical_weight = 2;            // 技术分析权重
-    double news_weight = 3;                 // 新闻分析权重
+    double sentiment_weight = 1;            // Sentiment analysis weight
+    double technical_weight = 2;            // Technical analysis weight
+    double news_weight = 3;                 // News analysis weight
+}
+
+// Risk control configuration
+message RiskControlConfig {
+    int32 max_consecutive_losses = 1;       // Max consecutive losses before circuit breaker
+    int32 cooldown_minutes = 2;             // Cooldown minutes after circuit breaker
+    double stop_loss_pct = 3;               // Default stop loss percentage
+    double take_profit_pct = 4;             // Default take profit percentage
+}
+
+// Trade audit configuration
+message TradeAuditConfig {
+    bool enabled = 1;                       // Enable audit agent
+    string output_dir = 2;                  // Output directory for JSONL
+    bool include_market_data = 3;           // Whether to log high-frequency market data
+    bool request_aiwars_upload = 4;         // Whether to emit AiWarsLogUploadRequestedEvent
+}
+
+// WEEX AI Wars log upload configuration (skeleton)
+message AiWarsLogUploadConfig {
+    bool enabled = 1;                       // Enable uploading
+    string base_url = 2;                    // AI Wars API base url (may differ from spot)
+    string api_key = 3;
+    string api_secret = 4;
+    string passphrase = 5;
+    string upload_path = 6;                 // Upload endpoint path (e.g., "/api/ai/log/upload")
+}
+
+// Decision engine configuration (Coordinator brain switch)
+message DecisionEngineConfig {
+    string mode = 1;                        // "Direct" / "CognitiveMesh"
+    string cognitive_mesh_base_url = 2;     // e.g., "http://localhost:5080"
+    string cognitive_mesh_strategy = 3;     // "Direct" / "Maker" / "UoT" / "EUoT" / "TUoT" / "Cognitive"
+    string cognitive_workflow = 4;          // e.g., "maker-v2"
+    int32 timeout_seconds = 5;              // Request timeout
 }

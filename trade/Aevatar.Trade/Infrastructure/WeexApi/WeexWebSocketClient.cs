@@ -7,9 +7,9 @@ using Microsoft.Extensions.Options;
 namespace Aevatar.Trade.Infrastructure.WeexApi;
 
 /// <summary>
-/// WEEX WebSocket 客户端
-/// 用于订阅实时行情数据
-/// 官方文档: https://www.weex.com/api-doc/spot/Websocket/public/Tickers-Channel
+/// WEEX WebSocket client
+/// Used for subscribing to real-time market data
+/// Official documentation: https://www.weex.com/api-doc/spot/Websocket/public/Tickers-Channel
 /// </summary>
 public class WeexWebSocketClient : IAsyncDisposable
 {
@@ -58,7 +58,7 @@ public class WeexWebSocketClient : IAsyncDisposable
         _logger.LogInformation("Connected to WEEX WebSocket");
         OnConnected?.Invoke();
 
-        // 启动接收循环
+        // Start receive loop
         _receiveTask = ReceiveLoopAsync(_cts.Token);
     }
 
@@ -95,7 +95,7 @@ public class WeexWebSocketClient : IAsyncDisposable
     // ============ Subscriptions ============
 
     /// <summary>
-    /// 订阅行情
+    /// Subscribe to ticker
     /// </summary>
     public async Task SubscribeTickerAsync(string symbol, CancellationToken ct = default)
     {
@@ -110,7 +110,7 @@ public class WeexWebSocketClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// 订阅K线
+    /// Subscribe to kline
     /// </summary>
     public async Task SubscribeKlineAsync(string symbol, string interval, CancellationToken ct = default)
     {
@@ -125,7 +125,7 @@ public class WeexWebSocketClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// 取消订阅
+    /// Unsubscribe
     /// </summary>
     public async Task UnsubscribeAsync(string channel, CancellationToken ct = default)
     {
@@ -203,7 +203,7 @@ public class WeexWebSocketClient : IAsyncDisposable
             using var doc = JsonDocument.Parse(message);
             var root = doc.RootElement;
 
-            // 处理 ping/pong
+            // Handle ping/pong
             if (root.TryGetProperty("event", out var eventProp))
             {
                 var eventType = eventProp.GetString();
@@ -214,7 +214,7 @@ public class WeexWebSocketClient : IAsyncDisposable
                 }
             }
 
-            // 处理数据推送
+            // Handle data push
             if (root.TryGetProperty("channel", out var channelProp))
             {
                 var channel = channelProp.GetString() ?? "";

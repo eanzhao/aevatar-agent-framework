@@ -248,7 +248,7 @@ public class EventRouter(
 
         // UP direction: Check if a cycle will be formed
         // If parent node is already in Publishers list, it indicates a cycle
-        if (envelope.Publishers.Contains(_parentId.ToString()))
+        if (envelope.Publishers.Contains(_parentId))
         {
             _logger.LogWarning("Event {EventId} already visited parent {ParentId}, skipping to avoid loop",
                 envelope.Id, _parentId);

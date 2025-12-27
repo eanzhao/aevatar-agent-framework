@@ -7,8 +7,8 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Trade.Agents.Data;
 
 /// <summary>
-/// 数据采集 Agent
-/// 职责：连接 WEEX API，采集市场数据，转换为内部事件广播给下游 Agent
+/// Data collection agent
+/// Responsibilities: Connect to WEEX API, collect market data, convert to internal events and broadcast to downstream agents
 /// </summary>
 public class DataCollectorAgent : GAgentBase<DataCollectorState>
 {
@@ -35,7 +35,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
 
@@ -46,7 +46,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         Logger.LogInformation("[DataCollector] Agent activated: {AgentId}", State.AgentId);
     }
 
-    public override async Task OnDeactivateAsync(CancellationToken ct = default)
+    protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         _heartbeatTimer?.Dispose();
         
@@ -69,7 +69,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     // ============ Public Methods ============
 
     /// <summary>
-    /// 启动数据采集
+    /// Start data collection
     /// </summary>
     public async Task StartCollectingAsync(
         IEnumerable<string> symbols,
@@ -79,11 +79,11 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         if (_wsClient == null)
             throw new InvalidOperationException("WebSocket client not configured");
 
-        // 连接 WebSocket
+        // Connect WebSocket
         await _wsClient.ConnectAsync(ct);
         State.IsConnected = true;
 
-        // 订阅行情
+        // Subscribe to market data
         foreach (var symbol in symbols)
         {
             await _wsClient.SubscribeTickerAsync(symbol, ct);
@@ -93,7 +93,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             State.SubscribedSymbols.Add(symbol);
         }
 
-        // 启动心跳
+        // Start heartbeat
         _heartbeatTimer = new Timer(
             _ => CheckConnection(),
             null,
@@ -105,7 +105,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             _subscribedSymbols.Count,
             string.Join(", ", _subscribedSymbols));
 
-        // 发布系统启动事件
+        // Publish system started event
         await PublishAsync(new SystemStartedEvent
         {
             SystemId = State.AgentId,
@@ -115,7 +115,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     }
 
     /// <summary>
-    /// 停止数据采集
+    /// Stop data collection
     /// </summary>
     public async Task StopCollectingAsync(string reason = "Manual stop")
     {
@@ -138,7 +138,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     }
 
     /// <summary>
-    /// 手动拉取历史K线
+    /// Manually fetch historical klines
     /// </summary>
     public async Task FetchHistoricalKlinesAsync(
         string symbol,
@@ -157,10 +157,10 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             {
                 Symbol = symbol,
                 Interval = interval,
-                Open = kline.Open,
-                High = kline.High,
-                Low = kline.Low,
-                Close = kline.Close,
+                Open = (double)kline.Open,
+                High = (double)kline.High,
+                Low = (double)kline.Low,
+                Close = (double)kline.Close,
                 Volume = (double)kline.Volume,
                 OpenTime = Timestamp.FromDateTime(kline.OpenTime),
                 CloseTime = Timestamp.FromDateTime(kline.CloseTime)
@@ -188,10 +188,10 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     private void OnTickerReceived(TickerResponse ticker)
     {
         State.TicksReceived++;
-        State.LatestPrices[ticker.Symbol] = ticker.LastPrice;
+        State.LatestPrices[ticker.Symbol] = (double)ticker.LastPrice;
         State.LastTickTime = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        // 转换为内部事件并广播
+        // Convert to internal event and broadcast
         var evt = new MarketTickEvent
         {
             Symbol = ticker.Symbol,
@@ -205,7 +205,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
             Timestamp = Timestamp.FromDateTime(ticker.Timestamp)
         };
 
-        // Fire and forget - 不阻塞 WebSocket 接收
+        // Fire and forget - do not block WebSocket reception
         _ = PublishTickerEventAsync(evt);
     }
 
@@ -225,7 +225,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     {
         var evt = new KlineUpdateEvent
         {
-            Symbol = "", // WebSocket kline 需要从 channel 解析
+            Symbol = "", // WebSocket kline needs to be parsed from channel
             Interval = "",
             Open = (double)kline.Open,
             High = (double)kline.High,
@@ -262,7 +262,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         State.IsConnected = false;
         Logger.LogWarning("[DataCollector] WebSocket disconnected");
 
-        // 尝试重连
+        // Attempt to reconnect
         _ = TryReconnectAsync();
     }
 
@@ -290,7 +290,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         {
             await _wsClient.ConnectAsync();
 
-            // 重新订阅
+            // Resubscribe
             foreach (var symbol in _subscribedSymbols)
             {
                 await _wsClient.SubscribeTickerAsync(symbol);

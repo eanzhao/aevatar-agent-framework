@@ -1,4 +1,5 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
@@ -6,67 +7,67 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Trade.Agents.Analysts;
 
 /// <summary>
-/// 技术分析 Agent
-/// 职责：基于价格数据进行技术分析，识别趋势和交易信号
+/// Technical analysis agent
+/// Responsibilities: Perform technical analysis based on price data, identify trends and trading signals
 /// </summary>
 public class TechnicalAnalystAgent : AIGAgentBase
 {
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
-        你是一位专业的加密货币技术分析师，精通各种技术指标和图表形态分析。
+        You are a professional cryptocurrency technical analyst, proficient in various technical indicators and chart pattern analysis.
 
-        【技术指标解读】
+        【Technical Indicator Interpretation】
 
-        1. RSI (相对强弱指数, 14周期)
-           - < 30: 超卖区，可能反弹
-           - 30-70: 正常区间
-           - > 70: 超买区，可能回调
-           - RSI 背离是重要信号
+        1. RSI (Relative Strength Index, 14-period)
+           - < 30: Oversold zone, possible bounce
+           - 30-70: Normal range
+           - > 70: Overbought zone, possible pullback
+           - RSI divergence is an important signal
 
         2. MACD
-           - MACD > Signal: 多头动能
-           - MACD < Signal: 空头动能
-           - 金叉: MACD 上穿 Signal，买入信号
-           - 死叉: MACD 下穿 Signal，卖出信号
-           - 柱状图扩大: 趋势加强
-           - 柱状图收缩: 趋势减弱
+           - MACD > Signal: Bullish momentum
+           - MACD < Signal: Bearish momentum
+           - Golden cross: MACD crosses above Signal, buy signal
+           - Death cross: MACD crosses below Signal, sell signal
+           - Histogram expanding: Trend strengthening
+           - Histogram contracting: Trend weakening
 
-        3. 均线系统
-           - 价格 > MA20 > MA60: 多头排列
-           - 价格 < MA20 < MA60: 空头排列
-           - 均线交叉: 趋势转变信号
+        3. Moving Average System
+           - Price > MA20 > MA60: Bullish alignment
+           - Price < MA20 < MA60: Bearish alignment
+           - MA crossover: Trend change signal
 
-        4. 布林带
-           - 触及上轨: 可能超买
-           - 触及下轨: 可能超卖
-           - 带宽收窄: 即将突破
-           - 带宽扩张: 波动加大
+        4. Bollinger Bands
+           - Touching upper band: Possibly overbought
+           - Touching lower band: Possibly oversold
+           - Band narrowing: Breakout imminent
+           - Band expanding: Volatility increasing
 
-        5. ATR (平均真实波幅)
-           - 用于设置止损距离
-           - ATR 扩大: 波动增加
-           - ATR 收缩: 波动减小
+        5. ATR (Average True Range)
+           - Used for setting stop loss distance
+           - ATR expanding: Volatility increasing
+           - ATR contracting: Volatility decreasing
 
-        【输出格式】
-        请严格按以下 JSON 格式输出：
+        【Output Format】
+        Please strictly output in the following JSON format:
         {
             "trend_direction": "<BULLISH|BEARISH|SIDEWAYS>",
-            "trend_strength": <1-10的整数>,
+            "trend_strength": <integer from 1-10>,
             "signal": "<BUY|SELL|HOLD>",
-            "support_level": <支撑价格>,
-            "resistance_level": <阻力价格>,
-            "pattern_detected": "<检测到的形态，如无则为空>",
-            "confidence": <1-100的整数>,
-            "key_observations": ["观察1", "观察2", "观察3"],
-            "summary": "<一句话总结技术面状况>"
+            "support_level": <support price>,
+            "resistance_level": <resistance price>,
+            "pattern_detected": "<detected pattern, empty if none>",
+            "confidence": <integer from 1-100>,
+            "key_observations": ["Observation 1", "Observation 2", "Observation 3"],
+            "summary": "<One-sentence summary of technical condition>"
         }
 
-        【注意事项】
-        - 多个指标共振时信号更可靠
-        - 注意指标与价格的背离
-        - 大周期趋势优先于小周期信号
-        - 关键支撑阻力位的突破确认
+        【Notes】
+        - Signals are more reliable when multiple indicators resonate
+        - Pay attention to divergence between indicators and price
+        - Longer timeframe trends take priority over shorter timeframe signals
+        - Confirm breakouts at key support/resistance levels
         """;
 
     // ============ State ============
@@ -77,7 +78,7 @@ public class TechnicalAnalystAgent : AIGAgentBase
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         _techState.AgentId = Id.ToString();
@@ -95,17 +96,17 @@ public class TechnicalAnalystAgent : AIGAgentBase
     // ============ Event Handlers ============
 
     /// <summary>
-    /// 处理K线数据，更新缓冲区并触发分析
+    /// Handle kline data, update buffer and trigger analysis
     /// </summary>
     [EventHandler]
     public async Task HandleKlineUpdate(KlineUpdateEvent evt)
     {
-        // 更新K线缓冲区
+        // Update kline buffer
         _klineBuffer.Add(evt);
         if (_klineBuffer.Count > KlineBufferSize)
             _klineBuffer.RemoveAt(0);
 
-        // 每收到 N 根K线分析一次
+        // Analyze every N klines received
         if (_klineBuffer.Count % 5 == 0 && _klineBuffer.Count >= 60)
         {
             await AnalyzeTechnicalAsync(evt.Symbol);
@@ -115,7 +116,7 @@ public class TechnicalAnalystAgent : AIGAgentBase
     // ============ Analysis Methods ============
 
     /// <summary>
-    /// 执行技术分析
+    /// Execute technical analysis
     /// </summary>
     public async Task AnalyzeTechnicalAsync(string symbol)
     {
@@ -125,16 +126,16 @@ public class TechnicalAnalystAgent : AIGAgentBase
             return;
         }
 
-        // 计算技术指标
+        // Calculate technical indicators
         var indicators = CalculateIndicators();
         var prompt = BuildAnalysisPrompt(symbol, indicators);
 
         try
         {
-            var response = await CompleteAsync(prompt);
-            var analysis = ParseAnalysisResponse(response, symbol, indicators);
+            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            var analysis = ParseAnalysisResponse(chat.Content ?? string.Empty, symbol, indicators);
 
-            // 更新状态
+            // Update state
             _techState.CurrentTrend = analysis.TrendDirection;
             _techState.TrendStrength = analysis.TrendStrength;
             _techState.LastRsi = analysis.Rsi;
@@ -142,7 +143,7 @@ public class TechnicalAnalystAgent : AIGAgentBase
             _techState.AnalysisCount++;
             _techState.LastAnalysis = Timestamp.FromDateTime(DateTime.UtcNow);
 
-            // 发布分析结果
+            // Publish analysis results
             await PublishAsync(analysis);
 
             Logger.LogInformation(
@@ -206,8 +207,8 @@ public class TechnicalAnalystAgent : AIGAgentBase
         var ema26 = CalculateEMA(closes, 26);
         var macd = ema12 - ema26;
 
-        // 简化: Signal 使用 MACD 的 9 周期 EMA
-        var signal = macd * 0.9; // 简化计算
+        // Simplified: Signal uses 9-period EMA of MACD
+        var signal = macd * 0.9; // Simplified calculation
         var histogram = macd - signal;
 
         return (macd, signal, histogram);
@@ -290,30 +291,30 @@ public class TechnicalAnalystAgent : AIGAgentBase
     private string BuildAnalysisPrompt(string symbol, TechnicalIndicators ind)
     {
         return $"""
-            请分析 {symbol} 的技术面：
+            Please analyze the technical aspects of {symbol}:
 
-            【当前价格】
-            - 价格: {ind.CurrentPrice:F2}
+            【Current Price】
+            - Price: {ind.CurrentPrice:F2}
 
-            【技术指标】
+            【Technical Indicators】
             - RSI(14): {ind.RSI:F2}
             - MACD: {ind.MACD.MACD:F4}
             - MACD Signal: {ind.MACD.Signal:F4}
             - MACD Histogram: {ind.MACD.Histogram:F4}
             - MA20: {ind.MA20:F2}
             - MA60: {ind.MA60:F2}
-            - 布林上轨: {ind.BollingerUpper:F2}
-            - 布林下轨: {ind.BollingerLower:F2}
+            - Bollinger Upper: {ind.BollingerUpper:F2}
+            - Bollinger Lower: {ind.BollingerLower:F2}
             - ATR(14): {ind.ATR:F2}
 
-            【关键价位】
-            - 支撑位: {ind.Support:F2}
-            - 阻力位: {ind.Resistance:F2}
+            【Key Levels】
+            - Support: {ind.Support:F2}
+            - Resistance: {ind.Resistance:F2}
 
-            【均线位置】
-            - 价格 vs MA20: {(ind.CurrentPrice > ind.MA20 ? "上方" : "下方")}
-            - 价格 vs MA60: {(ind.CurrentPrice > ind.MA60 ? "上方" : "下方")}
-            - MA20 vs MA60: {(ind.MA20 > ind.MA60 ? "多头排列" : "空头排列")}
+            【Moving Average Position】
+            - Price vs MA20: {(ind.CurrentPrice > ind.MA20 ? "Above" : "Below")}
+            - Price vs MA60: {(ind.CurrentPrice > ind.MA60 ? "Above" : "Below")}
+            - MA20 vs MA60: {(ind.MA20 > ind.MA60 ? "Bullish alignment" : "Bearish alignment")}
             """;
     }
 

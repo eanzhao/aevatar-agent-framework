@@ -1,7 +1,7 @@
 namespace Aevatar.Trade.Api;
 
 /// <summary>
-/// Agent 运行时配置
+/// Agent runtime configuration
 /// </summary>
 public class AgentRuntimeOptions
 {
@@ -12,7 +12,7 @@ public class AgentRuntimeOptions
 }
 
 /// <summary>
-/// 运行时类型
+/// Runtime type
 /// </summary>
 public enum AgentRuntimeType
 {
@@ -22,7 +22,7 @@ public enum AgentRuntimeType
 }
 
 /// <summary>
-/// Orleans 配置
+/// Orleans configuration
 /// </summary>
 public class OrleansOptions
 {

@@ -1,80 +1,90 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Trade.Agents.Coordinator;
 
 /// <summary>
-/// 交易协调 Agent (首席交易决策者)
-/// 职责：综合各分析师的意见，做出最终交易决策
+/// Trading coordinator agent (Chief trading decision maker)
+/// Responsibilities: Synthesize opinions from all analysts and make final trading decisions
 /// </summary>
 public class TradingCoordinatorAgent : AIGAgentBase
 {
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
-        你是首席交易决策者，负责综合各方分析做出最终交易决策。
+        You are the chief trading decision maker, responsible for synthesizing analysis from all parties to make final trading decisions.
 
-        【你的分析团队】
-        1. 市场情绪分析师 - 提供市场情绪评分和趋势判断
-        2. 技术分析师 - 提供技术指标分析和趋势判断
-        3. 新闻分析师 - 提供新闻事件影响评估
+        【Your Analysis Team】
+        1. Market Sentiment Analyst - Provides market sentiment scores and trend judgments
+        2. Technical Analyst - Provides technical indicator analysis and trend judgments
+        3. News Analyst - Provides news event impact assessments
 
-        【决策框架】
+        【Decision Framework】
 
-        1. 信号一致性判断
-           - 三方一致看多: 强烈买入信号
-           - 三方一致看空: 强烈卖出信号
-           - 两方看多一方中性: 温和买入
-           - 两方看空一方中性: 温和卖出
-           - 分析存在分歧: 偏向保守，观望为主
+        1. Signal Consistency Judgment
+           - All three bullish: Strong buy signal
+           - All three bearish: Strong sell signal
+           - Two bullish, one neutral: Moderate buy
+           - Two bearish, one neutral: Moderate sell
+           - Analysis divergence: Prefer conservative, wait and see
 
-        2. 优先级规则
-           - 重大新闻事件 > 技术分析 > 情绪分析
-           - 极端情绪（恐慌/贪婪）时考虑逆向操作
-           - 趋势明确时跟随趋势，震荡时观望
+        2. Priority Rules
+           - Major news events > Technical analysis > Sentiment analysis
+           - Consider contrarian operations during extreme sentiment (fear/greed)
+           - Follow trend when clear, wait and see during consolidation
 
-        3. 置信度调整
-           - 多方信号共振: 提高置信度
-           - 信号背离: 降低置信度
-           - 近期准确率: 动态调整
+        3. Confidence Adjustment
+           - Multiple signal resonance: Increase confidence
+           - Signal divergence: Decrease confidence
+           - Recent accuracy rate: Dynamic adjustment
 
-        【输出格式】
-        请严格按以下 JSON 格式输出：
+        【Output Format】
+        Please strictly output in the following JSON format:
         {
             "direction": "<BUY|SELL|HOLD>",
-            "confidence": <1-100的整数>,
-            "position_pct": <建议仓位百分比，0-30>,
+            "confidence": <integer 1-100>,
+            "position_pct": <suggested position percentage, 0-30>,
             "reasoning": {
-                "sentiment_factor": "<情绪面因素总结>",
-                "technical_factor": "<技术面因素总结>",
-                "news_factor": "<新闻面因素总结>",
-                "final_logic": "<最终决策逻辑>"
+                "sentiment_factor": "<sentiment factor summary>",
+                "technical_factor": "<technical factor summary>",
+                "news_factor": "<news factor summary>",
+                "final_logic": "<final decision logic>"
             },
-            "summary": "<一句话决策总结>"
+            "summary": "<one-sentence decision summary>"
         }
 
-        【风险意识】
-        - 不确定时选择观望
-        - 避免追涨杀跌
-        - 控制单笔仓位
-        - 留有余地应对意外
+        【Risk Awareness】
+        - Choose to wait and see when uncertain
+        - Avoid chasing rallies and selling dips
+        - Control single position size
+        - Leave room to handle unexpected situations
         """;
 
     // ============ State ============
 
     private readonly CoordinatorState _coordState = new();
     
-    // 配置
+    // Configuration
     private int _minConfidenceToTrade = 60;
     private double _sentimentWeight = 0.3;
     private double _technicalWeight = 0.4;
     private double _newsWeight = 0.3;
+    private string _executionMode = "DryRun";
+
+    /// <summary>
+    /// Optional decision engine override.
+    /// - null: use direct LLM (ChatAsync)
+    /// - non-null: delegate to external engine (e.g., Cognitive Mesh)
+    /// </summary>
+    public ITradingDecisionEngine? DecisionEngine { get; set; }
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         _coordState.AgentId = Id.ToString();
@@ -90,18 +100,20 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 配置决策参数
+    /// Configure decision parameters
     /// </summary>
     public void Configure(
         int minConfidence = 60,
         double sentimentWeight = 0.3,
         double technicalWeight = 0.4,
-        double newsWeight = 0.3)
+        double newsWeight = 0.3,
+        TradeExecutionMode executionMode = TradeExecutionMode.DryRun)
     {
         _minConfidenceToTrade = minConfidence;
         _sentimentWeight = sentimentWeight;
         _technicalWeight = technicalWeight;
         _newsWeight = newsWeight;
+        _executionMode = executionMode.ToString();
 
         Logger.LogInformation(
             "[Coordinator] Configured: MinConf={MinConf}, Weights=[S:{S}, T:{T}, N:{N}]",
@@ -111,7 +123,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
     // ============ Event Handlers ============
 
     /// <summary>
-    /// 处理市场情绪分析结果
+    /// Handle market sentiment analysis results
     /// </summary>
     [EventHandler]
     public async Task HandleSentimentAnalysis(MarketSentimentAnalysisEvent evt)
@@ -125,7 +137,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 处理技术分析结果
+    /// Handle technical analysis results
     /// </summary>
     [EventHandler]
     public async Task HandleTechnicalAnalysis(TechnicalAnalysisEvent evt)
@@ -139,7 +151,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 处理新闻影响分析结果
+    /// Handle news impact analysis results
     /// </summary>
     [EventHandler]
     public async Task HandleNewsAnalysis(NewsImpactAnalysisEvent evt)
@@ -153,7 +165,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 处理交易批准事件（统计用）
+    /// Handle trade approval events (for statistics)
     /// </summary>
     [EventHandler]
     public Task HandleTradeApproved(ApprovedTradeEvent evt)
@@ -166,7 +178,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 处理交易拒绝事件（统计用）
+    /// Handle trade rejection events (for statistics)
     /// </summary>
     [EventHandler]
     public Task HandleTradeRejected(TradeRejectedEvent evt)
@@ -181,18 +193,18 @@ public class TradingCoordinatorAgent : AIGAgentBase
     // ============ Decision Logic ============
 
     /// <summary>
-    /// 尝试做出交易决策
+    /// Attempt to make a trading decision
     /// </summary>
     private async Task TryMakeDecisionAsync()
     {
-        // 检查是否有足够的分析数据
+        // Check if there is sufficient analysis data
         if (!HasSufficientData())
         {
             Logger.LogDebug("[Coordinator] Insufficient data for decision");
             return;
         }
 
-        // 检查决策间隔（避免过于频繁）
+        // Check decision interval (to avoid being too frequent)
         if (_coordState.LastDecisionTime != null)
         {
             var elapsed = DateTime.UtcNow - _coordState.LastDecisionTime.ToDateTime();
@@ -209,11 +221,11 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
     private bool HasSufficientData()
     {
-        // 至少需要技术分析和情绪分析
+        // At least need technical analysis and sentiment analysis
         if (_coordState.LatestTechnical == null) return false;
         if (_coordState.LatestSentiment == null) return false;
 
-        // 检查数据时效性（5分钟内）
+        // Check data freshness (within 5 minutes)
         var now = DateTime.UtcNow;
         var techAge = now - _coordState.LatestTechnical.Timestamp.ToDateTime();
         var sentAge = now - _coordState.LatestSentiment.Timestamp.ToDateTime();
@@ -225,98 +237,167 @@ public class TradingCoordinatorAgent : AIGAgentBase
     {
         var symbol = _coordState.LatestTechnical!.Symbol;
         var prompt = BuildDecisionPrompt();
+        var cycleId = Guid.NewGuid().ToString("N")[..16];
+
+        await PublishAsync(new DecisionCycleStartedEvent
+        {
+            CycleId = cycleId,
+            Symbol = symbol,
+            Trigger = "ANALYSIS_UPDATE",
+            CoordinatorId = _coordState.AgentId,
+            Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+        });
 
         try
         {
-            var response = await CompleteAsync(prompt);
-            var decision = ParseDecisionResponse(response, symbol);
+            var engine = DecisionEngine ?? new DirectLlmDecisionEngine(async (p, ct) =>
+            {
+                var chat = await ChatAsync(ChatRequest.Create(p), ct);
+                return chat.Content ?? string.Empty;
+            });
 
-            // 更新状态
+            var raw = await engine.GetDecisionJsonAsync(prompt, cycleId);
+            var decision = ParseDecisionResponse(raw, symbol);
+
+            // Update state
             _coordState.LastDecision = decision.Direction;
             _coordState.DecisionsMade++;
             _coordState.LastDecisionTime = Timestamp.FromDateTime(DateTime.UtcNow);
 
-            // 检查置信度阈值
-            if (decision.Direction == "HOLD" || decision.Confidence < _minConfidenceToTrade)
+            // Check confidence threshold
+            var forwardedToRisk = decision.Direction != "HOLD" && decision.Confidence >= _minConfidenceToTrade;
+            if (!forwardedToRisk)
             {
                 Logger.LogInformation(
                     "[Coordinator] Decision: HOLD (Confidence={Conf} < {Min} or explicit HOLD)",
                     decision.Confidence, _minConfidenceToTrade);
+
+                await PublishAsync(new DecisionCycleCompletedEvent
+                {
+                    CycleId = cycleId,
+                    DecisionId = decision.DecisionId,
+                    Symbol = symbol,
+                    Direction = decision.Direction,
+                    Confidence = decision.Confidence,
+                    Executed = false,
+                    ExecutionMode = _executionMode,
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                });
                 return;
             }
 
-            // 发布交易决策
+            // Publish trading decision
             await PublishAsync(decision);
 
             Logger.LogInformation(
                 "[Coordinator] Decision published: {Direction} {Symbol}, Confidence={Conf}%",
                 decision.Direction, symbol, decision.Confidence);
+
+            await PublishAsync(new DecisionCycleCompletedEvent
+            {
+                CycleId = cycleId,
+                DecisionId = decision.DecisionId,
+                Symbol = symbol,
+                Direction = decision.Direction,
+                Confidence = decision.Confidence,
+                Executed = true,
+                ExecutionMode = _executionMode,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Coordinator] Decision failed for {Symbol}", symbol);
+            
+            await PublishAsync(new DecisionCycleCompletedEvent
+            {
+                CycleId = cycleId,
+                DecisionId = string.Empty,
+                Symbol = symbol,
+                Direction = "HOLD",
+                Confidence = 0,
+                Executed = false,
+                ExecutionMode = _executionMode,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
         }
     }
 
     private string BuildDecisionPrompt()
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine("请综合以下分析报告，做出交易决策：");
+        sb.AppendLine("Please synthesize the following analysis reports and make a trading decision:");
         sb.AppendLine();
 
-        // 情绪分析
+        // Sentiment analysis
         if (_coordState.LatestSentiment != null)
         {
             var s = _coordState.LatestSentiment;
-            sb.AppendLine("【市场情绪分析师报告】");
-            sb.AppendLine($"- 情绪评分: {s.SentimentScore} (-100~+100)");
-            sb.AppendLine($"- 情绪趋势: {s.SentimentTrend}");
-            sb.AppendLine($"- 恐慌贪婪指数: {s.FearGreedIndex}");
-            sb.AppendLine($"- 多空比: {s.LongShortRatio:F2}");
-            sb.AppendLine($"- 资金费率: {s.FundingRate:F4}%");
-            sb.AppendLine($"- 分析总结: {s.AnalysisSummary}");
-            sb.AppendLine($"- 置信度: {s.Confidence}%");
+            sb.AppendLine("【Market Sentiment Analyst Report】");
+            sb.AppendLine($"- Sentiment Score: {s.SentimentScore} (-100~+100)");
+            sb.AppendLine($"- Sentiment Trend: {s.SentimentTrend}");
+            sb.AppendLine($"- Fear & Greed Index: {s.FearGreedIndex}");
+            sb.AppendLine($"- Long/Short Ratio: {s.LongShortRatio:F2}");
+            sb.AppendLine($"- Funding Rate: {s.FundingRate:F4}%");
+            sb.AppendLine($"- Analysis Summary: {s.AnalysisSummary}");
+            sb.AppendLine($"- Confidence: {s.Confidence}%");
             sb.AppendLine();
         }
 
-        // 技术分析
+        // Technical analysis
         if (_coordState.LatestTechnical != null)
         {
             var t = _coordState.LatestTechnical;
-            sb.AppendLine("【技术分析师报告】");
-            sb.AppendLine($"- 趋势方向: {t.TrendDirection}");
-            sb.AppendLine($"- 趋势强度: {t.TrendStrength}/10");
-            sb.AppendLine($"- 交易信号: {t.Signal}");
+            sb.AppendLine("【Technical Analyst Report】");
+            sb.AppendLine($"- Trend Direction: {t.TrendDirection}");
+            sb.AppendLine($"- Trend Strength: {t.TrendStrength}/10");
+            sb.AppendLine($"- Trading Signal: {t.Signal}");
             sb.AppendLine($"- RSI: {t.Rsi:F2}");
             sb.AppendLine($"- MACD: {t.Macd:F4}");
-            sb.AppendLine($"- 支撑位: {t.SupportLevel:F2}");
-            sb.AppendLine($"- 阻力位: {t.ResistanceLevel:F2}");
+            sb.AppendLine($"- Support Level: {t.SupportLevel:F2}");
+            sb.AppendLine($"- Resistance Level: {t.ResistanceLevel:F2}");
             if (!string.IsNullOrEmpty(t.PatternDetected))
-                sb.AppendLine($"- 形态识别: {t.PatternDetected}");
-            sb.AppendLine($"- 分析总结: {t.AnalysisSummary}");
-            sb.AppendLine($"- 置信度: {t.Confidence}%");
+                sb.AppendLine($"- Pattern Detected: {t.PatternDetected}");
+            sb.AppendLine($"- Analysis Summary: {t.AnalysisSummary}");
+            sb.AppendLine($"- Confidence: {t.Confidence}%");
             sb.AppendLine();
         }
 
-        // 新闻分析
+        // News analysis
         if (_coordState.LatestNews != null)
         {
             var n = _coordState.LatestNews;
-            sb.AppendLine("【新闻分析师报告】");
-            sb.AppendLine($"- 新闻标题: {n.Headline}");
-            sb.AppendLine($"- 影响类型: {n.ImpactType}");
-            sb.AppendLine($"- 影响程度: {n.ImpactLevel}");
-            sb.AppendLine($"- 影响时效: {n.ImpactDuration}");
-            sb.AppendLine($"- 分析总结: {n.AnalysisSummary}");
-            sb.AppendLine($"- 置信度: {n.Confidence}%");
+            sb.AppendLine("【News Analyst Report】");
+            sb.AppendLine($"- Headline: {n.Headline}");
+            sb.AppendLine($"- Impact Type: {n.ImpactType}");
+            sb.AppendLine($"- Impact Level: {n.ImpactLevel}");
+            sb.AppendLine($"- Impact Duration: {n.ImpactDuration}");
+            sb.AppendLine($"- Analysis Summary: {n.AnalysisSummary}");
+            sb.AppendLine($"- Confidence: {n.Confidence}%");
             sb.AppendLine();
         }
 
-        sb.AppendLine("【决策权重配置】");
-        sb.AppendLine($"- 情绪分析权重: {_sentimentWeight * 100}%");
-        sb.AppendLine($"- 技术分析权重: {_technicalWeight * 100}%");
-        sb.AppendLine($"- 新闻分析权重: {_newsWeight * 100}%");
-        sb.AppendLine($"- 最小交易置信度: {_minConfidenceToTrade}%");
+        sb.AppendLine("【Decision Weight Configuration】");
+        sb.AppendLine($"- Sentiment Analysis Weight: {_sentimentWeight * 100}%");
+        sb.AppendLine($"- Technical Analysis Weight: {_technicalWeight * 100}%");
+        sb.AppendLine($"- News Analysis Weight: {_newsWeight * 100}%");
+        sb.AppendLine($"- Minimum Trading Confidence: {_minConfidenceToTrade}%");
+        sb.AppendLine();
+        sb.AppendLine("Return ONLY one JSON object. No markdown, no code fences, no extra text.");
+        sb.AppendLine("""
+Schema:
+{
+  "direction": "BUY|SELL|HOLD",
+  "confidence": 1-100,
+  "position_pct": 0-30,
+  "reasoning": {
+    "sentiment_factor": "...",
+    "technical_factor": "...",
+    "news_factor": "...",
+    "final_logic": "..."
+  }
+}
+""");
 
         return sb.ToString();
     }
@@ -333,13 +414,13 @@ public class TradingCoordinatorAgent : AIGAgentBase
             {
                 var parts = new List<string>();
                 if (reasoningObj.TryGetProperty("sentiment_factor", out var sf))
-                    parts.Add($"情绪面: {sf.GetString()}");
+                    parts.Add($"Sentiment: {sf.GetString()}");
                 if (reasoningObj.TryGetProperty("technical_factor", out var tf))
-                    parts.Add($"技术面: {tf.GetString()}");
+                    parts.Add($"Technical: {tf.GetString()}");
                 if (reasoningObj.TryGetProperty("news_factor", out var nf))
-                    parts.Add($"新闻面: {nf.GetString()}");
+                    parts.Add($"News: {nf.GetString()}");
                 if (reasoningObj.TryGetProperty("final_logic", out var fl))
-                    parts.Add($"决策逻辑: {fl.GetString()}");
+                    parts.Add($"Decision Logic: {fl.GetString()}");
                 reasoning = string.Join(" | ", parts);
             }
 

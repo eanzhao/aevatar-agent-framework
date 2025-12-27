@@ -1,45 +1,66 @@
+using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.Abstractions.Providers;
+using Aevatar.Agents.AI.MEAI.DependencyInjection;
 
 namespace Aevatar.Trade.Api.Extensions;
 
 /// <summary>
-/// Microsoft.Extensions.AI LLM Provider 扩展
+/// Microsoft.Extensions.AI LLM Provider extensions
 /// </summary>
 public static class MEAIExtensions
 {
     /// <summary>
-    /// 添加 MEAI LLM Provider
+    /// Add MEAI LLM Provider
     /// </summary>
     public static IServiceCollection AddMEAILLMProvider(
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // 注册 LLM Provider Factory
-        // 这里使用 MEAI (Microsoft.Extensions.AI)
-        // 需要根据实际项目中的 Provider 实现来配置
+        // ============================================================
+        //  LLM Providers Configuration
+        //
+        //  Preferred: LLMProviders section (shared across demos/services).
+        //  Compatible fallback: legacy LLM section in this trade API.
+        // ============================================================
 
-        // 从配置读取 LLM 设置
-        var llmSection = configuration.GetSection("LLM");
-        var provider = llmSection["Provider"] ?? "OpenAI";
-        var model = llmSection["Model"] ?? "gpt-4";
-        var apiKey = llmSection["ApiKey"] 
-            ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
-            ?? "";
-
-        Console.WriteLine($"🧠 LLM Provider: {provider}");
-        Console.WriteLine($"🤖 Model: {model}");
-        Console.WriteLine($"🔑 API Key: {(string.IsNullOrEmpty(apiKey) ? "❌ Not Set" : "✅ Configured")}");
-
-        // 注册 ILLMProviderFactory
-        // 实际实现需要根据 Aevatar.Agents.AI.MEAI 的具体 API
-        services.AddSingleton<ILLMProviderFactory>(sp =>
+        var llmProvidersSection = configuration.GetSection("LLMProviders");
+        if (llmProvidersSection.Exists())
         {
-            var logger = sp.GetRequiredService<ILogger<ILLMProviderFactory>>();
-            
-            // 使用项目中的 MEAI Provider Factory
-            // 这里是占位实现，需要根据实际代码调整
-            return sp.GetRequiredService<ILLMProviderFactory>();
-        });
+            services.Configure<LLMProvidersConfig>(llmProvidersSection);
+        }
+        else
+        {
+            // Fallback mapping from "LLM" (simple single-provider config)
+            services.Configure<LLMProvidersConfig>(cfg =>
+            {
+                var llm = configuration.GetSection("LLM");
+                var providerType = llm["Provider"] ?? "OpenAI";
+                var model = llm["Model"] ?? "gpt-4";
+                var apiKey = llm["ApiKey"]
+                             ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+                             ?? string.Empty;
+
+                var temperature = double.TryParse(llm["Temperature"], out var t) ? t : 0.3;
+                var maxTokens = int.TryParse(llm["MaxTokens"], out var m) ? m : 2000;
+
+                const string providerName = "trade-default";
+
+                cfg.Default = providerName;
+                cfg.Providers[providerName] = new LLMProviderConfig
+                {
+                    Name = providerName,
+                    ProviderType = providerType,
+                    ApiKey = apiKey,
+                    Model = model,
+                    Temperature = temperature,
+                    MaxTokens = maxTokens,
+                    // Leave endpoint/deployment empty by default; user can switch to LLMProviders for Azure/OpenAI overrides
+                };
+            });
+        }
+
+        // Register MEAI provider factory + embedding factory.
+        services.AddMEAI();
 
         return services;
     }

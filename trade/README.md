@@ -138,6 +138,7 @@ curl -X POST https://localhost:7100/api/trading/stop
 ## 文档
 
 - [📖 详细架构文档](./docs/ARCHITECTURE.md)
+- [🧠 Cognitive Mesh 集成计划](./docs/COGNITIVE_MESH_PLAN.md)
 
 ## 开发计划
 

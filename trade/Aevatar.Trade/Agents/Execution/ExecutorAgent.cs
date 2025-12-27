@@ -7,23 +7,42 @@ using Microsoft.Extensions.Logging;
 namespace Aevatar.Trade.Agents.Execution;
 
 /// <summary>
-/// 交易执行 Agent
-/// 职责：执行实际交易，管理订单生命周期
+/// Trade execution agent
+/// Responsibilities: Execute actual trades and manage order lifecycle
 /// </summary>
 public class ExecutorAgent : GAgentBase<ExecutorState>
 {
     // ============ Dependencies ============
 
     private IWeexApiClient? _apiClient;
+    
+    // ============ Execution Mode ============
+    //
+    // Design principles:
+    // - DryRun enabled by default: Run through the closed loop and observation first, then switch to Live
+    // - Live requires exchange API keys and real order placement
+    //
+    private TradeExecutionMode _executionMode = TradeExecutionMode.DryRun;
 
     public IWeexApiClient ApiClient
     {
         set => _apiClient = value;
     }
+    
+    /// <summary>
+    /// Configure execution mode (injected at system orchestration layer)
+    /// </summary>
+    public void Configure(TradeExecutionMode mode)
+    {
+        _executionMode = mode;
+        State.ExecutionMode = mode.ToString();
+        
+        Logger.LogInformation("[Executor] Configured: Mode={Mode}", mode);
+    }
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         
@@ -31,6 +50,8 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
         State.OrdersPlaced = 0;
         State.OrdersFilled = 0;
         State.OrdersFailed = 0;
+        State.OrdersSimulated = 0;
+        State.ExecutionMode = _executionMode.ToString();
         
         Logger.LogInformation("[Executor] Activated: {AgentId}", State.AgentId);
     }
@@ -38,21 +59,24 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     public override Task<string> GetDescriptionAsync()
     {
         return Task.FromResult(
-            $"Executor: Placed={State.OrdersPlaced}, " +
+            $"Executor: Mode={State.ExecutionMode}, " +
+            $"Placed={State.OrdersPlaced}, " +
             $"Filled={State.OrdersFilled}, " +
             $"Failed={State.OrdersFailed}, " +
+            $"Simulated={State.OrdersSimulated}, " +
             $"PnL=${State.TotalRealizedPnl:F2}");
     }
 
     // ============ Event Handlers ============
 
     /// <summary>
-    /// 处理批准的交易，执行下单
+    /// Handle approved trades and execute order placement
     /// </summary>
     [EventHandler]
     public async Task HandleApprovedTrade(ApprovedTradeEvent evt)
     {
-        if (_apiClient == null)
+        // Live mode depends on API Client; DryRun can run safely without API keys
+        if (_executionMode == TradeExecutionMode.Live && _apiClient == null)
         {
             Logger.LogError("[Executor] API client not configured");
             await PublishOrderFailed(evt, "API_NOT_CONFIGURED", "API client not configured");
@@ -67,7 +91,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     }
 
     /// <summary>
-    /// 处理熔断事件，取消所有挂单
+    /// Handle circuit breaker events and cancel all pending orders
     /// </summary>
     [EventHandler]
     public async Task HandleCircuitBreaker(CircuitBreakerTriggeredEvent evt)
@@ -84,10 +108,43 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     private async Task ExecuteTradeAsync(ApprovedTradeEvent trade)
     {
         var clientOrderId = GenerateClientOrderId(trade.DecisionId);
+        
+        // ------------------------------------------------------------
+        //  DryRun: Do not place real orders, only publish simulated events to ensure full-chain observability
+        // ------------------------------------------------------------
+        if (_executionMode == TradeExecutionMode.DryRun)
+        {
+            State.OrdersSimulated++;
+            State.LastExecution = Timestamp.FromDateTime(DateTime.UtcNow);
+            
+            var simulatedOrderId = $"SIM_{clientOrderId}";
+            
+            await PublishAsync(new OrderSimulatedEvent
+            {
+                SimulatedOrderId = simulatedOrderId,
+                ClientOrderId = clientOrderId,
+                DecisionId = trade.DecisionId,
+                Symbol = trade.Symbol,
+                Side = trade.Side,
+                OrderType = trade.OrderType,
+                Quantity = trade.Quantity,
+                Price = trade.OrderType == "limit" ? trade.Price : 0,
+                StopLoss = trade.StopLoss,
+                TakeProfit = trade.TakeProfit,
+                Reason = "DRY_RUN",
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            });
+            
+            Logger.LogInformation(
+                "[Executor] DRY_RUN simulated: {DecisionId}, {Side} {Symbol}, Qty={Qty}, ClientId={ClientId}",
+                trade.DecisionId, trade.Side, trade.Symbol, trade.Quantity, clientOrderId);
+            
+            return;
+        }
 
         try
         {
-            // 构建订单请求
+            // Build order request
             var request = new OrderRequest
             {
                 Symbol = trade.Symbol,
@@ -98,20 +155,21 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
                 ClientOrderId = clientOrderId
             };
 
-            // 执行下单
+            // Execute order placement
             var result = await _apiClient!.PlaceOrderAsync(request);
             State.OrdersPlaced++;
+            State.LastExecution = Timestamp.FromDateTime(DateTime.UtcNow);
 
             if (result.Success)
             {
-                // 记录活跃订单
+                // Record active orders
                 State.ActiveOrderIds.Add(result.OrderId ?? clientOrderId);
 
                 Logger.LogInformation(
                     "[Executor] Order placed: {OrderId}, ClientId={ClientId}",
                     result.OrderId, clientOrderId);
 
-                // 发布执行成功事件
+                // Publish execution success event
                 await PublishAsync(new OrderExecutedEvent
                 {
                     OrderId = result.OrderId ?? "",
@@ -125,7 +183,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
                     Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
                 });
 
-                // 如果有止损止盈，设置条件单
+                // If stop loss or take profit exists, set conditional orders
                 if (trade.StopLoss > 0 || trade.TakeProfit > 0)
                 {
                     await SetStopOrdersAsync(trade, result.OrderId ?? clientOrderId);
@@ -147,6 +205,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
         catch (Exception ex)
         {
             State.OrdersFailed++;
+            State.LastExecution = Timestamp.FromDateTime(DateTime.UtcNow);
             Logger.LogError(ex, "[Executor] Order execution exception");
             await PublishOrderFailed(trade, "EXCEPTION", ex.Message);
         }
@@ -154,7 +213,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
 
     private async Task SetStopOrdersAsync(ApprovedTradeEvent trade, string parentOrderId)
     {
-        // 设置止损单
+        // Set stop loss order
         if (trade.StopLoss > 0)
         {
             try
@@ -170,7 +229,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
                     ClientOrderId = $"SL_{parentOrderId}"
                 };
 
-                // 注意：实际交易所可能有专门的止损单 API
+                // Note: Real exchanges may have dedicated stop loss order APIs
                 Logger.LogDebug(
                     "[Executor] Stop loss set at {Price} for {OrderId}",
                     trade.StopLoss, parentOrderId);
@@ -181,7 +240,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
             }
         }
 
-        // 设置止盈单
+        // Set take profit order
         if (trade.TakeProfit > 0)
         {
             try
@@ -227,7 +286,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     // ============ Order Management ============
 
     /// <summary>
-    /// 取消指定订单
+    /// Cancel a specific order
     /// </summary>
     public async Task<bool> CancelOrderAsync(string symbol, string orderId)
     {
@@ -267,7 +326,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     }
 
     /// <summary>
-    /// 取消所有挂单
+    /// Cancel all pending orders
     /// </summary>
     public async Task CancelAllOrdersAsync()
     {
@@ -293,7 +352,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     }
 
     /// <summary>
-    /// 同步订单状态
+    /// Sync order status
     /// </summary>
     public async Task SyncOrderStatusAsync(string symbol)
     {
@@ -303,7 +362,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
         {
             var openOrders = await _apiClient.GetOpenOrdersAsync(symbol);
             
-            // 更新活跃订单列表
+            // Update active order list
             State.ActiveOrderIds.Clear();
             foreach (var order in openOrders)
             {
@@ -321,7 +380,7 @@ public class ExecutorAgent : GAgentBase<ExecutorState>
     }
 
     /// <summary>
-    /// 同步持仓信息
+    /// Sync position information
     /// </summary>
     public async Task SyncPositionsAsync()
     {

@@ -1,89 +1,91 @@
 using Aevatar.Agents.Abstractions.Attributes;
+using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Trade.Tools;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Trade.Agents.RiskControl;
 
 /// <summary>
-/// 风控经理 Agent
-/// 职责：评估交易风险，设定止损止盈，必要时否决交易
+/// Risk manager agent
+/// Responsibilities: Assess trading risks, set stop loss and take profit, reject trades when necessary
 /// </summary>
 public class RiskManagerAgent : AIGAgentBase
 {
     // ============ AI Configuration ============
 
     public override string SystemPrompt { get; set; } = """
-        你是风控经理，负责保护资金安全，是交易决策的最后一道防线。
+        You are a risk manager responsible for protecting capital safety, the last line of defense for trading decisions.
 
-        【风控规则 - 硬性约束】
+        【Risk Control Rules - Hard Constraints】
 
-        1. 单笔风险控制
-           - 单笔最大亏损: 不超过总资金的 2%
-           - 单笔最大仓位: 不超过总资金的 10%
+        1. Single Trade Risk Control
+           - Maximum loss per trade: Not exceeding 2% of total capital
+           - Maximum position per trade: Not exceeding 10% of total capital
 
-        2. 总体风险控制
-           - 总仓位上限: 不超过总资金的 30%
-           - 日最大亏损: 不超过总资金的 5%
-           - 连续亏损熔断: 连续 3 次亏损后暂停 1 小时
+        2. Overall Risk Control
+           - Total position limit: Not exceeding 30% of total capital
+           - Maximum daily loss: Not exceeding 5% of total capital
+           - Consecutive loss circuit breaker: Pause for 1 hour after 3 consecutive losses
 
-        3. 止损止盈设置
-           - 止损: 1-3% (根据 ATR 动态调整)
-           - 止盈: 止损的 1.5-3 倍 (风险回报比)
+        3. Stop Loss and Take Profit Settings
+           - Stop loss: 1-3% (dynamically adjusted based on ATR)
+           - Take profit: 1.5-3x stop loss (risk-reward ratio)
 
-        【风险评估维度】
+        【Risk Assessment Dimensions】
 
-        1. 市场风险
-           - 当前波动率 (ATR)
-           - 流动性状况
-           - 极端行情风险
+        1. Market Risk
+           - Current volatility (ATR)
+           - Liquidity conditions
+           - Extreme market condition risk
 
-        2. 仓位风险
-           - 当前持仓比例
-           - 未实现盈亏
-           - 风险敞口集中度
+        2. Position Risk
+           - Current position ratio
+           - Unrealized P&L
+           - Risk exposure concentration
 
-        3. 交易风险
-           - 入场时机
-           - 滑点风险
-           - 执行风险
+        3. Trading Risk
+           - Entry timing
+           - Slippage risk
+           - Execution risk
 
-        【输出格式】
-        请严格按以下 JSON 格式输出：
+        【Output Format】
+        Please strictly output in the following JSON format:
         {
             "approved": <true|false>,
             "risk_level": "<LOW|MEDIUM|HIGH|EXTREME>",
-            "adjusted_position_pct": <调整后仓位百分比>,
-            "stop_loss_pct": <止损百分比>,
-            "take_profit_pct": <止盈百分比>,
-            "violated_rules": ["违反的规则列表"],
-            "risk_notes": "<风险评估备注>",
-            "summary": "<一句话风控结论>"
+            "adjusted_position_pct": <adjusted position percentage>,
+            "stop_loss_pct": <stop loss percentage>,
+            "take_profit_pct": <take profit percentage>,
+            "violated_rules": ["list of violated rules"],
+            "risk_notes": "<risk assessment notes>",
+            "summary": "<one-sentence risk control conclusion>"
         }
 
-        【否决条件 - 任一触发即否决】
-        - 超过日亏损限额
-        - 连续亏损未冷却
-        - 仓位超限
-        - 极端市场条件
-        - 置信度过低
+        【Rejection Conditions - Any trigger results in rejection】
+        - Exceeding daily loss limit
+        - Consecutive losses without cooldown
+        - Position limit exceeded
+        - Extreme market conditions
+        - Confidence too low
         """;
 
     // ============ State ============
 
     private readonly RiskManagerState _riskState = new();
 
-    // 风控配置
-    private double _maxPositionPct = 10.0;      // 单笔最大仓位 10%
-    private double _maxTotalPositionPct = 30.0; // 总仓位上限 30%
-    private double _maxLossPerTrade = 2.0;      // 单笔最大亏损 2%
-    private double _maxDailyLossPct = 5.0;      // 日最大亏损 5%
-    private int _maxConsecutiveLosses = 3;      // 连续亏损熔断
-    private int _cooldownMinutes = 60;          // 熔断冷却时间
+    // Risk control configuration
+    private double _maxPositionPct = 10.0;      // Maximum position per trade 10%
+    private double _maxTotalPositionPct = 30.0; // Total position limit 30%
+    private double _maxLossPerTrade = 2.0;      // Maximum loss per trade 2%
+    private double _maxDailyLossPct = 5.0;      // Maximum daily loss 5%
+    private int _maxConsecutiveLosses = 3;      // Consecutive loss circuit breaker
+    private int _cooldownMinutes = 60;          // Circuit breaker cooldown time
 
     // ============ Lifecycle ============
 
-    public override async Task OnActivateAsync(CancellationToken ct = default)
+    protected override async Task OnActivateAsync(CancellationToken ct = default)
     {
         await base.OnActivateAsync(ct);
         
@@ -92,6 +94,20 @@ public class RiskManagerAgent : AIGAgentBase
         _riskState.CircuitBreakerStatus = "NORMAL";
         
         Logger.LogInformation("[RiskManager] Activated: {AgentId}", _riskState.AgentId);
+    }
+
+    protected override async Task RegisterToolsAsync(CancellationToken cancellationToken = default)
+    {
+        await base.RegisterToolsAsync(cancellationToken);
+
+        // Read-only tools: always safe to expose (IsDangerous=false in manifest)
+        await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexGetBalances, cancellationToken);
+        await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexGetOrder, cancellationToken);
+        await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexGetOpenOrders, cancellationToken);
+
+        // Trading tools (dangerous): only visible/executable when AllowDangerousTools=true
+        await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexPlaceOrder, cancellationToken);
+        await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexCancelOrder, cancellationToken);
     }
 
     public override Task<string> GetDescriptionAsync()
@@ -104,7 +120,7 @@ public class RiskManagerAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 配置风控参数
+    /// Configure risk control parameters
     /// </summary>
     public void Configure(
         double maxPositionPct = 10.0,
@@ -128,7 +144,7 @@ public class RiskManagerAgent : AIGAgentBase
     }
 
     /// <summary>
-    /// 更新账户信息
+    /// Update account information
     /// </summary>
     public void UpdateAccountInfo(
         double totalEquity,
@@ -148,7 +164,7 @@ public class RiskManagerAgent : AIGAgentBase
     // ============ Event Handlers ============
 
     /// <summary>
-    /// 处理交易决策，进行风险评估
+    /// Handle trading decisions and perform risk assessment
     /// </summary>
     [EventHandler]
     public async Task HandleTradingDecision(TradingDecisionEvent evt)
@@ -157,7 +173,7 @@ public class RiskManagerAgent : AIGAgentBase
             "[RiskManager] Evaluating decision: {DecisionId}, {Direction} {Symbol}",
             evt.DecisionId, evt.Direction, evt.Symbol);
 
-        // 先做硬性规则检查
+        // First perform hard rule checks
         var hardCheckResult = PerformHardRuleCheck(evt);
         if (!hardCheckResult.Passed)
         {
@@ -165,24 +181,24 @@ public class RiskManagerAgent : AIGAgentBase
             return;
         }
 
-        // AI 辅助风险评估
+        // AI-assisted risk assessment
         await EvaluateWithAIAsync(evt);
     }
 
     /// <summary>
-    /// 处理订单执行结果
+    /// Handle order execution results
     /// </summary>
     [EventHandler]
     public Task HandleOrderExecuted(OrderExecutedEvent evt)
     {
-        // 更新盈亏统计
-        // 这里简化处理，实际应该跟踪每笔交易的盈亏
+        // Update P&L statistics
+        // Simplified handling here, should actually track P&L for each trade
         Logger.LogDebug("[RiskManager] Order executed: {OrderId}", evt.OrderId);
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// 处理订单失败
+    /// Handle order failures
     /// </summary>
     [EventHandler]
     public Task HandleOrderFailed(OrderFailedEvent evt)
@@ -199,35 +215,35 @@ public class RiskManagerAgent : AIGAgentBase
     {
         var violations = new List<string>();
 
-        // 1. 检查熔断状态
+        // 1. Check circuit breaker status
         if (!_riskState.IsTradingAllowed)
         {
-            violations.Add($"交易已熔断，状态: {_riskState.CircuitBreakerStatus}");
+            violations.Add($"Trading circuit breaker active, status: {_riskState.CircuitBreakerStatus}");
         }
 
-        // 2. 检查日亏损限额
+        // 2. Check daily loss limit
         if (_riskState.DailyPnlPct <= -_maxDailyLossPct)
         {
-            violations.Add($"日亏损已达上限: {_riskState.DailyPnlPct:F2}% >= {_maxDailyLossPct}%");
+            violations.Add($"Daily loss limit reached: {_riskState.DailyPnlPct:F2}% >= {_maxDailyLossPct}%");
         }
 
-        // 3. 检查连续亏损
+        // 3. Check consecutive losses
         if (_riskState.ConsecutiveLosses >= _maxConsecutiveLosses)
         {
-            violations.Add($"连续亏损次数: {_riskState.ConsecutiveLosses} >= {_maxConsecutiveLosses}");
+            violations.Add($"Consecutive losses: {_riskState.ConsecutiveLosses} >= {_maxConsecutiveLosses}");
         }
 
-        // 4. 检查总仓位限制
+        // 4. Check total position limit
         var newPositionRatio = _riskState.PositionRatio + evt.SuggestedPositionPct;
         if (newPositionRatio > _maxTotalPositionPct)
         {
-            violations.Add($"总仓位将超限: {newPositionRatio:F1}% > {_maxTotalPositionPct}%");
+            violations.Add($"Total position will exceed limit: {newPositionRatio:F1}% > {_maxTotalPositionPct}%");
         }
 
-        // 5. 检查单笔仓位限制
+        // 5. Check single trade position limit
         if (evt.SuggestedPositionPct > _maxPositionPct)
         {
-            violations.Add($"单笔仓位超限: {evt.SuggestedPositionPct:F1}% > {_maxPositionPct}%");
+            violations.Add($"Single trade position exceeds limit: {evt.SuggestedPositionPct:F1}% > {_maxPositionPct}%");
         }
 
         return (violations.Count == 0, violations);
@@ -239,8 +255,8 @@ public class RiskManagerAgent : AIGAgentBase
 
         try
         {
-            var response = await CompleteAsync(prompt);
-            var evaluation = ParseEvaluationResponse(response);
+            var chat = await ChatAsync(ChatRequest.Create(prompt));
+            var evaluation = ParseEvaluationResponse(chat.Content ?? string.Empty);
 
             if (evaluation.Approved)
             {
@@ -254,42 +270,42 @@ public class RiskManagerAgent : AIGAgentBase
         catch (Exception ex)
         {
             Logger.LogError(ex, "[RiskManager] AI evaluation failed, rejecting trade");
-            await RejectTrade(evt, new List<string> { "风控AI评估失败" }, "HIGH");
+            await RejectTrade(evt, new List<string> { "Risk control AI evaluation failed" }, "HIGH");
         }
     }
 
     private string BuildEvaluationPrompt(TradingDecisionEvent evt)
     {
         return $"""
-            请评估以下交易决策的风险：
+            Please assess the risk of the following trading decision:
 
-            【交易决策】
-            - 决策ID: {evt.DecisionId}
-            - 交易对: {evt.Symbol}
-            - 方向: {evt.Direction}
-            - 建议仓位: {evt.SuggestedPositionPct}%
-            - 决策置信度: {evt.Confidence}%
-            - 决策理由: {evt.Reasoning}
+            【Trading Decision】
+            - Decision ID: {evt.DecisionId}
+            - Trading Pair: {evt.Symbol}
+            - Direction: {evt.Direction}
+            - Suggested Position: {evt.SuggestedPositionPct}%
+            - Decision Confidence: {evt.Confidence}%
+            - Decision Reasoning: {evt.Reasoning}
 
-            【当前账户状态】
-            - 总权益: ${_riskState.TotalEquity:F2}
-            - 可用余额: ${_riskState.AvailableBalance:F2}
-            - 当前仓位: {_riskState.PositionRatio:F1}%
-            - 今日盈亏: {_riskState.DailyPnlPct:F2}%
-            - 未实现盈亏: ${_riskState.UnrealizedPnl:F2}
-            - 连续亏损次数: {_riskState.ConsecutiveLosses}
-            - 连续盈利次数: {_riskState.ConsecutiveWins}
+            【Current Account Status】
+            - Total Equity: ${_riskState.TotalEquity:F2}
+            - Available Balance: ${_riskState.AvailableBalance:F2}
+            - Current Position: {_riskState.PositionRatio:F1}%
+            - Daily P&L: {_riskState.DailyPnlPct:F2}%
+            - Unrealized P&L: ${_riskState.UnrealizedPnl:F2}
+            - Consecutive Losses: {_riskState.ConsecutiveLosses}
+            - Consecutive Wins: {_riskState.ConsecutiveWins}
 
-            【风控配置】
-            - 单笔最大仓位: {_maxPositionPct}%
-            - 总仓位上限: {_maxTotalPositionPct}%
-            - 单笔最大亏损: {_maxLossPerTrade}%
-            - 日最大亏损: {_maxDailyLossPct}%
+            【Risk Control Configuration】
+            - Maximum Position Per Trade: {_maxPositionPct}%
+            - Total Position Limit: {_maxTotalPositionPct}%
+            - Maximum Loss Per Trade: {_maxLossPerTrade}%
+            - Maximum Daily Loss: {_maxDailyLossPct}%
 
-            【分析摘要】
-            - 情绪面: {evt.SentimentSummary}
-            - 技术面: {evt.TechnicalSummary}
-            - 新闻面: {evt.NewsSummary}
+            【Analysis Summary】
+            - Sentiment: {evt.SentimentSummary}
+            - Technical: {evt.TechnicalSummary}
+            - News: {evt.NewsSummary}
             """;
     }
 
@@ -333,7 +349,7 @@ public class RiskManagerAgent : AIGAgentBase
             {
                 Approved = false,
                 RiskLevel = "HIGH",
-                ViolatedRules = new List<string> { "风控响应解析失败" },
+                ViolatedRules = new List<string> { "Risk control response parsing failed" },
                 RiskNotes = response
             };
         }
@@ -344,7 +360,7 @@ public class RiskManagerAgent : AIGAgentBase
         _riskState.TradesApproved++;
         _riskState.LastUpdate = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        // 计算实际止损止盈价格
+        // Calculate actual stop loss and take profit prices
         var currentPrice = decision.SuggestedPrice > 0 ? decision.SuggestedPrice : 0;
         var stopLoss = decision.Direction == "BUY" 
             ? currentPrice * (1 - evaluation.StopLossPct / 100)
@@ -404,14 +420,14 @@ public class RiskManagerAgent : AIGAgentBase
 
     private double CalculateQuantity(string symbol, double positionPct)
     {
-        // 简化计算：根据仓位百分比和总权益计算数量
+        // Simplified calculation: Calculate quantity based on position percentage and total equity
         var positionValue = _riskState.TotalEquity * (positionPct / 100);
-        // 实际应该除以当前价格，这里返回 USDT 价值
+        // Should actually divide by current price, here returns USDT value
         return positionValue;
     }
 
     /// <summary>
-    /// 触发熔断
+    /// Trigger circuit breaker
     /// </summary>
     public async Task TriggerCircuitBreakerAsync(string reason)
     {
@@ -421,14 +437,14 @@ public class RiskManagerAgent : AIGAgentBase
         await PublishAsync(new CircuitBreakerTriggeredEvent
         {
             TriggerType = reason,
-            Description = $"风控熔断触发: {reason}",
+            Description = $"Risk control circuit breaker triggered: {reason}",
             CooldownMinutes = _cooldownMinutes,
             Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
         });
 
         Logger.LogWarning("[RiskManager] Circuit breaker triggered: {Reason}", reason);
 
-        // 设置冷却定时器
+        // Set cooldown timer
         _ = Task.Delay(TimeSpan.FromMinutes(_cooldownMinutes)).ContinueWith(_ =>
         {
             _riskState.IsTradingAllowed = true;

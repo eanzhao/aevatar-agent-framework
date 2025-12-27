@@ -10,7 +10,7 @@ using Aevatar.Agents.Runtime.Orleans.Subscription;
 namespace Aevatar.Trade.Api;
 
 /// <summary>
-/// Agent 运行时扩展
+/// Agent runtime extensions
 /// </summary>
 public static class AgentRuntimeExtensions
 {
@@ -61,7 +61,7 @@ public static class AgentRuntimeExtensions
                 sp.GetRequiredService<LocalMessageStreamRegistry>(),
                 sp.GetRequiredService<ILogger<LocalSubscriptionManager>>()));
 
-        Console.WriteLine("✅ 使用 Local 运行时 (单机内存模式)");
+        Console.WriteLine("✅ Using Local runtime (single-machine in-memory mode)");
     }
 
     private static void ConfigureOrleansRuntime(IServiceCollection services)
@@ -77,6 +77,6 @@ public static class AgentRuntimeExtensions
                 sp.GetRequiredService<ILogger<OrleansSubscriptionManager>>());
         });
 
-        Console.WriteLine("✅ 使用 Orleans 运行时 (分布式模式)");
+        Console.WriteLine("✅ Using Orleans runtime (distributed mode)");
     }
 }

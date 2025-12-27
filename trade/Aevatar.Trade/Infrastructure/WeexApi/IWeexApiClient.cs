@@ -1,24 +1,24 @@
 namespace Aevatar.Trade.Infrastructure.WeexApi;
 
 /// <summary>
-/// WEEX API 客户端接口
-/// 基于官方文档: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
+/// WEEX API client interface
+/// Based on official documentation: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
 /// </summary>
 public interface IWeexApiClient
 {
     // ============ Market Data ============
     
     /// <summary>
-    /// 获取单个交易对行情
+    /// Get ticker for a single trading pair
     /// </summary>
     Task<TickerResponse> GetTickerAsync(string symbol, CancellationToken ct = default);
     
     /// <summary>
-    /// 获取K线数据
+    /// Get kline data
     /// </summary>
-    /// <param name="symbol">交易对 (e.g., "BTCUSDT_SPBL")</param>
-    /// <param name="interval">时间周期 (1m, 5m, 15m, 1h, 4h, 1d)</param>
-    /// <param name="limit">数量限制</param>
+    /// <param name="symbol">Trading pair (e.g., "BTCUSDT_SPBL")</param>
+    /// <param name="interval">Time interval (1m, 5m, 15m, 1h, 4h, 1d)</param>
+    /// <param name="limit">Quantity limit</param>
     Task<IReadOnlyList<KlineData>> GetKlinesAsync(
         string symbol, 
         string interval, 
@@ -28,26 +28,26 @@ public interface IWeexApiClient
     // ============ Account ============
     
     /// <summary>
-    /// 获取账户余额
+    /// Get account balance
     /// GET /api/v2/account/balance
     /// </summary>
     Task<IReadOnlyList<BalanceInfo>> GetBalancesAsync(CancellationToken ct = default);
     
     /// <summary>
-    /// 获取指定币种余额
+    /// Get balance for a specific currency
     /// </summary>
     Task<BalanceInfo?> GetBalanceAsync(string currency, CancellationToken ct = default);
     
     // ============ Trading ============
     
     /// <summary>
-    /// 下单
+    /// Place order
     /// POST /api/v2/trade/orders
     /// </summary>
     Task<OrderResult> PlaceOrderAsync(OrderRequest request, CancellationToken ct = default);
     
     /// <summary>
-    /// 取消订单
+    /// Cancel order
     /// POST /api/v2/trade/cancel-order
     /// </summary>
     Task<CancelOrderResult> CancelOrderAsync(
@@ -57,7 +57,7 @@ public interface IWeexApiClient
         CancellationToken ct = default);
     
     /// <summary>
-    /// 获取订单详情
+    /// Get order details
     /// </summary>
     Task<OrderInfo?> GetOrderAsync(
         string symbol, 
@@ -66,7 +66,7 @@ public interface IWeexApiClient
         CancellationToken ct = default);
     
     /// <summary>
-    /// 获取当前挂单
+    /// Get current pending orders
     /// </summary>
     Task<IReadOnlyList<OrderInfo>> GetOpenOrdersAsync(
         string? symbol = null, 
@@ -76,34 +76,34 @@ public interface IWeexApiClient
 // ============ Request/Response Models ============
 
 /// <summary>
-/// 下单请求
+/// Order request
 /// </summary>
 public record OrderRequest
 {
-    /// <summary>交易对 (e.g., "BTCUSDT_SPBL")</summary>
+    /// <summary>Trading pair (e.g., "BTCUSDT_SPBL")</summary>
     public required string Symbol { get; init; }
     
-    /// <summary>方向: buy, sell</summary>
+    /// <summary>Direction: buy, sell</summary>
     public required string Side { get; init; }
     
-    /// <summary>订单类型: limit, market</summary>
+    /// <summary>Order type: limit, market</summary>
     public required string OrderType { get; init; }
     
-    /// <summary>执行策略: normal, postOnly, fok, ioc</summary>
+    /// <summary>Execution strategy: normal, postOnly, fok, ioc</summary>
     public string Force { get; init; } = "normal";
     
-    /// <summary>数量</summary>
+    /// <summary>Quantity</summary>
     public required string Quantity { get; init; }
     
-    /// <summary>价格 (限价单必填)</summary>
+    /// <summary>Price (required for limit orders)</summary>
     public string? Price { get; init; }
     
-    /// <summary>客户端订单ID</summary>
+    /// <summary>Client order ID</summary>
     public string? ClientOrderId { get; init; }
 }
 
 /// <summary>
-/// 下单结果
+/// Order result
 /// </summary>
 public record OrderResult
 {
@@ -115,7 +115,7 @@ public record OrderResult
 }
 
 /// <summary>
-/// 取消订单结果
+/// Cancel order result
 /// </summary>
 public record CancelOrderResult
 {
@@ -127,7 +127,7 @@ public record CancelOrderResult
 }
 
 /// <summary>
-/// 订单信息
+/// Order information
 /// </summary>
 public record OrderInfo
 {
@@ -147,7 +147,7 @@ public record OrderInfo
 }
 
 /// <summary>
-/// 余额信息
+/// Balance information
 /// </summary>
 public record BalanceInfo
 {
@@ -158,7 +158,7 @@ public record BalanceInfo
 }
 
 /// <summary>
-/// 行情数据
+/// Ticker data
 /// </summary>
 public record TickerResponse
 {
@@ -174,7 +174,7 @@ public record TickerResponse
 }
 
 /// <summary>
-/// K线数据
+/// Kline data
 /// </summary>
 public record KlineData
 {

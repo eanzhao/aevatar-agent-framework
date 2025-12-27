@@ -1,16 +1,16 @@
 namespace Aevatar.Trade.Api.Extensions;
 
 /// <summary>
-/// Aspire ServiceDefaults 扩展
+/// Aspire ServiceDefaults extensions
 /// </summary>
 public static class ServiceDefaultsExtensions
 {
     /// <summary>
-    /// 添加 Aspire 默认服务配置
+    /// Add Aspire default service configuration
     /// </summary>
     public static IHostApplicationBuilder AddServiceDefaults(this IHostApplicationBuilder builder)
     {
-        // OTLP 端点配置
+        // OTLP endpoint configuration
         var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
             ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
 
@@ -22,14 +22,14 @@ public static class ServiceDefaultsExtensions
             });
         }
 
-        // 健康检查
+        // Health checks
         builder.Services.AddHealthChecks();
 
         return builder;
     }
 
     /// <summary>
-    /// 映射默认端点
+    /// Map default endpoints
     /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
