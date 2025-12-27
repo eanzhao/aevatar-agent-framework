@@ -44,4 +44,20 @@ public class ToolExecutionContext
     /// Additional context data
     /// </summary>
     public Dictionary<string, object> Metadata { get; set; } = new();
+
+    // ============================================================
+    //  Safety policy (best-effort, caller-controlled)
+    // ============================================================
+
+    /// <summary>
+    /// Whether tools marked <c>RequiresInternalAccess</c> are allowed to execute.
+    /// Default: false (caller must opt-in explicitly).
+    /// </summary>
+    public bool AllowInternalTools { get; set; }
+
+    /// <summary>
+    /// Whether tools marked <c>IsDangerous</c> or <c>RequiresConfirmation</c> are allowed to execute.
+    /// Default: false (caller must opt-in explicitly).
+    /// </summary>
+    public bool AllowDangerousTools { get; set; }
 }

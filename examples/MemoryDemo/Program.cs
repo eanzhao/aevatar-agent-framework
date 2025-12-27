@@ -6,9 +6,16 @@ using Aevatar.Agents.AI.Abstractions.Configuration;
 using Aevatar.Agents.AI.MEAI.DependencyInjection;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Core.CQRS;
+using Aevatar.Agents.Core.Extensions;
+using Aevatar.Agents.Abstractions.Memory;
+using Aevatar.Agents.Abstractions.Tracing;
+using Aevatar.Agents.Core.Memory;
+using Aevatar.Agents.Core.MemoryGraphs;
+using Aevatar.Agents.Core.Tracing;
 using Aevatar.Agents.Persistence.MongoDB;
 using Aevatar.Agents.Persistence.Supabase.DependencyInjection;
 using Aevatar.Agents.Runtime.Local;
+using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Options;
 
 // ============================================================
@@ -33,8 +40,8 @@ builder.Services.Configure<LLMProvidersConfig>(builder.Configuration.GetSection(
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
-// Aevatar runtime + LLM provider factory
-builder.Services.AddAevatarLocalRuntime();
+// Aevatar core + Local runtime (includes: default MemoryStore/VectorIndex/TraceStore/GraphStore registrations)
+builder.Services.AddAevatarAgentSystem(b => b.UseLocalRuntime());
 builder.Services.AddMEAI();
 
 // ============================================================
@@ -63,6 +70,7 @@ app.MapGet("/api/info", async (
     CancellationToken ct) =>
 {
     var status = await runtime.GetStatusAsync(ct);
+    var paths = MemoryDemoPaths.Get();
     return Results.Json(new
     {
         agentId = status.AgentId,
@@ -74,7 +82,15 @@ app.MapGet("/api/info", async (
             enableHistory = status.EnableChatHistoryInState,
             enableCompaction = status.EnableChatHistoryCompaction,
             chatHistoryMaxMessages = status.ChatHistoryMaxMessages,
-            chatHistorySummaryMaxChars = status.ChatHistorySummaryMaxChars
+            chatHistorySummaryMaxChars = status.ChatHistorySummaryMaxChars,
+            enableMemoryStoreAppend = status.EnableMemoryStoreAppend,
+            enableMemoryVectorIndexAppend = status.EnableMemoryVectorIndexAppend
+        },
+        paths = new
+        {
+            traceRoot = paths.TraceRoot,
+            memoryRoot = paths.MemoryRoot,
+            vectorRoot = paths.VectorRoot
         }
     });
 });
@@ -123,6 +139,12 @@ app.MapPost("/api/chat", async (
         {
             historyCount = state.History?.Count ?? 0,
             summary = summary ?? ""
+        },
+        longTerm = new
+        {
+            enableMemoryStoreAppend = agent.EnableMemoryStoreAppend,
+            enableMemoryVectorIndexAppend = agent.EnableMemoryVectorIndexAppend,
+            defaultMemoryId = MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
         }
     });
 });
@@ -196,6 +218,7 @@ app.MapPost("/api/search_memory", async (
         query: input.Query.Trim(),
         maxResults: input.MaxResults ?? 10,
         memoryType: input.MemoryType ?? "all",
+        memoryId: input.MemoryId,
         ct: ct);
 
     if (!result.IsSuccess)
@@ -211,6 +234,254 @@ app.MapPost("/api/search_memory", async (
 
     // ToolExecutionResult.Content is already JSON (protobuf Struct formatted).
     return Results.Text(result.Content ?? "{}", "application/json");
+});
+
+app.MapPost("/api/settings", async (
+    UpdateSettingsInDto input,
+    MemoryDemoRuntime runtime,
+    CancellationToken ct) =>
+{
+    var (agent, _) = await runtime.GetAgentAsync(ct);
+
+    if (input.EnableMemoryStoreAppend.HasValue)
+        agent.EnableMemoryStoreAppend = input.EnableMemoryStoreAppend.Value;
+
+    if (input.EnableMemoryVectorIndexAppend.HasValue)
+        agent.EnableMemoryVectorIndexAppend = input.EnableMemoryVectorIndexAppend.Value;
+
+    return Results.Json(new
+    {
+        ok = true,
+        enableMemoryStoreAppend = agent.EnableMemoryStoreAppend,
+        enableMemoryVectorIndexAppend = agent.EnableMemoryVectorIndexAppend,
+        defaultMemoryId = MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
+    });
+});
+
+app.MapGet("/api/memory/resources", async (
+    IMemoryStore store,
+    CancellationToken ct) =>
+{
+    var list = await store.ListResourcesAsync(limit: 100, ct: ct);
+    return Results.Json(new { count = list.Count, resources = list });
+});
+
+app.MapGet("/api/memory/entries", async (
+    string memoryId,
+    int? limit,
+    IMemoryStore store,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(memoryId))
+        return Results.BadRequest(new { error = "memoryId is required" });
+
+    var take = limit is null ? 50 : Math.Clamp(limit.Value, 1, 200);
+    var entries = await store.ListEntriesAsync(memoryId.Trim(), take, ct);
+    return Results.Json(new { memoryId = memoryId.Trim(), count = entries.Count, entries });
+});
+
+app.MapGet("/api/memory/stats", (string memoryId) =>
+{
+    if (string.IsNullOrWhiteSpace(memoryId))
+        return Results.BadRequest(new { error = "memoryId is required" });
+
+    var paths = MemoryDemoPaths.Get();
+    var dir = FileMemoryStore.GetBundleDirectory(paths.MemoryRoot, memoryId.Trim());
+    var entriesPath = Path.Combine(dir, FileMemoryStore.EntriesBinaryFileName);
+    var manifestPath = Path.Combine(dir, FileMemoryStore.ManifestFileName);
+    return Results.Json(new
+    {
+        memoryId = memoryId.Trim(),
+        memoryRoot = paths.MemoryRoot,
+        bundleDir = dir,
+        entries = new { path = entriesPath, exists = File.Exists(entriesPath), bytes = File.Exists(entriesPath) ? new FileInfo(entriesPath).Length : 0 },
+        manifest = new { path = manifestPath, exists = File.Exists(manifestPath), bytes = File.Exists(manifestPath) ? new FileInfo(manifestPath).Length : 0 }
+    });
+});
+
+app.MapPost("/api/vector/search", async (
+    VectorSearchInDto input,
+    MemoryDemoRuntime runtime,
+    IMemoryVectorIndex index,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(input.Query))
+        return Results.BadRequest(new { error = "query is required" });
+
+    var (agent, _) = await runtime.GetAgentAsync(ct);
+    var memoryId = string.IsNullOrWhiteSpace(input.MemoryId)
+        ? MemoryDemoPaths.BuildDefaultAgentMemoryId(agent.Id)
+        : input.MemoryId.Trim();
+
+    var embedding = await agent.TryGenerateEmbeddingVectorAsync(input.Query.Trim(), ct);
+    if (embedding == null || embedding.Count == 0)
+    {
+        return Results.BadRequest(new
+        {
+            error = "embedding generator not available (configure provider embeddings) or embedding failed",
+            hint = "Check appsettings.secrets.json -> LLMProviders:Providers:<name>:Embeddings:Enabled",
+            memoryId
+        });
+    }
+
+    var matches = await index.SearchAsync(
+        queryEmbedding: embedding.ToArray(),
+        limit: input.Limit ?? 10,
+        memoryId: memoryId,
+        ct: ct);
+
+    return Results.Json(new
+    {
+        ok = true,
+        memoryId,
+        count = matches.Count,
+        matches = matches.Select(m => new
+        {
+            similarity = m.Similarity,
+            record = new
+            {
+                entryId = m.Record.EntryId,
+                memoryId = m.Record.MemoryId,
+                role = m.Record.Role,
+                content = m.Record.Content,
+                scopeType = m.Record.Scope?.Type.ToString(),
+                scopeId = m.Record.Scope?.ScopeId,
+                createdAt = m.Record.CreatedAt?.ToDateTime().ToString("O")
+            }
+        })
+    });
+});
+
+app.MapGet("/api/vector/stats", (string memoryId) =>
+{
+    if (string.IsNullOrWhiteSpace(memoryId))
+        return Results.BadRequest(new { error = "memoryId is required" });
+
+    var paths = MemoryDemoPaths.Get();
+    var dir = FileMemoryStore.GetBundleDirectory(paths.VectorRoot, memoryId.Trim());
+    var vectorsPath = Path.Combine(dir, FileMemoryVectorIndex.VectorsBinaryFileName);
+    return Results.Json(new
+    {
+        memoryId = memoryId.Trim(),
+        vectorRoot = paths.VectorRoot,
+        bundleDir = dir,
+        vectors = new { path = vectorsPath, exists = File.Exists(vectorsPath), bytes = File.Exists(vectorsPath) ? new FileInfo(vectorsPath).Length : 0 }
+    });
+});
+
+app.MapPost("/api/trace/seed", async (
+    TraceSeedInDto input,
+    IExecutionTraceStore traceStore,
+    CancellationToken ct) =>
+{
+    var executionId = string.IsNullOrWhiteSpace(input.ExecutionId)
+        ? $"memorydemo-{Guid.NewGuid():N}"
+        : input.ExecutionId.Trim();
+
+    var started = DateTime.UtcNow;
+    var trace = new ExecutionTrace
+    {
+        ExecutionId = executionId,
+        Kind = ExecutionTraceKind.Custom,
+        Status = ExecutionTraceStatus.Succeeded,
+        Name = "MemoryDemo Trace",
+        Description = "Seeded execution trace for MemoryGraph + execution-scoped memory search.",
+        StartedAt = Timestamp.FromDateTime(started),
+        EndedAt = Timestamp.FromDateTime(started.AddSeconds(2)),
+        Root = new ExecutionTraceNode
+        {
+            NodeId = "root",
+            Name = "root",
+            Type = "workflow",
+            Status = ExecutionTraceStatus.Succeeded,
+            StartedAt = Timestamp.FromDateTime(started),
+            EndedAt = Timestamp.FromDateTime(started.AddSeconds(2)),
+            Output = $"trace-seed-keyword: aevatar-trace-graph · ts={DateTime.UtcNow:O}",
+            Decisions =
+            {
+                new ExecutionTraceDecisionSession
+                {
+                    DecisionId = "d1",
+                    Type = "select",
+                    Rounds = 1,
+                    WinnerCandidateId = "c1",
+                    Candidates =
+                    {
+                        new ExecutionTraceCandidate { CandidateId = "c1", Content = "option A: use vector + graph", Score = 0.9, Votes = 3 },
+                        new ExecutionTraceCandidate { CandidateId = "c2", Content = "option B: use lexical only", Score = 0.1, Votes = 0 }
+                    }
+                }
+            },
+            Alerts =
+            {
+                new ExecutionTraceAlert
+                {
+                    AlertId = "a1",
+                    Type = "demo",
+                    Message = "This is a demo alert generated by MemoryDemo.",
+                    Recovered = true,
+                    Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+                }
+            }
+        }
+    };
+
+    trace.Events.Add(new ExecutionTraceEvent
+    {
+        Timestamp = Timestamp.FromDateTime(DateTime.UtcNow),
+        Phase = "seed",
+        Message = "Seeded trace created",
+        NodeId = "root"
+    });
+
+    await traceStore.SaveAsync(trace, ct);
+
+    return Results.Json(new
+    {
+        ok = true,
+        executionId,
+        memoryId = $"execution::{executionId}"
+    });
+});
+
+app.MapGet("/api/trace/list", async (
+    int? limit,
+    IExecutionTraceStore traceStore,
+    CancellationToken ct) =>
+{
+    var take = limit is null ? 50 : Math.Clamp(limit.Value, 1, 200);
+    var list = await traceStore.ListAsync(take, ct);
+    return Results.Json(new { count = list.Count, traces = list });
+});
+
+app.MapGet("/api/trace/{executionId}", async (
+    string executionId,
+    IExecutionTraceStore traceStore,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(executionId))
+        return Results.BadRequest(new { error = "executionId is required" });
+
+    var trace = await traceStore.LoadAsync(executionId.Trim(), ct);
+    if (trace == null)
+        return Results.NotFound(new { error = "trace not found" });
+
+    return Results.Text(trace.ToJsonString(), "application/json");
+});
+
+app.MapGet("/api/graph/{executionId}", async (
+    string executionId,
+    IMemoryGraphStore graphStore,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(executionId))
+        return Results.BadRequest(new { error = "executionId is required" });
+
+    var graph = await graphStore.LoadAsync(executionId.Trim(), ct);
+    if (graph == null)
+        return Results.NotFound(new { error = "graph not found" });
+
+    return Results.Text(Google.Protobuf.JsonFormatter.Default.Format(graph), "application/json");
 });
 
 app.MapPost("/api/reset", async (MemoryDemoRuntime runtime, CancellationToken ct) =>
@@ -235,9 +506,27 @@ public sealed record SearchMemoryInDto(string Query)
 {
     public int? MaxResults { get; init; }
     public string? MemoryType { get; init; }
+    public string? MemoryId { get; init; }
 }
 
 public sealed record SeedInDto(string Text);
+
+public sealed record UpdateSettingsInDto
+{
+    public bool? EnableMemoryStoreAppend { get; init; }
+    public bool? EnableMemoryVectorIndexAppend { get; init; }
+}
+
+public sealed record VectorSearchInDto(string Query)
+{
+    public string? MemoryId { get; init; }
+    public int? Limit { get; init; }
+}
+
+public sealed record TraceSeedInDto
+{
+    public string? ExecutionId { get; init; }
+}
 
 public sealed class MemoryDemoStatus
 {
@@ -248,7 +537,27 @@ public sealed class MemoryDemoStatus
     public bool EnableChatHistoryCompaction { get; init; }
     public int ChatHistoryMaxMessages { get; init; }
     public int ChatHistorySummaryMaxChars { get; init; }
+    public bool EnableMemoryStoreAppend { get; init; }
+    public bool EnableMemoryVectorIndexAppend { get; init; }
 }
+
+internal static class MemoryDemoPaths
+{
+    public static MemoryDemoPathInfo Get()
+    {
+        // NOTE: demo reads default roots from the same helpers as core stores (env-var aware).
+        var traceRoot = FileExecutionTraceStore.GetTraceRootFromEnvironmentOrDefault();
+        var memoryRoot = FileMemoryStore.GetMemoryRootFromEnvironmentOrDefault();
+        var vectorRoot = FileMemoryVectorIndex.GetVectorRootFromEnvironmentOrDefault();
+
+        return new MemoryDemoPathInfo(traceRoot, memoryRoot, vectorRoot);
+    }
+
+    public static string BuildDefaultAgentMemoryId(string agentId)
+        => $"privateagent::{agentId}";
+}
+
+internal sealed record MemoryDemoPathInfo(string TraceRoot, string MemoryRoot, string VectorRoot);
 
 public sealed class MemoryDemoRuntime
 {
@@ -294,7 +603,9 @@ public sealed class MemoryDemoRuntime
             EnableChatHistoryInState = _agent?.EnableChatHistoryInState ?? false,
             EnableChatHistoryCompaction = _agent?.EnableChatHistoryCompaction ?? false,
             ChatHistoryMaxMessages = _agent?.ChatHistoryMaxMessages ?? 0,
-            ChatHistorySummaryMaxChars = _agent?.ChatHistorySummaryMaxChars ?? 0
+            ChatHistorySummaryMaxChars = _agent?.ChatHistorySummaryMaxChars ?? 0,
+            EnableMemoryStoreAppend = _agent?.EnableMemoryStoreAppend ?? false,
+            EnableMemoryVectorIndexAppend = _agent?.EnableMemoryVectorIndexAppend ?? false
         };
     }
 

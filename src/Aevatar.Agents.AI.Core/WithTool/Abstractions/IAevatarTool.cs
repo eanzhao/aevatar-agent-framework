@@ -142,6 +142,7 @@ public abstract class AevatarToolBase : IAevatarTool
             IncludeCoreTools = baseContext.IncludeCoreTools,
             Categories = baseContext.Categories,
             GetStateCallback = baseContext.GetStateCallback,
+            GenerateEmbeddingsAsync = baseContext.GenerateEmbeddingsAsync,
             PublishEventCallback = baseContext.PublishEventCallback,
             PublishEventWithDirectionCallback = baseContext.PublishEventWithDirectionCallback,
             GetSessionIdCallback = baseContext.GetSessionIdCallback,

@@ -81,6 +81,20 @@ public class AevatarToolManager : IAevatarToolManager
             return result;
         }
 
+        if (!IsExecutionAllowed(tool, context, out var denyReason))
+        {
+            _logger.LogWarning("Tool '{ToolName}' execution denied: {Reason}", toolName, denyReason);
+
+            var result = BuildFailureResult(
+                toolCallId,
+                toolName,
+                errorMessage: denyReason,
+                stopwatch);
+
+            await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
+            return result;
+        }
+
         if (!tool.IsEnabled)
         {
             _logger.LogWarning("Tool '{ToolName}' is disabled", toolName);
@@ -149,6 +163,35 @@ public class AevatarToolManager : IAevatarToolManager
             await TryPublishToolExecutedEventAsync(toolName, parameters, result, context, cancellationToken);
             return result;
         }
+    }
+
+    private static bool IsExecutionAllowed(ToolDefinition tool, ToolExecutionContext? context, out string reason)
+    {
+        // ============================================================
+        //  Safety policy
+        //
+        //  Design:
+        //  - Keep it explicit: caller must opt-in via ToolExecutionContext flags.
+        //  - Defense in depth: AIGAgentBase also filters exposure + execution.
+        // ============================================================
+        var allowInternal = context?.AllowInternalTools ?? false;
+        var allowDangerous = context?.AllowDangerousTools ?? false;
+
+        if (tool.RequiresInternalAccess && !allowInternal)
+        {
+            reason = "Tool requires internal access and execution is disabled by policy (AllowInternalTools=false).";
+            return false;
+        }
+
+        if ((tool.IsDangerous || tool.RequiresConfirmation) && !allowDangerous)
+        {
+            reason =
+                "Tool is dangerous or requires confirmation and execution is disabled by policy (AllowDangerousTools=false).";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
     }
 
     private static ToolExecutionResult BuildFailureResult(

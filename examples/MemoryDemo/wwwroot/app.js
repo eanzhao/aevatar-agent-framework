@@ -43,6 +43,26 @@ async function refreshInfo() {
     } else {
       setBadge(false, `not ready · ${info.lastError || "initializing..."}`);
     }
+
+    // Settings + paths panel
+    try {
+      el("enableStoreChk").checked = !!info.settings?.enableMemoryStoreAppend;
+      el("enableVectorChk").checked = !!info.settings?.enableMemoryVectorIndexAppend;
+      el("pathsBox").textContent = pretty({
+        agentId: info.agentId,
+        defaultMemoryId: `privateagent::${info.agentId}`,
+        ...info.paths,
+        settings: info.settings,
+      });
+
+      // Fill default memoryId inputs
+      el("searchMemoryId").value ||= "";
+      el("memEntriesId").value ||= `privateagent::${info.agentId}`;
+      el("vectorMemoryId").value ||= `privateagent::${info.agentId}`;
+    } catch {
+      // ignore
+    }
+
     return info;
   } catch (e) {
     setBadge(false, `error · ${e.message}`);
@@ -75,10 +95,13 @@ async function searchMemory() {
   const query = el("searchInput").value.trim();
   if (!query) return;
 
+  const memoryType = el("searchTypeSel")?.value || "all";
+  const memoryId = (el("searchMemoryId")?.value || "").trim();
+
   const res = await fetch("/api/search_memory", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, maxResults: 10, memoryType: "all" }),
+    body: JSON.stringify({ query, maxResults: 10, memoryType, memoryId: memoryId || null }),
   });
 
   const text = await res.text();
@@ -92,6 +115,91 @@ async function searchMemory() {
   } catch {
     el("searchBox").textContent = text;
   }
+}
+
+async function applySettings() {
+  const enableMemoryStoreAppend = !!el("enableStoreChk").checked;
+  const enableMemoryVectorIndexAppend = !!el("enableVectorChk").checked;
+
+  const out = await fetchJson("/api/settings", {
+    method: "POST",
+    body: JSON.stringify({ enableMemoryStoreAppend, enableMemoryVectorIndexAppend }),
+  });
+
+  appendMsg("meta", `settings updated: store=${out.enableMemoryStoreAppend} vector=${out.enableMemoryVectorIndexAppend}`);
+  await refreshInfo();
+}
+
+async function refreshMemoryResources() {
+  const data = await fetchJson("/api/memory/resources");
+  el("memBox").textContent = pretty(data);
+}
+
+async function loadMemoryEntries() {
+  const memoryId = el("memEntriesId").value.trim();
+  if (!memoryId) return;
+  const data = await fetchJson(`/api/memory/entries?memoryId=${encodeURIComponent(memoryId)}&limit=80`);
+  el("memBox").textContent = pretty(data);
+}
+
+async function memoryStats() {
+  const memoryId = el("memEntriesId").value.trim();
+  if (!memoryId) return;
+  const data = await fetchJson(`/api/memory/stats?memoryId=${encodeURIComponent(memoryId)}`);
+  el("memBox").textContent = pretty(data);
+}
+
+async function vectorSearch() {
+  const query = el("vectorQuery").value.trim();
+  const memoryId = el("vectorMemoryId").value.trim();
+  if (!query) return;
+
+  const data = await fetchJson("/api/vector/search", {
+    method: "POST",
+    body: JSON.stringify({ query, memoryId: memoryId || null, limit: 10 }),
+  });
+  el("vectorBox").textContent = pretty(data);
+}
+
+async function vectorStats() {
+  const memoryId = el("vectorMemoryId").value.trim();
+  if (!memoryId) return;
+  const data = await fetchJson(`/api/vector/stats?memoryId=${encodeURIComponent(memoryId)}`);
+  el("vectorBox").textContent = pretty(data);
+}
+
+async function seedTrace() {
+  try {
+    const out = await fetchJson("/api/trace/seed", { method: "POST", body: "{}" });
+    appendMsg("meta", `seeded trace: ${out.executionId}\nexecution memoryId: ${out.memoryId}`);
+    el("traceId").value = out.executionId;
+    el("graphId").value = out.executionId;
+    el("searchMemoryId").value = out.memoryId;
+    await refreshTraceList();
+  } catch (e) {
+    appendMsg("meta", `seed trace error: ${e.message}`);
+  }
+}
+
+async function refreshTraceList() {
+  const data = await fetchJson("/api/trace/list?limit=50");
+  el("traceBox").textContent = pretty(data);
+}
+
+async function loadTrace() {
+  const id = el("traceId").value.trim();
+  if (!id) return;
+  const res = await fetch(`/api/trace/${encodeURIComponent(id)}`);
+  const text = await res.text();
+  el("traceBox").textContent = text;
+}
+
+async function loadGraph() {
+  const id = el("graphId").value.trim();
+  if (!id) return;
+  const res = await fetch(`/api/graph/${encodeURIComponent(id)}`);
+  const text = await res.text();
+  el("graphBox").textContent = text;
 }
 
 async function sendChat() {
@@ -145,6 +253,10 @@ async function resetAgent() {
     el("summaryBox").textContent = "";
     el("cqrsBox").textContent = "";
     el("searchBox").textContent = "";
+    el("memBox").textContent = "";
+    el("vectorBox").textContent = "";
+    el("traceBox").textContent = "";
+    el("graphBox").textContent = "";
     await refreshInfo();
   } catch (e) {
     appendMsg("meta", `reset error: ${e.message}`);
@@ -158,6 +270,7 @@ function wire() {
   });
 
   el("seedBtn").addEventListener("click", seedDemo);
+  el("seedTraceBtn").addEventListener("click", seedTrace);
 
   el("refreshStateBtn").addEventListener("click", async () => {
     try { await refreshState(); } catch (e) { appendMsg("meta", `state error: ${e.message}`); }
@@ -176,6 +289,41 @@ function wire() {
   });
 
   el("resetBtn").addEventListener("click", resetAgent);
+
+  el("applySettingsBtn").addEventListener("click", async () => {
+    try { await applySettings(); } catch (e) { appendMsg("meta", `settings error: ${e.message}`); }
+  });
+
+  el("refreshInfoBtn").addEventListener("click", async () => {
+    try { await refreshInfo(); } catch (e) { appendMsg("meta", `info error: ${e.message}`); }
+  });
+
+  el("refreshMemResourcesBtn").addEventListener("click", async () => {
+    try { await refreshMemoryResources(); } catch (e) { appendMsg("meta", `memory error: ${e.message}`); }
+  });
+  el("loadMemEntriesBtn").addEventListener("click", async () => {
+    try { await loadMemoryEntries(); } catch (e) { appendMsg("meta", `memory error: ${e.message}`); }
+  });
+  el("memStatsBtn").addEventListener("click", async () => {
+    try { await memoryStats(); } catch (e) { appendMsg("meta", `memory stats error: ${e.message}`); }
+  });
+
+  el("vectorSearchBtn").addEventListener("click", async () => {
+    try { await vectorSearch(); } catch (e) { appendMsg("meta", `vector error: ${e.message}`); }
+  });
+  el("vectorStatsBtn").addEventListener("click", async () => {
+    try { await vectorStats(); } catch (e) { appendMsg("meta", `vector stats error: ${e.message}`); }
+  });
+
+  el("traceListBtn").addEventListener("click", async () => {
+    try { await refreshTraceList(); } catch (e) { appendMsg("meta", `trace list error: ${e.message}`); }
+  });
+  el("traceLoadBtn").addEventListener("click", async () => {
+    try { await loadTrace(); } catch (e) { appendMsg("meta", `trace load error: ${e.message}`); }
+  });
+  el("graphLoadBtn").addEventListener("click", async () => {
+    try { await loadGraph(); } catch (e) { appendMsg("meta", `graph load error: ${e.message}`); }
+  });
 }
 
 async function boot() {
@@ -184,6 +332,7 @@ async function boot() {
   try {
     await refreshState();
     await refreshCqrs();
+    await refreshTraceList();
   } catch {
     // ignore at startup
   }

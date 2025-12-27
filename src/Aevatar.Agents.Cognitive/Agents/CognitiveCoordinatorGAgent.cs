@@ -3,6 +3,7 @@ using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.Abstractions.Attributes;
 using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
+using Aevatar.Agents.Abstractions.Tracing;
 using Aevatar.Agents.Cognitive.Execution;
 using Aevatar.Agents.Cognitive.Engine;
 using Aevatar.Agents.Cognitive.Messages;
@@ -85,6 +86,9 @@ public partial class CognitiveCoordinatorGAgent : CognitiveAIGAgentBase<Cognitiv
     private Action<WorkflowStepEvent>? _onStepEvent;
     private readonly object _stepEventsLock = new(); // May have concurrent writes during vote parallel generation
     private readonly object _statsLock = new(); // Accumulate statistics under multiple parallel tasks, avoid loss/confusion
+
+    // ExecutionTrace store (injected by ExecutionTraceStoreInjector, best-effort)
+    protected IExecutionTraceStore? ExecutionTraceStore { get; set; }
     
     // ============================================================
     //  Constructor

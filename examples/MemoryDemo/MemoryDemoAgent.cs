@@ -21,6 +21,11 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         ChatHistoryMaxMessages = 8;
         ChatHistorySummaryMaxChars = 1200;
 
+        // Long-term memory (resource + vector) - default ON for demo.
+        // (Both are best-effort; failures won't break chat.)
+        EnableMemoryStoreAppend = true;
+        EnableMemoryVectorIndexAppend = true;
+
         SystemPrompt =
             """
             You are a helpful assistant in a memory demo.
@@ -89,6 +94,7 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         string query,
         int maxResults = 10,
         string memoryType = "all",
+        string? memoryId = null,
         CancellationToken ct = default)
     {
         await InitializeToolsAsync(ct);
@@ -100,6 +106,9 @@ public sealed class MemoryDemoAgent : AIGAgentBase
             ["memoryType"] = memoryType
         };
 
+        if (!string.IsNullOrWhiteSpace(memoryId))
+            parameters["memoryId"] = memoryId.Trim();
+
         var execCtx = new ToolExecutionContext
         {
             AgentId = Id.ToString(),
@@ -110,6 +119,18 @@ public sealed class MemoryDemoAgent : AIGAgentBase
         };
 
         return await ToolManager.ExecuteToolAsync("search_memory", parameters, execCtx, ct);
+    }
+
+    public async Task<IReadOnlyList<float>?> TryGenerateEmbeddingVectorAsync(string text, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        if (!TryGetEmbeddingGenerator(out _))
+            return null;
+
+        var emb = await GenerateEmbeddingAsync(text.Trim(), cancellationToken: ct);
+        return emb == null ? null : emb.Vector.ToArray();
     }
 }
 

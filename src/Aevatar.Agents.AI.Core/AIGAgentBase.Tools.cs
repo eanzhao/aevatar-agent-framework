@@ -3,6 +3,7 @@ using System.Text.Json;
 using Aevatar.Agents.Abstractions.CQRS;
 using Aevatar.Agents.Abstractions;
 using Aevatar.Agents.AI.Abstractions;
+using Aevatar.Agents.AI.Core.Utils;
 using Aevatar.Agents.AI.WithTool.Abstractions;
 using Aevatar.Agents.AI.WithTool.Messages;
 using Aevatar.Agents.AI.WithTool.Tools;
@@ -22,6 +23,20 @@ public abstract partial class AIGAgentBase
 {
     private const string ToolAllowlistContextKey = "aevatar.allowed_tools";
     private const string ToolAllowlistSourceSkillContextKey = "aevatar.allowed_tools.source_skill";
+
+    /// <summary>
+    /// Safety switch (default: false):
+    /// - When false, tools marked <c>RequiresConfirmation</c> or <c>IsDangerous</c> will not be exposed/executed.
+    /// - Explicitly enable in derived agents when you want side-effect tools (HTTP, publish_event, skills_load, etc).
+    /// </summary>
+    public bool AllowDangerousTools { get; set; }
+
+    /// <summary>
+    /// Safety switch (default: true):
+    /// - Controls tools marked <c>RequiresInternalAccess</c> (state query, event publishing, skills tools...).
+    /// - If you want to hard-disable internal introspection tools, set to false.
+    /// </summary>
+    public bool AllowInternalTools { get; set; } = true;
 
     /// <summary>
     /// Optional CQRS query facade (injected by runtime).
@@ -118,7 +133,9 @@ public abstract partial class AIGAgentBase
         await RegisterToolAsync(
             new AevatarMemorySearchTool(
                 new LoggerAdapter<AevatarMemorySearchTool>(Logger),
-                CqrsStateQueryService),
+                CqrsStateQueryService,
+                MemoryStore,
+                MemoryVectorIndex),
             cancellationToken: cancellationToken);
 
         // Agent Skills (agentskills.io) - disabled by default via EnableAgentSkills
@@ -166,6 +183,9 @@ public abstract partial class AIGAgentBase
             AgentId = Id.ToString(),
             AgentType = GetType().FullName ?? GetType().Name,
             GetStateCallback = () => GetState(),
+            GenerateEmbeddingsAsync = HasEmbeddingGenerator
+                ? (inputs, ct) => GenerateEmbeddingsAsync(inputs, cancellationToken: ct)
+                : null,
             PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, CancellationToken.None),
             PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
             GetSessionIdCallback = () => Id.ToString(),
@@ -182,7 +202,9 @@ public abstract partial class AIGAgentBase
             PublishEventCallback = msg => PublishToolEventAsync(msg, EventDirection.Down, cancellationToken),
             PublishEventWithDirectionCallback = (msg, direction, ct) => PublishToolEventAsync(msg, direction, ct),
             Logger = Logger,
-            GetSessionId = () => sessionId
+            GetSessionId = () => sessionId,
+            AllowInternalTools = AllowInternalTools,
+            AllowDangerousTools = AllowDangerousTools
         };
     }
 
@@ -235,11 +257,18 @@ public abstract partial class AIGAgentBase
         if (_registeredToolsCache.Count == 0)
             return string.Empty;
 
+        var visibleTools = _registeredToolsCache
+            .Where(IsToolAllowedByPolicy)
+            .ToList();
+
+        if (visibleTools.Count == 0)
+            return string.Empty;
+
         var sb = new StringBuilder();
 
         sb.AppendLine();
         sb.AppendLine("You can call tools (function calling). Available tools:");
-        foreach (var tool in _registeredToolsCache)
+        foreach (var tool in visibleTools)
         {
             sb.AppendLine($"- {tool.Name}: {tool.Description}");
         }
@@ -248,13 +277,13 @@ public abstract partial class AIGAgentBase
         sb.AppendLine("Rules:");
         sb.AppendLine("- If a tool can answer more accurately/efficiently, call the tool first, then answer.");
 
-        if (_registeredToolsCache.Any(t => string.Equals(t.Name, "search_memory", StringComparison.OrdinalIgnoreCase)))
+        if (visibleTools.Any(t => string.Equals(t.Name, "search_memory", StringComparison.OrdinalIgnoreCase)))
         {
             sb.AppendLine("- If you need details from earlier conversation, call 'search_memory' before answering.");
         }
 
-        if (_registeredToolsCache.Any(t => string.Equals(t.Name, "skills_list", StringComparison.OrdinalIgnoreCase)) &&
-            _registeredToolsCache.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
+        if (visibleTools.Any(t => string.Equals(t.Name, "skills_list", StringComparison.OrdinalIgnoreCase)) &&
+            visibleTools.Any(t => string.Equals(t.Name, "skills_load", StringComparison.OrdinalIgnoreCase)))
         {
             sb.AppendLine("- If you need a procedural/domain skill, call 'skills_list' then 'skills_load' before acting.");
         }
@@ -267,17 +296,31 @@ public abstract partial class AIGAgentBase
         if (_functionDefinitionsCache.Count == 0)
             return;
 
+        // Apply runtime policy: keep dangerous tools hidden unless explicitly enabled.
+        var allowedNames = _registeredToolsCache
+            .Where(IsToolAllowedByPolicy)
+            .Select(t => t.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (allowedNames.Count == 0)
+        {
+            llmRequest.Functions = new List<AevatarFunctionDefinition>();
+            return;
+        }
+
         // Optional: apply a runtime allowlist (e.g. from Agent Skills front matter `allowed-tools`).
         // This keeps the model from seeing / calling tools outside the allowed set.
         if (TryGetToolAllowlist(llmRequest, out var allowlist) && allowlist.Count > 0)
         {
             llmRequest.Functions = _functionDefinitionsCache
-                .Where(d => allowlist.Contains(d.Name))
+                .Where(d => allowlist.Contains(d.Name) && allowedNames.Contains(d.Name))
                 .ToList();
             return;
         }
 
-        llmRequest.Functions = _functionDefinitionsCache.ToList();
+        llmRequest.Functions = _functionDefinitionsCache
+            .Where(d => allowedNames.Contains(d.Name))
+            .ToList();
     }
 
     private async Task<(AevatarLLMResponse FinalResponse, ToolCallInfo? ToolCall)> ExecuteToolCallLoopAsync(
@@ -377,6 +420,28 @@ public abstract partial class AIGAgentBase
         AevatarLLMRequest llmRequest,
         CancellationToken cancellationToken)
     {
+        // Enforce policy again at execution time (defense in depth).
+        var toolDef = _registeredToolsCache.FirstOrDefault(t => string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
+        if (toolDef != null && !IsToolAllowedByPolicy(toolDef))
+        {
+            var content = JsonSerializer.Serialize(new
+            {
+                success = false,
+                error = "Tool execution denied by agent policy.",
+                tool = toolName,
+                deniedReason = BuildToolPolicyDenyReason(toolDef)
+            });
+
+            return new ToolExecutionResult
+            {
+                ToolName = toolName,
+                IsSuccess = false,
+                ErrorMessage = $"Tool '{toolName}' is denied by agent policy.",
+                Content = content,
+                Timestamp = Timestamp.FromDateTime(DateTime.UtcNow)
+            };
+        }
+
         if (TryGetToolAllowlist(llmRequest, out var allowlist) &&
             allowlist.Count > 0 &&
             !allowlist.Contains(toolName))
@@ -401,6 +466,28 @@ public abstract partial class AIGAgentBase
         }
 
         return await ExecuteToolAsync(toolName, args, executionContext, cancellationToken);
+    }
+
+    private bool IsToolAllowedByPolicy(ToolDefinition tool)
+    {
+        if (!AllowInternalTools && tool.RequiresInternalAccess)
+            return false;
+
+        if (!AllowDangerousTools && (tool.IsDangerous || tool.RequiresConfirmation))
+            return false;
+
+        return true;
+    }
+
+    private string BuildToolPolicyDenyReason(ToolDefinition tool)
+    {
+        if (!AllowInternalTools && tool.RequiresInternalAccess)
+            return "RequiresInternalAccess is disabled (AllowInternalTools=false).";
+
+        if (!AllowDangerousTools && (tool.IsDangerous || tool.RequiresConfirmation))
+            return "Dangerous/confirmation tools are disabled (AllowDangerousTools=false).";
+
+        return "Denied by policy.";
     }
 
     private static bool TryGetToolAllowlist(AevatarLLMRequest llmRequest, out HashSet<string> allowlist)
@@ -502,74 +589,7 @@ public abstract partial class AIGAgentBase
 
     private static Dictionary<string, object> ParseToolArguments(string argumentsJson)
     {
-        if (string.IsNullOrWhiteSpace(argumentsJson))
-            return new Dictionary<string, object>();
-
-        try
-        {
-            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argumentsJson);
-            if (dict == null)
-                return new Dictionary<string, object>();
-
-            var result = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (var (key, el) in dict)
-            {
-                result[key] = el.ValueKind switch
-                {
-                    JsonValueKind.String => el.GetString() ?? string.Empty,
-                    // Keep numeric type stable:
-                    // - Prefer int/long for integral numbers (tools often use Convert.ToInt32/ToInt64)
-                    // - Fall back to double for non-integral numbers
-                    JsonValueKind.Number => TryCoerceNumber(el, out var number) ? number : el,
-                    JsonValueKind.True => true,
-                    JsonValueKind.False => false,
-                    JsonValueKind.Null or JsonValueKind.Undefined => null!,
-                    _ => el
-                };
-            }
-
-            return result;
-        }
-        catch (JsonException)
-        {
-            // Backward-compatible fallback: empty args.
-            return new Dictionary<string, object>();
-        }
-    }
-
-    private static bool TryCoerceNumber(JsonElement el, out object value)
-    {
-        // ============================================================
-        //  JSON number normalization
-        //
-        //  WHY:
-        //  - LLM function-calling args are JSON; numbers come as "number" without int/float distinction.
-        //  - Many tools expect integers (e.g., delay, count); keeping them as int/long avoids fragile casts.
-        // ============================================================
-        value = 0;
-
-        if (el.ValueKind != JsonValueKind.Number)
-            return false;
-
-        if (el.TryGetInt32(out var i32))
-        {
-            value = i32;
-            return true;
-        }
-
-        if (el.TryGetInt64(out var i64))
-        {
-            value = i64;
-            return true;
-        }
-
-        if (el.TryGetDouble(out var d))
-        {
-            value = d;
-            return true;
-        }
-
-        return false;
+        return ToolArgumentsJson.Parse(argumentsJson);
     }
 
     private static AevatarChatMessage CreateToolCallMessage(AevatarFunctionCall functionCall)

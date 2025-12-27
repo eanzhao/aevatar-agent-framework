@@ -63,6 +63,9 @@ public class AIGAgentFactory : IGAgentFactory
         LoggerInjector.InjectLogger(agent, _serviceProvider);
         AgentStateStoreInjector.InjectStateStore(agent, _serviceProvider);
         AgentConfigStoreInjector.InjectConfigStore(agent, _serviceProvider);
+        ExecutionTraceStoreInjector.InjectExecutionTraceStore(agent, _serviceProvider);
+        MemoryStoreInjector.InjectMemoryStore(agent, _serviceProvider);
+        MemoryVectorIndexInjector.InjectMemoryVectorIndex(agent, _serviceProvider);
         AIAgentToolManagerInjector.InjectToolManager(agent, _serviceProvider);
         AIAgentStateQueryServiceInjector.InjectStateQueryService(agent, _serviceProvider);
 

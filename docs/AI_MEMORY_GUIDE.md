@@ -35,6 +35,24 @@
 - **用途**：跨进程/跨 runtime 查询投影后的状态字段（`search_memory` 会以 `cqrs_state` 返回命中）
 - **关键点**：只投影“你需要被检索”的字段，避免把大段原文塞进 state
 
+#### Layer 4：Memory Store（资源化 append-only 记忆）
+- **载体**：`IMemoryStore` + `MemoryEntry`（Protobuf，跨 runtime 可序列化）
+- **用途**：把“记忆”从 Agent 私有 state 升级为可共享资源（private/session/run/...），便于治理与后续向量/图谱索引
+- **默认行为**：框架默认注册 file store（best-effort），但 **AIGAgentBase 默认不会自动写入**（需要显式开启开关）
+- 详见：`docs/MEMORY_STORE.md`
+
+#### Layer 4.1：Vector Index（持久化语义检索索引）
+- **载体**：`IMemoryVectorIndex` + `MemoryVectorRecord`（Protobuf）
+- **用途**：把语义检索从“一次性 rerank”升级为可持久化 top‑k 召回（跨进程/跨 run）
+- **默认行为**：框架默认注册 file index（best-effort），写入与使用都 **默认关闭**（需要显式开启）
+- 详见：`docs/MEMORY_VECTOR_INDEX.md`
+
+#### Layer 4.2：Memory Graph（ExecutionTrace → 图谱）
+- **载体**：`IMemoryGraphStore` + `MemoryGraph`（Protobuf）
+- **用途**：把执行过程（trace）转成可导航的实体/边，支撑“为什么这么做”的可解释回忆（GraphRAG 工程骨架）
+- **默认行为**：`IExecutionTraceStore.SaveAsync` 后 best-effort 投影产出 graph artifact + execution‑scoped `MemoryEntry`
+- 详见：`docs/MEMORY_GRAPH.md`
+
 ---
 
 ### 2. State.History 里到底应该存什么？
@@ -99,7 +117,11 @@
   - 启用内置工具 `search_memory`
   - 模型需要回忆时调用 tool
   - tool 的优先级是（best-effort）：
-    - 先查 CQRS read-model（`cqrs_state`，如果已接入）
+    - **长期记忆（可持久化）**：
+      - embeddings + `IMemoryVectorIndex` 可用时：先走向量 top‑k（`memory_vector`）
+      - 否则：走 `IMemoryStore` substring（`memory_store`）
+      - 可选参数 `memoryId` 可把检索范围限定到某个资源（默认：`privateagent::<agentId>`；执行回放：`execution::<executionId>`）
+    - 再查 CQRS read-model（`cqrs_state`，如果已接入）
     - 再搜 `State.Context["history_summary"]` 和 `State.History`（无 IO）
 
 - **路线 B：由 Agent 决策预取（规则化）**
@@ -140,5 +162,41 @@
 - **不要把 memory 设计成“全量回放”**：那不是记忆，是 token 炸弹。
 - **把特殊情况消掉**：让“短期窗口 + 结构化摘要 + 按需检索”成为常规路径，而不是写一堆 if/else 拼 prompt。
 - **跨边界类型一律 Protobuf**：State、Event、Config 任何跨 runtime/stream 的数据必须是 `.proto` 生成。
+
+---
+
+### 9. 对照 Cognee：Aevatar 记忆还能怎么进化（图 + 向量 + Pipeline）
+
+> Cognee 的主张：把“记忆”做成一个独立、可扩展的基础设施层，用 **图谱 + 向量检索** 承载长期记忆，并通过 ECL（Extract/Cognify/Load）流水线把原始数据转成可检索的记忆。参考：[`topoteretes/cognee`](https://github.com/topoteretes/cognee)
+
+对照现状，Aevatar 已经具备两条很强的“记忆主线”：
+
+- **对话/状态记忆**：`State.History`（滑窗）+ `history_summary`（滚动摘要）+ CQRS read-model（投影查询）+ 工具化 `search_memory`
+- **执行/回放记忆**：统一的 `ExecutionTrace`（跨边界 Protobuf，bundle 导出，适合审计/回放/对比）
+
+但仍有明确提升空间（按性价比排序）：
+
+- **P0：把检索从“子串 contains”升级为“可用的全文检索”**
+  - `search_memory` 优先走 CQRS 的 `QueryAsync`（Lucene/QueryString/FTS），并在 CQRS 不可用时降级到 `GetByIdAsync` + state scan（best-effort）。
+  - 投影层（CQRS Projector）应增加面向检索的扁平字段（例如 `historyText/contextText/historySummary`），减少“复杂 JSON 字符串”对检索质量的伤害。
+
+- **P1：语义检索（向量）落地到工具链**
+  - 当 embedding generator 可用时，`search_memory` 会优先走 `IMemoryVectorIndex` 的 top‑k 召回（无外部依赖默认 File + brute-force cosine），提升“同义改写/换句话说”的召回，并能跨进程持久化。
+  - embeddings 不可用时，会退化为 `IMemoryStore` 的 substring 搜索 + CQRS/State scan（best-effort）。
+  - 关键原则：向量索引是“外部层”，不要塞进 Agent State（避免 state 膨胀与跨 runtime payload 爆炸）。
+
+- **P2：用“图”承载关系（轻量图谱即可）**
+  - `ExecutionTrace` 天然是一棵树（并可带 labels/metrics/decisions/alerts），非常适合做“可解释的记忆图谱”输入。
+  - 现在框架会在 `SaveAsync(trace)` 后 best-effort 投影出：
+    - `MemoryGraph`（trace artifact，保存在 trace bundle 的 artifacts 下）
+    - `MemoryEntry`（scope=execution，可用 `search_memory(memoryId="execution::<executionId>")` 检索）
+  - 下一步可以把图谱与向量召回组合：向量找“相关片段”，图谱解释“关系路径/选择原因”。
+
+- **P3：把“记忆处理”显式化为 Pipeline（ECL 对齐）**
+  - Extract：从 `ExecutionTrace` / `WorkflowStepEvent` / Agent 对话、工具输出抽取候选记忆条目（append-only）。
+  - Cognify：做结构化总结/去重/归一化（可 LLM、也可 token-free 规则）。
+  - Load：写入 Memory Store + FTS/Vector/Graph 索引（异步投影，失败可重试，保证主流程不被拖慢）。
+
+> 如果你希望进一步“产品化”（跨 Agent/跨 Run 共享 + 治理），可以直接复用 AevatarKit 的方向：把 Memory 资源化（memory_id + scope + append-only entry），再把 FTS/vector/graph 作为可插拔索引层。
 
 

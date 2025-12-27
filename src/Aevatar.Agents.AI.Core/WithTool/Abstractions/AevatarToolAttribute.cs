@@ -3,9 +3,9 @@ using System;
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
 
 /// <summary>
-/// 标记工具类，支持自动扫描和注册
+/// Marks tool class, supports automatic scanning and registration
 /// <para/>
-/// 使用示例:
+/// Usage example:
 /// <code>
 /// [AevatarTool(
 ///     Name = "send_email",
@@ -15,7 +15,7 @@ namespace Aevatar.Agents.AI.WithTool.Abstractions;
 /// )]
 /// public class EmailTool : AevatarToolBase
 /// {
-///     // 工具实现...
+///     // Tool implementation...
 /// }
 /// </code>
 /// </summary>
@@ -23,62 +23,62 @@ namespace Aevatar.Agents.AI.WithTool.Abstractions;
 public class AevatarToolAttribute : Attribute
 {
     /// <summary>
-    /// 工具名称（唯一标识）
-    /// <para/>如果未指定，则使用类名（去掉"Tool"后缀）
+    /// Tool name (unique identifier)
+    /// <para/>If not specified, uses class name (removing "Tool" suffix)
     /// </summary>
     public string? Name { get; set; }
 
     /// <summary>
-    /// 工具描述
-    /// <para/>说明工具的用途和使用场景
+    /// Tool description
+    /// <para/>Describes tool purpose and usage scenarios
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// 工具类别
-    /// <para/>用于工具分组和权限控制
+    /// Tool category
+    /// <para/>Used for tool grouping and permission control
     /// </summary>
     public ToolCategory Category { get; set; } = ToolCategory.Custom;
 
     /// <summary>
-    /// 是否自动注册
-    /// <para/>如果为true，工具扫描器会自动发现并注册此工具
+    /// Whether to auto-register
+    /// <para/>If true, tool scanner will automatically discover and register this tool
     /// </summary>
     public bool AutoRegister { get; set; } = true;
 
     /// <summary>
-    /// 工具标签
-    /// <para/>用于工具搜索和分类
+    /// Tool tags
+    /// <para/>Used for tool search and classification
     /// </summary>
     public string[] Tags { get; set; } = Array.Empty<string>();
 
     /// <summary>
-    /// 工具版本
-    /// <para/>遵循语义化版本规范（SemVer）
+    /// Tool version
+    /// <para/>Follows Semantic Versioning (SemVer)
     /// </summary>
     public string Version { get; set; } = "1.0.0";
 
     /// <summary>
-    /// 是否需要确认
-    /// <para/>如果为true，执行前需要用户确认（危险操作）
+    /// Whether confirmation is required
+    /// <para/>If true, user confirmation required before execution (dangerous operation)
     /// </summary>
     public bool RequiresConfirmation { get; set; } = false;
 
     /// <summary>
-    /// 是否是危险操作
-    /// <para/>用于标记可能影响系统安全的操作
+    /// Whether is a dangerous operation
+    /// <para/>Used to mark operations that may affect system security
     /// </summary>
     public bool IsDangerous { get; set; } = false;
 
     /// <summary>
-    /// 是否需要内部访问权限
-    /// <para/>如果为true，只能由系统内部调用
+    /// Whether internal access permission is required
+    /// <para/>If true, can only be called by system internally
     /// </summary>
     public bool RequiresInternalAccess { get; set; } = false;
 
     /// <summary>
-    /// 是否可以被覆盖
-    /// <para/>如果为true，允许子类或配置覆盖此工具
+    /// Whether can be overridden
+    /// <para/>If true, allows subclasses or configuration to override this tool
     /// </summary>
     public bool CanBeOverridden { get; set; } = true;
 }

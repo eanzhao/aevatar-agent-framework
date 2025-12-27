@@ -1,6 +1,7 @@
 using Aevatar.Agents.AI.Abstractions;
 using Aevatar.Agents.Abstractions;
 using Google.Protobuf;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace Aevatar.Agents.AI.WithTool.Abstractions;
@@ -35,6 +36,15 @@ public class ToolContext
     /// Callback to get Agent state
     /// </summary>
     public Func<IMessage>? GetStateCallback { get; set; }
+
+    /// <summary>
+    /// Optional callback to generate embeddings (semantic search / rerank).
+    /// <para/>
+    /// NOTE:
+    /// - This is a runtime-only callback (DI boundary), not a cross-runtime message.
+    /// - Tools should treat it as best-effort and fall back when null.
+    /// </summary>
+    public Func<IReadOnlyList<string>, CancellationToken, Task<IReadOnlyList<Embedding<float>>>>? GenerateEmbeddingsAsync { get; set; }
     
     /// <summary>
     /// Callback to publish events

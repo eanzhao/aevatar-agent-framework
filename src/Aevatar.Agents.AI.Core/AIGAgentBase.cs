@@ -707,6 +707,9 @@ Open questions:
                 AddMessageToHistory(request.Message, AevatarChatRole.User);
             }
 
+            // Optional: persist conversation to MemoryStore (default off, best-effort)
+            await AppendChatMemoryAsync(AevatarChatRole.User, request.Message ?? string.Empty, request, cancellationToken);
+
             // Call LLM
             var llmResponse = await LLMProvider.GenerateAsync(llmRequest, cancellationToken);
             ToolCallInfo? toolCall = null;
@@ -739,6 +742,12 @@ Open questions:
             if (EnableChatHistoryInState && !string.IsNullOrEmpty(response.Content))
             {
                 AddMessageToHistory(response.Content, AevatarChatRole.Assistant);
+            }
+
+            // Optional: persist assistant output to MemoryStore (default off, best-effort)
+            if (!string.IsNullOrWhiteSpace(response.Content))
+            {
+                await AppendChatMemoryAsync(AevatarChatRole.Assistant, response.Content!, request, cancellationToken);
             }
 
             // Compact again after appending new messages (keeps state bounded for next call).
@@ -920,6 +929,9 @@ Open questions:
             AddMessageToHistory(request.Message, AevatarChatRole.User);
         }
 
+        // Optional: persist conversation to MemoryStore (default off, best-effort)
+        await AppendChatMemoryAsync(AevatarChatRole.User, request.Message ?? string.Empty, request, cancellationToken);
+
         // Stream from LLM
         var enumerator = LLMProvider.GenerateStreamAsync(llmRequest, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
@@ -999,6 +1011,16 @@ Open questions:
                 if (!string.IsNullOrEmpty(assistantText))
                 {
                     AddMessageToHistory(assistantText, AevatarChatRole.Assistant);
+                }
+            }
+
+            // Optional: persist assistant output to MemoryStore (default off, best-effort)
+            if (completedSuccessfully)
+            {
+                var assistantText = assistantBuffer?.ToString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(assistantText))
+                {
+                    await AppendChatMemoryAsync(AevatarChatRole.Assistant, assistantText, request, cancellationToken);
                 }
             }
 

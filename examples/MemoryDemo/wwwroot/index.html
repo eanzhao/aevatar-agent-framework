@@ -11,7 +11,7 @@
     <header class="header">
       <div>
         <h1>Aevatar Memory Demo</h1>
-        <div class="sub">State.History · Compaction(history_summary) · CQRS(read-model) · search_memory</div>
+        <div class="sub">State.History · Summary · CQRS · MemoryStore · VectorIndex · ExecutionTrace→Graph · search_memory</div>
       </div>
       <div class="status">
         <div id="statusBadge" class="badge">loading...</div>
@@ -20,15 +20,27 @@
     </header>
 
     <section class="panel">
+      <div class="panel-title">Demo Settings (Long-term Memory + Paths)</div>
+      <div class="row row-tight">
+        <label class="chk"><input id="enableStoreChk" type="checkbox" /> Enable MemoryStore append</label>
+        <label class="chk"><input id="enableVectorChk" type="checkbox" /> Enable VectorIndex append</label>
+        <button id="applySettingsBtn" class="btn btn-secondary">Apply</button>
+        <button id="refreshInfoBtn" class="btn btn-secondary">Refresh</button>
+      </div>
+      <pre id="pathsBox" class="pre pre-small"></pre>
+    </section>
+
+    <section class="panel">
       <div class="panel-title">Chat</div>
       <div id="chatLog" class="chat-log"></div>
       <div class="row">
         <input id="chatInput" class="input" placeholder="Type a message, chatting more than 8 messages will trigger compaction..." />
         <button id="sendBtn" class="btn">Send</button>
         <button id="seedBtn" class="btn btn-secondary">Seed</button>
+        <button id="seedTraceBtn" class="btn btn-secondary">Seed Trace</button>
       </div>
       <div class="hint">
-        Tip: First tell it a "keyword/fact", then chat 10 rounds consecutively to push it out of history, then use Search Memory to retrieve it.
+        Tip: 1) chat 10 rounds → see history_summary; 2) use search_memory (with memoryId) to retrieve; 3) Seed Trace → creates execution graph + execution-scoped memory.
       </div>
     </section>
 
@@ -58,9 +70,60 @@
         <div class="panel-title">search_memory (tool)</div>
         <div class="row row-tight">
           <input id="searchInput" class="input" placeholder="query..." />
+          <select id="searchTypeSel" class="select">
+            <option value="all">all</option>
+            <option value="working">working</option>
+            <option value="conversation">conversation</option>
+          </select>
+          <input id="searchMemoryId" class="input input-small" placeholder="memoryId (optional)" />
           <button id="searchBtn" class="btn btn-secondary">Search</button>
         </div>
         <pre id="searchBox" class="pre"></pre>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">Memory Store (resources + entries)</div>
+        <div class="row row-tight">
+          <button id="refreshMemResourcesBtn" class="btn btn-secondary">Resources</button>
+          <input id="memEntriesId" class="input input-small" placeholder="memoryId" />
+          <button id="loadMemEntriesBtn" class="btn btn-secondary">Entries</button>
+          <button id="memStatsBtn" class="btn btn-secondary">Stats</button>
+        </div>
+        <pre id="memBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Vector Index (direct search + stats)</div>
+        <div class="row row-tight">
+          <input id="vectorQuery" class="input" placeholder="vector query..." />
+          <input id="vectorMemoryId" class="input input-small" placeholder="memoryId" />
+          <button id="vectorSearchBtn" class="btn btn-secondary">Search</button>
+          <button id="vectorStatsBtn" class="btn btn-secondary">Stats</button>
+        </div>
+        <pre id="vectorBox" class="pre"></pre>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-title">ExecutionTrace (bundles)</div>
+        <div class="row row-tight">
+          <button id="traceListBtn" class="btn btn-secondary">List</button>
+          <input id="traceId" class="input input-small" placeholder="executionId" />
+          <button id="traceLoadBtn" class="btn btn-secondary">Load</button>
+        </div>
+        <pre id="traceBox" class="pre"></pre>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Memory Graph (artifact)</div>
+        <div class="row row-tight">
+          <input id="graphId" class="input input-small" placeholder="executionId" />
+          <button id="graphLoadBtn" class="btn btn-secondary">Load</button>
+        </div>
+        <pre id="graphBox" class="pre"></pre>
       </div>
     </section>
 
