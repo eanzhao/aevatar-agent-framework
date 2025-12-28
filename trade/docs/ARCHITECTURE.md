@@ -109,6 +109,13 @@
 trade/
 ├── docs/                              # 文档目录
 │   └── ARCHITECTURE.md                # 本文档
+│   └── FRONTEND.md                    # 前端（演示 UI）说明
+│   └── AI_WARS_DOTNET_SKILLS.md        # AI Wars API → DotNet File Skills 索引
+│
+├── frontend/                          # ✅ 演示 UI（Vite + React + TS）
+│   ├── README.md                      # 启动/联调说明
+│   ├── vite.config.ts                 # 开发期同源代理（默认转发到 http://localhost:7100）
+│   └── src/                           # UI：Trading 控制台 / WEEX 工具箱
 │
 ├── Aevatar.Trade/                     # 核心库
 │   ├── trade_messages.proto           # Protobuf 消息定义
@@ -130,8 +137,21 @@ trade/
 │   └── Infrastructure/
 │       └── WeexApi/
 │           ├── IWeexApiClient.cs
-│           ├── WeexApiClient.cs
+│           ├── WeexApiClientBase.cs
+│           ├── WeexContractApiClient.cs
+│           ├── WeexSpotApiClient.cs
+│           ├── WeexApiConfig.cs
+│           ├── WeexApiException.cs
 │           └── WeexWebSocketClient.cs
+│
+│   └── Tools/
+│       └── DotNetSkills/
+│           ├── weex_*.cs               # 旧版 spot 风格工具（保留）
+│           └── ai-wars/                # ✅ AI Wars: 每个 endpoint 一个 *.cs
+│               ├── market/             # 行情类（公开）
+│               ├── account/            # 账户类（鉴权）
+│               ├── trade/              # 交易类（鉴权，部分危险）
+│               └── upload/             # 上传 AI log（鉴权）
 │
 ├── Aevatar.Trade.Api/                 # Web API Host
 │   ├── Aevatar.Trade.Api.csproj
@@ -149,6 +169,12 @@ trade/
     ├── Program.cs
     └── appsettings.json
 ```
+
+---
+
+## 变更记录
+
+- **2025-12-28**：拆分 `WeexApiClient` → `WeexContractApiClient`（AI Wars 合约）+ `WeexSpotApiClient`（Spot），通过 `Weex:Mode` 在 DI 层选择；默认使用 **Contract**（合约）。
 
 ---
 

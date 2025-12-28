@@ -108,6 +108,14 @@ public class RiskManagerAgent : AIGAgentBase
         // Trading tools (dangerous): only visible/executable when AllowDangerousTools=true
         await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexPlaceOrder, cancellationToken);
         await RegisterDotNetFileSkillAsync(TradeDotNetSkillPaths.WeexCancelOrder, cancellationToken);
+
+        // AI Wars (WEEX Alpha Awakens): register every endpoint as a dotnet-file skill.
+        // Safety is enforced by the tool system using the per-skill manifest flags (IsDangerous/RequiresConfirmation)
+        // + this agent's AllowDangerousTools switch.
+        foreach (var skillPath in TradeDotNetSkillPaths.WeexAiWarsAll)
+        {
+            await RegisterDotNetFileSkillAsync(skillPath, cancellationToken);
+        }
     }
 
     public override Task<string> GetDescriptionAsync()

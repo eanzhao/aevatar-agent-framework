@@ -10,7 +10,6 @@
     <!-- ============ ASP.NET Core ============ -->
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-        <PackageReference Include="Swashbuckle.AspNetCore" />
     </ItemGroup>
 
     <!-- ============ Orleans ============ -->
@@ -40,6 +39,9 @@
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.Core\Aevatar.Agents.AI.Core.csproj" />
         <ProjectReference Include="..\..\src\Aevatar.Agents.AI.MEAI\Aevatar.Agents.AI.MEAI.csproj" />
         <ProjectReference Include="..\Aevatar.Trade\Aevatar.Trade.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Include="appsettings.secrets.json" />
     </ItemGroup>
 
 </Project>

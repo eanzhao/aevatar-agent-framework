@@ -46,20 +46,72 @@ public class WeexWebSocketClient : IAsyncDisposable
         _webSocket = new ClientWebSocket();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        var wsUrl = _config.BaseUrl
-            .Replace("https://", "wss://")
-            .Replace("http://", "ws://")
-            + "/ws/public";
+        // ============================================================
+        //  WEEX WebSocket Endpoint
+        //
+        //  - Default: derive from REST BaseUrl (BaseUrl -> ws(s) + /ws/public)
+        //  - Override: set Weex:PublicWebSocketUrl in configuration if WEEX uses a different host/path
+        //
+        //  Many WS gateways also enforce an Origin header; we set a safe default.
+        // ============================================================
+        _webSocket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+        _webSocket.Options.SetRequestHeader("User-Agent", "Aevatar.Trade/1.0");
+        if (!string.IsNullOrWhiteSpace(_config.WebSocketOrigin))
+        {
+            _webSocket.Options.SetRequestHeader("Origin", _config.WebSocketOrigin);
+        }
+
+        var wsUrl = !string.IsNullOrWhiteSpace(_config.PublicWebSocketUrl)
+            ? _config.PublicWebSocketUrl
+            : DerivePublicWsUrl(GetWebSocketBaseUrl());
 
         _logger.LogInformation("Connecting to WEEX WebSocket: {Url}", wsUrl);
-
-        await _webSocket.ConnectAsync(new Uri(wsUrl), ct);
+        try
+        {
+            await _webSocket.ConnectAsync(new Uri(wsUrl), ct);
+        }
+        catch (WebSocketException ex)
+        {
+            _logger.LogError(ex,
+                "WEEX WebSocket connect failed. Url={Url}, BaseUrl={BaseUrl}. " +
+                "Hint: If you see 403/101 errors, configure 'Weex:PublicWebSocketUrl' (and optionally 'Weex:WebSocketOrigin').",
+                wsUrl, _config.BaseUrl);
+            throw;
+        }
 
         _logger.LogInformation("Connected to WEEX WebSocket");
         OnConnected?.Invoke();
 
         // Start receive loop
         _receiveTask = ReceiveLoopAsync(_cts.Token);
+    }
+
+    private static string DerivePublicWsUrl(string baseUrl)
+    {
+        var trimmed = (baseUrl ?? "").Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            trimmed = "https://api-spot.weex.com";
+        }
+
+        trimmed = trimmed
+            .Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase)
+            .Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase);
+
+        return $"{trimmed}/ws/public";
+    }
+
+    private string GetWebSocketBaseUrl()
+    {
+        // Prefer market-data base url for websocket (spot public channels).
+        // If user switches trading base to api-contract (AI Wars), we should not derive WS from it.
+        var market = (_config.MarketDataBaseUrl ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(market))
+        {
+            return market;
+        }
+
+        return _config.BaseUrl;
     }
 
     public async Task DisconnectAsync()

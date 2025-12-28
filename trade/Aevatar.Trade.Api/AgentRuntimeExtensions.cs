@@ -5,7 +5,9 @@ using Aevatar.Agents.Core.EventSourcing;
 using Aevatar.Agents.Runtime.Local;
 using Aevatar.Agents.Runtime.Local.Subscription;
 using Aevatar.Agents.Runtime.Orleans;
+using Aevatar.Agents.Runtime.Orleans.Extensions;
 using Aevatar.Agents.Runtime.Orleans.Subscription;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Aevatar.Trade.Api;
 
@@ -54,19 +56,25 @@ public static class AgentRuntimeExtensions
 
     private static void ConfigureLocalRuntime(IServiceCollection services)
     {
-        services.AddSingleton<IGAgentActorFactory, LocalGAgentActorFactory>();
-        services.AddSingleton<LocalMessageStreamRegistry>();
-        services.AddSingleton<ISubscriptionManager>(sp =>
-            new LocalSubscriptionManager(
-                sp.GetRequiredService<LocalMessageStreamRegistry>(),
-                sp.GetRequiredService<ILogger<LocalSubscriptionManager>>()));
+        // Align with framework runtime DI:
+        // - Registers IGAgentActorFactory/Manager
+        // - Registers IGAgentFactory (AIGAgentFactory) which is REQUIRED for agent creation
+        // - Registers LocalMessageStreamRegistry + LocalSubscriptionManager
+        services.AddAevatarLocalRuntime();
+
+        // The runtime registers LocalSubscriptionManager as concrete type; expose it via interface for callers.
+        services.TryAddSingleton<ISubscriptionManager>(sp => sp.GetRequiredService<LocalSubscriptionManager>());
 
         Console.WriteLine("✅ Using Local runtime (single-machine in-memory mode)");
     }
 
     private static void ConfigureOrleansRuntime(IServiceCollection services)
     {
-        services.AddSingleton<IGAgentActorFactory, OrleansGAgentActorFactory>();
+        // Align with framework runtime DI:
+        // - Registers IGAgentActorFactory/Manager
+        // - Registers IGAgentFactory (AIGAgentFactory) which is REQUIRED for agent creation
+        services.AddAevatarOrleansRuntime();
+
         services.AddSingleton<ISubscriptionManager>(sp =>
         {
             var client = sp.GetRequiredService<Orleans.IClusterClient>();

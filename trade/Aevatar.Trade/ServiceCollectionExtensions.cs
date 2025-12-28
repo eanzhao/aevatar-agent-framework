@@ -30,12 +30,24 @@ public static class ServiceCollectionExtensions
 
         // ============ WEEX API ============
         
-        services.AddHttpClient<IWeexApiClient, WeexApiClient>((sp, client) =>
+        var weex = configuration.GetSection("Weex").Get<WeexApiConfig>() ?? new WeexApiConfig();
+        if (weex.Mode == WeexApiMode.Spot)
         {
-            var config = configuration.GetSection("Weex").Get<WeexApiConfig>();
-            client.BaseAddress = new Uri(config?.BaseUrl ?? "https://api-spot.weex.com");
-            client.DefaultRequestHeaders.Add("Accept", "application/json");
-        });
+            services.AddHttpClient<IWeexApiClient, WeexSpotApiClient>((sp, client) =>
+            {
+                client.BaseAddress = new Uri(weex.BaseUrl);
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+            });
+        }
+        else
+        {
+            // 默认：AI Wars 合约（Contract）
+            services.AddHttpClient<IWeexApiClient, WeexContractApiClient>((sp, client) =>
+            {
+                client.BaseAddress = new Uri(weex.BaseUrl);
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+            });
+        }
 
         services.AddHttpClient<IWeexAiWarsLogClient, WeexAiWarsLogClient>((sp, client) =>
         {

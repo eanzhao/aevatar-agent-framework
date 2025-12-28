@@ -27,7 +27,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Data Plane   数据面：行情/账户/仓位/订单                       │
-│   DataCollectorAgent + WeexApiClient/WeexWebSocketClient      │
+│   DataCollectorAgent + WeexContractApiClient/WeexSpotApiClient + WeexWebSocketClient │
 ├─────────────────────────────────────────────────────────────┤
 │ Cognition     认知面：并行思考→共识→产出结构化决策              │
 │   Cognitive Mesh (Maker / UoT / Cognitive DSL)                │
@@ -122,7 +122,7 @@
 比赛需要的不只是交易，还要**上传 AI log**：
 
 - **API 面**：
-  - `Market/Account/Trade`：现有 `WeexApiClient` 已覆盖 Spot 风格接口（需要核对 AI Wars 版本差异）
+  - `Market/Account/Trade`：已拆分为 `WeexContractApiClient`（AI Wars 合约）与 `WeexSpotApiClient`（Spot），通过 `Weex:Mode` 选择
   - `Upload AI log`：计划新增 `WeexAiWarsLogClient`（独立于交易 client，避免污染交易调用栈）
 - **日志面**：
   - 用框架的 `ExecutionTrace` / 决策事件链生成可上传的 log payload

@@ -12,7 +12,7 @@ import "google/protobuf/timestamp.proto";
 
 // Real-time market data update event
 message MarketTickEvent {
-    string symbol = 1;                      // Trading pair (e.g., "BTCUSDT_SPBL")
+    string symbol = 1;                      // Trading pair (e.g., "cmt_btcusdt")
     double price = 2;                       // Current price
     double bid = 3;                         // Best bid price
     double ask = 4;                         // Best ask price

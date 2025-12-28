@@ -1,50 +1,38 @@
-using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Aevatar.Trade.Infrastructure.WeexApi;
 
-/// <summary>
-/// WEEX API client implementation
-/// Official documentation: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
-/// </summary>
-public class WeexApiClient : IWeexApiClient
-{
-    private readonly HttpClient _httpClient;
-    private readonly WeexApiConfig _config;
-    private readonly ILogger<WeexApiClient> _logger;
-    private readonly JsonSerializerOptions _jsonOptions;
+// ============================================================================
+//  WEEX Spot API Client
+//  - 对应 Spot 风格：/api/v2/...
+//  - 仅在 Weex:Mode=Spot 时注入为 IWeexApiClient
+// ============================================================================
 
-    public WeexApiClient(
+internal sealed class WeexSpotApiClient : WeexApiClientBase, IWeexApiClient
+{
+    public WeexSpotApiClient(
         HttpClient httpClient,
         IOptions<WeexApiConfig> config,
-        ILogger<WeexApiClient> logger)
+        ILogger<WeexSpotApiClient> logger)
+        : base(httpClient, config, logger)
     {
-        _httpClient = httpClient;
-        _config = config.Value;
-        _logger = logger;
-        _jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
     }
 
-    // ============ Market Data ============
+    // =========================
+    //  Market Data
+    // =========================
 
     public async Task<TickerResponse> GetTickerAsync(string symbol, CancellationToken ct = default)
     {
-        var response = await GetAsync<WeexResponse<TickerDto>>(
-            $"/api/v2/market/ticker?symbol={symbol}", 
-            requiresAuth: false, 
+        var response = await GetMarketAsync<WeexResponse<TickerDto>>(
+            "/api/v2/market/ticker",
+            $"?symbol={Uri.EscapeDataString(symbol)}",
+            requiresAuth: false,
             ct);
 
         var data = response.Data ?? throw new WeexApiException("Empty ticker response");
-        
         return new TickerResponse
         {
             Symbol = symbol,
@@ -60,18 +48,18 @@ public class WeexApiClient : IWeexApiClient
     }
 
     public async Task<IReadOnlyList<KlineData>> GetKlinesAsync(
-        string symbol, 
-        string interval, 
-        int limit = 100, 
+        string symbol,
+        string interval,
+        int limit = 100,
         CancellationToken ct = default)
     {
-        var response = await GetAsync<WeexResponse<List<List<string>>>>(
-            $"/api/v2/market/klines?symbol={symbol}&period={interval}&limit={limit}",
+        var response = await GetMarketAsync<WeexResponse<List<List<string>>>>(
+            "/api/v2/market/klines",
+            $"?symbol={Uri.EscapeDataString(symbol)}&period={Uri.EscapeDataString(interval)}&limit={limit}",
             requiresAuth: false,
             ct);
 
         var data = response.Data ?? new List<List<string>>();
-        
         return data.Select(k => new KlineData
         {
             OpenTime = DateTimeOffset.FromUnixTimeMilliseconds(long.Parse(k[0])).UtcDateTime,
@@ -84,17 +72,19 @@ public class WeexApiClient : IWeexApiClient
         }).ToList();
     }
 
-    // ============ Account ============
+    // =========================
+    //  Account
+    // =========================
 
     public async Task<IReadOnlyList<BalanceInfo>> GetBalancesAsync(CancellationToken ct = default)
     {
-        var response = await GetAsync<WeexResponse<List<BalanceDto>>>(
+        var response = await GetTradingAsync<WeexResponse<List<BalanceDto>>>(
             "/api/v2/account/balance",
+            "",
             requiresAuth: true,
             ct);
 
         var data = response.Data ?? new List<BalanceDto>();
-        
         return data.Select(b => new BalanceInfo
         {
             Currency = b.Currency,
@@ -107,11 +97,12 @@ public class WeexApiClient : IWeexApiClient
     public async Task<BalanceInfo?> GetBalanceAsync(string currency, CancellationToken ct = default)
     {
         var balances = await GetBalancesAsync(ct);
-        return balances.FirstOrDefault(b => 
-            b.Currency.Equals(currency, StringComparison.OrdinalIgnoreCase));
+        return balances.FirstOrDefault(b => b.Currency.Equals(currency, StringComparison.OrdinalIgnoreCase));
     }
 
-    // ============ Trading ============
+    // =========================
+    //  Trading
+    // =========================
 
     public async Task<OrderResult> PlaceOrderAsync(OrderRequest request, CancellationToken ct = default)
     {
@@ -128,9 +119,11 @@ public class WeexApiClient : IWeexApiClient
 
         try
         {
-            var response = await PostAsync<WeexResponse<OrderResultDto>>(
+            var response = await PostTradingAsync<WeexResponse<OrderResultDto>>(
                 "/api/v2/trade/orders",
+                "",
                 body,
+                requiresAuth: true,
                 ct);
 
             if (response.Code == "00000" && response.Data != null)
@@ -152,7 +145,7 @@ public class WeexApiClient : IWeexApiClient
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to place order for {Symbol}", request.Symbol);
+            Logger.LogError(ex, "Failed to place spot order for {Symbol}", request.Symbol);
             return new OrderResult
             {
                 Success = false,
@@ -163,23 +156,24 @@ public class WeexApiClient : IWeexApiClient
     }
 
     public async Task<CancelOrderResult> CancelOrderAsync(
-        string symbol, 
-        string? orderId = null, 
+        string symbol,
+        string? orderId = null,
         string? clientOrderId = null,
         CancellationToken ct = default)
     {
         var body = new Dictionary<string, string> { ["symbol"] = symbol };
-        
-        if (!string.IsNullOrEmpty(orderId))
+        if (!string.IsNullOrWhiteSpace(orderId))
             body["orderId"] = orderId;
-        if (!string.IsNullOrEmpty(clientOrderId))
+        if (!string.IsNullOrWhiteSpace(clientOrderId))
             body["clientOid"] = clientOrderId;
 
         try
         {
-            var response = await PostAsync<WeexResponse<CancelOrderDto>>(
+            var response = await PostTradingAsync<WeexResponse<CancelOrderDto>>(
                 "/api/v2/trade/cancel-order",
+                "",
                 body,
+                requiresAuth: true,
                 ct);
 
             if (response.Code == "00000" && response.Data?.Result == true)
@@ -201,7 +195,7 @@ public class WeexApiClient : IWeexApiClient
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to cancel order {OrderId}", orderId ?? clientOrderId);
+            Logger.LogError(ex, "Failed to cancel spot order {OrderId}", orderId ?? clientOrderId);
             return new CancelOrderResult
             {
                 Success = false,
@@ -212,121 +206,41 @@ public class WeexApiClient : IWeexApiClient
     }
 
     public async Task<OrderInfo?> GetOrderAsync(
-        string symbol, 
-        string? orderId = null, 
+        string symbol,
+        string? orderId = null,
         string? clientOrderId = null,
         CancellationToken ct = default)
     {
-        var query = $"symbol={symbol}";
-        if (!string.IsNullOrEmpty(orderId))
-            query += $"&orderId={orderId}";
-        if (!string.IsNullOrEmpty(clientOrderId))
-            query += $"&clientOid={clientOrderId}";
+        var query = $"symbol={Uri.EscapeDataString(symbol)}";
+        if (!string.IsNullOrWhiteSpace(orderId))
+            query += $"&orderId={Uri.EscapeDataString(orderId)}";
+        if (!string.IsNullOrWhiteSpace(clientOrderId))
+            query += $"&clientOid={Uri.EscapeDataString(clientOrderId)}";
 
-        var response = await GetAsync<WeexResponse<OrderDto>>(
-            $"/api/v2/trade/order?{query}",
+        var response = await GetTradingAsync<WeexResponse<OrderDto>>(
+            "/api/v2/trade/order",
+            $"?{query}",
             requiresAuth: true,
             ct);
 
-        if (response.Data == null) return null;
+        if (response.Data == null)
+            return null;
 
         return MapOrderDto(response.Data);
     }
 
-    public async Task<IReadOnlyList<OrderInfo>> GetOpenOrdersAsync(
-        string? symbol = null, 
-        CancellationToken ct = default)
+    public async Task<IReadOnlyList<OrderInfo>> GetOpenOrdersAsync(string? symbol = null, CancellationToken ct = default)
     {
-        var query = string.IsNullOrEmpty(symbol) ? "" : $"?symbol={symbol}";
-        
-        var response = await GetAsync<WeexResponse<List<OrderDto>>>(
-            $"/api/v2/trade/open-orders{query}",
+        var query = string.IsNullOrWhiteSpace(symbol) ? "" : $"?symbol={Uri.EscapeDataString(symbol)}";
+        var response = await GetTradingAsync<WeexResponse<List<OrderDto>>>(
+            "/api/v2/trade/open-orders",
+            query,
             requiresAuth: true,
             ct);
 
         var data = response.Data ?? new List<OrderDto>();
         return data.Select(MapOrderDto).ToList();
     }
-
-    // ============ Private Methods ============
-
-    private async Task<T> GetAsync<T>(string path, bool requiresAuth, CancellationToken ct)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, path);
-        
-        if (requiresAuth)
-            AddAuthHeaders(request, HttpMethod.Get, path, null);
-
-        var response = await _httpClient.SendAsync(request, ct);
-        var raw = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new WeexApiException(
-                $"WEEX API HTTP {(int)response.StatusCode} {response.ReasonPhrase} (GET {path}): {raw}",
-                errorCode: $"HTTP_{(int)response.StatusCode}");
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<T>(raw, _jsonOptions)
-                   ?? throw new WeexApiException($"Failed to deserialize response from {path}: {raw}");
-        }
-        catch (JsonException ex)
-        {
-            throw new WeexApiException($"Failed to deserialize response from {path}: {raw}", errorCode: "DESERIALIZE_ERROR", innerException: ex);
-        }
-    }
-
-    private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct)
-    {
-        var jsonBody = JsonSerializer.Serialize(body, _jsonOptions);
-        var request = new HttpRequestMessage(HttpMethod.Post, path)
-        {
-            Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
-        };
-
-        AddAuthHeaders(request, HttpMethod.Post, path, jsonBody);
-
-        var response = await _httpClient.SendAsync(request, ct);
-        var raw = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new WeexApiException(
-                $"WEEX API HTTP {(int)response.StatusCode} {response.ReasonPhrase} (POST {path}): {raw}",
-                errorCode: $"HTTP_{(int)response.StatusCode}");
-        }
-
-        return JsonSerializer.Deserialize<T>(raw, _jsonOptions)
-            ?? throw new WeexApiException($"Failed to deserialize response from {path}: {raw}");
-    }
-
-    private void AddAuthHeaders(HttpRequestMessage request, HttpMethod method, string path, string? body)
-    {
-        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-        var signature = GenerateSignature(timestamp, method.Method, path, body);
-
-        request.Headers.Add("ACCESS-KEY", _config.ApiKey);
-        request.Headers.Add("ACCESS-SIGN", signature);
-        request.Headers.Add("ACCESS-PASSPHRASE", _config.Passphrase);
-        request.Headers.Add("ACCESS-TIMESTAMP", timestamp);
-        request.Headers.Add("locale", "en-US");
-    }
-
-    private string GenerateSignature(string timestamp, string method, string path, string? body)
-    {
-        var message = timestamp + method.ToUpper() + path + (body ?? "");
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_config.ApiSecret));
-        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(message));
-        return Convert.ToBase64String(hash);
-    }
-
-    private static string GenerateClientOrderId()
-        => $"{DateTime.UtcNow:yyyyMMddHHmmssfff}{Random.Shared.Next(100000, 999999)}";
-
-    private static decimal ParseDecimal(string? value)
-        => decimal.TryParse(value, out var result) ? result : 0m;
 
     private static OrderInfo MapOrderDto(OrderDto dto) => new()
     {
@@ -342,12 +256,14 @@ public class WeexApiClient : IWeexApiClient
         FilledPrice = ParseDecimal(dto.FilledPrice),
         Fee = ParseDecimal(dto.Fee),
         CreateTime = DateTimeOffset.FromUnixTimeMilliseconds(dto.CreateTime).UtcDateTime,
-        UpdateTime = dto.UpdateTime > 0 
-            ? DateTimeOffset.FromUnixTimeMilliseconds(dto.UpdateTime).UtcDateTime 
+        UpdateTime = dto.UpdateTime > 0
+            ? DateTimeOffset.FromUnixTimeMilliseconds(dto.UpdateTime).UtcDateTime
             : null
     };
 
-    // ============ DTOs ============
+    // =========================
+    //  DTOs (Spot)
+    // =========================
 
     private record WeexResponse<T>
     {
@@ -384,14 +300,10 @@ public class WeexApiClient : IWeexApiClient
 
     private record CancelOrderDto
     {
-        [JsonPropertyName("order_id")]
         public string? OrderId { get; init; }
-        [JsonPropertyName("client_oid")]
         public string? ClientOid { get; init; }
         public bool Result { get; init; }
-        [JsonPropertyName("err_code")]
         public string? ErrCode { get; init; }
-        [JsonPropertyName("err_msg")]
         public string? ErrMsg { get; init; }
     }
 
@@ -413,26 +325,4 @@ public class WeexApiClient : IWeexApiClient
     }
 }
 
-/// <summary>
-/// WEEX API configuration
-/// </summary>
-public class WeexApiConfig
-{
-    public string BaseUrl { get; set; } = "https://api-spot.weex.com";
-    public string ApiKey { get; set; } = "";
-    public string ApiSecret { get; set; } = "";
-    public string Passphrase { get; set; } = "";
-}
 
-/// <summary>
-/// WEEX API exception
-/// </summary>
-public class WeexApiException : Exception
-{
-    public string? ErrorCode { get; }
-
-    public WeexApiException(string message, string? errorCode = null, Exception? innerException = null) : base(message, innerException)
-    {
-        ErrorCode = errorCode;
-    }
-}

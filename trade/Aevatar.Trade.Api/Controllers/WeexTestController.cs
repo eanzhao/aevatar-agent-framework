@@ -8,7 +8,7 @@ namespace Aevatar.Trade.Api.Controllers;
 ///
 /// Notes:
 /// - Does NOT depend on LLM or TradingSystem initialization.
-/// - Uses WeexApiClient configured via appsettings + appsettings.secrets.json.
+/// - Uses IWeexApiClient configured via appsettings + appsettings.secrets.json.
 /// </summary>
 [ApiController]
 [Route("api/weex-test")]
@@ -24,7 +24,7 @@ public class WeexTestController : ControllerBase
     }
 
     [HttpGet("ticker")]
-    public async Task<IActionResult> GetTicker([FromQuery] string symbol = "BTCUSDT_SPBL", CancellationToken ct = default)
+    public async Task<IActionResult> GetTicker([FromQuery] string symbol = "cmt_btcusdt", CancellationToken ct = default)
     {
         try
         {

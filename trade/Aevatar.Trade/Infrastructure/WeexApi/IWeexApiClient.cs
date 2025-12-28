@@ -2,7 +2,8 @@ namespace Aevatar.Trade.Infrastructure.WeexApi;
 
 /// <summary>
 /// WEEX API client interface
-/// Based on official documentation: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
+/// AI Wars (Contract) docs: https://www.weex.com/api-doc/ai/intro
+/// Spot docs: https://www.weex.com/api-doc/spot/introduction/APIBriefIntroduction
 /// </summary>
 public interface IWeexApiClient
 {
@@ -16,8 +17,8 @@ public interface IWeexApiClient
     /// <summary>
     /// Get kline data
     /// </summary>
-    /// <param name="symbol">Trading pair (e.g., "BTCUSDT_SPBL")</param>
-    /// <param name="interval">Time interval (1m, 5m, 15m, 1h, 4h, 1d)</param>
+    /// <param name="symbol">Trading pair (e.g., "cmt_btcusdt")</param>
+    /// <param name="interval">Time interval (AI Wars: 1m, 5m, 15m, 30m, 1h, 4h, 12h, 1d, 1w)</param>
     /// <param name="limit">Quantity limit</param>
     Task<IReadOnlyList<KlineData>> GetKlinesAsync(
         string symbol, 
@@ -80,7 +81,7 @@ public interface IWeexApiClient
 /// </summary>
 public record OrderRequest
 {
-    /// <summary>Trading pair (e.g., "BTCUSDT_SPBL")</summary>
+    /// <summary>Trading pair (e.g., "cmt_btcusdt")</summary>
     public required string Symbol { get; init; }
     
     /// <summary>Direction: buy, sell</summary>

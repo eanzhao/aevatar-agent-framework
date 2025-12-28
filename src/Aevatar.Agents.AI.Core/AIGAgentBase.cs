@@ -788,8 +788,8 @@ Open questions:
             LLMTelemetry.RecordLLMCallCompleted(
                 activity, provider, model, stopwatch.ElapsedMilliseconds,
                 promptTokens, completionTokens,
-                promptChars: request.Message.Length,
-                responseChars: response.Content.Length);
+                promptChars: request.Message?.Length ?? 0,
+                responseChars: response.Content?.Length ?? 0);
 
             AgentLogMessages.LLMCallCompleted(Logger, Id, promptTokens, completionTokens,
                 stopwatch.ElapsedMilliseconds);
@@ -805,8 +805,8 @@ Open questions:
 
             // Record the AI decision as an event (Event Sourcing)
             RaiseAIDecision(
-                request.Message,
-                response.Content,
+                request.Message ?? string.Empty,
+                response.Content ?? string.Empty,
                 response.Usage?.TotalTokens ?? 0,
                 new Dictionary<string, string>
                 {

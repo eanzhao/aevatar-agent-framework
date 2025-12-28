@@ -73,10 +73,7 @@ if (runtimeOptions.RuntimeType == AgentRuntimeType.Orleans)
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-// NOTE:
-// - Avoid depending on Microsoft.OpenApi.Models.OpenApiInfo explicitly here to keep the sample lightweight.
-// - Default swagger doc is good enough for early integration/debugging.
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
 
 // Agent runtime
 builder.Services.AddAgentRuntime(builder.Configuration);
@@ -97,12 +94,48 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "WEEX AI Trading API v1");
-        c.RoutePrefix = "swagger";
-    });
+    // ---------------------------------------------------------------------
+    // OpenAPI (built-in, no Swashbuckle)
+    // ---------------------------------------------------------------------
+    // Keep the historical path shape so existing tooling/docs keep working:
+    //   - OpenAPI JSON: /swagger/v1/swagger.json
+    app.MapOpenApi("/swagger/{documentName}/swagger.json");
+
+    // Lightweight Swagger UI (loads JS/CSS from CDN; no large static assets in repo)
+    //   - UI: /swagger
+    app.MapGet("/swagger", () => Results.Text("""
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WEEX AI Trading API - Swagger UI</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      html, body { height: 100%; margin: 0; }
+      #swagger-ui { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        SwaggerUIBundle({
+          url: '/swagger/v1/swagger.json',
+          dom_id: '#swagger-ui',
+          deepLinking: true,
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIBundle.SwaggerUIStandalonePreset
+          ],
+          layout: 'BaseLayout'
+        });
+      };
+    </script>
+  </body>
+</html>
+""", "text/html"));
 }
 
 app.UseHttpsRedirection();
@@ -121,9 +154,9 @@ Console.WriteLine("╠═══════════════════�
 Console.WriteLine($"║  Runtime: {runtimeOptions.RuntimeType,-20}                         ║");
 Console.WriteLine("║                                                               ║");
 Console.WriteLine("║  Endpoints:                                                   ║");
-Console.WriteLine("║    📊 Swagger:  https://localhost:7100/swagger                ║");
-Console.WriteLine("║    📈 Metrics:  https://localhost:7100/metrics                ║");
-Console.WriteLine("║    💓 Health:   https://localhost:7100/health                 ║");
+Console.WriteLine("║    📊 Swagger:  http://localhost:7100/swagger                 ║");
+Console.WriteLine("║    📈 Metrics:  http://localhost:7100/metrics                 ║");
+Console.WriteLine("║    💓 Health:   http://localhost:7100/health                  ║");
 Console.WriteLine("║                                                               ║");
 Console.WriteLine("║  Agents:                                                      ║");
 Console.WriteLine("║    🔌 DataCollector    - Data Collection                      ║");

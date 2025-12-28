@@ -3,6 +3,8 @@ using Aevatar.Agents.Core;
 using Aevatar.Trade.Infrastructure.WeexApi;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Net.WebSockets;
+using System.Threading;
 
 namespace Aevatar.Trade.Agents.Data;
 
@@ -18,6 +20,10 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     private WeexWebSocketClient? _wsClient;
     private readonly List<string> _subscribedSymbols = new();
     private Timer? _heartbeatTimer;
+    private Timer? _pollingTimer;
+    private int _pollingRunning;
+    private DateTime _nextKlinePollUtc = DateTime.MinValue;
+    private string _pollingInterval = "15m";
 
     public IWeexApiClient ApiClient
     {
@@ -49,6 +55,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
     protected override async Task OnDeactivateAsync(CancellationToken ct = default)
     {
         _heartbeatTimer?.Dispose();
+        _pollingTimer?.Dispose();
         
         if (_wsClient != null)
         {
@@ -79,15 +86,31 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         if (_wsClient == null)
             throw new InvalidOperationException("WebSocket client not configured");
 
-        // Connect WebSocket
-        await _wsClient.ConnectAsync(ct);
-        State.IsConnected = true;
+        _pollingInterval = string.IsNullOrWhiteSpace(klineInterval) ? "15m" : klineInterval.Trim();
+
+        // Connect WebSocket (preferred). If handshake fails (403/521 etc), fall back to REST polling so demos don't hard-fail.
+        try
+        {
+            await _wsClient.ConnectAsync(ct);
+            State.IsConnected = true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            State.IsConnected = false;
+            Logger.LogWarning(ex,
+                "[DataCollector] WebSocket connect failed; falling back to REST polling. Interval={Interval}",
+                _pollingInterval);
+            StartPolling(symbols);
+        }
 
         // Subscribe to market data
         foreach (var symbol in symbols)
         {
-            await _wsClient.SubscribeTickerAsync(symbol, ct);
-            await _wsClient.SubscribeKlineAsync(symbol, klineInterval, ct);
+            if (State.IsConnected)
+            {
+                await _wsClient.SubscribeTickerAsync(symbol, ct);
+                await _wsClient.SubscribeKlineAsync(symbol, _pollingInterval, ct);
+            }
             
             _subscribedSymbols.Add(symbol);
             State.SubscribedSymbols.Add(symbol);
@@ -126,6 +149,7 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
 
         State.IsConnected = false;
         _heartbeatTimer?.Dispose();
+        _pollingTimer?.Dispose();
 
         Logger.LogInformation("[DataCollector] Stopped collecting: {Reason}", reason);
 
@@ -183,6 +207,93 @@ public class DataCollectorAgent : GAgentBase<DataCollectorState>
         _wsClient.OnConnected += OnWebSocketConnected;
         _wsClient.OnDisconnected += OnWebSocketDisconnected;
         _wsClient.OnError += OnWebSocketError;
+    }
+
+    // ============ REST Polling Fallback ============
+
+    private void StartPolling(IEnumerable<string> symbols)
+    {
+        if (_apiClient == null)
+        {
+            Logger.LogWarning("[DataCollector] REST polling fallback skipped: API client not configured.");
+            return;
+        }
+
+        // Initialize kline poll schedule (try to avoid hammering the API).
+        _nextKlinePollUtc = DateTime.UtcNow;
+
+        // Poll tickers frequently; klines at (roughly) kline interval.
+        _pollingTimer?.Dispose();
+        _pollingTimer = new Timer(_ => _ = PollOnceAsync(symbols), null, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+    }
+
+    private async Task PollOnceAsync(IEnumerable<string> symbols)
+    {
+        if (_apiClient == null) return;
+        if (Interlocked.Exchange(ref _pollingRunning, 1) == 1) return;
+
+        try
+        {
+            foreach (var symbol in symbols)
+            {
+                var ticker = await _apiClient.GetTickerAsync(symbol);
+                OnTickerReceived(ticker);
+            }
+
+            if (DateTime.UtcNow >= _nextKlinePollUtc)
+            {
+                var next = DateTime.UtcNow + ParseIntervalToTimeSpan(_pollingInterval);
+                _nextKlinePollUtc = next;
+
+                foreach (var symbol in symbols)
+                {
+                    var klines = await _apiClient.GetKlinesAsync(symbol, _pollingInterval, limit: 1);
+                    var last = klines.LastOrDefault();
+                    if (last == null) continue;
+
+                    var evt = new KlineUpdateEvent
+                    {
+                        Symbol = symbol,
+                        Interval = _pollingInterval,
+                        Open = (double)last.Open,
+                        High = (double)last.High,
+                        Low = (double)last.Low,
+                        Close = (double)last.Close,
+                        Volume = (double)last.Volume,
+                        OpenTime = Timestamp.FromDateTime(last.OpenTime),
+                        CloseTime = Timestamp.FromDateTime(last.CloseTime)
+                    };
+
+                    await PublishKlineEventAsync(evt);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[DataCollector] REST polling failed");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _pollingRunning, 0);
+        }
+    }
+
+    private static TimeSpan ParseIntervalToTimeSpan(string interval)
+    {
+        // Supported shapes: "1m", "5m", "15m", "1h", "4h", "1d"
+        if (string.IsNullOrWhiteSpace(interval)) return TimeSpan.FromMinutes(15);
+        interval = interval.Trim();
+
+        var unit = interval[^1];
+        if (!int.TryParse(interval[..^1], out var value) || value <= 0) return TimeSpan.FromMinutes(15);
+
+        return unit switch
+        {
+            'm' or 'M' => TimeSpan.FromMinutes(value),
+            'h' or 'H' => TimeSpan.FromHours(value),
+            'd' or 'D' => TimeSpan.FromDays(value),
+            _ => TimeSpan.FromMinutes(15)
+        };
     }
 
     private void OnTickerReceived(TickerResponse ticker)
