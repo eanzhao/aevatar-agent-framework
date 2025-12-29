@@ -72,6 +72,25 @@ public interface IWeexApiClient
     Task<IReadOnlyList<OrderInfo>> GetOpenOrdersAsync(
         string? symbol = null, 
         CancellationToken ct = default);
+
+    // ============ Contract-only (positions / fills) ============
+
+    /// <summary>
+    /// Get positions (contract accounts only)
+    /// GET /capi/v2/account/position/allPosition
+    /// </summary>
+    Task<IReadOnlyList<PositionInfo>> GetPositionsAsync(
+        string? symbol = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Get fills / trade details (contract accounts only)
+    /// GET /capi/v2/order/fills
+    /// </summary>
+    Task<IReadOnlyList<FillInfo>> GetFillsAsync(
+        string? symbol = null,
+        int limit = 50,
+        CancellationToken ct = default);
 }
 
 // ============ Request/Response Models ============
@@ -186,4 +205,38 @@ public record KlineData
     public decimal Close { get; init; }
     public decimal Volume { get; init; }
     public DateTime CloseTime { get; init; }
+}
+
+/// <summary>
+/// Contract position snapshot (normalized; may contain nulls if API omits fields)
+/// </summary>
+public record PositionInfo
+{
+    public required string Symbol { get; init; }
+    public string Side { get; init; } = "UNKNOWN"; // LONG / SHORT / BUY / SELL / UNKNOWN (best-effort)
+    public decimal Size { get; init; }
+    public decimal? EntryPrice { get; init; }
+    public decimal? MarkPrice { get; init; }
+    public decimal? UnrealizedPnl { get; init; }
+    public decimal? Notional { get; init; }
+    public decimal? Leverage { get; init; }
+}
+
+/// <summary>
+/// Contract fill / execution detail (normalized; may contain nulls if API omits fields)
+/// </summary>
+public record FillInfo
+{
+    /// <summary>
+    /// Unix millisecond timestamp (best-effort; useful for charts)
+    /// </summary>
+    public long? Ts { get; init; }
+
+    public DateTime? TimeUtc { get; init; }
+    public string? Symbol { get; init; }
+    public string Side { get; init; } = "UNKNOWN"; // BUY / SELL / LONG / SHORT / UNKNOWN (best-effort)
+    public decimal? Price { get; init; }
+    public decimal? Quantity { get; init; }
+    public string? OrderId { get; init; }
+    public decimal? Fee { get; init; }
 }

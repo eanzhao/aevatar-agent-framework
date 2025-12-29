@@ -3,6 +3,7 @@ using Aevatar.Agents.AI;
 using Aevatar.Agents.AI.Core;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 
 namespace Aevatar.Trade.Agents.Analysts;
 
@@ -64,6 +65,10 @@ public class MarketSentimentAgent : AIGAgentBase
     // ============ State ============
 
     private readonly SentimentAnalystState _sentimentState = new();
+    private int _tickCounter;
+    private DateTime _lastAnalysisUtc = DateTime.MinValue;
+    private int _analysisRunning;
+    private const int MinAnalysisIntervalSeconds = 1;
 
     // ============ Lifecycle ============
 
@@ -89,13 +94,33 @@ public class MarketSentimentAgent : AIGAgentBase
     [EventHandler]
     public async Task HandleMarketTick(MarketTickEvent evt)
     {
-        // Analyze every N ticks to avoid being too frequent
-        if (_sentimentState.AnalysisCount % 10 != 0 && _sentimentState.AnalysisCount > 0)
-        {
-            return;
-        }
+        // ------------------------------------------------------------
+        //  Analyze every N ticks to avoid being too frequent.
+        //
+        //  NOTE:
+        //  - Do NOT gate by AnalysisCount (it only increments when analysis runs),
+        //    otherwise it will analyze once then never again.
+        // ------------------------------------------------------------
+        _tickCounter++;
 
-        await AnalyzeSentimentAsync(evt.Symbol, evt);
+        // First analysis ASAP for cold start.
+        // Then high frequency (user要求：LLM调用无上限)，但保证同一时间只跑一个请求，避免堆积。
+        var now = DateTime.UtcNow;
+        if (_sentimentState.AnalysisCount > 0 && (now - _lastAnalysisUtc).TotalSeconds < MinAnalysisIntervalSeconds)
+            return;
+
+        if (Interlocked.Exchange(ref _analysisRunning, 1) == 1)
+            return;
+
+        _lastAnalysisUtc = now;
+        try
+        {
+            await AnalyzeSentimentAsync(evt.Symbol, evt);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _analysisRunning, 0);
+        }
     }
 
     // ============ Analysis Methods ============
@@ -130,7 +155,10 @@ public class MarketSentimentAgent : AIGAgentBase
             _sentimentState.SentimentHistory.Add(analysis.SentimentScore);
 
             // Publish analysis results
-            await PublishAsync(analysis);
+            // IMPORTANT:
+            // - SentimentAgent and Coordinator are siblings under DataCollector.
+            // - Publish Up so DataCollector can fan-out the analysis to all siblings (including Coordinator).
+            await PublishAsync(analysis, Aevatar.Agents.EventDirection.Up);
 
             Logger.LogInformation(
                 "[SentimentAgent] Analysis completed for {Symbol}: Score={Score}, Signal={Signal}",

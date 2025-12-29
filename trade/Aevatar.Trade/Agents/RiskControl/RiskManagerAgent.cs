@@ -368,8 +368,32 @@ public class RiskManagerAgent : AIGAgentBase
         _riskState.TradesApproved++;
         _riskState.LastUpdate = Timestamp.FromDateTime(DateTime.UtcNow);
 
-        // Calculate actual stop loss and take profit prices
+        // ------------------------------------------------------------
+        //  Price snapshot (required)
+        //
+        //  - Coordinator should attach SuggestedPrice from MarketTickEvent.
+        //  - RiskManager must NOT guess size without a price; reject if missing.
+        // ------------------------------------------------------------
         var currentPrice = decision.SuggestedPrice > 0 ? decision.SuggestedPrice : 0;
+        if (currentPrice <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Missing current price (TradingDecisionEvent.suggested_price <= 0)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
+        if (_riskState.TotalEquity <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Account equity is unknown (sync-account not completed yet)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
+        // Calculate actual stop loss and take profit prices
         var stopLoss = decision.Direction == "BUY" 
             ? currentPrice * (1 - evaluation.StopLossPct / 100)
             : currentPrice * (1 + evaluation.StopLossPct / 100);
@@ -377,13 +401,28 @@ public class RiskManagerAgent : AIGAgentBase
             ? currentPrice * (1 + evaluation.TakeProfitPct / 100)
             : currentPrice * (1 - evaluation.TakeProfitPct / 100);
 
+        // ------------------------------------------------------------
+        //  Order policy (AI Wars demo friendly)
+        //  - Prefer LIMIT at current price so it becomes a real "挂单" workflow.
+        // ------------------------------------------------------------
+        var orderType = "limit";
+        var quantity = CalculateQuantity(decision.Symbol, evaluation.AdjustedPositionPct, currentPrice);
+        if (quantity <= 0)
+        {
+            await RejectTrade(
+                decision,
+                new List<string> { "Calculated order quantity <= 0 (check equity/positionPct/price)" },
+                riskLevel: "HIGH");
+            return;
+        }
+
         var approved = new ApprovedTradeEvent
         {
             DecisionId = decision.DecisionId,
             Symbol = decision.Symbol,
             Side = decision.Direction.ToLower(),
-            OrderType = "market",
-            Quantity = CalculateQuantity(decision.Symbol, evaluation.AdjustedPositionPct),
+            OrderType = orderType,
+            Quantity = quantity,
             Price = currentPrice,
             StopLoss = stopLoss,
             TakeProfit = takeProfit,
@@ -426,12 +465,28 @@ public class RiskManagerAgent : AIGAgentBase
             decision.DecisionId, string.Join(", ", violations));
     }
 
-    private double CalculateQuantity(string symbol, double positionPct)
+    private double CalculateQuantity(string symbol, double positionPct, double currentPrice)
     {
-        // Simplified calculation: Calculate quantity based on position percentage and total equity
-        var positionValue = _riskState.TotalEquity * (positionPct / 100);
-        // Should actually divide by current price, here returns USDT value
-        return positionValue;
+        // ------------------------------------------------------------
+        //  Position sizing (contract "size" uses base asset quantity)
+        //
+        //  Example:
+        //  - equity=1000 USDT, positionPct=10%, price=100000 => qty=0.001 BTC
+        //
+        //  NOTE:
+        //  - StepSize rounding is handled by WeexContractApiClient before placing the order.
+        // ------------------------------------------------------------
+        if (_riskState.TotalEquity <= 0) return 0;
+        if (positionPct <= 0) return 0;
+        if (currentPrice <= 0) return 0;
+
+        var positionValueUsdt = _riskState.TotalEquity * (positionPct / 100);
+        if (positionValueUsdt <= 0) return 0;
+
+        var qty = positionValueUsdt / currentPrice;
+        if (qty <= 0) return 0;
+
+        return Math.Round(qty, 8, MidpointRounding.AwayFromZero);
     }
 
     /// <summary>

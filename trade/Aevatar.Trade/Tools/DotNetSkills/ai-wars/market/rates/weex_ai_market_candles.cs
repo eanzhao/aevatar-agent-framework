@@ -47,6 +47,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 var input = await Console.In.ReadToEndAsync();
 
@@ -93,6 +95,8 @@ var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
 var signature = Sign(apiSecret ?? "", timestamp, method, requestPath, queryString, bodyJson);
 
 using var http = new HttpClient();
+http.DefaultRequestHeaders.Add("Accept", "application/json");
+http.DefaultRequestHeaders.UserAgent.ParseAdd("Aevatar.Trade/1.0");
 using var req = new HttpRequestMessage(httpMethod, url);
 
 if (httpMethod == HttpMethod.Post)

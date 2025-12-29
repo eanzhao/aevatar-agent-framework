@@ -242,6 +242,22 @@ internal sealed class WeexSpotApiClient : WeexApiClientBase, IWeexApiClient
         return data.Select(MapOrderDto).ToList();
     }
 
+    // =========================
+    //  Contract-only endpoints (Spot returns empty)
+    // =========================
+
+    public Task<IReadOnlyList<PositionInfo>> GetPositionsAsync(string? symbol = null, CancellationToken ct = default)
+    {
+        Logger.LogDebug("[WeexSpot] GetPositionsAsync is contract-only. Return empty. Symbol={Symbol}", symbol);
+        return Task.FromResult<IReadOnlyList<PositionInfo>>(Array.Empty<PositionInfo>());
+    }
+
+    public Task<IReadOnlyList<FillInfo>> GetFillsAsync(string? symbol = null, int limit = 50, CancellationToken ct = default)
+    {
+        Logger.LogDebug("[WeexSpot] GetFillsAsync is contract-only. Return empty. Symbol={Symbol}", symbol);
+        return Task.FromResult<IReadOnlyList<FillInfo>>(Array.Empty<FillInfo>());
+    }
+
     private static OrderInfo MapOrderDto(OrderDto dto) => new()
     {
         OrderId = dto.OrderId,

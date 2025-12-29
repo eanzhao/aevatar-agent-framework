@@ -4,6 +4,7 @@ using Aevatar.Agents.AI.Core;
 using Aevatar.Trade.Infrastructure.DecisionEngines;
 using Google.Protobuf.WellKnownTypes;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 
 namespace Aevatar.Trade.Agents.Coordinator;
 
@@ -75,6 +76,23 @@ public class TradingCoordinatorAgent : AIGAgentBase
     private double _newsWeight = 0.3;
     private string _executionMode = "DryRun";
 
+    // ---------------------------------------------------------------------
+    //  Decision frequency / re-entrancy guard
+    //
+    //  背景：
+    //  - 默认实现仅在分析事件到达时尝试决策，并且有 30s 节流。
+    //  - 在 5m K 线场景下，技术面更新很慢，会导致“半小时没有任何决策”的错觉。
+    //
+    //  目标：
+    //  - 高频：允许每秒尝试一次（用户明确要求 LLM 调用不设上限）。
+    //  - 稳定：同一时间只跑一个决策（避免并发堆积导致延迟爆炸）。
+    // ---------------------------------------------------------------------
+    private const int DecisionMinIntervalSeconds = 1;
+    private int _decisionRunning;
+
+    // Latest market snapshot (from DataCollector) for pricing / order placement.
+    private readonly Dictionary<string, MarketTickEvent> _latestTickBySymbol = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Optional decision engine override.
     /// - null: use direct LLM (ChatAsync)
@@ -121,6 +139,21 @@ public class TradingCoordinatorAgent : AIGAgentBase
     }
 
     // ============ Event Handlers ============
+
+    /// <summary>
+    /// Handle market ticks (price snapshot for sizing / limit price).
+    /// </summary>
+    [EventHandler]
+    public async Task HandleMarketTick(MarketTickEvent evt)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.Symbol))
+        {
+            _latestTickBySymbol[evt.Symbol] = evt;
+        }
+
+        // 高频决策入口：市场有新 tick 就尝试决策（会被内部节流+互斥保护）
+        await TryMakeDecisionAsync();
+    }
 
     /// <summary>
     /// Handle market sentiment analysis results
@@ -208,7 +241,7 @@ public class TradingCoordinatorAgent : AIGAgentBase
         if (_coordState.LastDecisionTime != null)
         {
             var elapsed = DateTime.UtcNow - _coordState.LastDecisionTime.ToDateTime();
-            if (elapsed.TotalSeconds < 30)
+            if (elapsed.TotalSeconds < DecisionMinIntervalSeconds)
             {
                 Logger.LogDebug("[Coordinator] Decision throttled, last decision {Seconds}s ago",
                     elapsed.TotalSeconds);
@@ -216,28 +249,64 @@ public class TradingCoordinatorAgent : AIGAgentBase
             }
         }
 
-        await MakeDecisionAsync();
+        // Re-entrancy guard: do not run multiple LLM calls concurrently.
+        if (Interlocked.Exchange(ref _decisionRunning, 1) == 1)
+            return;
+
+        try
+        {
+            await MakeDecisionAsync();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _decisionRunning, 0);
+        }
     }
 
     private bool HasSufficientData()
     {
-        // At least need technical analysis and sentiment analysis
-        if (_coordState.LatestTechnical == null) return false;
-        if (_coordState.LatestSentiment == null) return false;
+        // ------------------------------------------------------------
+        //  高频模式：不要用“5分钟新鲜度”把系统锁死
+        //
+        //  现实情况：
+        //  - 15m/5m K 线：技术分析天然更新慢
+        //  - 只要有 tick（价格）+ 至少一个分析维度，就允许决策
+        // ------------------------------------------------------------
 
-        // Check data freshness (within 5 minutes)
-        var now = DateTime.UtcNow;
-        var techAge = now - _coordState.LatestTechnical.Timestamp.ToDateTime();
-        var sentAge = now - _coordState.LatestSentiment.Timestamp.ToDateTime();
+        var hasAnyAnalysis = _coordState.LatestSentiment != null || _coordState.LatestTechnical != null || _coordState.LatestNews != null;
+        if (!hasAnyAnalysis)
+            return false;
 
-        return techAge.TotalMinutes < 5 && sentAge.TotalMinutes < 5;
+        // Determine symbol from whatever analysis exists.
+        var symbol =
+            _coordState.LatestTechnical?.Symbol
+            ?? _coordState.LatestSentiment?.Symbol
+            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
+            ?? "";
+
+        if (string.IsNullOrWhiteSpace(symbol))
+            return false;
+
+        // Need a price snapshot to size positions and place limit orders reliably.
+        if (!_latestTickBySymbol.TryGetValue(symbol, out var tick) || tick.Price <= 0)
+            return false;
+
+        return true;
     }
 
     private async Task MakeDecisionAsync()
     {
-        var symbol = _coordState.LatestTechnical!.Symbol;
+        var symbol =
+            _coordState.LatestTechnical?.Symbol
+            ?? _coordState.LatestSentiment?.Symbol
+            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
+            ?? "UNKNOWN";
         var prompt = BuildDecisionPrompt();
         var cycleId = Guid.NewGuid().ToString("N")[..16];
+
+        // Pricing snapshot (best-effort). This will be attached to the decision so downstream agents can size orders.
+        _latestTickBySymbol.TryGetValue(symbol, out var tick);
+        var currentPrice = tick?.Price ?? 0d;
 
         await PublishAsync(new DecisionCycleStartedEvent
         {
@@ -258,6 +327,10 @@ public class TradingCoordinatorAgent : AIGAgentBase
 
             var raw = await engine.GetDecisionJsonAsync(prompt, cycleId);
             var decision = ParseDecisionResponse(raw, symbol);
+            if (currentPrice > 0)
+            {
+                decision.SuggestedPrice = currentPrice;
+            }
 
             // Update state
             _coordState.LastDecision = decision.Direction;
@@ -328,6 +401,23 @@ public class TradingCoordinatorAgent : AIGAgentBase
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("Please synthesize the following analysis reports and make a trading decision:");
         sb.AppendLine();
+
+        // Current price snapshot (for fast reaction)
+        var symbol =
+            _coordState.LatestTechnical?.Symbol
+            ?? _coordState.LatestSentiment?.Symbol
+            ?? _coordState.LatestNews?.AffectedSymbols.FirstOrDefault()
+            ?? "";
+        if (!string.IsNullOrWhiteSpace(symbol) && _latestTickBySymbol.TryGetValue(symbol, out var tick) && tick.Price > 0)
+        {
+            sb.AppendLine("【Market Tick Snapshot】");
+            sb.AppendLine($"- Symbol: {tick.Symbol}");
+            sb.AppendLine($"- Price: {tick.Price:F2}");
+            sb.AppendLine($"- Bid/Ask: {tick.Bid:F2} / {tick.Ask:F2}");
+            sb.AppendLine($"- 24h Change: {tick.Change24H:F2}%");
+            sb.AppendLine($"- Timestamp(UTC): {tick.Timestamp.ToDateTime():O}");
+            sb.AppendLine();
+        }
 
         // Sentiment analysis
         if (_coordState.LatestSentiment != null)

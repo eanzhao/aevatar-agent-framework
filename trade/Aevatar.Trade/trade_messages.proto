@@ -437,6 +437,7 @@ message TradingConfig {
     int32 min_confidence_to_trade = 6;      // Minimum confidence to trade
     double max_total_position_pct = 7;      // Maximum total position percentage
     TradeExecutionMode execution_mode = 8;  // Execution mode (DryRun/Live)
+    double min_base_asset_usd_on_start = 9; // Startup guard: ensure base asset value >= N USDT before Start (e.g., BTC >= 10U)
 }
 
 // Analysis weight configuration
